@@ -435,6 +435,7 @@ wall-display/
 │   └── Dockerfile
 ├── pi-agent/                    # Python: agent, sensors/, screen/, systemd unit
 ├── kiosk/                       # Pi OS kiosk setup script and Chromium flags
+├── tools/hw-probe/              # standalone hardware test kit for the Pi + M80F (no app dependency)
 ├── contracts/mqtt.json          # MQTT topics + payload schemas (shared by app and agent tests)
 ├── config.example.yaml
 ├── docker-compose.yml
@@ -473,5 +474,5 @@ The milestones and PRs are in [implementation-plan.md](implementation-plan.md). 
 - Pi 4 or Pi 5: is 1440p smooth enough with photo crossfades, or is a Pi 5 needed?
 - Where should the mmWave sensor go so it covers the area in front of the calendar but not the next room?
 - Where does the MQTT broker live: server container or HA add-on? (See §9.)
-- The home server runs Ubuntu 18.04, which is past standard support. Docker images will run, but plan an OS upgrade at some point. Check the Docker version first: images based on Debian Bookworm (such as `node:24-bookworm-slim`) need Docker 20.10.10 or later, because older seccomp profiles block the `clone3` syscall.
-- Google OAuth won't redirect to a plain-HTTP LAN address. The Google Photos sign-in needs a workaround (see the plan, PR 4.4).
+- The home server runs Ubuntu 18.04, which is past standard support. This doesn't block anything, because containers bring their own userland. Plan an OS upgrade at some point anyway.
+- Google OAuth redirects to the app's existing local HTTPS hostname. This works as long as that hostname is under a public domain; Google rejects `.local`, `.lan` and bare IPs. Google never needs to reach the server, because the redirect happens in the browser.

@@ -10,7 +10,7 @@ A self-hosted smart wall calendar. The UI runs on a Samsung Smart Monitor M8 (M8
 - **No touch needed.** Control comes from Home Assistant, a phone remote page, a physical button and automations.
 - **Thin display client.** The Pi only renders a web page and handles local hardware. It holds no configuration and no secrets, and you can reflash it in minutes.
 - **First-class Home Assistant citizen.** The calendar auto-discovers into HA as entities, so it can be controlled, displayed and automated like any other device.
-- **Photo wallpaper.** The background can rotate photos from Immich and/or Google Photos, or show a plain background.
+- **Photo frame mode.** A separate, fullscreen mode rotates photos from Immich, Google Photos or a local folder. The calendar views keep a plain, high-contrast background so they stay readable from across the room. (A photo background behind the calendar is a possible later option. See §4.3.)
 - **Keeps working when HA is down.** The calendar still renders, and basic button and presence behaviour still works.
 
 ## 2. System overview
@@ -18,7 +18,7 @@ A self-hosted smart wall calendar. The UI runs on a Samsung Smart Monitor M8 (M8
 ```mermaid
 flowchart LR
     subgraph Server["Home server (Docker)"]
-        APP["calendar-app<br/>(FastAPI + WebSocket)"]
+        APP["calendar-app<br/>(Nuxt: Vue UI + Nitro server + WebSocket)"]
         CACHE[("SQLite + photo cache")]
         APP --- CACHE
     end
@@ -60,7 +60,7 @@ flowchart LR
 
 | Component | Runs on | Responsibility |
 |---|---|---|
-| `calendar-app` | Home server, Docker | Calendar aggregation, photo pipeline, the authoritative display state, web UI (`/display`, `/remote`, `/settings`), MQTT and HA discovery |
+| `calendar-app` | Home server, Docker | A single Nuxt app (Node). Calendar aggregation, photo pipeline, the authoritative display state, web UI (`/display`, `/remote`, `/settings`), MQTT and HA discovery |
 | MQTT broker | Home server or HA (Mosquitto add-on) | Message bus between app, Pi agent and HA |
 | Chromium kiosk | Pi | Renders `/display` fullscreen. Stateless. |
 | `pi-agent` | Pi, systemd service | Reads the button, presence and light sensors. Turns the screen on and off. Publishes to and subscribes from MQTT. |
@@ -87,14 +87,14 @@ Possible later upgrade: use the Google Calendar API directly, with incremental `
 
 - Each source has its own poll interval. Defaults: ICS every 2 minutes, HA every 5 minutes.
 - ICS fetches use `ETag` / `If-Modified-Since` so most polls cost almost nothing.
-- Recurring events are expanded server-side (`icalendar` + `recurring-ical-events`) over a rolling window, for example 2 weeks back and 8 weeks forward.
+- Recurring events are expanded server-side (`ical.js`, which handles `RRULE`, `EXDATE` and `RECURRENCE-ID` overrides) over a rolling window, for example 2 weeks back and 8 weeks forward.
 - Events are normalised to one model and stored in SQLite:
 
 ```text
 Event { id, calendar_id, title, start, end, all_day, location, description, colour, source_updated_at }
 ```
 
-- Times are stored in UTC and rendered in `Europe/London`. Changes into and out of daylight saving time are handled by the timezone library, not by hand.
+- Times are stored in UTC and rendered in `Europe/London`. Changes into and out of daylight saving time are handled by the timezone library (Luxon / `Intl`), not by hand.
 - When anything changes, the app pushes `events.updated` over WebSocket and the display re-renders. Nothing reloads the page.
 - A **manual refresh** (from a button in HA or on the remote) forces an immediate poll of every source.
 
@@ -122,13 +122,15 @@ Secrets (ICS URLs, the HA token, the Immich key, Google OAuth tokens) live in a 
 
 ### 4.1 Views
 
-| View | Contents |
-|---|---|
-| `month` | Month grid, the next few days' agenda in a side panel, clock, weather |
-| `week` | 7-day columns with timed blocks |
-| `agenda` | Today and tomorrow in large type. The default for mornings. |
-| `photo` | Fullscreen photo with a small clock and the next event |
-| `night` | Very dim clock only. Used when the room is dark but you want the screen on. |
+Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`) and `night` use a plain themed background. **Photo frame** (`photo`) is its own mode and is the only place photos appear.
+
+| View | Group | Contents |
+|---|---|---|
+| `month` | Calendar | Month grid, the next few days' agenda in a side panel, clock, weather |
+| `week` | Calendar | 7-day columns with timed blocks |
+| `agenda` | Calendar | Today and tomorrow in large type. The default for mornings. |
+| `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
+| `night` | Ambient | Very dim clock only. Used when the room is dark but you want the screen on. |
 
 Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show. The page never decides for itself.
 
@@ -136,12 +138,17 @@ Views are plain front-end routes inside one page (`/display`). The server tells 
 
 - The layout is designed for a 16:9 screen at 2560×1440. On a 4K panel it renders at 1440p and is scaled up, which keeps Chromium responsive on the Pi. A Pi 5 can try native 4K.
 - Large type, high contrast, nothing interactive. Any UI on the display should read clearly from 3 m away.
-- With a photo background, calendar content sits on a blurred, darkened layer so the text stays readable over any photo.
+- Calendar views use a solid, themed background (dark by default, with an optional light theme) and never a photo. This keeps text contrast predictable.
+- In photo frame mode, the clock and next-event chip sit on a small translucent, blurred pill in a corner, so they stay readable over any photo without covering it.
 - **Burn-in and wear:** clock and panel positions shift by a few pixels every few minutes.
 - **Dimming:** the page can apply a dimming overlay (`brightness` 0–100). This lowers what you see but not the backlight. Changing the real backlight needs DDC/CI (see §7.3).
 - **Resilience:** the page reconnects its WebSocket with backoff. If the server can't be reached, it shows the last-known data with a small "offline" badge rather than a browser error page.
 
-## 5. Photo wallpaper
+### 4.3 Later option: photo behind the calendar
+
+Not planned for the first release. If it's added, it should be opt-in per view and keep readability first: calendar panels sit on a heavily blurred, darkened layer, with an automatic contrast check that falls back to the plain background if a photo is too bright or busy. Photo frame mode stays the main way to show photos.
+
+## 5. Photo frame mode
 
 ### 5.1 Pipeline
 
@@ -153,8 +160,8 @@ Provider (Immich / Google Photos / local folder)
    → display requests /photos/next  → served from local cache
 ```
 
-- The display only ever loads images from the calendar app. API keys stay on the server, and photos still show if a provider is briefly down.
-- Portrait photos are shown centred over a blurred, enlarged copy of themselves. You can also filter to landscape only.
+- Photos are only shown in the `photo` view (see §4.1). The display only ever loads images from the calendar app. API keys stay on the server, and photos still show if a provider is briefly down.
+- Portrait photos are shown centred over a blurred, enlarged copy of themselves. The server pre-renders this composite with `sharp`, so the Pi only draws one image. You can also filter to landscape only.
 - Options: rotation interval, transition (crossfade), and "photo of the day from memories".
 - The cache has a size cap with least-recently-used eviction.
 
@@ -195,7 +202,7 @@ The app holds one state document per display (multiple displays are supported vi
 {
   "view": "agenda",
   "screen": "on",
-  "background": "immich",
+  "photo_source": "immich",
   "brightness": 80,
   "auto_presence": true,
   "auto_brightness": true,
@@ -227,7 +234,7 @@ The base is `wallcal/<display_id>/`.
 | `…/view/state` | app → | current view (retained) |
 | `…/screen/set` | → app | `on` \| `off` |
 | `…/screen/state` | app → | desired screen state (retained) |
-| `…/background/set` / `state` | ↔ | `none` \| `immich` \| `google` \| `local` |
+| `…/photo_source/set` / `state` | ↔ | `immich` \| `google` \| `local` (which provider photo frame mode uses) |
 | `…/brightness/set` / `state` | ↔ | `0`–`100` |
 | `…/auto_presence/set` / `state` | ↔ | `ON` \| `OFF` |
 | `…/overlay/set` | → app | JSON `{ "text": "Bins out tonight", "icon": "trash", "ttl": 3600 }`, or empty to clear |
@@ -250,7 +257,7 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 |---|---|
 | View | `select` |
 | Screen | `switch` |
-| Background | `select` |
+| Photo source | `select` |
 | Brightness | `number` (slider) |
 | Auto presence | `switch` |
 | Auto brightness | `switch` |
@@ -327,7 +334,7 @@ The HA `event` entity fires for every press either way, so HA can always react a
 
 ### 6.5 Phone remote page
 
-- `/remote` is a mobile-first page with large buttons for each view, a screen toggle, a background picker, a brightness slider, next photo and refresh. It works as an "Add to Home Screen" web app.
+- `/remote` is a mobile-first page with large buttons for each view, a screen toggle, a photo source picker, a brightness slider, next photo and refresh. It works as an "Add to Home Screen" web app.
 - It talks to the same command handler as MQTT, so it works even if HA is down.
 - It's for the local network only. You can set an optional shared PIN or token in the config. Don't expose it to the internet. If you need remote access, use HA's existing remote access.
 
@@ -398,25 +405,42 @@ services:
 
 ### 8.2 Tech stack
 
-- **Backend:** Python 3.12, FastAPI (HTTP + WebSocket), `aiomqtt`, `httpx`, `icalendar` + `recurring-ical-events`, SQLite (via SQLModel or plain `sqlite3`), Pillow for resizing.
-- **Frontend:** a small TypeScript app (Svelte or Preact) built into static files served by FastAPI. There are three entry points: `display`, `remote`, `settings`.
-- **Pi agent:** Python 3, `gpiozero`, `pyserial`, an I²C sensor library, `paho-mqtt`.
+- **App:** one Nuxt 4 project in TypeScript on Node 24 LTS, built with the Nitro `node-server` preset and run as a single process.
+  - **Server (Nitro):** API routes in `server/api`, a WebSocket handler (Nitro's built-in `crossws` support), and long-running services (sync scheduler, MQTT client, photo cache) started from Nitro plugins and stopped on the `close` hook. Libraries: `mqtt` (MQTT.js), `ical.js`, Luxon, `zod` for config and command validation, `yaml` for config, `better-sqlite3` + Drizzle ORM for SQLite, `sharp` for resizing.
+  - **Frontend (Vue 3):** client-rendered pages (`ssr: false`) for `/display`, `/remote` and `/settings`. Types for state, commands and events live in Nuxt's `shared/` directory and are used by both client and server.
+  - **Tests:** Vitest for unit and server tests, Playwright for visual checks of the display at 2560×1440.
+- **Pi agent:** Python 3.11 (the Bookworm system version), `gpiozero`, `pyserial`, `smbus2` or an Adafruit sensor library, `paho-mqtt` 2.x. Linted with Ruff, tested with pytest against a fake hardware layer.
+- **MQTT contract:** topic names and payloads are defined once in `contracts/mqtt.json`. The app (Vitest) and the agent (pytest) are both tested against it, which keeps the two languages in step.
 
 ### 8.3 Repo layout
 
 ```text
-wallcal/
-├── app/                 # FastAPI backend
-│   ├── sources/         # ics.py, homeassistant.py
-│   ├── photos/          # immich.py, google_picker.py, local.py, cache.py
-│   ├── control/         # state.py, commands.py, policies.py
-│   ├── mqtt/            # client.py, discovery.py
-│   └── main.py
-├── web/                 # display / remote / settings front-end
-├── pi-agent/            # agent.py, sensors/, systemd unit, kiosk setup script
+wall-display/
+├── calendar-app/                # Nuxt 4 app (Vue UI + Nitro server)
+│   ├── app/                     # Vue side
+│   │   ├── pages/               # display.vue, remote.vue, settings.vue
+│   │   ├── components/          # views/ (agenda, month, week, photo, night), widgets/
+│   │   └── composables/         # useDisplaySocket, useClock, …
+│   ├── server/                  # Nitro side
+│   │   ├── api/                 # REST routes
+│   │   ├── routes/_ws.ts        # WebSocket handler
+│   │   ├── plugins/             # boot order: config → db → state → scheduler → mqtt
+│   │   ├── sources/             # ics.ts, homeassistant.ts
+│   │   ├── photos/              # immich.ts, google-picker.ts, local.ts, cache.ts
+│   │   ├── control/             # state.ts, commands.ts, policies.ts
+│   │   ├── mqtt/                # client.ts, discovery.ts
+│   │   └── db/                  # Drizzle schema + migrations
+│   ├── shared/                  # types used by client and server
+│   ├── nuxt.config.ts
+│   └── Dockerfile
+├── pi-agent/                    # Python: agent, sensors/, screen/, systemd unit
+├── kiosk/                       # Pi OS kiosk setup script and Chromium flags
+├── contracts/mqtt.json          # MQTT topics + payload schemas (shared by app and agent tests)
 ├── config.example.yaml
 ├── docker-compose.yml
-└── docs/architecture.md
+└── docs/
+    ├── architecture.md
+    └── implementation-plan.md
 ```
 
 ## 9. Failure modes
@@ -434,11 +458,14 @@ Tip: run Mosquitto on the home server rather than as an HA add-on if you want bu
 
 ## 10. Build phases
 
+The milestones and PRs are in [implementation-plan.md](implementation-plan.md). In outline:
+
+0. **Foundations.** Nuxt scaffold, config, SQLite, Docker, and early hardware tests on the M80F.
 1. **MVP.** ICS sources, `agenda` and `month` views, kiosk on the Pi, `/remote` page.
 2. **HA integration.** MQTT, discovery entities, HA calendar source, overlay messages.
-3. **Pi hardware.** Button, then mmWave, then light sensor. Screen power via CEC or output off.
-4. **Photos.** Immich provider and cache, then the Google Photos Picker flow.
-5. **Polish.** `week` and `night` views, weather, burn-in shifting, auto policies, multiple displays.
+3. **Pi hardware.** Screen power via CEC or output off, then the button, mmWave and light sensor.
+4. **Photo frame.** Photo cache and the `photo` view, then Immich, then the Google Photos Picker flow.
+5. **Polish.** `week` and `night` views, weather, burn-in shifting, schedules, multiple displays.
 
 ## 11. Open questions / test early
 
@@ -446,4 +473,5 @@ Tip: run Mosquitto on the home server rather than as an HA add-on if you want bu
 - Pi 4 or Pi 5: is 1440p smooth enough with photo crossfades, or is a Pi 5 needed?
 - Where should the mmWave sensor go so it covers the area in front of the calendar but not the next room?
 - Where does the MQTT broker live: server container or HA add-on? (See §9.)
-- The home server runs Ubuntu 18.04, which is past standard support. Docker images will run, but plan an OS upgrade at some point.
+- The home server runs Ubuntu 18.04, which is past standard support. Docker images will run, but plan an OS upgrade at some point. Check the Docker version first: images based on Debian Bookworm (such as `node:24-bookworm-slim`) need Docker 20.10.10 or later, because older seccomp profiles block the `clone3` syscall.
+- Google OAuth won't redirect to a plain-HTTP LAN address. The Google Photos sign-in needs a workaround (see the plan, PR 4.4).

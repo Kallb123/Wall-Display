@@ -3,6 +3,7 @@ import type { Component } from 'vue'
 import { currentMonth, displayStateSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState, View } from '../../shared/display'
 import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
+import AgendaView from '~/components/views/AgendaView.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
@@ -15,11 +16,11 @@ import { THEMES, themeStyle } from '~/utils/themes'
 // localStorage so a reload with the server out of reach still shows something.
 useHead({ title: 'Display' })
 
-// Each view, so PRs 1.5 and 1.7 replace one entry apiece.
+// Each view. The placeholder stands in for the ones not built yet.
 const viewComponents: Record<View, Component> = {
   month: PlaceholderView,
   week: PlaceholderView,
-  agenda: PlaceholderView,
+  agenda: AgendaView,
   photo: PlaceholderView,
   night: PlaceholderView,
 }

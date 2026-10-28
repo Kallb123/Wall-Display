@@ -5,8 +5,8 @@ import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
 import { todayIn } from '~/utils/eventRanges'
 
-// Stands in for every view until the real ones arrive (agenda in PR 1.5,
-// month in PR 1.7). It shows the design system at work: the display face, a
+// Stands in for the views that aren't built yet (the month view arrives in
+// PR 1.7). It shows the design system at work: the display face, a
 // sage panel with the clock, and a card of upcoming events on person-coloured
 // bars. Replace one entry of `viewFor` in pages/display.vue per real view.
 const props = defineProps<{

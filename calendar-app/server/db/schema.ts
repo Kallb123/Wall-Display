@@ -28,8 +28,8 @@ export type SpecialDayPalette = (typeof SPECIAL_DAY_PALETTES)[number]
 const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' })
 
 /**
- * Mirrors the calendars in the config file (filled in by the sync scheduler,
- * PR 1.2), so events and sync status have something to point at.
+ * Mirrors the calendars in the config file (kept in line with it at boot by the
+ * sync plugin), so events and sync status have something to point at.
  */
 export const calendars = sqliteTable('calendars', {
   /** The calendar's id in the config. */

@@ -6,7 +6,7 @@ A self-hosted smart wall calendar. The UI runs on a Samsung Smart Monitor M8 (M8
 
 ## 1. Goals
 
-- **Calendar first.** It should show month, week and today views of the family's calendars, with changes appearing within minutes. Each calendar belongs to a person (Mum, Dad, each child, Household), shown by a colour and an initial.
+- **Calendar first.** It should show month, week and today views of the family's calendars, with changes appearing within minutes. Each event belongs to a person (Mum, Dad, each child, Household), shown by a colour and an initial. People can each have their own calendar, or share one family calendar, with the person worked out from the event title.
 - **Look ahead and back.** From the phone you can move the month view up to 12 months either side of today. It goes back to the current month on its own.
 - **Special days.** Birthdays, Halloween, Christmas and similar days can have their own art. Ahead of time the day's tile shows a small drawing. On the day itself the whole wall can switch to that day's palette, greeting and full-screen art. Special days are set up in the browser, not in YAML.
 - **No touch needed.** Control comes from Home Assistant, a phone remote page, a physical button and automations.
@@ -93,42 +93,61 @@ Possible later upgrade: use the Google Calendar API directly, with incremental `
 - Events are normalised to one model and stored in SQLite:
 
 ```text
-Event { id, calendar_id, title, start, end, all_day, location, description, colour, source_updated_at }
+Event { id, calendar_id, person_ids, title, display_title, start, end, all_day, location, description, source_updated_at }
 ```
 
+- `person_ids` and `display_title` come from person detection (§3.3). `title` is kept as the source had it.
 - Times are stored in UTC and rendered in `Europe/London`. Changes into and out of daylight saving time are handled by the timezone library (Luxon / `Intl`), not by hand.
 - When anything changes, the app pushes `events.updated` over WebSocket and the display re-renders. Nothing reloads the page.
 - A **manual refresh** (from a button in HA or on the remote) forces an immediate poll of every source.
 
 ### 3.3 People
 
-The display shows events by **person**, not by calendar. A person has a name, an initial and a colour. Each calendar belongs to exactly one person, and a person can have several calendars. For example, "Household" covers the shared family calendar and the bin collection calendar from HA, so bins show as Household events.
+The display shows events by **person**, not by calendar. A person has a name, an initial and a colour. Each event belongs to one or more people.
 
 - **Colour** marks the person's events everywhere: the dot or initial badge, and the tint of their all-day bars (the person's colour mixed into the page background, so bar text stays readable).
 - **Initial** is shown in a small coloured circle on events in the Soft month style and the side panel (see §4.4). It defaults to the first letter of the name, and you can set it when two people share a letter.
-- Children don't need Google accounts. The easiest setup is one secondary Google calendar per child, shared with both parents, so each child is just another ICS calendar.
+
+**Which person an event belongs to** is decided at sync time, in this order. The first step that matches wins:
+
+1. **Keyword rules** on the calendar. Each rule is a case-insensitive regular expression tested against the title and mapped to one or more people. For example, `Ballet` maps to Isla and `5-a-side` maps to Dad. These are for regular activities whose titles never mention a name.
+2. **Name detection**, if `detect_people` is on for the calendar. The title is checked for a person's name or one of their `aliases` as a whole word, **at the start of the title only**. These forms are recognised: `Theo: Swimming`, `Theo - Swimming`, `[Theo] Swimming`, `Theo Swimming`, and lists such as `Isla & Theo: Dentist` or `Isla, Theo: Dentist`. Matching only the start avoids false hits such as "Collect Mum's present". It can be widened to the whole title with `detect_people: anywhere`.
+3. **The calendar's default person** (`person`), for example Household for the shared family calendar.
+
+With `strip_names: true`, a matched name prefix is removed from the title shown on the wall, because the initial or colour already says who it is. So `Theo: Swimming` shows as "Swimming" with Theo's marker. The full title is kept in the database.
+
+If an event matches several people, it carries all of them in the order they appear. It takes the **first** person's colour for its bar fill, and shows **up to three** overlapping initials in its badge, or one dot per person in the Classic style.
+
+This means a family can use a **single shared calendar** for everyone: one calendar with `detect_people` on, defaulting to Household. Separate calendars per person still work too, and you can mix the two. The settings page's Calendars tab lists recent events that fell through to the default person, so you can spot titles that need a rule or an alias (§7.6).
+
+Detection runs over every source, HA calendars included. It is a pure function in `shared/`, so it can be tested on its own. When the people or rules in config change, stored events are re-resolved at boot without a fresh fetch.
 
 ### 3.4 Calendar config (example)
 
 ```yaml
 people:
-  - { id: mum,  name: Mum,       colour: "#C67139" }
-  - { id: dad,  name: Dad,       colour: "#7A8A5E" }
+  - { id: mum,  name: Mum,       colour: "#C67139", aliases: [Mummy, Sarah] }
+  - { id: dad,  name: Dad,       colour: "#7A8A5E", aliases: [Daddy, Tom] }
   - { id: isla, name: Isla,      colour: "#D27FA0" }
   - { id: theo, name: Theo,      colour: "#5F94C4" }
-  - { id: poppy, name: Poppy,    colour: "#9A7BC4" }
-  - { id: home, name: Household, colour: "#D9A93F", initial: H }
+  - { id: poppy, name: Poppy,    colour: "#9A7BC4", aliases: [Pops] }
+  - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
 
 calendars:
-  - id: mum
-    person: mum
-    source: { type: ics, url: !secret mum_ics_url }
+  # One shared calendar for the whole family: who an event is for comes from its title.
+  - id: family
+    person: home                 # default when nothing matches
+    detect_people: true          # true (start of title) | anywhere | false
+    strip_names: true
+    rules:
+      - { match: "ballet|brownies", people: [isla] }
+      - { match: "swimming|football", people: [theo] }
+      - { match: "rhyme time|playgroup|nursery", people: [poppy] }
+    source: { type: ics, url: !secret family_ics_url }
+  # A personal calendar: everything on it is Dad's.
   - id: dad-work
     person: dad
     source: { type: ics, url: !secret dad_work_ics_url, poll_seconds: 300 }
-  - id: family
-    person: home
-    source: { type: ics, url: !secret family_ics_url }
   - id: bins
     person: home
     source: { type: homeassistant, entity_id: calendar.bin_collection }
@@ -192,7 +211,7 @@ The month view has two styles, set per display as `month_style`. Both use the sa
 
 | Style | Grid | Side panel |
 |---|---|---|
-| `soft` (default) | Rounded day tiles with a gap between them. Events carry a small circle with the person's initial. | On the **left**. The month title sits above a sage panel holding today's date in large type, the weekday and current weather. Below that are the next four days (Today, Tomorrow, then weekday names), each with a weather icon, high/low and its events. |
+| `soft` (default) | Rounded day tiles with a gap between them. Events carry a small circle with the person's initial, or up to three overlapping initials for a shared event. | On the **left**. The month title sits above a sage panel holding today's date in large type, the weekday and current weather. Below that are the next four days (Today, Tomorrow, then weekday names), each with a weather icon, high/low and its events. |
 | `classic` | Ruled week rows with no tiles. Events carry a coloured dot. | On the **right**. The month title sits above a weather card (current conditions and a three-day forecast), followed by the next four days' events. |
 
 Grid rules (both styles):
@@ -500,7 +519,7 @@ It talks to the same command handler as MQTT, so it works even if HA is down. It
 
 | Tab | Contents |
 |---|---|
-| Calendars | Each calendar with its person, colour, source type, last sync and last error. "Refresh now". |
+| Calendars | Each calendar with its default person, whether name detection is on, source type, last sync and last error. "Refresh now". A list of recent events that fell back to the default person, with their titles, so you can add a rule or an alias. |
 | Photos | Provider status, cache size, and the Google Photos picker flow (§5.3). |
 | Special days | The special days editor (below). |
 | Displays | Each display's live state, connection and per-display preferences. "Republish discovery". |
@@ -660,6 +679,7 @@ A **special days** track (model, art uploads, display takeover, admin page) can 
 - Where should the mmWave sensor go so it covers the area in front of the calendar but not the next room?
 - Where does the MQTT broker live: server container or HA add-on? (See §10.)
 - The home server runs Ubuntu 18.04, which is past standard support. This doesn't block anything, because containers bring their own userland. Plan an OS upgrade at some point anyway.
+- Person detection: are prefix forms (`Theo: …`, `[Theo] …`) plus keyword rules enough, or should the event description be checked too (for example a `Who: Theo` line)?
 - Month style: Soft is the default here because the special days work was designed on it. Do we still want Classic as an option, or can it be dropped?
 - Takeover art: is a full-wall layer behind solid tiles (§6.3) right, or should the art only fill the side panel's lower area, as in the mock?
 - Tile tint: the mock tints a birthday with the child's colour, but the admin page has no colour picker. This doc takes the tint from the palette. Should a special day be linkable to a person instead?

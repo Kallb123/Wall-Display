@@ -28,6 +28,9 @@ The dev server is at <http://localhost:3000>. Pages and endpoints so far:
 - `/api/health`: returns `{ "status": "ok", "uptime": <seconds>, "db": "ok" }`, or a 503 with `{ "status": "error", "db": "error" }` if the database doesn't answer
 - `GET /api/events?from=…&to=…`: the events that overlap the range `[from, to)`, each with its people (name, initial, colour). `from` and `to` are a date such as `2026-10-01` (midnight at the start of that day in the display time zone) or an ISO 8601 time with `Z` or an offset. The range may be at most 366 days; anything else is a 400 with a short reason
 - `POST /api/refresh`: syncs every calendar now and answers `{ "calendars": [{ "calendarId", "status": "updated" | "not-modified" | "error", "error"? }] }` once all have finished. The error is a short message that never contains a feed URL
+- `GET /api/displays/:id/state`: the display's current state (`view`, `month`, `screen`, `photo_source`, `brightness`, `overlay`), or a 404 for an id that isn't in the config
+- `POST /api/displays/:id/commands`: applies one command, such as `{ "type": "set_view", "view": "agenda" }`, and answers with the new state. The types are `set_view`, `next_view`, `set_month` (`YYYY-MM`, `current`, `prev` or `next`), `set_screen`, `set_brightness`, `set_photo_source`, `set_overlay` (`{ "text", "icon"?, "ttl"? }` in seconds, or `null` to clear), `photo_next` and `refresh`. A bad command is a 400 with a short reason
+- `/_ws?display=<id>&role=display|remote`: a WebSocket that sends the display's whole state when it connects, then `state.updated` and `events.updated` as they happen (and `photo.next` to the display). Commands are sent with the POST above, not over the socket
 
 ### Configuration
 

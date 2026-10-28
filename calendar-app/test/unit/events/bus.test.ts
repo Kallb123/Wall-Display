@@ -59,6 +59,19 @@ describe('the event bus', () => {
     expect(log.error.mock.calls[0]![0]).toContain('socket closed')
   })
 
+  it('keeps the events apart, each with its own payload', () => {
+    const bus = createEventBus()
+    const stateUpdated = vi.fn()
+    const photoNext = vi.fn()
+    bus.on('state.updated', stateUpdated)
+    bus.on('photo.next', photoNext)
+
+    bus.emit('photo.next', { displayId: 'hallway' })
+
+    expect(photoNext).toHaveBeenCalledWith({ displayId: 'hallway' })
+    expect(stateUpdated).not.toHaveBeenCalled()
+  })
+
   it('has one shared instance for the server', () => {
     const handler = vi.fn()
     const unsubscribe = getEventBus().on('events.updated', handler)

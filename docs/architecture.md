@@ -369,6 +369,7 @@ The app holds one state document per display (multiple displays are supported vi
 {
   "view": "month",
   "month": null,
+  "month_set_at": null,
   "screen": "on",
   "photo_source": "immich",
   "brightness": 80,
@@ -380,6 +381,7 @@ The app holds one state document per display (multiple displays are supported vi
 ```
 
 - `month` is `null` when the month view follows the current month, which is the normal case. Otherwise it is a pinned month such as `"2026-12"`, limited to 12 months either side of today. A pinned month goes back to `null` when the view changes away from `month`, when someone picks the current month, and after `month_return_minutes` with no month change (default 15, set per display). So the wall never stays stuck on another month.
+- `month_set_at` is the time (an ISO 8601 instant) the pinned month was last set. `month_return_minutes` counts from it, and it is `null` whenever `month` is. Every `set_month` that pins a month restarts the count, even for the month already shown. `set_month` also switches the view to `month`, since a month only means something there.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`) and clears itself when it ends (§6.5).
 - Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`) and `month_return_minutes`, live in config (and later in the settings page), not in this state.
 

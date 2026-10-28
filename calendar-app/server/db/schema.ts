@@ -94,7 +94,11 @@ export const syncStatus = sqliteTable('sync_status', {
   eventCount: integer('event_count').notNull().default(0),
 })
 
-/** One state document per display. The zod `DisplayState` arrives in PR 1.3. */
+/**
+ * One state document per display, in the shape of `DisplayState` in
+ * shared/display.ts. It is parsed on the way out, with defaults for fields
+ * added later, so it needs no migration when the state grows.
+ */
 export const displayState = sqliteTable('display_state', {
   displayId: text('display_id').primaryKey(),
   state: text('state', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),

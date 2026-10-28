@@ -1,12 +1,19 @@
-// A small typed bus for events inside the server. The sync scheduler emits on
-// it, and the WebSocket (PR 1.3) subscribes to push the change to the displays.
+// A small typed bus for events inside the server. The sync scheduler and the
+// display control emit on it, and the WebSocket hub subscribes to push the
+// change to the displays and remotes (MQTT will subscribe too).
 // Plain module state, so a unit test can import it; handlers get it through
 // `useEventBus()` in server/utils/.
+
+import type { DisplayState } from '../../shared/display'
 
 /** The events on the bus, by name, with their payloads. */
 export interface BusEvents {
   /** Stored events changed (or may have): `calendarIds` are the calendars to reload. */
   'events.updated': { calendarIds: string[] }
+  /** A display's state changed. `state` is the whole new state. */
+  'state.updated': { displayId: string, state: DisplayState }
+  /** Someone asked the display to show the next photo. */
+  'photo.next': { displayId: string }
 }
 
 export type BusHandler<Name extends keyof BusEvents> = (payload: BusEvents[Name]) => void

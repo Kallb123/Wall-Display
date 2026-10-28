@@ -13,6 +13,8 @@ export default defineNuxtConfig({
   },
   nitro: {
     preset: 'node-server',
+    // The display and remote sockets at /_ws (server/routes/_ws.ts).
+    experimental: { websocket: true },
     hooks: {
       // The SQL migrations are read from disk at boot, so ship them with the
       // bundle: .output/server/db/migrations (see server/db/paths.ts).

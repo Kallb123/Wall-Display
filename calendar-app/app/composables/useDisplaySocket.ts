@@ -1,0 +1,95 @@
+import { displayStateSchema } from '../../shared/display'
+import type { DisplayState } from '../../shared/display'
+import { reconnectDelay } from '~/utils/backoff'
+
+export type SocketStatus = 'connecting' | 'open' | 'closed'
+
+export interface DisplaySocketHandlers {
+  /** Every time the socket opens, including after a reconnect (events may have changed while it was down). */
+  onOpen?: () => void
+  /** The server has synced calendars. The page decides whether it cares. */
+  onEventsUpdated?: () => void
+}
+
+/**
+ * The display's socket (`/_ws?display=<id>&role=display`). The server sends the
+ * whole state when it connects and again whenever it changes, so `state` is
+ * null only until the first message. If the socket closes or errors it is
+ * opened again after a growing wait (see `reconnectDelay`), for as long as the
+ * scope lives. `displayId` may be null (nothing to connect to yet) and may change.
+ */
+export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, handlers: DisplaySocketHandlers = {}) {
+  const status = ref<SocketStatus>('connecting')
+  const state = ref<DisplayState | null>(null)
+
+  let socket: WebSocket | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let attempt = 0
+
+  function close() {
+    clearTimeout(timer)
+    timer = undefined
+    if (socket) {
+      // Detach first, so closing it on purpose doesn't schedule a reconnect.
+      socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null
+      socket.close()
+      socket = null
+    }
+  }
+
+  function connect(id: string) {
+    status.value = 'connecting'
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
+    const current = new WebSocket(`${scheme}://${location.host}/_ws?display=${encodeURIComponent(id)}&role=display`)
+    socket = current
+
+    current.onopen = () => {
+      attempt = 0
+      status.value = 'open'
+      handlers.onOpen?.()
+    }
+
+    current.onmessage = (event) => {
+      handleMessage(id, event.data)
+    }
+
+    // An error is followed by a close, so only the close reconnects.
+    current.onclose = () => {
+      if (socket !== current) return
+      socket = null
+      status.value = 'closed'
+      timer = setTimeout(() => connect(id), reconnectDelay(attempt++))
+    }
+  }
+
+  function handleMessage(id: string, data: unknown) {
+    let message: unknown
+    try {
+      message = JSON.parse(String(data))
+    } catch {
+      return
+    }
+    if (typeof message !== 'object' || message === null) return
+    const { type, display_id: from, state: next } = message as Record<string, unknown>
+
+    if (type === 'state.updated' && from === id) {
+      const parsed = displayStateSchema.safeParse(next)
+      if (parsed.success) state.value = parsed.data
+    } else if (type === 'events.updated') {
+      handlers.onEventsUpdated?.()
+    }
+    // Anything else (photo.next, for now) is not for this page yet.
+  }
+
+  watch(() => toValue(displayId), (id) => {
+    close()
+    attempt = 0
+    state.value = null
+    if (id) connect(id)
+    else status.value = 'closed'
+  }, { immediate: true })
+
+  onScopeDispose(close)
+
+  return { status, state }
+}

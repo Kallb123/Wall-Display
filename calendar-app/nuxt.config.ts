@@ -7,6 +7,15 @@ export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: true },
   modules: ['@nuxt/eslint', '@nuxt/test-utils/module'],
+  // Fonts are bundled, never loaded from Google Fonts: the wall must look right with no internet.
+  css: [
+    '@fontsource/caprasimo/400.css',
+    '@fontsource/figtree/400.css',
+    '@fontsource/figtree/500.css',
+    '@fontsource/figtree/600.css',
+    '@fontsource/figtree/700.css',
+    '~/assets/tokens.css',
+  ],
   typescript: {
     strict: true,
     typeCheck: false,

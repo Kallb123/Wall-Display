@@ -13,6 +13,10 @@ logs
 coverage
 .DS_Store
 
+# Playwright visual tests (they keep their database in .data/visual)
+playwright-report/
+test-results/
+
 # Real config and secrets. Only the example and dev files are committed.
 config.yaml
 secrets.yaml

@@ -1,0 +1,85 @@
+/*
+ * The Organic design system (architecture §4.3): warm, rounded and a little
+ * playful. Base ramps, fonts, radii and shadows only. The themes (app/utils/themes.ts)
+ * are built from these, and nothing else in the app hard-codes a colour found here.
+ *
+ * The design project's styles.css is not in this repo, so the values are
+ * rebuilt from architecture §4.3. Check them against the design project's
+ * styles.css and adjust the ramps if they differ.
+ *
+ * Each ramp runs from 100 (lightest) to 900 (darkest) in OKLCH.
+ */
+:root {
+  /* Neutral warm ground for the light theme, and its text. */
+  --color-cream-100: oklch(97.5% 0.015 85);
+  --color-cream-200: oklch(94.5% 0.025 82);
+  --color-cream-300: oklch(90% 0.035 80);
+  --color-cream-400: oklch(85% 0.04 78);
+  --color-cream-500: oklch(77% 0.04 75);
+  --color-cream-600: oklch(64% 0.035 70);
+  --color-cream-700: oklch(50% 0.03 65);
+  --color-cream-800: oklch(38% 0.025 60);
+  --color-cream-900: oklch(28% 0.02 55);
+
+  /* The accent. 500 is about #C67139. */
+  --color-terracotta-100: oklch(94% 0.03 55);
+  --color-terracotta-200: oklch(90% 0.05 55);
+  --color-terracotta-300: oklch(83% 0.08 52);
+  --color-terracotta-400: oklch(74% 0.11 50);
+  --color-terracotta-500: oklch(64% 0.13 50);
+  --color-terracotta-600: oklch(55% 0.125 48);
+  --color-terracotta-700: oklch(46% 0.105 46);
+  --color-terracotta-800: oklch(37% 0.08 44);
+  --color-terracotta-900: oklch(28% 0.05 42);
+
+  /* The second accent: the today panel. */
+  --color-sage-100: oklch(95% 0.015 130);
+  --color-sage-200: oklch(90% 0.03 130);
+  --color-sage-300: oklch(84% 0.045 130);
+  --color-sage-400: oklch(75% 0.055 130);
+  --color-sage-500: oklch(66% 0.06 130);
+  --color-sage-600: oklch(56% 0.055 130);
+  --color-sage-700: oklch(46% 0.05 130);
+  --color-sage-800: oklch(37% 0.04 130);
+  --color-sage-900: oklch(28% 0.03 130);
+
+  /* Warm dark neutral for the dark theme. */
+  --color-charcoal-100: oklch(92% 0.008 70);
+  --color-charcoal-200: oklch(85% 0.01 70);
+  --color-charcoal-300: oklch(72% 0.01 68);
+  --color-charcoal-400: oklch(58% 0.012 66);
+  --color-charcoal-500: oklch(45% 0.012 64);
+  --color-charcoal-600: oklch(36% 0.012 62);
+  --color-charcoal-700: oklch(29% 0.012 60);
+  --color-charcoal-800: oklch(23% 0.01 60);
+  --color-charcoal-900: oklch(18% 0.008 60);
+
+  /* The design system's own names for the three main roles. */
+  --color-bg: var(--color-cream-100);
+  --color-accent: var(--color-terracotta-500);
+  --color-accent-2: var(--color-sage-500);
+
+  --font-display: 'Caprasimo', 'Georgia', serif;
+  --font-body: 'Figtree', 'Helvetica Neue', Arial, sans-serif;
+
+  /* Over-rounded: tiles and panels sit between 24 and 64 px, bars and buttons are pills. */
+  --radius-sm: 24px;
+  --radius-md: 40px;
+  --radius-lg: 64px;
+  --radius-pill: 999px;
+
+  /* Soft, warm shadows rather than grey ones. */
+  --shadow-soft: 0 6px 20px oklch(40% 0.04 60 / 0.1);
+  --shadow-lift: 0 14px 40px oklch(40% 0.05 55 / 0.18);
+}
+
+/* Black behind the stage, so a screen that is not 16:9 gets a plain letterbox. */
+html,
+body {
+  margin: 0;
+  background: #000;
+}
+
+body {
+  font-family: var(--font-body);
+}

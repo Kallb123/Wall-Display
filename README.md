@@ -22,12 +22,13 @@ pnpm dev
 
 The dev server is at <http://localhost:3000>. Pages and endpoints so far:
 
-- `/display`: the wall display (stub)
+- `/display`: the wall display. A 2560×1440 stage scaled to fit the window, showing the view the server chose (placeholders for now) in the theme set for the display in config. `/display?id=hallway` picks a display; with no `id` it shows the first one in the config (or the last one it showed, if the server can't be reached). It keeps the last-known state and events in `localStorage`, so a reload while the server is down still shows the wall, and a small "Offline" badge appears once the WebSocket has been down for 3 seconds. `brightness` dims it with a black overlay and `screen: off` makes it black
 - `/remote`: the phone remote (stub)
 - `/settings`: settings (stub)
 - `/api/health`: returns `{ "status": "ok", "uptime": <seconds>, "db": "ok" }`, or a 503 with `{ "status": "error", "db": "error" }` if the database doesn't answer
 - `GET /api/events?from=…&to=…`: the events that overlap the range `[from, to)`, each with its people (name, initial, colour). `from` and `to` are a date such as `2026-10-01` (midnight at the start of that day in the display time zone) or an ISO 8601 time with `Z` or an offset. The range may be at most 366 days; anything else is a 400 with a short reason
 - `POST /api/refresh`: syncs every calendar now and answers `{ "calendars": [{ "calendarId", "status": "updated" | "not-modified" | "error", "error"? }] }` once all have finished. The error is a short message that never contains a feed URL
+- `GET /api/displays`: every display's settings from the config (`id`, `name`, `theme`, `month_style`, `week_start` and the config's `timezone`), which the display page uses for its theme and time zone
 - `GET /api/displays/:id/state`: the display's current state (`view`, `month`, `screen`, `photo_source`, `brightness`, `overlay`), or a 404 for an id that isn't in the config
 - `POST /api/displays/:id/commands`: applies one command, such as `{ "type": "set_view", "view": "agenda" }`, and answers with the new state. The types are `set_view`, `next_view`, `set_month` (`YYYY-MM`, `current`, `prev` or `next`), `set_screen`, `set_brightness`, `set_photo_source`, `set_overlay` (`{ "text", "icon"?, "ttl"? }` in seconds, or `null` to clear), `photo_next` and `refresh`. A bad command is a 400 with a short reason
 - `/_ws?display=<id>&role=display|remote`: a WebSocket that sends the display's whole state when it connects, then `state.updated` and `events.updated` as they happen (and `photo.next` to the display). Commands are sent with the POST above, not over the socket
@@ -67,6 +68,16 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+The display's visual tests are Playwright screenshots at 2560×1440 with a frozen clock and fixture events, in both themes. They run against the built app, so build first:
+
+```sh
+pnpm build
+pnpm test:visual          # compare with the baselines in test/visual/display.spec.ts-snapshots
+pnpm test:visual:update   # refresh the baselines after a change to how the display looks
+```
+
+Playwright is pinned to an exact version in `package.json` because the baselines are only valid for the Chromium that goes with it. Make them with that Chromium (CI installs the same one with `playwright install chromium`) and look at each changed PNG before committing it. A failed run leaves a report in `playwright-report/` and the actual and diff images in `test-results/`; both are git-ignored, and CI uploads them. The `display` job in CI runs these tests.
 
 `pnpm lint:fix` fixes what ESLint can. After `pnpm build`, `node .output/server/index.mjs` runs the production server.
 

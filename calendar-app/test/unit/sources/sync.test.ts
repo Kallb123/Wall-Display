@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { events, syncStatus } from '../../../server/db/schema'
 import { syncIcsCalendar } from '../../../server/sources/ics/sync'
 import { migratedMemoryDb } from '../db/helpers'
-import { calendar, calendarConfig, vevent } from './helpers'
+import { calendar, calendarConfig, PEOPLE, vevent } from './helpers'
 
 const SYNC = { months_back: 0, months_ahead: 0 }
 const OCTOBER = new Date('2026-10-28T12:00:00Z')
@@ -55,7 +55,7 @@ function setup(feed: Feed, overrides = {}) {
   const { db } = migratedMemoryDb()
   const config = calendarConfig({ source: { type: 'ics', url: feed.url, poll_seconds: 120 }, ...overrides })
   const run = (args: { now?: Date, timeZone?: string, sync?: typeof SYNC } = {}) =>
-    syncIcsCalendar({ db, calendar: config, timeZone: args.timeZone ?? 'Europe/London', sync: args.sync ?? SYNC, now: args.now ?? OCTOBER })
+    syncIcsCalendar({ db, calendar: config, people: PEOPLE, timeZone: args.timeZone ?? 'Europe/London', sync: args.sync ?? SYNC, now: args.now ?? OCTOBER })
   const stored = () => db.select().from(events).where(eq(events.calendarId, config.id)).orderBy(events.startAt).all()
   const status = () => db.select().from(syncStatus).where(eq(syncStatus.calendarId, config.id)).get()
   return { db, config, run, stored, status }
@@ -159,7 +159,7 @@ describe('syncIcsCalendar', () => {
     const first = setup(feed)
     await first.run()
 
-    await syncIcsCalendar({ db: first.db, calendar: { ...first.config, person: 'mum' }, timeZone: 'Europe/London', sync: SYNC, now: OCTOBER })
+    await syncIcsCalendar({ db: first.db, calendar: { ...first.config, person: 'mum' }, people: PEOPLE, timeZone: 'Europe/London', sync: SYNC, now: OCTOBER })
 
     expect(feed.requests[1]!['if-none-match']).toBeUndefined()
     expect(first.stored()[0]!.personIds).toEqual(['mum'])
@@ -242,7 +242,7 @@ describe('syncIcsCalendar', () => {
     const config = calendarConfig({ source: { type: 'ics', url: secret, poll_seconds: 120 } })
     const fetchStub = (() => { throw new TypeError(`Failed to parse URL from ${secret}`) }) as typeof fetch
 
-    await expect(syncIcsCalendar({ db, calendar: config, timeZone: 'Europe/London', sync: SYNC, now: OCTOBER, fetch: fetchStub })).rejects.toThrow('could not connect')
+    await expect(syncIcsCalendar({ db, calendar: config, people: PEOPLE, timeZone: 'Europe/London', sync: SYNC, now: OCTOBER, fetch: fetchStub })).rejects.toThrow('could not connect')
 
     const row = db.select().from(syncStatus).get()!
     expect(row.lastError).toBe('could not connect')
@@ -254,7 +254,7 @@ describe('syncIcsCalendar', () => {
     const other = await serveFeed(calendar([vevent('standup', 'DTSTART:20261028T090000Z')]))
     const { db, run } = setup(feed)
     await run()
-    await syncIcsCalendar({ db, calendar: calendarConfig({ id: 'work', person: 'dad', source: { type: 'ics', url: other.url, poll_seconds: 120 } }), timeZone: 'Europe/London', sync: SYNC, now: OCTOBER })
+    await syncIcsCalendar({ db, calendar: calendarConfig({ id: 'work', person: 'dad', source: { type: 'ics', url: other.url, poll_seconds: 120 } }), people: PEOPLE, timeZone: 'Europe/London', sync: SYNC, now: OCTOBER })
 
     feed.respond = { status: 200, etag: '"v2"', body: calendar([]) }
     await run()
@@ -266,6 +266,6 @@ describe('syncIcsCalendar', () => {
     const { db } = migratedMemoryDb()
     const config = calendarConfig({ source: { type: 'homeassistant', entity_id: 'calendar.bins', poll_seconds: 300 } })
 
-    await expect(syncIcsCalendar({ db, calendar: config, timeZone: 'Europe/London', sync: SYNC })).rejects.toThrow('not an ICS calendar')
+    await expect(syncIcsCalendar({ db, calendar: config, people: PEOPLE, timeZone: 'Europe/London', sync: SYNC })).rejects.toThrow('not an ICS calendar')
   })
 })

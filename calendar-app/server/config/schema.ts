@@ -29,7 +29,7 @@ const timezone = z.string().check((ctx) => {
   }
 })
 
-// Matches case-insensitively, like person detection will. The reason is
+// Matches case-insensitively, as person detection does. The reason is
 // reported without the pattern, which V8 repeats in its message.
 const rulePattern = z.string().min(1, 'must not be empty').check((ctx) => {
   try {

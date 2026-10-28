@@ -3,7 +3,7 @@
 
 /**
  * One event or one instance of a recurring event, as every source hands it to
- * the store. Person detection (PR 1.2) adds the people and the display title.
+ * the store. Person detection adds the people and the display title when it is stored.
  */
 export interface NormalisedEvent {
   /** The source's own id for the event (the ICS UID). */

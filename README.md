@@ -26,6 +26,8 @@ The dev server is at <http://localhost:3000>. Pages and endpoints so far:
 - `/remote`: the phone remote (stub)
 - `/settings`: settings (stub)
 - `/api/health`: returns `{ "status": "ok", "uptime": <seconds>, "db": "ok" }`, or a 503 with `{ "status": "error", "db": "error" }` if the database doesn't answer
+- `GET /api/events?from=…&to=…`: the events that overlap the range `[from, to)`, each with its people (name, initial, colour). `from` and `to` are a date such as `2026-10-01` (midnight at the start of that day in the display time zone) or an ISO 8601 time with `Z` or an offset. The range may be at most 366 days; anything else is a 400 with a short reason
+- `POST /api/refresh`: syncs every calendar now and answers `{ "calendars": [{ "calendarId", "status": "updated" | "not-modified" | "error", "error"? }] }` once all have finished. The error is a short message that never contains a feed URL
 
 ### Configuration
 
@@ -42,7 +44,11 @@ In the config, `key: !secret some_name` takes its value from `some_name` in `sec
 | `WALLCAL_DATA_DIR` | Folder for the database and other app data. Default `/data` (`.data/` under `pnpm dev`). |
 | `WALLCAL_MIGRATIONS_DIR` | Folder holding the SQL migrations. Normally not needed. |
 
-Events are kept for a rolling window of whole months around the current one: 12 months back and 12 ahead unless `sync.months_back` and `sync.months_ahead` say otherwise. Recurring events are expanded into single events inside it. The month picker on the remote reaches 12 months either side, so a smaller window leaves the months beyond it empty. Calendar sources are synced by the library in `calendar-app/server/sources/` (ICS so far). The scheduler that runs it arrives in PR 1.2, so nothing syncs yet.
+Events are kept for a rolling window of whole months around the current one: 12 months back and 12 ahead unless `sync.months_back` and `sync.months_ahead` say otherwise. Recurring events are expanded into single events inside it. The month picker on the remote reaches 12 months either side, so a smaller window leaves the months beyond it empty. Calendar sources are synced by the library in `calendar-app/server/sources/` (ICS so far).
+
+Each calendar is polled on its own interval (`poll_seconds`, 120 for ICS by default), and the first polls are spread over a few seconds at start-up. A feed that fails keeps its last good events and is tried again after twice the interval, then four times, and so on up to an hour; the first success after that goes back to the normal interval. The reason for the last failure is stored in `sync_status` and logged, without the feed's URL, which is a secret. `POST /api/refresh` forces an immediate poll of every calendar.
+
+Who an event is for (its people) and the title shown on the wall are worked out when it is stored, from the names in its title and description and the calendar's keyword rules, as described in [architecture §3.3](docs/architecture.md). If the people or rules in the config change, the stored events are re-resolved at the next start without fetching anything, and a calendar that has been removed from the config is deleted along with its events.
 
 ### Database
 

@@ -6,10 +6,10 @@ import { expandIcs } from '../../../server/sources/ics/expand'
 import { ensureCalendarRow, replaceCalendarEvents } from '../../../server/sources/store'
 import { syncWindow } from '../../../server/sources/time'
 import { MIGRATIONS_DIR, tempDir, track } from '../db/helpers'
-import { calendar, calendarConfig, LONDON_VTIMEZONE, vevent } from './helpers'
+import { calendar, calendarConfig, LONDON_VTIMEZONE, PEOPLE, resolverFor, vevent } from './helpers'
 
-// A busy family calendar over the whole 25-month window, expanded and stored
-// the way a sync does it. PR 1.1 promises "well under a second". A budget on
+// A busy family calendar over the whole 25-month window, expanded, resolved to
+// people and stored the way a sync does it. PR 1.1 promises "well under a second". A budget on
 // the clock can wobble on a loaded machine, so this is a file of its own.
 
 const DAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
@@ -68,17 +68,21 @@ describe('a busy calendar over the 25-month window', () => {
     const dir = await tempDir()
     const handle = track(openDatabase(join(dir, 'wallcal.db')))
     runMigrations(handle, MIGRATIONS_DIR)
-    ensureCalendarRow(handle.db, calendarConfig())
+    ensureCalendarRow(handle.db, calendarConfig(), PEOPLE)
+
+    // The family's own settings, so detection has real work to do: names in
+    // descriptions (some of them HTML) and keyword rules.
+    const resolve = resolverFor({ strip_names: true, rules: [{ match: 'weekly club 1\\d', people: ['isla'] }, { match: 'swimming|football', people: ['theo'] }] })
 
     // A first, cold run: this is what the first sync after boot costs.
     const started = performance.now()
     const { events, warnings } = expandIcs(text, window, { timeZone: 'Europe/London' })
     const expanded = performance.now()
-    const result = replaceCalendarEvents(handle.db, 'family', 'home', events)
+    const result = replaceCalendarEvents(handle.db, 'family', events, resolve)
     const stored = performance.now()
 
     const total = stored - started
-    console.log(`busy calendar: ${(text.length / 1024).toFixed(0)} KB of ICS, ${events.length} instances in the window; expand ${(expanded - started).toFixed(0)} ms + store ${(stored - expanded).toFixed(0)} ms = ${total.toFixed(0)} ms`)
+    console.log(`busy calendar: ${(text.length / 1024).toFixed(0)} KB of ICS, ${events.length} instances in the window; expand ${(expanded - started).toFixed(0)} ms + resolve and store ${(stored - expanded).toFixed(0)} ms = ${total.toFixed(0)} ms`)
 
     // Not vacuous: thousands of instances, really stored.
     expect(warnings).toEqual([])
@@ -90,7 +94,7 @@ describe('a busy calendar over the 25-month window', () => {
 
     // Syncing it again, as every changed poll after the first does, writes nothing.
     const again = performance.now()
-    expect(replaceCalendarEvents(handle.db, 'family', 'home', expandIcs(text, window, { timeZone: 'Europe/London' }).events))
+    expect(replaceCalendarEvents(handle.db, 'family', expandIcs(text, window, { timeZone: 'Europe/London' }).events, resolve))
       .toEqual({ inserted: 0, updated: 0, deleted: 0, total: events.length })
     console.log(`busy calendar, unchanged: ${(performance.now() - again).toFixed(0)} ms`)
   })

@@ -1,4 +1,5 @@
-import type { CalendarConfig } from '../../../server/config/schema'
+import { createPeopleResolver } from '../../../shared/people'
+import type { CalendarConfig, Person } from '../../../server/config/schema'
 import { expandIcs } from '../../../server/sources/ics/expand'
 import type { ExpandOptions } from '../../../server/sources/ics/expand'
 import type { NormalisedEvent, SyncWindow } from '../../../server/sources/types'
@@ -71,4 +72,19 @@ export function calendarConfig(overrides: Partial<CalendarConfig> = {}): Calenda
     source: { type: 'ics', url: 'https://example.com/family.ics', poll_seconds: 120 },
     ...overrides,
   }
+}
+
+/** The people of config.dev.yaml, as the config loader gives them. */
+export const PEOPLE: Person[] = [
+  { id: 'mum', name: 'Mum', colour: '#C67139', initial: 'M', aliases: ['Mummy', 'Sarah'] },
+  { id: 'dad', name: 'Dad', colour: '#7A8A5E', initial: 'D', aliases: ['Daddy', 'Tom'] },
+  { id: 'isla', name: 'Isla', colour: '#D27FA0', initial: 'I', aliases: [] },
+  { id: 'theo', name: 'Theo', colour: '#5F94C4', initial: 'T', aliases: [] },
+  { id: 'poppy', name: 'Poppy', colour: '#9A7BC4', initial: 'P', aliases: ['Pops'] },
+  { id: 'home', name: 'Household', colour: '#D9A93F', initial: 'H', aliases: ['Family', 'All'] },
+]
+
+/** Person detection for a calendar, as a sync builds it. */
+export function resolverFor(overrides: Partial<CalendarConfig> = {}) {
+  return createPeopleResolver(calendarConfig(overrides), PEOPLE)
 }

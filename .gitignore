@@ -1,0 +1,28 @@
+node_modules
+.nuxt
+.output
+.data
+.nitro
+.cache
+dist
+logs
+*.log
+.env
+.env.*
+!.env.example
+coverage
+.DS_Store
+
+# Real config and secrets. Only the example and dev files are committed.
+config.yaml
+secrets.yaml
+!config.example.yaml
+!secrets.example.yaml
+!config.dev.yaml
+
+# Real deployment files for docker compose (the folders hold your own copies of the examples)
+/config/
+/data/
+/mosquitto/data/
+/mosquitto/log/
+/mosquitto/config/passwords

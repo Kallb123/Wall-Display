@@ -161,7 +161,9 @@ calendars:
     source: { type: homeassistant, entity_id: calendar.bin_collection }
 ```
 
-Secrets (ICS URLs, the HA token, the Immich key, Google OAuth tokens) live in a mounted `secrets.yaml` or in environment variables. They never reach the browser.
+Secrets (ICS URLs, the HA token, the Immich key, Google OAuth tokens, the remote PIN) live in a `secrets.yaml` beside `config.yaml`, or in environment variables. A value in the config refers to one with the `!secret` tag, for example `url: !secret family_ics_url`. The environment variable `WALLCAL_SECRET_FAMILY_ICS_URL` (the name in capitals, with anything that isn't a letter or digit turned into `_`) overrides the same key in `secrets.yaml`. Secrets are plain text. They never reach the browser, and error messages name a secret without showing its value.
+
+Config is checked when the app starts, and unknown keys are errors, so a typo stops the server with a message naming the field instead of being ignored. The other environment variables are `WALLCAL_CONFIG_FILE` (the config file), `WALLCAL_CONFIG_DIR` (the folder holding `config.yaml` and `secrets.yaml`, default `/config`), `WALLCAL_TIMEZONE` (overrides `timezone`) and `WALLCAL_DATA_DIR` (where the SQLite database and other app data live, default `/data`). `pnpm dev` uses `calendar-app/config.dev.yaml` when neither of the first two is set. An `ics` URL can also be a `file:` URL for local fixtures: `file:./family.ics` is relative to the config file's folder.
 
 ## 4. Display
 
@@ -519,7 +521,7 @@ The HA `event` entity fires for every press either way, so HA can always react a
 - **Photos from.** A segmented control (Immich, Google, Folder) for `photo_source`, and a "Next photo" button that briefly reads "Skipped" to confirm.
 - **More.** Brightness and Refresh calendars. These aren't in the mocks yet, so they sit in a plain section at the bottom until they are designed.
 
-It talks to the same command handler as MQTT, so it works even if HA is down. It's for the local network only. You can set an optional shared PIN or token in the config. Don't expose it to the internet. If you need remote access, use HA's existing remote access.
+It talks to the same command handler as MQTT, so it works even if HA is down. It's for the local network only. You can set an optional shared PIN (`remote.pin`, 4 to 12 digits, usually via `!secret`) in the config. Don't expose it to the internet. If you need remote access, use HA's existing remote access.
 
 ### 7.6 Settings pages
 
@@ -591,20 +593,26 @@ Real backlight control would need **DDC/CI** (`ddcutil`). Support on Samsung sma
 ```yaml
 services:
   calendar-app:
+    build: ./calendar-app
     image: wallcal/calendar-app:latest   # built locally
     restart: unless-stopped
     ports: ["8080:8080"]
     environment:
       TZ: Europe/London
     volumes:
-      - ./config:/config          # config.yaml, secrets.yaml
+      - ./config:/config:ro       # config.yaml, secrets.yaml
       - ./data:/data              # SQLite, photo cache, special day art, Google OAuth tokens
   mosquitto:                      # skip if using the HA Mosquitto add-on
     image: eclipse-mosquitto:2
+    profiles: [mqtt]              # docker compose --profile mqtt up
     restart: unless-stopped
     ports: ["1883:1883"]
-    volumes: ["./mosquitto:/mosquitto"]
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/data:/mosquitto/data
 ```
+
+The image is a multi-stage build on `node:24-bookworm-slim` (glibc, for `better-sqlite3` and `sharp`). It holds only the Nitro `.output/`, runs as the `node` user (uid 1000), so `./data` must be writable by uid 1000, and has a `HEALTHCHECK` on `/api/health`. Nitro closes cleanly on SIGTERM, so `docker stop` returns at once and no init process is needed. Mosquitto allows anonymous connections by default, which suits a home LAN; `mosquitto/config/mosquitto.conf` explains how to add a password file.
 
 Back up `./data` as well as `./config`. Special days and their art are only stored there, so they can't be rebuilt from YAML or from a provider.
 
@@ -630,6 +638,7 @@ wall-display/
 │   ├── server/                  # Nitro side
 │   │   ├── api/                 # REST routes
 │   │   ├── routes/_ws.ts        # WebSocket handler
+│   │   ├── config/              # config schema (zod) and loader
 │   │   ├── plugins/             # boot order: config → db → state → scheduler → mqtt
 │   │   ├── sources/             # ics.ts, homeassistant.ts
 │   │   ├── photos/              # immich.ts, google-picker.ts, local.ts, cache.ts
@@ -639,6 +648,7 @@ wall-display/
 │   │   ├── mqtt/                # client.ts, discovery.ts
 │   │   └── db/                  # Drizzle schema + migrations
 │   ├── shared/                  # types and pure logic used by client and server (month-layout.ts, special-days.ts)
+│   ├── config.dev.yaml          # config for pnpm dev (fixture calendars, no secrets)
 │   ├── nuxt.config.ts
 │   └── Dockerfile
 ├── pi-agent/                    # Python: agent, sensors/, screen/, systemd unit
@@ -646,6 +656,7 @@ wall-display/
 ├── tools/hw-probe/              # standalone hardware test kit for the Pi + M80F (no app dependency)
 ├── contracts/mqtt.json          # MQTT topics + payload schemas (shared by app and agent tests)
 ├── config.example.yaml
+├── secrets.example.yaml
 ├── docker-compose.yml
 └── docs/
     ├── architecture.md

@@ -1,0 +1,25 @@
+# Wall Display on the home server. See "Running with Docker" in README.md.
+#
+#   docker compose up -d --build                 the app
+#   docker compose --profile mqtt up -d --build  the app and Mosquitto
+services:
+  calendar-app:
+    build: ./calendar-app
+    image: wallcal/calendar-app:latest
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    environment:
+      TZ: Europe/London
+    volumes:
+      - ./config:/config:ro   # config.yaml, secrets.yaml
+      - ./data:/data          # SQLite, photo cache, special day art, Google OAuth tokens. Must be writable by uid 1000.
+
+  # Skip this (leave the profile off) if you use the Home Assistant Mosquitto add-on.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    profiles: [mqtt]
+    restart: unless-stopped
+    ports: ["1883:1883"]
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/data:/mosquitto/data

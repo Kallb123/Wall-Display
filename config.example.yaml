@@ -1,0 +1,109 @@
+# Wall Calendar config. Copy to config/config.yaml (mounted at /config) and edit.
+#
+# Secrets (URLs with tokens, API keys, the PIN) are not written here. Use
+#   key: !secret some_name
+# and put "some_name: value" in secrets.yaml next to this file (see
+# secrets.example.yaml). An environment variable WALLCAL_SECRET_SOME_NAME
+# (upper case, anything that isn't a letter or digit becomes _) overrides the
+# file. Secrets are plain text, so they suit URLs, keys and the PIN.
+#
+# Other environment variables:
+#   WALLCAL_CONFIG_FILE   full path to this file
+#   WALLCAL_CONFIG_DIR    folder holding config.yaml and secrets.yaml (default /config)
+#   WALLCAL_TIMEZONE      overrides "timezone" below
+#
+# Unknown keys are errors, so typos are caught when the app starts.
+
+# IANA time zone used to show times (default Europe/London).
+timezone: Europe/London
+
+# Who events are shown for. Each person has a name, a colour and a one-letter
+# initial (default: the first letter of the name).
+# "aliases" are other names an event may use for the person.
+# Names and aliases must be unique across people, ignoring case.
+people:
+  - { id: mum, name: Mum, colour: "#C67139", aliases: [Mummy, Sarah] }
+  - { id: dad, name: Dad, colour: "#7A8A5E", aliases: [Daddy, Tom] }
+  - { id: isla, name: Isla, colour: "#D27FA0" }
+  - { id: theo, name: Theo, colour: "#5F94C4" }
+  - { id: poppy, name: Poppy, colour: "#9A7BC4", aliases: [Pops] }
+  - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
+
+calendars:
+  # One shared calendar for the whole family. Who an event is for comes from its
+  # title or description ("Who: Theo"), so titles can stay clean in Google Calendar.
+  - id: family
+    name: Family
+    person: home # used when nothing else matches
+    detect_people: true # true (start of title / description lines) | anywhere | false
+    detect_in: [title, description] # which fields to read names from
+    strip_names: true # show "Swimming", not "Theo: Swimming"
+    rules: # case-insensitive regular expressions, for activities that never name anyone
+      - { match: "ballet|brownies", people: [isla] }
+      - { match: "swimming|football", people: [theo] }
+      - { match: "rhyme time|playgroup|nursery", people: [poppy] }
+    source:
+      type: ics
+      url: !secret family_ics_url
+      poll_seconds: 120 # default 120, minimum 30
+
+  # A personal calendar: everything on it is Dad's.
+  - id: dad-work
+    person: dad
+    source: { type: ics, url: !secret dad_work_ics_url, poll_seconds: 300 }
+
+  # A Home Assistant calendar, such as bin collection. Needs the homeassistant block below.
+  - id: bins
+    person: home
+    source: { type: homeassistant, entity_id: calendar.bin_collection } # poll_seconds default 300
+
+# Only needed if a calendar uses a homeassistant source.
+homeassistant:
+  url: http://homeassistant.local:8123
+  token: !secret ha_token # a long-lived access token
+
+# One entry per screen. Open /display?id=hallway on it.
+displays:
+  - id: hallway
+    name: Hallway
+    theme: light # light | dark
+    month_style: soft # soft | classic
+    month_return_minutes: 15 # a month picked on the remote reverts to this month after this long (1-1440)
+    week_start: monday # monday | sunday
+
+# What the physical button does. Each gesture is one of:
+#   next_view, toggle_photo, toggle_screen, next_month, prev_month, this_month,
+#   refresh, ha (the app does nothing; a Home Assistant automation decides), none
+button:
+  single: next_view
+  double: toggle_photo
+  long: ha
+
+# Optional shared PIN (4-12 digits) for the remote page and the settings write
+# routes. Leave out to turn it off. For the local network only.
+remote:
+  pin: !secret remote_pin
+
+# Built-in policies. Each can also be switched off from Home Assistant.
+policies:
+  auto_presence:
+    off_after_minutes: 10 # screen off after this long with nobody there
+    quiet_hours: { from: "22:30", to: "06:30" } # optional; the screen is left alone in this window
+  auto_brightness:
+    night_below_lux: 3 # optional; below this the night action applies
+    night_action: night_view # none | night_view | screen_off
+
+# Photo frame mode. Leave out if you don't use it.
+photos:
+  interval_seconds: 60 # at least 5
+  landscape_only: false
+  cache_max_mb: 2048
+  immich:
+    url: http://immich.local:2283
+    api_key: !secret immich_api_key
+    album_ids: [] # empty means the whole library
+  google:
+    client_id: example.apps.googleusercontent.com
+    client_secret: !secret google_client_secret
+  local:
+    path: /photos

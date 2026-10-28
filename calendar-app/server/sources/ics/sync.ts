@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
-import type { CalendarConfig, SyncConfig } from '../../config/schema'
+import { createPeopleResolver } from '../../../shared/people'
+import type { CalendarConfig, Person, SyncConfig } from '../../config/schema'
 import type { Db } from '../../db/client'
 import { syncStatus } from '../../db/schema'
 import { ensureCalendarRow, replaceCalendarEvents } from '../store'
@@ -11,13 +12,15 @@ import { fetchIcs } from './fetch'
 
 // One ICS calendar, end to end: fetch (conditionally), expand over the sync
 // window, replace the stored events, record how it went. Nothing here runs by
-// itself. The scheduler (PR 1.2) calls it on each calendar's poll interval and
-// adds backoff for the calendars that fail.
+// itself. The scheduler calls it on each calendar's poll interval and adds
+// backoff for the calendars that fail.
 
 export interface SyncIcsArgs {
   db: Db
   /** A calendar whose source is `ics`. */
   calendar: CalendarConfig
+  /** Everyone in the config, for person detection. */
+  people: readonly Person[]
   /** The display time zone. */
   timeZone: string
   sync: SyncConfig
@@ -36,11 +39,11 @@ export type SyncIcsResult =
  * the (URL-free) reason in `sync_status` and leaving the stored events as they
  * were.
  */
-export async function syncIcsCalendar({ db, calendar, timeZone, sync, now = new Date(), fetch: fetchFn }: SyncIcsArgs): Promise<SyncIcsResult> {
+export async function syncIcsCalendar({ db, calendar, people, timeZone, sync, now = new Date(), fetch: fetchFn }: SyncIcsArgs): Promise<SyncIcsResult> {
   if (calendar.source.type !== 'ics') throw new Error(`calendar "${calendar.id}" is not an ICS calendar`)
   const { url } = calendar.source
 
-  ensureCalendarRow(db, calendar)
+  ensureCalendarRow(db, calendar, people)
   const window = syncWindow(now, timeZone, sync.months_back, sync.months_ahead)
   // What the stored events were expanded for. A feed that hasn't changed still
   // has to be read again when the window moves (a new month), or the zone or
@@ -62,7 +65,7 @@ export async function syncIcsCalendar({ db, calendar, timeZone, sync, now = new 
     }
 
     const { events, warnings } = expandIcs(response.body, window, { timeZone })
-    const result = replaceCalendarEvents(db, calendar.id, calendar.person, events)
+    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people))
     // Only now, with the events safely stored, remember the validators.
     recordStatus(db, calendar.id, {
       lastAttemptAt: attemptedAt,

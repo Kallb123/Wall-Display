@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../../server/config/load'
+import { events as eventsTable } from '../../../server/db/schema'
 import { expandIcs } from '../../../server/sources/ics/expand'
 import { syncIcsCalendar } from '../../../server/sources/ics/sync'
 import { syncWindow, wallTimeOf } from '../../../server/sources/time'
@@ -297,7 +298,7 @@ describe('config.dev.yaml', () => {
     const run = async () => {
       const results = []
       for (const calendar of config.calendars) {
-        results.push(await syncIcsCalendar({ db, calendar, timeZone: config.timezone, sync: config.sync, now: TODAY }))
+        results.push(await syncIcsCalendar({ db, calendar, people: config.people, timeZone: config.timezone, sync: config.sync, now: TODAY }))
       }
       return results
     }
@@ -310,5 +311,22 @@ describe('config.dev.yaml', () => {
     ])
     expect(first.map(result => 'total' in result && result.total)).toEqual([expandFixture('family.ics').events.length, expandFixture('dad-work.ics').events.length])
     expect(await run()).toEqual([{ status: 'not-modified' }, { status: 'not-modified' }])
+  })
+
+  it('stores each event with its people and the title for the wall', async () => {
+    const config = loadConfig({ configFile: join(APP_DIR, 'config.dev.yaml'), env: {} })
+    const { db } = migratedMemoryDb()
+    for (const calendar of config.calendars) {
+      await syncIcsCalendar({ db, calendar, people: config.people, timeZone: config.timezone, sync: config.sync, now: TODAY })
+    }
+
+    const rows = db.select().from(eventsTable).all()
+    const swim = rows.find(row => row.title === 'Theo: Swimming' && row.startAt.toISOString() === '2026-10-28T16:30:00.000Z')
+    const dentist = rows.find(row => row.title === '[Isla & Theo] Dentist')
+    const standup = rows.find(row => row.calendarId === 'dad-work')
+
+    expect(swim).toMatchObject({ displayTitle: 'Swimming', personIds: ['theo'] })
+    expect(dentist).toMatchObject({ displayTitle: 'Dentist', personIds: ['isla', 'theo'] })
+    expect(standup!.personIds).toEqual(['dad'])
   })
 })

@@ -59,8 +59,10 @@ export function themeStyle(tokens: ThemeTokens): Record<string, string> {
 /**
  * The fill for a person's bar: their colour mixed into the page background,
  * so the text on it keeps its contrast. How much colour is the theme's
- * `--bar-mix` (36% light, 52% dark).
+ * `--bar-mix` (36% light, 52% dark). Mixed in OKLab, not OKLCH: OKLCH
+ * interpolates hue, and the near-grey background's hue would swing a blue
+ * towards green.
  */
 export function personFill(colour: string): string {
-  return `color-mix(in oklch, ${colour} var(--bar-mix), var(--bg))`
+  return `color-mix(in oklab, ${colour} var(--bar-mix), var(--bg))`
 }

@@ -142,7 +142,7 @@ test('with no id it shows the first display', async ({ page }) => {
 
   // hallway is first in the config, and light.
   await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'light')
-  expect(await page.evaluate(() => localStorage.getItem('wallcal:display:last'))).toBe('hallway')
+  expect(await page.evaluate(() => localStorage.getItem('wallcal:last-display'))).toBe('hallway')
 })
 
 test('says so for a display that is not in the config', async ({ page }) => {

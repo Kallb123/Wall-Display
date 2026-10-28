@@ -79,13 +79,13 @@ describe('the display cache', () => {
 })
 
 describe('the last display id', () => {
-  it('is remembered under wallcal:display:last', () => {
+  it('is remembered under wallcal:last-display', () => {
     const storage = new FakeStorage()
     expect(loadLastDisplayId(asStorage(storage))).toBeNull()
 
     saveLastDisplayId(asStorage(storage), 'kitchen')
 
-    expect(storage.items.get('wallcal:display:last')).toBe('kitchen')
+    expect(storage.items.get('wallcal:last-display')).toBe('kitchen')
     expect(loadLastDisplayId(asStorage(storage))).toBe('kitchen')
   })
 

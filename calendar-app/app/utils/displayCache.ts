@@ -17,7 +17,7 @@ export interface DisplayCache {
 }
 
 const key = (displayId: string) => `wallcal:display:${displayId}`
-const LAST_KEY = 'wallcal:display:last'
+const LAST_KEY = 'wallcal:last-display'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

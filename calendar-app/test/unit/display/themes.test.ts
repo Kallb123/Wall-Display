@@ -34,6 +34,6 @@ describe('themeStyle', () => {
 
 describe('personFill', () => {
   it('mixes the colour into the page background by the theme\'s bar mix', () => {
-    expect(personFill('#C67139')).toBe('color-mix(in oklch, #C67139 var(--bar-mix), var(--bg))')
+    expect(personFill('#C67139')).toBe('color-mix(in oklab, #C67139 var(--bar-mix), var(--bg))')
   })
 })

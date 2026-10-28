@@ -1,0 +1,220 @@
+[
+  {
+    "id": 1,
+    "calendar_id": "family",
+    "title": "Grandma and Grandad's golden wedding anniversary weekend away in the Lake District with the whole family",
+    "display_title": "Grandma and Grandad's golden wedding anniversary weekend away in the Lake District with the whole family",
+    "location": null,
+    "start": "2026-10-28T00:00:00.000Z",
+    "end": "2026-10-30T00:00:00.000Z",
+    "all_day": true,
+    "start_date": "2026-10-28",
+    "end_date": "2026-10-30",
+    "people": [
+      {
+        "id": "home",
+        "name": "Household",
+        "initial": "H",
+        "colour": "#D9A93F"
+      },
+      {
+        "id": "isla",
+        "name": "Isla",
+        "initial": "I",
+        "colour": "#D27FA0"
+      },
+      {
+        "id": "theo",
+        "name": "Theo",
+        "initial": "T",
+        "colour": "#5F94C4"
+      },
+      {
+        "id": "poppy",
+        "name": "Poppy",
+        "initial": "P",
+        "colour": "#9A7BC4"
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "calendar_id": "family",
+    "title": "Parents\u2019 evening for Isla and Theo with a stop at the shops afterwards to pick up costumes",
+    "display_title": "Parents\u2019 evening for Isla and Theo with a stop at the shops afterwards to pick up costumes",
+    "location": null,
+    "start": "2026-10-28T10:30:00.000Z",
+    "end": "2026-10-28T11:30:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "mum",
+        "name": "Mum",
+        "initial": "M",
+        "colour": "#C67139"
+      },
+      {
+        "id": "dad",
+        "name": "Dad",
+        "initial": "D",
+        "colour": "#7A8A5E"
+      },
+      {
+        "id": "isla",
+        "name": "Isla",
+        "initial": "I",
+        "colour": "#D27FA0"
+      },
+      {
+        "id": "theo",
+        "name": "Theo",
+        "initial": "T",
+        "colour": "#5F94C4"
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "calendar_id": "dad-work",
+    "title": "Quarterly planning review with the regional leadership team and external partners",
+    "display_title": "Quarterly planning review with the regional leadership team and external partners",
+    "location": null,
+    "start": "2026-10-28T13:00:00.000Z",
+    "end": "2026-10-28T15:00:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "dad",
+        "name": "Dad",
+        "initial": "D",
+        "colour": "#7A8A5E"
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "calendar_id": "family",
+    "title": "Dinner",
+    "display_title": "Dinner",
+    "location": null,
+    "start": "2026-10-28T18:30:00.000Z",
+    "end": "2026-10-28T19:30:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "home",
+        "name": "Household",
+        "initial": "H",
+        "colour": "#D9A93F"
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "calendar_id": "family",
+    "title": "Dentist check-up for the whole family followed by a trip to the library and a very long lunch",
+    "display_title": "Dentist check-up for the whole family followed by a trip to the library and a very long lunch",
+    "location": null,
+    "start": "2026-10-29T08:15:00.000Z",
+    "end": "2026-10-29T09:15:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "mum",
+        "name": "Mum",
+        "initial": "M",
+        "colour": "#C67139"
+      },
+      {
+        "id": "isla",
+        "name": "Isla",
+        "initial": "I",
+        "colour": "#D27FA0"
+      },
+      {
+        "id": "theo",
+        "name": "Theo",
+        "initial": "T",
+        "colour": "#5F94C4"
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "calendar_id": "family",
+    "title": "School trip to the science museum and the natural history museum (packed lunch needed)",
+    "display_title": "School trip to the science museum and the natural history museum (packed lunch needed)",
+    "location": null,
+    "start": "2026-10-29T00:00:00.000Z",
+    "end": "2026-10-30T00:00:00.000Z",
+    "all_day": true,
+    "start_date": "2026-10-29",
+    "end_date": "2026-10-30",
+    "people": [
+      {
+        "id": "isla",
+        "name": "Isla",
+        "initial": "I",
+        "colour": "#D27FA0"
+      },
+      {
+        "id": "theo",
+        "name": "Theo",
+        "initial": "T",
+        "colour": "#5F94C4"
+      },
+      {
+        "id": "poppy",
+        "name": "Poppy",
+        "initial": "P",
+        "colour": "#9A7BC4"
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "calendar_id": "family",
+    "title": "Sleepover at the Hendersons",
+    "display_title": "Sleepover at the Hendersons",
+    "location": null,
+    "start": "2026-10-28T22:00:00.000Z",
+    "end": "2026-10-29T10:00:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "theo",
+        "name": "Theo",
+        "initial": "T",
+        "colour": "#5F94C4"
+      },
+      {
+        "id": "isla",
+        "name": "Isla",
+        "initial": "I",
+        "colour": "#D27FA0"
+      },
+      {
+        "id": "poppy",
+        "name": "Poppy",
+        "initial": "P",
+        "colour": "#9A7BC4"
+      },
+      {
+        "id": "mum",
+        "name": "Mum",
+        "initial": "M",
+        "colour": "#C67139"
+      }
+    ]
+  }
+]

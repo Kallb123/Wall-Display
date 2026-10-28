@@ -1,9 +1,14 @@
+import { addDays } from '../../shared/dates'
 import { addMonths } from '../../shared/display'
 import type { MonthKey } from '../../shared/display'
 
 // Which events the display asks for. Dates are `YYYY-MM-DD` strings and the
 // arithmetic is on UTC dates, never the browser's local time, so the answer is
 // the same wherever the page runs. Pure: no Nuxt or Vue imports.
+
+// The date helpers live in shared/ so the month layout can use them too; this
+// keeps the imports the pages already have.
+export { addDays, todayIn } from '../../shared/dates'
 
 /** A range for `GET /api/events`: `from` is included, `to` is not. Each is a date, which the server reads in the display's time zone. */
 export interface DateRange {
@@ -16,28 +21,6 @@ const GRID_DAYS_BEFORE = 7
 const GRID_DAYS_AFTER = 14
 /** How far ahead the side panel looks from today. */
 const PANEL_DAYS = 7
-
-/** `date` moved by `days` (negative for earlier). */
-export function addDays(date: string, days: number): string {
-  const [year, month, day] = date.split('-').map(Number)
-  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
-}
-
-const formatters = new Map<string, Intl.DateTimeFormat>()
-
-/** Today's date on a wall in `timeZone`. */
-export function todayIn(now: Date, timeZone: string): string {
-  let formatter = formatters.get(timeZone)
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-GB', { timeZone, calendar: 'gregory', numberingSystem: 'latn', year: 'numeric', month: '2-digit', day: '2-digit' })
-    formatters.set(timeZone, formatter)
-  }
-  const fields: Record<string, string> = {}
-  for (const part of formatter.formatToParts(now)) {
-    if (part.type !== 'literal') fields[part.type] = part.value
-  }
-  return `${fields.year}-${fields.month}-${fields.day}`
-}
 
 /**
  * What to fetch to draw `shownMonth` with `today` beside it: the month's grid

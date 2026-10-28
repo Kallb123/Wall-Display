@@ -69,11 +69,11 @@ pnpm test
 pnpm build
 ```
 
-The display's visual tests are Playwright screenshots at 2560×1440 with a frozen clock and fixture events, in both themes. They run against the built app, so build first:
+The display's visual tests (`display.spec.ts` for the shell and `agenda.spec.ts` for the agenda view) are Playwright screenshots at 2560×1440 with a frozen clock and fixture events, in both themes. They run against the built app, so build first:
 
 ```sh
 pnpm build
-pnpm test:visual          # compare with the baselines in test/visual/display.spec.ts-snapshots
+pnpm test:visual          # compare with the baselines in test/visual/*-snapshots
 pnpm test:visual:update   # refresh the baselines after a change to how the display looks
 ```
 

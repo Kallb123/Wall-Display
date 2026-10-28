@@ -58,3 +58,22 @@ pnpm build
 ```
 
 `pnpm lint:fix` fixes what ESLint can. After `pnpm build`, `node .output/server/index.mjs` runs the production server.
+
+## Running with Docker
+
+The home server runs the app from a container built from [`calendar-app/Dockerfile`](calendar-app/Dockerfile). It needs Docker with the Compose plugin. From the repo root:
+
+```sh
+mkdir config data
+cp config.example.yaml config/config.yaml        # then edit it
+cp secrets.example.yaml config/secrets.yaml      # then edit it
+sudo chown 1000:1000 data                        # the container runs as uid 1000, not root
+docker compose up -d --build
+```
+
+Check <http://localhost:8080/api/health> (use the server's address from another machine). It should return `{"status":"ok", ...,"db":"ok"}`. `docker compose ps` also shows `healthy` once the app is up. Logs are in `docker compose logs -f calendar-app`. After a config change, run `docker compose restart calendar-app`.
+
+- `./config` is mounted read-only at `/config`. `./data` is mounted at `/data` and holds the database and, later, photos and special day art.
+- `docker compose --profile mqtt up -d` also starts a Mosquitto broker on port 1883, with its settings in `mosquitto/config/mosquitto.conf`. It allows anonymous connections, so keep it on your home network (the file explains how to add a password). Leave the profile off if you use the Home Assistant Mosquitto add-on.
+- To update, `git pull` then `docker compose up -d --build`.
+- Back up `./data` and `./config`. Special days and their art are stored only in `./data`.

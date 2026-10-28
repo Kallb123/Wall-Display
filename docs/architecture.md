@@ -593,20 +593,26 @@ Real backlight control would need **DDC/CI** (`ddcutil`). Support on Samsung sma
 ```yaml
 services:
   calendar-app:
+    build: ./calendar-app
     image: wallcal/calendar-app:latest   # built locally
     restart: unless-stopped
     ports: ["8080:8080"]
     environment:
       TZ: Europe/London
     volumes:
-      - ./config:/config          # config.yaml, secrets.yaml
+      - ./config:/config:ro       # config.yaml, secrets.yaml
       - ./data:/data              # SQLite, photo cache, special day art, Google OAuth tokens
   mosquitto:                      # skip if using the HA Mosquitto add-on
     image: eclipse-mosquitto:2
+    profiles: [mqtt]              # docker compose --profile mqtt up
     restart: unless-stopped
     ports: ["1883:1883"]
-    volumes: ["./mosquitto:/mosquitto"]
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/data:/mosquitto/data
 ```
+
+The image is a multi-stage build on `node:24-bookworm-slim` (glibc, for `better-sqlite3` and `sharp`). It holds only the Nitro `.output/`, runs as the `node` user (uid 1000), so `./data` must be writable by uid 1000, and has a `HEALTHCHECK` on `/api/health`. Nitro closes cleanly on SIGTERM, so `docker stop` returns at once and no init process is needed. Mosquitto allows anonymous connections by default, which suits a home LAN; `mosquitto/config/mosquitto.conf` explains how to add a password file.
 
 Back up `./data` as well as `./config`. Special days and their art are only stored there, so they can't be rebuilt from YAML or from a provider.
 

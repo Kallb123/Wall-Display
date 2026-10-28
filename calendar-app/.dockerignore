@@ -1,0 +1,26 @@
+# Keep the build context small and keep local state and secrets out of the image.
+node_modules
+.nuxt
+.output
+.data
+.nitro
+.cache
+dist
+coverage
+logs
+*.log
+
+# Local config and secrets (the example and dev files are fine to send)
+config.yaml
+secrets.yaml
+.env
+.env.*
+
+# Not needed to build the app
+Dockerfile
+.dockerignore
+.git
+.gitignore
+.DS_Store
+test-results
+playwright-report

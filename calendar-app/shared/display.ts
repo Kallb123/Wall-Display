@@ -19,6 +19,10 @@ export type PhotoSource = (typeof PHOTO_SOURCES)[number]
 export const SCREEN_STATES = ['on', 'off'] as const
 export type ScreenState = (typeof SCREEN_STATES)[number]
 
+/** The base themes, set per display in config. A special day's palette (later) is another set of the same tokens. */
+export const THEMES = ['light', 'dark'] as const
+export type Theme = (typeof THEMES)[number]
+
 export const SOCKET_ROLES = ['display', 'remote'] as const
 export type SocketRole = (typeof SOCKET_ROLES)[number]
 
@@ -83,6 +87,20 @@ export const commandSchema = z.discriminatedUnion('type', [
 
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']
+
+/**
+ * A display's settings from config: what `GET /api/displays` returns, and
+ * what the page needs that the state does not hold. `timezone` is the config's
+ * top-level time zone, which the wall shows its times in. No secrets.
+ */
+export interface DisplaySettings {
+  id: string
+  name: string
+  theme: Theme
+  month_style: 'soft' | 'classic'
+  week_start: 'monday' | 'sunday'
+  timezone: string
+}
 
 /** What the server sends down a socket. */
 export type ServerMessage =

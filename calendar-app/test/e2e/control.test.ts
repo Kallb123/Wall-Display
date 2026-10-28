@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup, url } from '@nuxt/test-utils/e2e'
-import type { DisplayState, ServerMessage } from '../../shared/display'
+import type { DisplaySettings, DisplayState, ServerMessage } from '../../shared/display'
 
 describe('display state, commands and the WebSocket', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -67,6 +67,14 @@ describe('display state, commands and the WebSocket', async () => {
       socket.addEventListener('close', () => resolve('refused'))
     })
   }
+
+  it('GET /api/displays lists each display\'s settings and the time zone, and nothing else', async () => {
+    const displays = await $fetch<DisplaySettings[]>('/api/displays')
+
+    expect(displays).toEqual([
+      { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
+    ])
+  })
 
   it('GET /api/displays/:id/state is the default state for a new display', async () => {
     const state = await $fetch<DisplayState>('/api/displays/hallway/state')

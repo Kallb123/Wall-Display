@@ -1,0 +1,40 @@
+# Config for the Playwright visual tests (playwright.config.ts): the same
+# family and fixture calendars as config.dev.yaml, with a light and a dark
+# display. The tests answer /api/events and the WebSocket themselves, so the
+# calendars only have to load; /api/displays is the real thing.
+# A relative file: URL is resolved from the folder holding this config file.
+
+timezone: Europe/London
+
+people:
+  - { id: mum, name: Mum, colour: "#C67139", aliases: [Mummy, Sarah] }
+  - { id: dad, name: Dad, colour: "#7A8A5E", aliases: [Daddy, Tom] }
+  - { id: isla, name: Isla, colour: "#D27FA0" }
+  - { id: theo, name: Theo, colour: "#5F94C4" }
+  - { id: poppy, name: Poppy, colour: "#9A7BC4", aliases: [Pops] }
+  - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
+
+calendars:
+  - id: family
+    name: Family
+    person: home
+    detect_people: true
+    strip_names: true
+    rules:
+      - { match: "ballet|brownies", people: [isla] }
+      - { match: "swimming|football", people: [theo] }
+      - { match: "rhyme time|playgroup|nursery", people: [poppy] }
+    source: { type: ics, url: "file:../fixtures/ics/family.ics" }
+
+  - id: dad-work
+    name: Dad's work
+    person: dad
+    source: { type: ics, url: "file:../fixtures/ics/dad-work.ics" }
+
+displays:
+  - id: hallway
+    name: Hallway
+    theme: light
+  - id: kitchen
+    name: Kitchen
+    theme: dark

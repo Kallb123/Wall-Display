@@ -29,7 +29,7 @@ export default defineConfig({
     timeout: 60_000,
     env: {
       PORT: String(PORT),
-      WALLCAL_CONFIG_FILE: 'test/visual/config.yaml',
+      WALLCAL_CONFIG_FILE: 'test/visual/config.visual.yaml',
       WALLCAL_DATA_DIR: '.data/visual',
     },
   },

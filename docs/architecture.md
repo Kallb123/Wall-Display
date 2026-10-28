@@ -6,7 +6,7 @@ A self-hosted smart wall calendar. The UI runs on a Samsung Smart Monitor M8 (M8
 
 ## 1. Goals
 
-- **Calendar first.** It should show month, week and today views of the family's calendars, with changes appearing within minutes. Each event belongs to a person (Mum, Dad, each child, Household), shown by a colour and an initial. People can each have their own calendar, or share one family calendar, with the person worked out from the event title.
+- **Calendar first.** It should show month, week and today views of the family's calendars, with changes appearing within minutes. Each event belongs to a person (Mum, Dad, each child, Household), shown by a colour and an initial. People can each have their own calendar, or share one family calendar, with the person worked out from the event's description or title.
 - **Look ahead and back.** From the phone you can move the month view up to 12 months either side of today. It goes back to the current month on its own.
 - **Special days.** Birthdays, Halloween, Christmas and similar days can have their own art. Ahead of time the day's tile shows a small drawing. On the day itself the whole wall can switch to that day's palette, greeting and full-screen art. Special days are set up in the browser, not in YAML.
 - **No touch needed.** Control comes from Home Assistant, a phone remote page, a physical button and automations.
@@ -108,19 +108,25 @@ The display shows events by **person**, not by calendar. A person has a name, an
 - **Colour** marks the person's events everywhere: the dot or initial badge, and the tint of their all-day bars (the person's colour mixed into the page background, so bar text stays readable).
 - **Initial** is shown in a small coloured circle on events in the Soft month style and the side panel (see §4.4). It defaults to the first letter of the name, and you can set it when two people share a letter.
 
-**Which person an event belongs to** is decided at sync time, in this order. The first step that matches wins:
+**Which person an event belongs to** is decided at sync time. Who an event is for can be written in its **title** or in its **description**. The description is the better place for a shared calendar, because the same calendar also shows in Google Calendar, on phones and in other apps, and names added to every title would clutter all of them. The same rules apply to both.
 
-1. **Keyword rules** on the calendar. Each rule is a case-insensitive regular expression tested against the title and mapped to one or more people. For example, `Ballet` maps to Isla and `5-a-side` maps to Dad. These are for regular activities whose titles never mention a name.
-2. **Name detection**, if `detect_people` is on for the calendar. The title is checked for a person's name or one of their `aliases` as a whole word, **at the start of the title only**. These forms are recognised: `Theo: Swimming`, `Theo - Swimming`, `[Theo] Swimming`, `Theo Swimming`, and lists such as `Isla & Theo: Dentist` or `Isla, Theo: Dentist`. Matching only the start avoids false hits such as "Collect Mum's present". It can be widened to the whole title with `detect_people: anywhere`.
+- **Text that is checked.** The title, and each line of the description. Descriptions are turned into plain text first: Google often stores them as HTML, so tags are removed, `<br>` and `<p>` become line breaks, and entities are decoded. `detect_in` chooses which fields are checked (default `[title, description]`).
+- **Name forms.** A person's name or one of their `aliases`, as a whole word, **at the start** of the title or of a description line: `Theo: Swimming`, `Theo - Swimming`, `[Theo] Swimming`, `Theo Swimming`, and lists such as `Isla & Theo: Dentist` or `Isla, Theo: Dentist`. In a description, a line that holds only names (`Theo`, `Isla & Theo`) works too. So does a line with a `Who:` or `For:` label in front (`Who: Theo, Isla`), which is the tidiest form for descriptions. Matching only at the start avoids false hits such as "Collect Mum's present". It can be widened to anywhere in the text with `detect_people: anywhere`.
+- **Keyword rules** on the calendar. Each rule is a case-insensitive regular expression mapped to one or more people, tested against the title and each description line. For example, `Ballet` maps to Isla and `5-a-side` maps to Dad. These are for regular activities that never mention a name.
+
+They are applied in this order. The first step that finds anyone wins:
+
+1. **Names**, if `detect_people` is on. People found in the title and the description are merged, title first, with no duplicates. Names come first because they are deliberate: a one-off "Isla" in a swimming event's description beats a "swimming → Theo" rule.
+2. **Keyword rules**, against the title and then the description.
 3. **The calendar's default person** (`person`), for example Household for the shared family calendar.
 
-With `strip_names: true`, a matched name prefix is removed from the title shown on the wall, because the initial or colour already says who it is. So `Theo: Swimming` shows as "Swimming" with Theo's marker. The full title is kept in the database.
+With `strip_names: true`, a matched name prefix is removed from the title shown on the wall, because the initial or colour already says who it is. So `Theo: Swimming` shows as "Swimming" with Theo's marker. The full title is kept in the database. Descriptions aren't shown on the wall. If event details are added to the remote later, description lines that only name people are hidden there too.
 
-If an event matches several people, it carries all of them in the order they appear. It takes the **first** person's colour for its bar fill, and shows **up to three** overlapping initials in its badge, or one dot per person in the Classic style.
+If an event matches several people, it carries all of them in the order they were found. It takes the **first** person's colour for its bar fill, and shows **up to three** overlapping initials in its badge, or one dot per person in the Classic style.
 
-This means a family can use a **single shared calendar** for everyone: one calendar with `detect_people` on, defaulting to Household. Separate calendars per person still work too, and you can mix the two. The settings page's Calendars tab lists recent events that fell through to the default person, so you can spot titles that need a rule or an alias (§7.6).
+This means a family can use a **single shared calendar** for everyone: one calendar with `detect_people` on, defaulting to Household, with `Who: Theo` in the description and titles left clean. Separate calendars per person still work too, and you can mix the two. The settings page's Calendars tab lists recent events that fell through to the default person, so you can spot events that need a name, a rule or an alias (§7.6).
 
-Detection runs over every source, HA calendars included. It is a pure function in `shared/`, so it can be tested on its own. When the people or rules in config change, stored events are re-resolved at boot without a fresh fetch.
+Detection runs over every source, HA calendars included (their events have a `description` too). It is a pure function in `shared/`, so it can be tested on its own. When the people or rules in config change, stored events are re-resolved at boot without a fresh fetch.
 
 ### 3.4 Calendar config (example)
 
@@ -134,10 +140,12 @@ people:
   - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
 
 calendars:
-  # One shared calendar for the whole family: who an event is for comes from its title.
+  # One shared calendar for the whole family: who an event is for comes from its
+  # description ("Who: Theo") or title, so titles can stay clean in Google Calendar.
   - id: family
     person: home                 # default when nothing matches
-    detect_people: true          # true (start of title) | anywhere | false
+    detect_people: true          # true (start of title / description lines) | anywhere | false
+    detect_in: [title, description]
     strip_names: true
     rules:
       - { match: "ballet|brownies", people: [isla] }
@@ -679,7 +687,6 @@ A **special days** track (model, art uploads, display takeover, admin page) can 
 - Where should the mmWave sensor go so it covers the area in front of the calendar but not the next room?
 - Where does the MQTT broker live: server container or HA add-on? (See §10.)
 - The home server runs Ubuntu 18.04, which is past standard support. This doesn't block anything, because containers bring their own userland. Plan an OS upgrade at some point anyway.
-- Person detection: are prefix forms (`Theo: …`, `[Theo] …`) plus keyword rules enough, or should the event description be checked too (for example a `Who: Theo` line)?
 - Month style: Soft is the default here because the special days work was designed on it. Do we still want Classic as an option, or can it be dropped?
 - Takeover art: is a full-wall layer behind solid tiles (§6.3) right, or should the art only fill the side panel's lower area, as in the mock?
 - Tile tint: the mock tints a birthday with the child's colour, but the admin page has no colour picker. This doc takes the tint from the palette. Should a special day be linkable to a person instead?

@@ -84,6 +84,13 @@ export const syncStatus = sqliteTable('sync_status', {
   /** Validators for conditional ICS fetches. */
   etag: text('etag'),
   lastModified: text('last_modified'),
+  /**
+   * What the stored events were expanded for: the sync window, the time zone
+   * and the default person. The validators above only apply while it still
+   * matches, because a feed that hasn't changed still needs re-expanding when
+   * the window moves.
+   */
+  expansionKey: text('expansion_key'),
   eventCount: integer('event_count').notNull().default(0),
 })
 

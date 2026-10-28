@@ -42,6 +42,8 @@ In the config, `key: !secret some_name` takes its value from `some_name` in `sec
 | `WALLCAL_DATA_DIR` | Folder for the database and other app data. Default `/data` (`.data/` under `pnpm dev`). |
 | `WALLCAL_MIGRATIONS_DIR` | Folder holding the SQL migrations. Normally not needed. |
 
+Events are kept for a rolling window of whole months around the current one: 12 months back and 12 ahead unless `sync.months_back` and `sync.months_ahead` say otherwise. Recurring events are expanded into single events inside it. The month picker on the remote reaches 12 months either side, so a smaller window leaves the months beyond it empty. Calendar sources are synced by the library in `calendar-app/server/sources/` (ICS so far). The scheduler that runs it arrives in PR 1.2, so nothing syncs yet.
+
 ### Database
 
 Events, sync status, display state, photo records and special days are stored in SQLite (`better-sqlite3`, with Drizzle ORM). The database is `wallcal.db` in the data folder, which is `/data` in production and `calendar-app/.data/` under `pnpm dev` (git-ignored). Set `WALLCAL_DATA_DIR` to use another folder. The folder is created if it is missing, and the server stops at start-up with a message if it can't open the database there.

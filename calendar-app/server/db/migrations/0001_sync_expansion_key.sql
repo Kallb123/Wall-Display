@@ -1,0 +1,1 @@
+ALTER TABLE `sync_status` ADD `expansion_key` text;

@@ -9,6 +9,9 @@ export default defineConfig({
           name: 'unit',
           include: ['test/unit/**/*.{test,spec}.ts'],
           environment: 'node',
+          // Not the display zone, and not UTC. Anything that quietly uses the
+          // process's local time gets the wrong answer here and fails a test.
+          env: { TZ: 'Pacific/Auckland' },
         },
       },
       {

@@ -89,7 +89,8 @@ Possible later upgrade: use the Google Calendar API directly, with incremental `
 
 - Each source has its own poll interval. Defaults: ICS every 2 minutes, HA every 5 minutes.
 - ICS fetches use `ETag` / `If-Modified-Since` so most polls cost almost nothing.
-- Recurring events are expanded server-side (`ical.js`, which handles `RRULE`, `EXDATE` and `RECURRENCE-ID` overrides) over a rolling window of whole months: from the start of the month 12 months ago to the end of the month 12 months ahead. The window is this wide because the remote's month picker can reach that far (see §7.5). It is configurable. A family calendar over 25 months is a few thousand rows, so expanding and storing it is cheap.
+  The validators are only sent while the stored events were expanded for the same window, time zone and default person. When the month rolls over, a window setting changes or the zone changes, the next fetch is unconditional, because a feed that hasn't changed still needs re-expanding.
+- Recurring events are expanded server-side (`ical.js`, which handles `RRULE`, `EXDATE` and `RECURRENCE-ID` overrides) over a rolling window of whole months: from the start of the month 12 months ago to the end of the month 12 months ahead. The window is this wide because the remote's month picker can reach that far (see §7.5). It is configurable with `sync.months_back` and `sync.months_ahead` (0 to 60 months each, default 12). A family calendar over 25 months is a few thousand rows, so expanding and storing it is cheap. Each calendar's window is replaced inside one transaction, and only the rows that changed are written.
 - Events are normalised to one model and stored in SQLite:
 
 ```text
@@ -97,7 +98,7 @@ Event { id, calendar_id, person_ids, title, display_title, start, end, all_day, 
 ```
 
 - `person_ids` and `display_title` come from person detection (§3.3). `title` is kept as the source had it.
-- Times are stored in UTC and rendered in `Europe/London`. Changes into and out of daylight saving time are handled by the timezone library (Luxon / `Intl`), not by hand.
+- Times are stored in UTC and rendered in `Europe/London`. Changes into and out of daylight saving time are handled by the timezone library (Luxon / `Intl`), not by hand. A recurring event keeps its wall-clock time across the change (09:00 stays 09:00). A wall time the spring change skips (01:30 in London on the last Sunday of March) moves forward by the gap, and one the autumn change repeats means the first of the two.
 - When anything changes, the app pushes `events.updated` over WebSocket and the display re-renders. Nothing reloads the page.
 - A **manual refresh** (from a button in HA or on the remote) forces an immediate poll of every source.
 

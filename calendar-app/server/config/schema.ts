@@ -128,6 +128,13 @@ const policies = z.strictObject({
   }).prefault({}),
 })
 
+// The rolling window of events kept in the database, in whole months around
+// the current month. The remote's month picker reaches 12 months either side.
+const sync = z.strictObject({
+  months_back: z.number().int().min(0).max(60).default(12),
+  months_ahead: z.number().int().min(0).max(60).default(12),
+})
+
 const photos = z.strictObject({
   interval_seconds: z.number().int().min(5).default(60),
   landscape_only: z.boolean().default(false),
@@ -196,6 +203,7 @@ export function createConfigSchema(baseDir: string) {
       pin: z.string('must be 4 to 12 digits, in quotes (for example "0123")').regex(/^\d{4,12}$/, 'must be 4 to 12 digits (quote it)').optional(),
     }).optional(),
     policies: policies.prefault({}),
+    sync: sync.prefault({}),
     photos: photos.optional(),
   }).superRefine(crossChecks)
 }
@@ -268,5 +276,6 @@ export type DisplayConfig = AppConfig['displays'][number]
 export type ButtonConfig = AppConfig['button']
 export type ButtonAction = ButtonConfig['single']
 export type PoliciesConfig = AppConfig['policies']
+export type SyncConfig = AppConfig['sync']
 export type PhotosConfig = NonNullable<AppConfig['photos']>
 export type HomeAssistantConfig = NonNullable<AppConfig['homeassistant']>

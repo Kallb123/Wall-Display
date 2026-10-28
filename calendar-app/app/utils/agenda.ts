@@ -101,32 +101,26 @@ function entriesOn(events: CalendarEvent[], date: string, isToday: boolean, now:
 }
 
 /**
- * Trims a day to `maxRows` rows. If everything doesn't fit, one row becomes
- * "+N more" and N items go: today's past events first, earliest first (they
- * are the least use), then whatever is last.
+ * Trims a day to `maxRows` rows. Today's past events go first, earliest first
+ * and without a mention: they are the least use, and "+N more" is for what is
+ * still to come. If that isn't enough, one row becomes "+N more" and the last
+ * items go, timed before all-day.
  */
 function fit(allDay: Entry[], timed: Entry[], isToday: boolean, maxRows: number): { allDay: Entry[], timed: Entry[], more: number } {
-  const total = allDay.length + timed.length
-  if (total <= maxRows) return { allDay, timed, more: 0 }
-
-  const more = total - (maxRows - 1)
-  let remaining = more
   let keptTimed = timed
+  const excess = allDay.length + timed.length - maxRows
+  if (excess <= 0) return { allDay, timed, more: 0 }
 
   if (isToday) {
-    const dropped = new Set<Entry>()
-    for (const entry of timed) {
-      if (dropped.size === remaining) break
-      if (entry.item.past) dropped.add(entry)
-    }
-    keptTimed = timed.filter(entry => !dropped.has(entry))
-    remaining -= dropped.size
+    const past = timed.filter(entry => entry.item.past).slice(0, excess)
+    keptTimed = timed.filter(entry => !past.includes(entry))
+    if (excess <= past.length) return { allDay, timed: keptTimed, more: 0 }
   }
 
-  const cutTimed = Math.min(remaining, keptTimed.length)
+  const more = allDay.length + keptTimed.length - (maxRows - 1)
+  const cutTimed = Math.min(more, keptTimed.length)
   keptTimed = keptTimed.slice(0, keptTimed.length - cutTimed)
-  remaining -= cutTimed
-  return { allDay: allDay.slice(0, allDay.length - remaining), timed: keptTimed, more }
+  return { allDay: allDay.slice(0, allDay.length - (more - cutTimed)), timed: keptTimed, more }
 }
 
 /** Today and tomorrow in the display's zone, ready to draw. Always two days, whatever the events. */

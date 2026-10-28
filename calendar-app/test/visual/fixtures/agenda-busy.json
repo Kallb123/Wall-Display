@@ -144,6 +144,32 @@
     ]
   },
   {
+    "id": 14,
+    "calendar_id": "family",
+    "title": "Lunch with Nana",
+    "display_title": "Lunch with Nana",
+    "location": null,
+    "start": "2026-10-28T12:00:00.000Z",
+    "end": "2026-10-28T13:30:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "mum",
+        "name": "Mum",
+        "initial": "M",
+        "colour": "#C67139"
+      },
+      {
+        "id": "poppy",
+        "name": "Poppy",
+        "initial": "P",
+        "colour": "#9A7BC4"
+      }
+    ]
+  },
+  {
     "id": 4,
     "calendar_id": "family",
     "title": "Swimming",
@@ -184,6 +210,26 @@
     ]
   },
   {
+    "id": 16,
+    "calendar_id": "family",
+    "title": "Piano practice",
+    "display_title": "Piano practice",
+    "location": null,
+    "start": "2026-10-28T17:15:00.000Z",
+    "end": "2026-10-28T17:45:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "theo",
+        "name": "Theo",
+        "initial": "T",
+        "colour": "#5F94C4"
+      }
+    ]
+  },
+  {
     "id": 6,
     "calendar_id": "family",
     "title": "Dinner at the Hendersons",
@@ -212,6 +258,26 @@
         "name": "Theo",
         "initial": "T",
         "colour": "#5F94C4"
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "calendar_id": "family",
+    "title": "Bath and bed",
+    "display_title": "Bath and bed",
+    "location": null,
+    "start": "2026-10-28T19:30:00.000Z",
+    "end": "2026-10-28T20:00:00.000Z",
+    "all_day": false,
+    "start_date": null,
+    "end_date": null,
+    "people": [
+      {
+        "id": "poppy",
+        "name": "Poppy",
+        "initial": "P",
+        "colour": "#9A7BC4"
       }
     ]
   },

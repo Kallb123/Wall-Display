@@ -5,8 +5,9 @@ import empty from './fixtures/agenda-empty.json' with { type: 'json' }
 import long from './fixtures/agenda-long.json' with { type: 'json' }
 
 // The agenda view at the frozen clock (Wed 28 Oct 2026, 09:41 in London).
-// Today's busy fixture has more events than fit, one that is over, one on now
-// and some to come, so the "now" marker and "+N more" both show.
+// Today's busy fixture has more events than fit even once the three that are
+// over are dropped, with one on now and the rest to come, so the "now" marker
+// and "+N more" both show.
 
 test('a busy day, light theme', async ({ page }) => {
   await playServer(page, { view: 'agenda' }, busy)

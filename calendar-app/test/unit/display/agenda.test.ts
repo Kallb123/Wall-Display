@@ -238,9 +238,13 @@ describe('agendaDays', () => {
       return timed(`2026-10-28T${hour}:00:00Z`, `2026-10-28T${hour}:50:00Z`, `E${i}`)
     })
 
+    /** The same events a day later, so nothing has passed on the clock. */
+    const tomorrowOf = (events: CalendarEvent[]) => events.map(event => ({ ...event, start: event.start.replace('-28T', '-29T'), end: event.end.replace('-28T', '-29T') }))
+
     it('has room for eight rows by default', () => {
       expect(DEFAULT_MAX_ROWS).toBe(8)
-      const [fits, over] = [agendaDays(hourly(8), NOW, LONDON)[0], agendaDays(hourly(9), NOW, LONDON)[0]]
+      const [, fits] = agendaDays(tomorrowOf(hourly(8)), NOW, LONDON)
+      const [, over] = agendaDays(tomorrowOf(hourly(9)), NOW, LONDON)
 
       expect(fits.timed).toHaveLength(8)
       expect(fits.more).toBe(0)
@@ -248,33 +252,32 @@ describe('agendaDays', () => {
       expect(over.more).toBe(2)
     })
 
-    it('drops past events first, earliest first, then keeps the rest', () => {
-      // At 09:41 E0 to E9 have started and E0 to E8 are over; E9 is on now.
+    it('drops past events first, earliest first, without a "+N more"', () => {
+      // At 09:41 E0 to E8 are over, E9 is on now, and E10 and E11 are to come.
       const [today] = agendaDays(hourly(12), NOW, LONDON, { maxRows: 6 })
 
-      expect(titles(today.timed)).toEqual(['E7', 'E8', 'E9', 'E10', 'E11'])
-      expect(today.more).toBe(7)
+      expect(titles(today.timed)).toEqual(['E6', 'E7', 'E8', 'E9', 'E10', 'E11'])
+      expect(today.more).toBe(0)
     })
 
     it('keeps the marker in the right place after dropping past events', () => {
       const [today] = agendaDays(hourly(12), NOW, LONDON, { maxRows: 6 })
 
-      // E7 and E8 are over and E9 is on now: the marker is before E10, third of E7 to E11 once E0 to E6 are gone.
-      expect(titles(today.timed)).toEqual(['E7', 'E8', 'E9', 'E10', 'E11'])
-      expect(today.marker).toBe(3)
+      // The marker goes before E10, the first not yet started.
+      expect(today.marker).toBe(4)
     })
 
-    it('cuts from the end when dropping the past is not enough', () => {
-      // E0 to E9 started by 09:41; with only 3 slots and 12 events, E9 (on now), E10 and E11 can't all stay.
-      const [today] = agendaDays(hourly(12), NOW, LONDON, { maxRows: 4 })
+    it('counts only what is still to come when dropping the past is not enough', () => {
+      // Without the nine past events there are still three, for two rows.
+      const [today] = agendaDays(hourly(12), NOW, LONDON, { maxRows: 2 })
 
-      expect(titles(today.timed)).toEqual(['E9', 'E10', 'E11'])
-      expect(today.more).toBe(9)
+      expect(titles(today.timed)).toEqual(['E9'])
+      expect(today.more).toBe(2)
+      expect(today.marker).toBe(1)
     })
 
     it('cuts from the end on tomorrow, whatever has passed on the clock', () => {
-      const events = hourly(12).map(event => ({ ...event, start: event.start.replace('-28T', '-29T'), end: event.end.replace('-28T', '-29T') }))
-      const [, tomorrow] = agendaDays(events, NOW, LONDON, { maxRows: 5 })
+      const [, tomorrow] = agendaDays(tomorrowOf(hourly(12)), NOW, LONDON, { maxRows: 5 })
 
       expect(titles(tomorrow.timed)).toEqual(['E0', 'E1', 'E2', 'E3'])
       expect(tomorrow.more).toBe(8)

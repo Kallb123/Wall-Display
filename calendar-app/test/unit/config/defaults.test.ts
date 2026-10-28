@@ -67,6 +67,28 @@ describe('defaults', () => {
     expect(config.homeassistant).toBeUndefined()
   })
 
+  it('keeps a year of events either side of this month unless told otherwise', async () => {
+    const { config } = await load({ config: minimalConfig() })
+
+    expect(config.sync).toEqual({ months_back: 12, months_ahead: 12 })
+  })
+
+  it('fills in a partly given sync block', async () => {
+    const raw = minimalConfig()
+    raw.sync = { months_back: 3 }
+    const { config } = await load({ config: raw })
+
+    expect(config.sync).toEqual({ months_back: 3, months_ahead: 12 })
+  })
+
+  it('accepts a sync window of none or five years', async () => {
+    const raw = minimalConfig()
+    raw.sync = { months_back: 0, months_ahead: 60 }
+    const { config } = await load({ config: raw })
+
+    expect(config.sync).toEqual({ months_back: 0, months_ahead: 60 })
+  })
+
   it('fills in partly given blocks', async () => {
     const raw = minimalConfig()
     raw.button = { long: 'toggle_screen' }

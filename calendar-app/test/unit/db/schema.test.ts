@@ -112,6 +112,7 @@ describe('sync_status', () => {
       lastError: null,
       etag: null,
       lastModified: null,
+      expansionKey: null,
       eventCount: 0,
     })
 

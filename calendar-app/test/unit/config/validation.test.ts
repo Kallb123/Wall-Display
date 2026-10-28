@@ -145,6 +145,10 @@ describe('validation errors name the field', () => {
     ['an unknown button action', (c: Raw) => { c.button = { single: 'explode' } }, 'button.single'],
     ['quiet hours that are not times', (c: Raw) => { c.policies = { auto_presence: { quiet_hours: { from: '9pm', to: '06:00' } } } }, 'policies.auto_presence.quiet_hours.from'],
     ['a negative night_below_lux', (c: Raw) => { c.policies = { auto_brightness: { night_below_lux: -1 } } }, 'policies.auto_brightness.night_below_lux'],
+    ['a negative sync.months_back', (c: Raw) => { c.sync = { months_back: -1 } }, 'sync.months_back'],
+    ['sync.months_ahead above 60', (c: Raw) => { c.sync = { months_ahead: 61 } }, 'sync.months_ahead'],
+    ['a fractional sync.months_ahead', (c: Raw) => { c.sync = { months_ahead: 1.5 } }, 'sync.months_ahead'],
+    ['an unknown sync key', (c: Raw) => { c.sync = { months: 6 } }, 'sync.months: unknown setting'],
     ['photos interval below 5', (c: Raw) => { c.photos = { interval_seconds: 1 } }, 'photos.interval_seconds'],
     ['an immich URL that is not http(s)', (c: Raw) => { c.photos = { immich: { url: 'immich', api_key: 'k' } } }, 'photos.immich.url'],
   ])('%s', async (_name, change, path) => {

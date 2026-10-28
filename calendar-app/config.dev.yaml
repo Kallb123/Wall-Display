@@ -1,8 +1,8 @@
 # Config for `pnpm dev`: no secrets and no Home Assistant, so it loads as is.
 # `pnpm dev` uses this file when WALLCAL_CONFIG_FILE and WALLCAL_CONFIG_DIR are not set.
 #
-# The ICS fixtures under test/fixtures/ics/ arrive in PR 1.1. Until then these
-# calendars point at files that don't exist yet (config loading doesn't check).
+# The calendars below are the ICS fixtures in test/fixtures/ics/: a family
+# calendar and Dad's work calendar, set in October 2026 around Wed 28 Oct.
 # A relative file: URL is resolved from the folder holding this config file.
 
 timezone: Europe/London

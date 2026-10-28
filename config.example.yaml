@@ -93,6 +93,14 @@ policies:
     night_below_lux: 3 # optional; below this the night action applies
     night_action: night_view # none | night_view | screen_off
 
+# How many whole months of events are kept: this many before the current month
+# and this many after it (0-60 each, default 12 and 12). The remote's month
+# picker reaches 12 months either side, so smaller values leave the months
+# beyond them empty on the picker. Smaller windows also make each sync cheaper.
+sync:
+  months_back: 12
+  months_ahead: 12
+
 # Photo frame mode. Leave out if you don't use it.
 photos:
   interval_seconds: 60 # at least 5

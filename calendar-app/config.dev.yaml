@@ -1,0 +1,40 @@
+# Config for `pnpm dev`: no secrets and no Home Assistant, so it loads as is.
+# `pnpm dev` uses this file when WALLCAL_CONFIG_FILE and WALLCAL_CONFIG_DIR are not set.
+#
+# The ICS fixtures under test/fixtures/ics/ arrive in PR 1.1. Until then these
+# calendars point at files that don't exist yet (config loading doesn't check).
+# A relative file: URL is resolved from the folder holding this config file.
+
+timezone: Europe/London
+
+people:
+  - { id: mum, name: Mum, colour: "#C67139", aliases: [Mummy, Sarah] }
+  - { id: dad, name: Dad, colour: "#7A8A5E", aliases: [Daddy, Tom] }
+  - { id: isla, name: Isla, colour: "#D27FA0" }
+  - { id: theo, name: Theo, colour: "#5F94C4" }
+  - { id: poppy, name: Poppy, colour: "#9A7BC4", aliases: [Pops] }
+  - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
+
+calendars:
+  # One shared family calendar: names in titles and descriptions, plus keyword rules.
+  - id: family
+    name: Family
+    person: home
+    detect_people: true
+    strip_names: true
+    rules:
+      - { match: "ballet|brownies", people: [isla] }
+      - { match: "swimming|football", people: [theo] }
+      - { match: "rhyme time|playgroup|nursery", people: [poppy] }
+    source: { type: ics, url: "file:./test/fixtures/ics/family.ics" }
+
+  # A personal calendar: everything on it is Dad's.
+  - id: dad-work
+    name: Dad's work
+    person: dad
+    source: { type: ics, url: "file:./test/fixtures/ics/dad-work.ics" }
+
+displays:
+  - id: hallway
+    name: Hallway
+    theme: light

@@ -12,3 +12,10 @@ logs
 !.env.example
 coverage
 .DS_Store
+
+# Real config and secrets. Only the example and dev files are committed.
+config.yaml
+secrets.yaml
+!config.example.yaml
+!secrets.example.yaml
+!config.dev.yaml

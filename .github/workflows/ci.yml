@@ -32,6 +32,14 @@ jobs:
           cache-dependency-path: calendar-app/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+      - name: Check the migrations match the schema
+        run: |
+          pnpm db:generate
+          if [ -n "$(git status --porcelain -- server/db/migrations)" ]; then
+            git status --short -- server/db/migrations
+            echo "::error::server/db/schema.ts changed without a migration. Run 'pnpm db:generate' and commit the result."
+            exit 1
+          fi
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test

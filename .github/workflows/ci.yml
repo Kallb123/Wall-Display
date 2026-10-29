@@ -139,3 +139,11 @@ jobs:
       - name: Show the container logs
         if: failure()
         run: docker logs wallcal || true
+
+  kiosk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # shellcheck is preinstalled on the GitHub-hosted Ubuntu runners.
+      - run: shellcheck kiosk/setup.sh kiosk/bin/* kiosk/test/*.sh
+      - run: kiosk/test/run.sh

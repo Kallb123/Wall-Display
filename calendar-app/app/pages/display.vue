@@ -160,6 +160,9 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
         />
       </Transition>
 
+      <!-- Outside the view's transition, so a view change doesn't fade it out and back. Under the dimmer, so screen off blacks it out too. -->
+      <OverlayBanner v-if="!unknown" :overlay="state.overlay" :now="now" />
+
       <OfflineBadge :status="socket.status.value" />
 
       <div class="dimmer" data-testid="dimmer" :style="{ opacity: dimming }" />

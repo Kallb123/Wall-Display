@@ -61,7 +61,7 @@ Who an event is for (its people) and the title shown on the wall are worked out 
 
 With an `mqtt` block in the config, each display keeps its state on an MQTT broker and takes commands from it. [`contracts/mqtt.json`](contracts/mqtt.json) is the reference: every topic, its direction, whether it is retained, and a JSON Schema for its payload. Everything lives under `wallcal/<display id>/`, as text:
 
-- The app publishes the state, retained: `view/state`, `month/state` (the month the month view shows, as `YYYY-MM`), `screen/state`, `photo_source/state`, `brightness/state`, `auto_presence/state` and `auto_brightness/state` (`ON` or `OFF`). A change is published when it happens, and everything is published again whenever the connection to the broker is made.
+- The app publishes the state, retained: `view/state`, `month/state` (the month the month view shows, as `YYYY-MM`), `screen/state`, `photo_source/state`, `brightness/state`, `auto_presence/state` and `auto_brightness/state` (`ON` or `OFF`). A change is published when it happens, and everything is published again whenever the connection to the broker is made. `last_sync/state` is when the last calendar sync succeeded, as a UTC time like `2026-10-28T12:00:00.000Z`. It is not published until a calendar has synced.
 - The app subscribes to `view/set`, `month/set`, `screen/set`, `photo_source/set`, `brightness/set`, `auto_presence/set`, `auto_brightness/set`, `overlay/set`, `photo/next` and `refresh`. A payload that doesn't fit its topic is ignored and logged. A retained message on one of these topics is ignored too, so it isn't replayed at every reconnect; publish an empty retained message there to remove it from the broker.
 - `availability` is `online` while the app is connected. The broker publishes `offline` (the last will) if the app dies, and the app publishes it itself on a clean stop. The app opens one connection per display, named `<client_id>-<display id>`, so that each display has its own last will.
 
@@ -73,6 +73,14 @@ To watch it and to send a command, with the Mosquitto tools:
 mosquitto_sub -h localhost -t 'wallcal/#' -v
 mosquitto_pub -h localhost -t wallcal/hallway/view/set -m agenda
 ```
+
+#### Home Assistant
+
+The app also publishes MQTT discovery configs, so Home Assistant creates a "Wall Calendar" device for each display with no YAML. With more than one display the devices are named "Wall Calendar Hallway" and so on. The device has a view select, a "Month shown" sensor, previous, next and this month buttons, a screen switch, a photo source select, a brightness slider, auto presence and auto brightness switches, a message text box (it shows a banner on the wall; clear the box to remove it), next photo and refresh buttons, and a "Last sync" sensor.
+
+The configs are retained, so it makes no difference whether the app or Home Assistant starts first. If Home Assistant restarts, it announces `online` on `homeassistant/status`, and the app publishes the configs again. The entities show as unavailable while the app is offline (they follow `availability`). If Home Assistant listens on a different discovery prefix, set `discovery_prefix` under `mqtt`. Set `discovery: false` to turn all of this off.
+
+To remove a device, delete it in Home Assistant, and set `discovery: false` or the app will bring it back at the next start. Or publish an empty retained message on each `homeassistant/<type>/wallcal_<display id>/<entity>/config` topic.
 
 ### Database
 

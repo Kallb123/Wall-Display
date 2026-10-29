@@ -14,6 +14,8 @@ export interface BusEvents {
   'state.updated': { displayId: string, state: DisplayState }
   /** Someone asked the display to show the next photo. */
   'photo.next': { displayId: string }
+  /** A calendar synced successfully, whether or not its events changed. */
+  'sync.succeeded': { calendarId: string }
 }
 
 export type BusHandler<Name extends keyof BusEvents> = (payload: BusEvents[Name]) => void

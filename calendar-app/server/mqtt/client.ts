@@ -4,16 +4,20 @@ import type { DisplayState } from '../../shared/display'
 import type { MqttConfig } from '../config/schema'
 import type { DisplayControl } from '../control/service'
 import type { EventBus } from '../events/bus'
-import { AVAILABILITY_TOPIC, COMMAND_TOPICS, OFFLINE, ONLINE, parseCommandPayload, parseCommandTopic, statePayloads, topicFor } from './topics'
+import { BIRTH_ONLINE, birthTopic, discoveryMessages } from './discovery'
+import { AVAILABILITY_TOPIC, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseCommandTopic, statePayloads, topicFor } from './topics'
 import type { StateTopic } from './topics'
 
 // Keeps each display's state on an MQTT broker and takes commands from it
 // (architecture §7.3, contracts/mqtt.json). MQTT allows one last will per
 // connection and availability is per display, so each display gets its own
-// connection. This file decides when to connect, retry and publish; the
-// topics and payloads are in topics.ts, and the MQTT client itself is
-// injected, so a test drives it with a fake and fake timers. A broker that is
-// missing or down never stops the app: nothing here throws or waits for it.
+// connection. With discovery on, it also publishes Home Assistant's entity
+// configs for the display on every connect, and again when Home Assistant
+// says it has restarted. This file decides when to connect, retry and publish;
+// the topics and payloads are in topics.ts and discovery.ts, and the MQTT
+// client itself is injected, so a test drives it with a fake and fake timers.
+// A broker that is missing or down never stops the app: nothing here throws
+// or waits for it.
 
 /** The part of an MQTT.js client the bridge uses, so a test can pass a fake. */
 export interface MqttLink {
@@ -40,8 +44,10 @@ const connectWithMqttJs = (url: string, options: IClientOptions): MqttLink => mq
 
 export interface MqttBridgeOptions {
   config: MqttConfig
-  /** The displays in the config: each one gets a connection. */
-  displays: readonly { id: string }[]
+  /** The displays in the config: each one gets a connection. The name is what Home Assistant calls the device when there is more than one display. */
+  displays: readonly { id: string, name: string }[]
+  /** When the last calendar sync succeeded, for `last_sync/state`. Called on every check, so it should be cheap. Default: never synced. */
+  lastSync?: () => Date | null
   /** The display time zone, which decides what the current month is. */
   timeZone: string
   control: Pick<DisplayControl, 'getState' | 'applyCommand'>
@@ -91,11 +97,12 @@ export function reconnectDelayMs(failures: number, random: number): number {
 
 interface Link {
   displayId: string
+  displayName: string
   client: MqttLink | undefined
   state: MqttBridgeStatus['state']
   lastError: string | null
-  /** What this connection last published on each state topic. Emptied on every connect, so a connect publishes everything. */
-  published: Map<StateTopic, string>
+  /** What this connection last published on each state topic (and on `last_sync/state`). Emptied on every connect, so a connect publishes everything. */
+  published: Map<StateTopic | typeof LAST_SYNC_TOPIC, string>
   /** Connections that failed or dropped since the last one that lasted `STABLE_MS`. */
   failures: number
   /** When the current connection came up, in ms. */
@@ -106,7 +113,7 @@ interface Link {
 }
 
 export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
-  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console } = options
+  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, lastSync = () => null } = options
   // The scheme, host and port only. The credentials are in `config`, not the URL.
   const broker = new URL(config.url)
   const brokerName = `${broker.protocol}//${broker.host}`
@@ -122,8 +129,9 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     return message
   }
 
-  const links: Link[] = options.displays.map(({ id }) => ({
+  const links: Link[] = options.displays.map(({ id, name }) => ({
     displayId: id,
+    displayName: name,
     client: undefined,
     state: 'connecting',
     lastError: null,
@@ -134,13 +142,40 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     retry: undefined,
   }))
 
-  function publish(link: Link, topic: string, payload: string, onError?: () => void): void {
-    link.client!.publish(topicFor(link.displayId, topic), payload, { qos: 1, retain: true }, (error) => {
+  /** Publishes retained at QoS 1 on `topic`, which is the whole topic. `name` is what a warning calls it. */
+  function send(link: Link, topic: string, name: string, payload: string, onError?: () => void): void {
+    link.client!.publish(topic, payload, { qos: 1, retain: true }, (error) => {
       if (!error) return
       // A publish that was still waiting when the connection dropped. The reconnect publishes everything again.
       onError?.()
-      if (link.state === 'connected') log.warn(`[mqtt] ${link.displayId}: could not publish ${topic}: ${describe(error)}`)
+      if (link.state === 'connected') log.warn(`[mqtt] ${link.displayId}: could not publish ${name}: ${describe(error)}`)
     })
+  }
+
+  /** Publishes on one of the display's own topics, such as `view/state`: `suffix` goes after `wallcal/<display id>/`. */
+  function publish(link: Link, suffix: string, payload: string, onError?: () => void): void {
+    send(link, topicFor(link.displayId, suffix), suffix, payload, onError)
+  }
+
+  /** Publishes Home Assistant's config for each of the display's entities. Their topics are under the discovery prefix, not the display's. */
+  function publishDiscovery(link: Link): void {
+    const messages = discoveryMessages({
+      prefix: config.discovery_prefix,
+      display: { id: link.displayId, name: link.displayName },
+      displayCount: links.length,
+    })
+    for (const { topic, payload } of messages) send(link, topic, topic, payload)
+  }
+
+  /** `last_sync/state`'s payload, or nothing before the first sync. A getter that fails is logged and skipped, so the state topics still go out. */
+  function lastSyncEntry(link: Link): [typeof LAST_SYNC_TOPIC, string][] {
+    try {
+      const at = lastSync()
+      return at ? [[LAST_SYNC_TOPIC, lastSyncPayload(at)]] : []
+    } catch (error) {
+      log.error(`[mqtt] ${link.displayId}: could not read the last sync time: ${describe(error)}`)
+      return []
+    }
   }
 
   /** Publishes the state topics whose payload is not what this connection last published. */
@@ -153,7 +188,8 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       log.error(`[mqtt] ${link.displayId}: could not read the state: ${describe(error)}`)
       return
     }
-    for (const [topic, payload] of Object.entries(statePayloads(state, now(), timeZone)) as [StateTopic, string][]) {
+    const entries = [...Object.entries(statePayloads(state, now(), timeZone)) as [StateTopic, string][], ...lastSyncEntry(link)]
+    for (const [topic, payload] of entries) {
       if (link.published.get(topic) === payload) continue
       link.published.set(topic, payload)
       // Forget a payload that didn't get through, so the next check sends it again.
@@ -172,7 +208,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     link.published.clear()
 
     publish(link, AVAILABILITY_TOPIC, ONLINE)
+    if (config.discovery) publishDiscovery(link)
     const topics = COMMAND_TOPICS.map(suffix => topicFor(link.displayId, suffix))
+    // Home Assistant's birth message is how it asks for the configs again after a restart.
+    if (config.discovery) topics.push(birthTopic(config.discovery_prefix))
     client.subscribe(topics, { qos: 1 }, (error, granted) => {
       if (error) {
         if (!stopped) log.warn(`[mqtt] ${link.displayId}: could not subscribe to the command topics: ${describe(error)}`)
@@ -215,6 +254,14 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   }
 
   function onMessage(link: Link, topic: string, payload: Buffer, retained: boolean): void {
+    if (config.discovery && topic === birthTopic(config.discovery_prefix)) {
+      // A retained `online` is old news: the connect that subscribed has just published every config.
+      if (!retained && !stopped && link.state === 'connected' && payload.toString('utf8') === BIRTH_ONLINE) {
+        log.info(`[mqtt] ${link.displayId}: Home Assistant says it is online, so the discovery configs are published again`)
+        publishDiscovery(link)
+      }
+      return
+    }
     const parsedTopic = parseCommandTopic(topic)
     if (!parsedTopic || parsedTopic.displayId !== link.displayId) return
     // A retained command would run again on every connect. Publish it empty to clear it from the broker.
@@ -279,6 +326,8 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     const link = links.find(candidate => candidate.displayId === displayId)
     if (link) publishState(link)
   })
+  // A sync changes `last_sync/state` and nothing else, so nothing else would tell the bridge.
+  const unsubscribeSync = bus.on('sync.succeeded', () => links.forEach(publishState))
   const recheck = setInterval(() => links.forEach(publishState), RECHECK_MS)
   recheck.unref()
 
@@ -320,6 +369,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         // Before anything is awaited, so nothing new is published or retried.
         stopped = true
         unsubscribe()
+        unsubscribeSync()
         clearInterval(recheck)
         await Promise.all(links.map(close))
       })()

@@ -7,7 +7,8 @@ import { defaultDisplayState, reduceCommand } from '../../../server/control/comm
 import { createEventBus } from '../../../server/events/bus'
 import { createMqttBridge, MAX_RECONNECT_MS, RECHECK_MS, reconnectDelayMs, STABLE_MS, STOP_WAIT_MS } from '../../../server/mqtt/client'
 import type { MqttBridge, MqttLink } from '../../../server/mqtt/client'
-import { COMMAND_TOPICS, STATE_TOPICS } from '../../../server/mqtt/topics'
+import { discoveryMessages } from '../../../server/mqtt/discovery'
+import { COMMAND_TOPICS, lastSyncPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
 
 // The bridge with a fake MQTT client and fake timers: no network. The fake
 // records what is published and subscribed, and the test plays the broker by
@@ -17,7 +18,7 @@ import { COMMAND_TOPICS, STATE_TOPICS } from '../../../server/mqtt/topics'
 const SECOND = 1000
 const START = new Date('2026-10-28T12:00:00Z')
 const PASSWORD = 'hunter2-secret'
-const CONFIG: MqttConfig = { url: 'mqtt://broker.local:1883', username: 'wallcal', password: PASSWORD, client_id: 'wallcal' }
+const CONFIG: MqttConfig = { url: 'mqtt://broker.local:1883', username: 'wallcal', password: PASSWORD, client_id: 'wallcal', discovery: true, discovery_prefix: 'homeassistant' }
 
 interface Published {
   topic: string
@@ -96,7 +97,7 @@ class FakeClient extends EventEmitter implements MqttLink {
 
 const bridges: MqttBridge[] = []
 
-function setup(options: { displays?: string[], config?: MqttConfig, random?: () => number } = {}) {
+function setup(options: { displays?: string[], config?: MqttConfig, random?: () => number, lastSync?: () => Date | null } = {}) {
   const displays = options.displays ?? ['hallway']
   const bus = createEventBus()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -125,7 +126,9 @@ function setup(options: { displays?: string[], config?: MqttConfig, random?: () 
 
   const bridge = createMqttBridge({
     config: options.config ?? CONFIG,
-    displays: displays.map(id => ({ id })),
+    // The name is the id with a capital: hallway is "Hallway".
+    displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) })),
+    lastSync: options.lastSync,
     timeZone: 'Europe/London',
     control,
     bus,
@@ -187,7 +190,7 @@ describe('connecting', () => {
   })
 
   it('sends no credentials when the config has none', () => {
-    const { client } = setup({ config: { url: 'mqtts://broker.local', client_id: 'house' } })
+    const { client } = setup({ config: { url: 'mqtts://broker.local', client_id: 'house', discovery: true, discovery_prefix: 'homeassistant' } })
 
     expect(client().options).toMatchObject({ clientId: 'house-hallway' })
     expect(client().options).not.toHaveProperty('username')
@@ -207,7 +210,7 @@ describe('connecting', () => {
   })
 
   it('says online first, then subscribes to every command topic at QoS 1, then publishes all of the state, retained at QoS 1', () => {
-    const { client, log } = setup()
+    const { client, log } = setup({ config: { ...CONFIG, discovery: false } })
 
     client().up()
 
@@ -226,6 +229,20 @@ describe('connecting', () => {
       'auto_brightness/state': 'ON',
     })
     expect(log.info).toHaveBeenCalledWith('[mqtt] hallway: connected to mqtt://broker.local:1883')
+  })
+
+  it('says online, then the discovery configs, then the state, in that order', () => {
+    const { client } = setup()
+
+    client().up()
+
+    const topics = client().published.map(message => message.topic)
+    const configs = discoveryMessages({ prefix: 'homeassistant', display: { id: 'hallway', name: 'Hallway' }, displayCount: 1 }).map(message => message.topic)
+    expect(topics).toEqual([
+      'wallcal/hallway/availability',
+      ...configs,
+      ...STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`),
+    ])
   })
 
   it('does not wait for a broker: a bridge with nothing answering has only started connecting', () => {
@@ -427,6 +444,268 @@ describe('commands', () => {
   })
 })
 
+describe('Home Assistant discovery', () => {
+  const messagesFor = (id: string, name: string, displayCount = 1, prefix = 'homeassistant') => discoveryMessages({ prefix, display: { id, name }, displayCount })
+  /** What was published that is a discovery config, not a `wallcal/` topic. */
+  const configsIn = (client: FakeClient) => client.published.filter(message => !message.topic.startsWith('wallcal/'))
+
+  it('publishes every config on connect, retained at QoS 1', () => {
+    const { client } = setup()
+
+    client().up()
+
+    const expected = messagesFor('hallway', 'Hallway')
+    expect(expected.length).toBeGreaterThan(0)
+    expect(configsIn(client())).toEqual(expected.map(message => ({ ...message, qos: 1, retain: true })))
+  })
+
+  it('publishes them again on a reconnect, for a broker that has forgotten them', () => {
+    const { client } = setup()
+    client().up()
+    client().down()
+    vi.advanceTimersByTime(SECOND)
+    client().clear()
+
+    client().up()
+
+    expect(configsIn(client())).toEqual(messagesFor('hallway', 'Hallway').map(message => ({ ...message, qos: 1, retain: true })))
+  })
+
+  it('publishes each display\'s own configs on its own connection', () => {
+    const { client } = setup({ displays: ['hallway', 'kitchen'] })
+
+    client('hallway').up()
+    client('kitchen').up()
+
+    expect(configsIn(client('hallway')).map(({ topic, payload }) => ({ topic, payload }))).toEqual(messagesFor('hallway', 'Hallway', 2))
+    expect(configsIn(client('kitchen')).map(({ topic, payload }) => ({ topic, payload }))).toEqual(messagesFor('kitchen', 'Kitchen', 2))
+  })
+
+  it('names the device "Wall Calendar" for one display, and "Wall Calendar <name>" for two or more', () => {
+    const deviceNames = (client: FakeClient) => [...new Set(configsIn(client).map(message => (JSON.parse(message.payload) as { device: { name: string } }).device.name))]
+    const one = setup()
+    one.client().up()
+    const two = setup({ displays: ['hallway', 'kitchen'] })
+    two.client('hallway').up()
+    two.client('kitchen').up()
+
+    expect(deviceNames(one.client())).toEqual(['Wall Calendar'])
+    expect(deviceNames(two.client('hallway'))).toEqual(['Wall Calendar Hallway'])
+    expect(deviceNames(two.client('kitchen'))).toEqual(['Wall Calendar Kitchen'])
+  })
+
+  it('uses the discovery prefix from the config', () => {
+    const { client } = setup({ config: { ...CONFIG, discovery_prefix: 'ha/discovery' } })
+
+    client().up()
+
+    expect(configsIn(client()).map(({ topic, payload }) => ({ topic, payload }))).toEqual(messagesFor('hallway', 'Hallway', 1, 'ha/discovery'))
+    expect(client().subscribed[0]!.topics).toContain('ha/discovery/status')
+    expect(client().subscribed[0]!.topics).not.toContain('homeassistant/status')
+
+    client().clear()
+    client().message('homeassistant/status', 'online')
+    expect(client().published).toEqual([])
+    client().message('ha/discovery/status', 'online')
+    expect(configsIn(client())).toHaveLength(messagesFor('hallway', 'Hallway').length)
+  })
+
+  it('subscribes to Home Assistant\'s birth topic along with the command topics', () => {
+    const { client } = setup()
+
+    client().up()
+
+    expect(client().subscribed).toEqual([{ topics: [...COMMAND_TOPICS.map(suffix => `wallcal/hallway/${suffix}`), 'homeassistant/status'], qos: 1 }])
+  })
+
+  it('publishes the configs again when Home Assistant says it is online', () => {
+    const { client, log } = setup()
+    client().up()
+    client().clear()
+    log.info.mockClear()
+
+    client().message('homeassistant/status', 'online')
+
+    expect(client().published).toEqual(messagesFor('hallway', 'Hallway').map(message => ({ ...message, qos: 1, retain: true })))
+    expect(log.info).toHaveBeenCalledTimes(1)
+    expect(log.info.mock.calls[0]![0]).toMatch(/^\[mqtt\] hallway: Home Assistant says it is online/)
+  })
+
+  it('answers the birth message on every display\'s connection', () => {
+    const { client } = setup({ displays: ['hallway', 'kitchen'] })
+    client('hallway').up()
+    client('kitchen').up()
+    client('hallway').clear()
+    client('kitchen').clear()
+
+    client('hallway').message('homeassistant/status', 'online')
+    client('kitchen').message('homeassistant/status', 'online')
+
+    expect(client('hallway').published.map(({ topic, payload }) => ({ topic, payload }))).toEqual(messagesFor('hallway', 'Hallway', 2))
+    expect(client('kitchen').published.map(({ topic, payload }) => ({ topic, payload }))).toEqual(messagesFor('kitchen', 'Kitchen', 2))
+  })
+
+  it('ignores a retained birth message, an offline one, and one on another prefix, without a word', () => {
+    const { client, log } = setup()
+    client().up()
+    client().clear()
+    log.info.mockClear()
+
+    client().message('homeassistant/status', 'online', true)
+    client().message('homeassistant/status', 'offline')
+    client().message('homeassistant/status', 'ONLINE')
+    client().message('other/status', 'online')
+    client().message('homeassistant/light/status', 'online')
+
+    expect(client().published).toEqual([])
+    expect(log.info).not.toHaveBeenCalled()
+    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it('publishes no config and has no birth subscription when discovery is off', () => {
+    const { client, log } = setup({ config: { ...CONFIG, discovery: false } })
+
+    client().up()
+
+    expect(configsIn(client())).toEqual([])
+    expect(client().subscribed).toEqual([{ topics: COMMAND_TOPICS.map(suffix => `wallcal/hallway/${suffix}`), qos: 1 }])
+
+    client().clear()
+    client().message('homeassistant/status', 'online')
+    expect(client().published).toEqual([])
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('warns about a config the broker did not take, naming its topic', () => {
+    const { client, log } = setup()
+    client().up()
+    const configTopic = messagesFor('hallway', 'Hallway')[0]!.topic
+    client().failNextPublish = new Error('Connection closed')
+    client().message('homeassistant/status', 'online')
+
+    expect(log.warn).toHaveBeenCalledWith(`[mqtt] hallway: could not publish ${configTopic}: Connection closed`)
+  })
+})
+
+describe('last sync', () => {
+  const TOPIC = 'wallcal/hallway/last_sync/state'
+  const SYNCED = new Date('2026-10-28T11:55:00Z')
+
+  it('publishes when the last sync was, retained at QoS 1, once there has been one', () => {
+    const { client } = setup({ lastSync: () => SYNCED })
+
+    client().up()
+
+    expect(client().published.filter(message => message.topic === TOPIC)).toEqual([
+      { topic: TOPIC, payload: '2026-10-28T11:55:00.000Z', qos: 1, retain: true },
+    ])
+    expect(client().payloadsOn(TOPIC)).toEqual([lastSyncPayload(SYNCED)])
+  })
+
+  it('publishes nothing on it before the first sync', () => {
+    const { client } = setup({ lastSync: () => null })
+
+    client().up()
+
+    expect(client().payloadsOn(TOPIC)).toEqual([])
+  })
+
+  it('publishes nothing on it when no getter is given', () => {
+    const { client } = setup()
+
+    client().up()
+
+    expect(client().payloadsOn(TOPIC)).toEqual([])
+  })
+
+  it('follows each successful sync, and publishes only what changed', () => {
+    let syncedAt: Date | null = null
+    const { client, bus } = setup({ lastSync: () => syncedAt })
+    client().up()
+    client().clear()
+
+    syncedAt = SYNCED
+    bus.emit('sync.succeeded', { calendarId: 'family' })
+    expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([[TOPIC, '2026-10-28T11:55:00.000Z']])
+
+    // A second calendar syncing earlier than the newest changes nothing.
+    client().clear()
+    bus.emit('sync.succeeded', { calendarId: 'bins' })
+    expect(client().published).toEqual([])
+
+    syncedAt = new Date('2026-10-28T11:57:00Z')
+    bus.emit('sync.succeeded', { calendarId: 'bins' })
+    expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([[TOPIC, '2026-10-28T11:57:00.000Z']])
+  })
+
+  it('goes out on every display\'s connection', () => {
+    let syncedAt: Date | null = null
+    const { client, bus } = setup({ displays: ['hallway', 'kitchen'], lastSync: () => syncedAt })
+    client('hallway').up()
+    client('kitchen').up()
+    client('hallway').clear()
+    client('kitchen').clear()
+
+    syncedAt = SYNCED
+    bus.emit('sync.succeeded', { calendarId: 'family' })
+
+    expect(client('hallway').payloadsOn(TOPIC)).toEqual(['2026-10-28T11:55:00.000Z'])
+    expect(client('kitchen').payloadsOn('wallcal/kitchen/last_sync/state')).toEqual(['2026-10-28T11:55:00.000Z'])
+  })
+
+  it('sends it again after a reconnect', () => {
+    const { client } = setup({ lastSync: () => SYNCED })
+    client().up()
+    client().down()
+    vi.advanceTimersByTime(SECOND)
+
+    client().up()
+
+    expect(client().payloadsOn(TOPIC)).toEqual([lastSyncPayload(SYNCED), lastSyncPayload(SYNCED)])
+  })
+
+  it('sends it again if the broker never took it', () => {
+    let syncedAt: Date | null = null
+    const { client, bus, log } = setup({ lastSync: () => syncedAt })
+    client().up()
+    client().clear()
+
+    syncedAt = SYNCED
+    client().failNextPublish = new Error('Connection closed')
+    bus.emit('sync.succeeded', { calendarId: 'family' })
+    expect(log.warn).toHaveBeenCalledWith('[mqtt] hallway: could not publish last_sync/state: Connection closed')
+
+    // The next check finds the topic still different from what the broker has.
+    vi.advanceTimersByTime(RECHECK_MS)
+    expect(client().payloadsOn(TOPIC)).toEqual([lastSyncPayload(SYNCED), lastSyncPayload(SYNCED)])
+  })
+
+  it('logs a getter that throws and still publishes the display state', () => {
+    const { client, log, bus } = setup({
+      lastSync: () => { throw new Error('database is locked') },
+    })
+
+    client().up()
+
+    expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not read the last sync time: database is locked')
+    expect(client().payloadsOn(TOPIC)).toEqual([])
+    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual(STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`))
+
+    expect(() => bus.emit('sync.succeeded', { calendarId: 'family' })).not.toThrow()
+    expect(log.error).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the password out of a getter\'s error', () => {
+    const { client, logged } = setup({ lastSync: () => { throw new Error(`failed for ${PASSWORD}`) } })
+
+    client().up()
+
+    expect(logged()).not.toContain(PASSWORD)
+    expect(logged()).toContain('***')
+  })
+})
+
 describe('reconnecting', () => {
   it('asks the client to reconnect after 1 s, then 2 s, 4 s and so on while the broker stays away', () => {
     const { client, bridge } = setup()
@@ -597,7 +876,7 @@ describe('errors', () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const bridge = createMqttBridge({
       config: CONFIG,
-      displays: [{ id: 'hallway' }],
+      displays: [{ id: 'hallway', name: 'Hallway' }],
       timeZone: 'Europe/London',
       control: { getState: () => defaultDisplayState(), applyCommand: () => defaultDisplayState() },
       bus: createEventBus(),
@@ -647,6 +926,17 @@ describe('stop', () => {
 
     control.applyCommand('hallway', { type: 'set_view', view: 'agenda' })
     vi.advanceTimersByTime(2 * RECHECK_MS)
+
+    expect(client().published).toEqual([])
+  })
+
+  it('stops following syncs', async () => {
+    const { bridge, client, bus } = setup({ lastSync: () => new Date('2026-10-28T11:55:00Z') })
+    client().up()
+    await bridge.stop()
+    client().clear()
+
+    bus.emit('sync.succeeded', { calendarId: 'family' })
 
     expect(client().published).toEqual([])
   })

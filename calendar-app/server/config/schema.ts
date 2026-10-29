@@ -149,12 +149,21 @@ const policies = z.strictObject({
   }).prefault({}),
 })
 
+// One or more `/`-separated segments. No `+` or `#`, which are wildcards in a topic filter, and no leading or trailing slash.
+const discoveryPrefix = z.string().regex(
+  /^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*$/,
+  'must be one or more topic levels of letters, digits, hyphens and underscores, such as homeassistant (no wildcards, no leading or trailing slash)',
+)
+
 // Left out, MQTT is off. Each display connects as `<client_id>-<display id>`.
+// `discovery` publishes Home Assistant's discovery configs, under `discovery_prefix`, which is the prefix Home Assistant listens on.
 const mqtt = z.strictObject({
   url: mqttUrl,
   username: text.optional(),
   password: z.string().min(1, 'must not be empty').optional(),
   client_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'must be 1 to 64 letters, digits, hyphens and underscores').default('wallcal'),
+  discovery: z.boolean().default(true),
+  discovery_prefix: discoveryPrefix.default('homeassistant'),
 }).refine(value => value.password === undefined || value.username !== undefined, {
   message: 'needs a username as well (a password on its own is not sent)',
   path: ['password'],

@@ -8,6 +8,8 @@ import { defaultDisplayState } from '../../../server/control/commands'
 import {
   AVAILABILITY_TOPIC,
   COMMAND_TOPICS,
+  LAST_SYNC_TOPIC,
+  lastSyncPayload,
   OFFLINE,
   ONLINE,
   parseCommandPayload,
@@ -126,8 +128,8 @@ describe('the topics', () => {
     expect(namesWhere(topic => topic.direction === 'to_app')).toEqual(sorted(COMMAND_TOPICS))
   })
 
-  it('has the app\'s state and availability topics going out of the app, apart from those a later PR adds', () => {
-    const published = [...STATE_TOPICS, AVAILABILITY_TOPIC, ...PUBLISHED_LATER]
+  it('has the app\'s state, availability and last sync topics going out of the app, apart from those a later PR adds', () => {
+    const published = [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, ...PUBLISHED_LATER]
 
     expect(namesWhere(topic => topic.direction === 'from_app')).toEqual(sorted(published))
   })
@@ -149,8 +151,8 @@ describe('the topics', () => {
     expect(sorted(states)).toEqual(sorted(settings.filter(setting => setting !== 'overlay')))
   })
 
-  it('retains state and availability, and does not retain commands', () => {
-    for (const name of [...STATE_TOPICS, AVAILABILITY_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
+  it('retains state, availability and last sync, and does not retain commands', () => {
+    for (const name of [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
     for (const name of COMMAND_TOPICS) expect(contract.topics[name]!.retained, name).toBe(false)
   })
 })
@@ -251,5 +253,19 @@ describe('state payloads', () => {
     // A set followed by the state it publishes, as a round trip through the contract's own examples.
     expect(statePayloads({ ...defaultDisplayState(), brightness: 50 }, NOW, 'Europe/London')['brightness/state']).toBe('50')
     expect(parseCommandPayload('brightness/set', '50.0')).toMatchObject({ ok: true, command: { brightness: 50 } })
+  })
+})
+
+describe('last sync', () => {
+  it.each([
+    '2026-10-28T12:00:00.000Z',
+    '2026-01-05T07:03:09.123Z',
+    '1999-12-31T23:59:59.999Z',
+    '2026-03-29T00:30:00.000Z',
+  ])('%s: the payload passes the topic\'s schema', (iso) => {
+    const payload = lastSyncPayload(new Date(iso))
+
+    expect(payload).toBe(iso)
+    expect(contractAccepts(LAST_SYNC_TOPIC, payload)).toBe(true)
   })
 })

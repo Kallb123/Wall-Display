@@ -35,6 +35,8 @@ export interface SchedulerOptions {
   sync: (calendar: CalendarConfig) => Promise<SyncOutcome>
   /** Called after a sync that inserted, updated or deleted events. */
   onChange: (calendarIds: string[]) => void
+  /** Called after every successful sync, whether or not anything changed, so "when did we last hear from the calendar" can be shown. */
+  onSuccess?: (calendarId: string) => void
   /** For tests. Default: `Math.random`. */
   random?: () => number
   /** For tests. Default: the console. */
@@ -73,7 +75,7 @@ export function retryDelayMs(intervalMs: number, failures: number): number {
 }
 
 export function createSyncScheduler(options: SchedulerOptions): SyncScheduler {
-  const { sync, onChange, random = Math.random, log = console } = options
+  const { sync, onChange, onSuccess, random = Math.random, log = console } = options
   const pollers: Poller[] = options.calendars.filter(options.canSync).map(calendar => ({
     calendar,
     intervalMs: calendar.source.poll_seconds * 1000,
@@ -113,6 +115,7 @@ export function createSyncScheduler(options: SchedulerOptions): SyncScheduler {
 
     let result: RefreshResult
     let changed = false
+    let succeeded = false
     try {
       const outcome = await sync(calendar)
       // After stop() the database may already be closed. Say nothing, do nothing.
@@ -126,6 +129,7 @@ export function createSyncScheduler(options: SchedulerOptions): SyncScheduler {
       }
       poller.reported = true
       changed = outcome.changed
+      succeeded = true
       result = { calendarId: calendar.id, status: outcome.status }
     } catch (error) {
       const message = safeErrorMessage(error)
@@ -144,6 +148,13 @@ export function createSyncScheduler(options: SchedulerOptions): SyncScheduler {
         onChange([calendar.id])
       } catch (error) {
         log.error(`[sync] ${calendar.id}: telling the app about the change failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    if (succeeded && onSuccess) {
+      try {
+        onSuccess(calendar.id)
+      } catch (error) {
+        log.error(`[sync] ${calendar.id}: telling the app about the sync failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
     return result

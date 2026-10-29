@@ -238,7 +238,7 @@ Grid rules (both styles):
 
 **Browsing months.** The state's `month` field (§7.1) chooses the month shown. The title, grid and special day art follow it. The side panel always shows today and the next three days, whichever month the grid shows. Today's highlight and the past-day veil are always relative to the real today.
 
-The layout engine is a pure function in `shared/`: given a month, today, events, people and special days, it returns the cells, bars, timed rows, "+N more" labels and veils. Both styles render its output, and it is unit-tested apart from the UI.
+The layout engine is a pure function in `shared/`: given a month, today, the display's time zone and week start, and events (each already carrying its people), it returns the weekday header, five rows of cells with their bars, timed rows, "+N more" labels and veils, and the side panel's four days. Special days are added to its input with the special days PRs. Both styles render its output, and it is unit-tested apart from the UI.
 
 ### 4.5 Later option: photo behind the calendar
 

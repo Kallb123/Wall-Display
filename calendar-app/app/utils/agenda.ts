@@ -1,6 +1,8 @@
+import { addDays, todayIn } from '../../shared/dates'
+import { entriesOn } from '../../shared/event-days'
+import type { DayEntry } from '../../shared/event-days'
+import { formatLongDate } from '../../shared/format'
 import type { CalendarEvent } from '../../shared/types/events'
-import { addDays, todayIn } from './eventRanges'
-import { formatLongDate, formatTime } from './format'
 
 // What the agenda view shows: today and tomorrow, each as all-day items then
 // timed ones, with a "now" marker in today's. Days are `YYYY-MM-DD` strings in
@@ -50,54 +52,23 @@ interface Entry {
   startDate: string
 }
 
-/** An all-day event's days as instants, so its length can be compared with a timed event's. */
-function dayInstant(date: string): number {
-  return Date.parse(`${date}T00:00:00Z`)
-}
-
-/** Every item on `date`, sorted: all-day first, then timed. `now` is only used for today's flags. */
-function entriesOn(events: CalendarEvent[], date: string, isToday: boolean, now: Date, timeZone: string): { allDay: Entry[], timed: Entry[] } {
-  const allDay: Entry[] = []
-  const timed: Entry[] = []
-
-  for (const event of events) {
-    const startInstant = new Date(event.start)
-    const startDate = todayIn(startInstant, timeZone)
-
-    if (event.all_day) {
-      const first = event.start_date ?? startDate
-      const after = event.end_date ?? addDays(first, 1)
-      if (first <= date && date < after) {
-        allDay.push({ item: { event, time: null, past: false, ongoing: false }, start: dayInstant(first), end: dayInstant(after), startDate: first })
-      }
-      continue
-    }
-
-    const start = startInstant.getTime()
-    const end = Date.parse(event.end)
-    // An event that ends exactly at midnight is over by the next day, and one with no length is still on its day.
-    const lastDate = todayIn(new Date(Math.max(start, end - 1)), timeZone)
-    if (!(startDate <= date && date <= lastDate)) continue
-
-    // Begun on an earlier day and still going after this one: it takes the whole day.
-    if (startDate < date && todayIn(new Date(end), timeZone) > date) {
-      allDay.push({ item: { event, time: null, past: false, ongoing: false }, start, end, startDate })
-      continue
-    }
-
-    const time = startDate < date ? `Until ${formatTime(new Date(end), timeZone)}` : formatTime(startInstant, timeZone)
-    timed.push({
-      item: { event, time, past: isToday && end <= now.getTime(), ongoing: isToday && start <= now.getTime() && now.getTime() < end },
-      start,
-      end,
-      startDate,
-    })
-  }
-
-  // Longer first among all-day events that start together, so a week away sits above a single day.
-  allDay.sort((a, b) => a.startDate.localeCompare(b.startDate) || (b.end - b.start) - (a.end - a.start) || a.item.event.id - b.item.event.id)
-  timed.sort((a, b) => a.start - b.start || a.end - b.end || a.item.event.id - b.item.event.id)
-  return { allDay, timed }
+/** Every item on `date`, sorted: all-day first, then timed. `now` is only used for today's flags. Which day an event is on is decided in shared/event-days. */
+function agendaEntriesOn(events: CalendarEvent[], date: string, isToday: boolean, now: Date, timeZone: string): { allDay: Entry[], timed: Entry[] } {
+  const found = entriesOn(events, date, timeZone)
+  const nowMs = now.getTime()
+  const entry = (day: DayEntry): Entry => ({
+    item: {
+      event: day.event,
+      time: day.time,
+      // Only a timed entry has a state: an all-day row is never over or on now.
+      past: day.time !== null && isToday && day.end <= nowMs,
+      ongoing: day.time !== null && isToday && day.start <= nowMs && nowMs < day.end,
+    },
+    start: day.start,
+    end: day.end,
+    startDate: day.startDate,
+  })
+  return { allDay: found.allDay.map(entry), timed: found.timed.map(entry) }
 }
 
 /**
@@ -130,7 +101,7 @@ export function agendaDays(events: CalendarEvent[], now: Date, timeZone: string,
 
   const build = (date: string, label: AgendaDay['label']): AgendaDay => {
     const isToday = label === 'Today'
-    const found = entriesOn(events, date, isToday, now, timeZone)
+    const found = agendaEntriesOn(events, date, isToday, now, timeZone)
     const shown = fit(found.allDay, found.timed, isToday, maxRows)
 
     // The entries are in start order, so the ones that have begun come first.

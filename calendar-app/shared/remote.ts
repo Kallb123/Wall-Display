@@ -3,9 +3,11 @@
 // from server/, so the page can use it too.
 
 /**
- * The request header that carries the PIN. The command routes
- * (`POST /api/displays/:id/commands`, `POST /api/refresh`) answer 401 when a
- * PIN is set and this header is missing or wrong, and 429 after too many wrong tries.
+ * The request header that carries the PIN. Every write under `/api/` (any
+ * method but GET, HEAD or OPTIONS: the commands, `POST /api/refresh`, the
+ * settings pages' saves and uploads) answers 401 when a PIN is set and this
+ * header is missing or wrong, and 429 after too many wrong tries. Reads and the
+ * WebSocket don't need it.
  */
 export const PIN_HEADER = 'x-wallcal-pin'
 
@@ -13,7 +15,7 @@ export const PIN_HEADER = 'x-wallcal-pin'
 export const PIN_PATTERN = /^\d{4,12}$/
 
 /**
- * What `GET /api/remote` answers: whether the command routes need a PIN.
+ * What `GET /api/remote` answers: whether writes need a PIN.
  * Never the PIN itself.
  */
 export interface RemoteInfo {

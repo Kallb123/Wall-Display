@@ -103,6 +103,40 @@ describe('the socket hub', () => {
     stringify.mockRestore()
   })
 
+  it('counts the peers of a display by role', () => {
+    const hub = createSocketHub()
+    hub.add(peer(), { displayId: 'hallway', role: 'display' })
+    hub.add(peer(), { displayId: 'hallway', role: 'remote' })
+    hub.add(peer(), { displayId: 'hallway', role: 'remote' })
+    hub.add(peer(), { displayId: 'kitchen', role: 'display' })
+
+    expect(hub.counts('hallway')).toEqual({ display: 1, remote: 2 })
+    expect(hub.counts('kitchen')).toEqual({ display: 1, remote: 0 })
+  })
+
+  it('counts zero of every role for a display nobody is connected to', () => {
+    const hub = createSocketHub()
+    hub.add(peer(), { displayId: 'hallway', role: 'display' })
+
+    expect(hub.counts('garage')).toEqual({ display: 0, remote: 0 })
+    expect(createSocketHub().counts('hallway')).toEqual({ display: 0, remote: 0 })
+  })
+
+  it('stops counting a peer that is removed or dropped for failing to send', () => {
+    const hub = createSocketHub({ warn: vi.fn() })
+    const gone = peer()
+    const broken = peer()
+    broken.send.mockImplementation(() => { throw new Error('socket closed') })
+    hub.add(gone, { displayId: 'hallway', role: 'remote' })
+    hub.add(broken, { displayId: 'hallway', role: 'remote' })
+    hub.add(peer(), { displayId: 'hallway', role: 'remote' })
+
+    hub.remove(gone)
+    hub.sendToAll(eventsUpdated)
+
+    expect(hub.counts('hallway')).toEqual({ display: 0, remote: 1 })
+  })
+
   it('does nothing when nobody is connected', () => {
     expect(() => createSocketHub().sendToAll(eventsUpdated)).not.toThrow()
   })

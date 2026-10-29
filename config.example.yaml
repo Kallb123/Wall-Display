@@ -80,9 +80,11 @@ button:
   long: ha
 
 # Optional shared PIN (4-12 digits, quoted) for the remote page and the settings
-# write routes. The remote asks for it once, then sends it in an X-Wallcal-Pin
-# header with every command (POST /api/displays/:id/commands, POST /api/refresh).
-# Reading state, and the wall display itself, stay open. Ten wrong PINs in five
+# pages. It guards every write under /api (any method but GET, HEAD or OPTIONS:
+# commands, refresh, republishing discovery, and saves and uploads to come). The
+# remote asks for it once, then sends it in an X-Wallcal-Pin header with each
+# write. Reading state, the settings pages' status, and the wall display itself,
+# stay open. Ten wrong PINs in five
 # minutes from one address lock that address out for the rest of the window.
 # Leave out to turn it off. For the local network only.
 remote:

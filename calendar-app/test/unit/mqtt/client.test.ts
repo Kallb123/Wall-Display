@@ -619,6 +619,100 @@ describe('Home Assistant discovery', () => {
   })
 })
 
+describe('republishing the discovery configs', () => {
+  const messagesFor = (id: string, name: string, displayCount = 1) => discoveryMessages({ prefix: 'homeassistant', display: { id, name }, displayCount })
+
+  it('publishes every config again on each connection that is up, and answers with their display ids', () => {
+    const { bridge, client } = setup({ displays: ['hallway', 'kitchen'] })
+    client('hallway').up()
+    client('kitchen').up()
+    client('hallway').clear()
+    client('kitchen').clear()
+
+    expect(bridge.republishDiscovery()).toEqual(['hallway', 'kitchen'])
+
+    expect(client('hallway').published).toEqual(messagesFor('hallway', 'Hallway', 2).map(message => ({ ...message, qos: 1, retain: true })))
+    expect(client('kitchen').published).toEqual(messagesFor('kitchen', 'Kitchen', 2).map(message => ({ ...message, qos: 1, retain: true })))
+  })
+
+  it('leaves out a display whose connection is down or still starting', () => {
+    const { bridge, client } = setup({ displays: ['hallway', 'kitchen', 'study'] })
+    client('hallway').up()
+    client('kitchen').up()
+    client('kitchen').down()
+    client('hallway').clear()
+    client('kitchen').clear()
+
+    expect(bridge.republishDiscovery()).toEqual(['hallway'])
+
+    expect(client('hallway').published).not.toEqual([])
+    expect(client('kitchen').published).toEqual([])
+    expect(client('study').published).toEqual([])
+  })
+
+  it('answers with nothing before any connection is up', () => {
+    const { bridge, client } = setup()
+
+    expect(bridge.republishDiscovery()).toEqual([])
+    expect(client().published).toEqual([])
+  })
+
+  it('publishes nothing and answers with nothing when discovery is off', () => {
+    const { bridge, client, log } = setup({ config: { ...CONFIG, discovery: false } })
+    client().up()
+    client().clear()
+    log.info.mockClear()
+
+    expect(bridge.republishDiscovery()).toEqual([])
+
+    expect(client().published).toEqual([])
+    expect(log.info).not.toHaveBeenCalled()
+  })
+
+  it('logs one line naming the displays, and nothing but the display ids', () => {
+    const { bridge, client, log, logged } = setup({ displays: ['hallway', 'kitchen'] })
+    client('hallway').up()
+    client('kitchen').up()
+    log.info.mockClear()
+
+    bridge.republishDiscovery()
+
+    expect(log.info).toHaveBeenCalledTimes(1)
+    expect(log.info.mock.calls[0]![0]).toBe('[mqtt] the discovery configs were published again for hallway, kitchen, as asked')
+    expect(logged()).not.toContain(PASSWORD)
+  })
+
+  it('logs one line when no display is connected', () => {
+    const { bridge, log } = setup()
+    log.info.mockClear()
+
+    bridge.republishDiscovery()
+
+    expect(log.info).toHaveBeenCalledTimes(1)
+    expect(log.info.mock.calls[0]![0]).toContain('no display is connected')
+  })
+
+  it('warns about a config the broker did not take, as the other publishes do', () => {
+    const { bridge, client, log } = setup()
+    client().up()
+    client().failNextPublish = new Error('Connection closed')
+
+    bridge.republishDiscovery()
+
+    expect(log.warn).toHaveBeenCalledWith(`[mqtt] hallway: could not publish ${messagesFor('hallway', 'Hallway')[0]!.topic}: Connection closed`)
+  })
+
+  it('does nothing once the bridge has stopped', async () => {
+    const { bridge, client } = setup()
+    client().up()
+    await bridge.stop()
+    client().clear()
+
+    expect(bridge.republishDiscovery()).toEqual([])
+    expect(client().published).toEqual([])
+  })
+})
+
 describe('last sync', () => {
   const TOPIC = 'wallcal/hallway/last_sync/state'
   const SYNCED = new Date('2026-10-28T11:55:00Z')

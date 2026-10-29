@@ -9,7 +9,8 @@ import { PIN_HEADER } from '../../shared/remote'
 import type { RemoteInfo } from '../../shared/remote'
 
 // The same server as control.test.ts, with `remote.pin` set. Every request here
-// comes from one address, so the wrong PINs are kept well under the lockout.
+// comes from one address, so the wrong PINs are kept well under the lockout
+// (a right PIN resets the count, and no run of wrong ones here is over six).
 describe('the remote PIN', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
   const dir = mkdtempSync(join(tmpdir(), 'wallcal-e2e-'))
@@ -65,6 +66,40 @@ describe('the remote PIN', async () => {
   it('leaves reading the state open', async () => {
     expect(await $fetch<DisplayState>('/api/displays/hallway/state')).toMatchObject({ view: 'month' })
     expect(await $fetch('/api/displays')).toHaveLength(1)
+  })
+
+  it('guards every write under /api, whether or not the route exists', async () => {
+    const post = (path: string, headers?: Record<string, string>) => $fetch(path, { method: 'POST', headers })
+
+    await expect(post('/api/not-a-route')).rejects.toMatchObject(reason(401, 'PIN required'))
+    await expect(post('/api/not-a-route', wrong)).rejects.toMatchObject(reason(401, 'Wrong PIN'))
+    await expect($fetch('/api/refresh', { method: 'PUT' })).rejects.toMatchObject(reason(401, 'PIN required'))
+    await expect($fetch('/api/displays/hallway/state', { method: 'DELETE' })).rejects.toMatchObject(reason(401, 'PIN required'))
+    // With the PIN it gets past the guard, to whatever answers for a path nobody has a route for.
+    expect((await fetch('/api/not-a-route', { method: 'POST', headers: right })).status).not.toBe(401)
+  })
+
+  it('does not ask for the PIN on a GET of a path that does not exist', async () => {
+    expect((await fetch('/api/not-a-route')).status).not.toBe(401)
+  })
+
+  it('counts a wrong PIN once, not once for the middleware and again for the route', async () => {
+    // The lockout is at ten wrong PINs, and the right one before this reset the count. Six would be twelve if each were counted twice.
+    for (let i = 0; i < 6; i++) await expect(command('hallway', wrong)).rejects.toMatchObject(reason(401, 'Wrong PIN'))
+
+    await expect(command('hallway', right)).resolves.toMatchObject({ view: 'agenda' })
+    await $fetch('/api/displays/hallway/commands', { method: 'POST', body: { type: 'set_view', view: 'month' }, headers: right })
+  })
+
+  it('POST /api/settings/discovery answers 401 without the PIN, and 409 with it when MQTT is not set up', async () => {
+    await expect($fetch('/api/settings/discovery', { method: 'POST' })).rejects.toMatchObject(reason(401, 'PIN required'))
+    await expect($fetch('/api/settings/discovery', { method: 'POST', headers: right })).rejects.toMatchObject({ statusCode: 409, data: { message: expect.stringContaining('MQTT is not set up') } })
+  })
+
+  it('leaves the settings reads open', async () => {
+    expect(await $fetch<unknown[]>('/api/settings/calendars')).toHaveLength(2)
+    expect(await $fetch<unknown[]>('/api/settings/displays')).toHaveLength(1)
+    expect(await $fetch('/api/settings/connections')).toMatchObject({ mqtt: { configured: false } })
   })
 
   it('POST /api/remote/pin answers 204 for the right PIN and 401 otherwise', async () => {

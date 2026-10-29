@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createPinGuard } from '../../../server/remote/pin'
+import { createPinGuard, requiresPin } from '../../../server/remote/pin'
 
 /** A guard on a clock the test moves. */
 function guardAt(options: { maxFailures?: number, windowMs?: number } = {}) {
@@ -128,5 +128,36 @@ describe('the remote PIN guard', () => {
     guard.check(undefined, '1111', 'c')
 
     expect(guard.size()).toBe(0)
+  })
+})
+
+describe('which requests need the PIN', () => {
+  it('is every write under /api/', () => {
+    expect(requiresPin('POST', '/api/refresh')).toBe(true)
+    expect(requiresPin('POST', '/api/displays/hallway/commands')).toBe(true)
+    expect(requiresPin('PUT', '/api/special-days/christmas')).toBe(true)
+    expect(requiresPin('PATCH', '/api/anything')).toBe(true)
+    expect(requiresPin('DELETE', '/api/anything')).toBe(true)
+    expect(requiresPin('post', '/api/refresh')).toBe(true)
+  })
+
+  it('includes a route that does not exist yet, and one with a query string', () => {
+    expect(requiresPin('POST', '/api/not/a/route')).toBe(true)
+    expect(requiresPin('POST', '/api/refresh?now=1')).toBe(true)
+    expect(requiresPin('POST', '/api')).toBe(true)
+  })
+
+  it('is not a read', () => {
+    expect(requiresPin('GET', '/api/events')).toBe(false)
+    expect(requiresPin('HEAD', '/api/events')).toBe(false)
+    expect(requiresPin('OPTIONS', '/api/refresh')).toBe(false)
+    expect(requiresPin('get', '/api/refresh')).toBe(false)
+  })
+
+  it('is not a path outside /api/', () => {
+    expect(requiresPin('POST', '/_ws')).toBe(false)
+    expect(requiresPin('POST', '/remote')).toBe(false)
+    expect(requiresPin('POST', '/apiary')).toBe(false)
+    expect(requiresPin('POST', '/other?next=/api/refresh')).toBe(false)
   })
 })

@@ -8,6 +8,20 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 
 export type PinResult = 'ok' | 'missing' | 'wrong' | 'locked'
 
+const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+/**
+ * Whether a request is one the PIN guards: any method but GET, HEAD or OPTIONS
+ * on a path under `/api/`. It is a rule about every write route, not a list of
+ * them, so a route added later is guarded without anyone remembering to ask.
+ * `path` may carry a query string. Reading and the WebSocket stay open.
+ */
+export function requiresPin(method: string, path: string): boolean {
+  if (READ_ONLY_METHODS.has(method.toUpperCase())) return false
+  const pathname = path.split(/[?#]/, 1)[0]!
+  return pathname === '/api' || pathname.startsWith('/api/')
+}
+
 export interface PinGuardOptions {
   /** Wrong PINs one client may send in a window before it is locked out. */
   maxFailures?: number

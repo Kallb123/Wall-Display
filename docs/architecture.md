@@ -418,6 +418,7 @@ The base is `wallcal/<display_id>/`.
 | `…/overlay/set` | → app | JSON `{ "text": "Bins out tonight", "icon": "trash", "ttl": 3600 }`, or empty to clear |
 | `…/photo/next` | → app | (any) |
 | `…/refresh` | → app | (any). Forces a calendar re-sync. |
+| `…/last_sync/state` | app → | ISO 8601 instant (UTC) of the last successful calendar sync, such as `2026-10-28T12:00:00.000Z` (retained). Not published until a calendar has synced. |
 | `…/special_day/state` | app → | today's special day name, or empty (retained) |
 | `…/pi/button` | pi → | `single` \| `double` \| `long` |
 | `…/pi/presence` | pi → | `ON` \| `OFF` (retained) |
@@ -430,7 +431,7 @@ The base is `wallcal/<display_id>/`.
 
 ### 7.4 Home Assistant integration
 
-The app and the agent publish **MQTT discovery** configs, so HA creates two devices with no YAML:
+The app and the agent publish **MQTT discovery** configs, so HA creates two devices with no YAML. The app publishes its configs retained, and again whenever HA sends `online` on its birth topic (`homeassistant/status`):
 
 **Device: Wall Calendar** (published by `calendar-app`)
 

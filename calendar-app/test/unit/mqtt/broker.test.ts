@@ -11,6 +11,7 @@ import { defaultDisplayState, reduceCommand } from '../../../server/control/comm
 import { createEventBus } from '../../../server/events/bus'
 import { createMqttBridge } from '../../../server/mqtt/client'
 import type { MqttBridge } from '../../../server/mqtt/client'
+import { discoveryMessages } from '../../../server/mqtt/discovery'
 import { STATE_TOPICS } from '../../../server/mqtt/topics'
 
 // The real MQTT.js client against a real broker (aedes, in this process) on a
@@ -119,8 +120,8 @@ function setup(url: string, options: { displays?: string[], config?: Partial<Mqt
     }),
   }
   const bridge = createMqttBridge({
-    config: { url, client_id: 'wallcal', ...options.config },
-    displays: displays.map(id => ({ id })),
+    config: { url, client_id: 'wallcal', discovery: true, discovery_prefix: 'homeassistant', ...options.config },
+    displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) })),
     timeZone: 'Europe/London',
     control,
     bus,
@@ -141,9 +142,9 @@ afterEach(async () => {
 
 const STATE_COUNT = STATE_TOPICS.length
 
-/** Waits until the broker has seen the bridge's availability and every state topic, so what is stored is complete. */
+/** Waits until the broker has seen the bridge's availability and every state topic, so what is stored is complete. The discovery configs are under another prefix, so they don't count. */
 function allPublished(broker: TestBroker, clientId = 'wallcal-hallway'): boolean {
-  const topics = new Set(broker.published.filter(message => message.clientId === clientId).map(message => message.topic))
+  const topics = new Set(broker.published.filter(message => message.clientId === clientId && message.topic.startsWith('wallcal/')).map(message => message.topic))
   return topics.size >= STATE_COUNT + 1
 }
 
@@ -324,6 +325,31 @@ describe('the bridge and a broker', () => {
     await bridge.stop()
 
     expect(Date.now() - started).toBeLessThan(4000)
+  })
+})
+
+describe('Home Assistant discovery', () => {
+  const configs = discoveryMessages({ prefix: 'homeassistant', display: { id: 'hallway', name: 'Hallway' }, displayCount: 1 })
+
+  it('keeps the configs on the broker, and publishes them again when Home Assistant says it is online', async () => {
+    const broker = await startBroker()
+    setup(broker.url)
+    await until('the state to be published', () => allPublished(broker))
+
+    // Home Assistant starting after the app: the retained configs are all it needs.
+    const ha = await probe(broker, 'homeassistant/#')
+    await until('the retained configs', () => ha.received.length >= configs.length)
+    expect(ha.received.every(message => message.retain)).toBe(true)
+    expect(ha.received.map(({ topic, payload }) => ({ topic, payload }))).toEqual(expect.arrayContaining(configs))
+    expect(ha.received).toHaveLength(configs.length)
+    ha.received.length = 0
+
+    // Home Assistant restarting while the app runs: its birth message asks for them again.
+    await ha.client.publishAsync('homeassistant/status', 'online', { qos: 1 })
+
+    await until('the configs again', () => ha.received.filter(message => message.topic !== 'homeassistant/status').length >= configs.length)
+    const again = ha.received.filter(message => message.topic !== 'homeassistant/status')
+    expect(again.map(({ topic, payload }) => ({ topic, payload }))).toEqual(configs)
   })
 })
 

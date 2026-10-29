@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# wallcal-kiosk-session: start the compositor, which in turn runs the kiosk launcher.
+# Exec'd from the login hook on tty1, so when the compositor exits the login ends
+# and getty logs the kiosk user in again.
+set -euo pipefail
+
+CONF=${WALLCAL_KIOSK_CONF:-/etc/wallcal-kiosk/kiosk.conf}
+LAUNCHER=${WALLCAL_KIOSK_LAUNCHER:-/usr/local/bin/wallcal-kiosk}
+# Waiting before a failed exit stops getty respawning this in a tight loop.
+RETRY_DELAY=${WALLCAL_KIOSK_RETRY_DELAY:-30}
+
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/wallcal-kiosk
+mkdir -p "$STATE_DIR"
+if [[ -f $STATE_DIR/session.log ]]; then
+  mv -f "$STATE_DIR/session.log" "$STATE_DIR/session.log.1"
+fi
+# From here on, our output and the compositor's (and the launcher's) go to the log.
+exec >>"$STATE_DIR/session.log" 2>&1
+
+log() {
+  printf '%(%Y-%m-%d %H:%M:%S)T wallcal-kiosk-session: %s\n' -1 "$*"
+  if command -v logger >/dev/null 2>&1; then
+    logger -t wallcal-kiosk -- "session: $*" || true
+  fi
+}
+
+fail() {
+  log "$*; retrying in ${RETRY_DELAY}s"
+  sleep "$RETRY_DELAY"
+  exit 1
+}
+
+if [[ -r $CONF ]]; then
+  # shellcheck source=/dev/null
+  source "$CONF"
+else
+  log "cannot read $CONF; assuming labwc"
+fi
+compositor=${WALLCAL_COMPOSITOR:-labwc}
+
+case $compositor in
+  labwc | cage) ;;
+  *) fail "unknown compositor '$compositor' (use labwc or cage)" ;;
+esac
+command -v "$compositor" >/dev/null 2>&1 || fail "$compositor is not installed"
+
+log "starting $compositor"
+case $compositor in
+  # labwc's -s runs a startup command, so nothing is written into ~/.config/labwc.
+  labwc) exec labwc -s "$LAUNCHER" ;;
+  # -s keeps Ctrl+Alt+F<n> VT switching working, which is handy for getting a console.
+  cage) exec cage -s -- "$LAUNCHER" ;;
+esac

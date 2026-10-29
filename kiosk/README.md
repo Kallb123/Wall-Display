@@ -137,6 +137,8 @@ It also installs the compositor, `wlr-randr`, `curl`, `fonts-noto-color-emoji` (
 
 **A mouse cursor shows.** The display page hides the cursor. If you see one, it is the compositor's, and only while a mouse is plugged in.
 
-**Why `labwc`?** It is what Raspberry Pi OS itself uses, and `wlr-randr` works with it, which the launcher uses to set the mode and which later screen-off control will need. `cage` is a fallback.
+**Why `labwc`?** It is what Raspberry Pi OS itself uses, and `wlr-randr` works with it, which the launcher uses to set the mode and which later screen-off control will need. `cage` is a fallback. It may not let `wlr-randr` change the mode, in which case the monitor's preferred mode is used.
+
+**A desktop or panel appears behind Chromium.** `setup.sh` is meant for the Lite image. On a desktop image, `labwc` also runs the desktop's autostart files (`/etc/xdg/labwc/autostart`), so reflash with Lite.
 
 **Anything else odd.** Look at `session.log` and `chromium.log`. If you can't find it, reflash. There is nothing on the Pi to lose.

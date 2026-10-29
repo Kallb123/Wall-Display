@@ -3,6 +3,7 @@ import { playServer, settle } from './helpers'
 import busy from './fixtures/agenda-busy.json' with { type: 'json' }
 import empty from './fixtures/agenda-empty.json' with { type: 'json' }
 import long from './fixtures/agenda-long.json' with { type: 'json' }
+import weather from './fixtures/weather.json' with { type: 'json' }
 
 // The agenda view at the frozen clock (Wed 28 Oct 2026, 09:41 in London).
 // Today's busy fixture has more events than fit even once the three that are
@@ -31,6 +32,18 @@ test('a busy day, dark theme', async ({ page }) => {
   await expect(page.getByTestId('now-marker')).toBeVisible()
   await expect(page.getByTestId('more')).toBeVisible()
   await expect(page).toHaveScreenshot('busy-dark.png')
+})
+
+test('a busy day with the weather, light theme', async ({ page }) => {
+  await playServer(page, { view: 'agenda' }, busy, weather)
+  await page.goto('/display?id=hallway')
+  await settle(page)
+
+  const lines = page.getByTestId('agenda-weather')
+  await expect(lines).toHaveText(['12° · Rain14° / 8°', 'Partly cloudy13° / 6°'])
+  await expect(page.getByTestId('now-marker')).toBeVisible()
+  await expect(page.getByTestId('more')).toHaveText('+2 more')
+  await expect(page).toHaveScreenshot('busy-weather-light.png')
 })
 
 test('an empty day shows a calm state', async ({ page }) => {

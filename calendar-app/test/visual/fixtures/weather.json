@@ -1,0 +1,15 @@
+{
+  "current": { "condition": "rainy", "temperature": 12 },
+  "daily": [
+    { "date": "2026-10-27", "condition": "cloudy", "high": 13, "low": 7 },
+    { "date": "2026-10-28", "condition": "rainy", "high": 14, "low": 8 },
+    { "date": "2026-10-29", "condition": "partlycloudy", "high": 13, "low": 6 },
+    { "date": "2026-10-30", "condition": "sunny", "high": 12, "low": 4 },
+    { "date": "2026-10-31", "condition": "pouring", "high": 11, "low": 7 },
+    { "date": "2026-11-01", "condition": "cloudy", "high": 10, "low": 5 },
+    { "date": "2026-11-02", "condition": "fog", "high": 9, "low": 3 },
+    { "date": "2026-11-03", "condition": "lightning-rainy", "high": 11, "low": 6 }
+  ],
+  "temperature_unit": "°C",
+  "updated_at": "2026-10-28T09:41:00.000Z"
+}

@@ -1,0 +1,7 @@
+# Builds calendar-app from this checkout instead of pulling it from GHCR:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  calendar-app:
+    build: ./calendar-app
+    pull_policy: build

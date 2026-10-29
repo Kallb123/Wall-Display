@@ -1,11 +1,15 @@
 # Wall Display on the home server. See "Running with Docker" in README.md.
 #
-#   docker compose up -d --build                 the app
-#   docker compose --profile mqtt up -d --build  the app and Mosquitto
+#   docker compose up -d                  the app
+#   docker compose --profile mqtt up -d   the app and Mosquitto
+#   docker compose pull && docker compose up -d   update to the latest image
+#
+# The image is built and published by .github/workflows/publish.yml. To build it
+# from this checkout instead, add docker-compose.build.yml (see that file).
 services:
   calendar-app:
-    build: ./calendar-app
-    image: wallcal/calendar-app:latest
+    # :latest follows main. Pin a release (:1.2.3) or a commit (:sha-abc1234) to hold it still.
+    image: ghcr.io/kallb123/wall-display/calendar-app:latest
     restart: unless-stopped
     ports: ["8080:8080"]
     environment:

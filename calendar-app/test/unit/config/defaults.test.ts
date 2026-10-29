@@ -65,6 +65,16 @@ describe('defaults', () => {
     expect(config.photos).toBeUndefined()
     expect(config.remote).toBeUndefined()
     expect(config.homeassistant).toBeUndefined()
+    expect(config.weather).toBeUndefined()
+  })
+
+  it('polls the weather every ten minutes unless told otherwise', async () => {
+    const raw = minimalConfig()
+    raw.homeassistant = { url: 'http://ha.local', token: 't' }
+    raw.weather = { entity_id: 'weather.home' }
+    const { config } = await load({ config: raw })
+
+    expect(config.weather).toEqual({ entity_id: 'weather.home', poll_seconds: 600 })
   })
 
   it('keeps a year of events either side of this month unless told otherwise', async () => {

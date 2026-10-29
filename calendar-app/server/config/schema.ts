@@ -176,6 +176,14 @@ const sync = z.strictObject({
   months_ahead: z.number().int().min(0).max(60).default(12),
 })
 
+// The Home Assistant `weather` entity to show on the wall (PR 2.7). Left out,
+// the wall shows no weather. It is read through the `homeassistant` block, and
+// the entity must be able to give a daily forecast.
+const weather = z.strictObject({
+  entity_id: z.string().regex(/^weather\.\w+$/, 'must be a weather entity id like "weather.home"'),
+  poll_seconds: z.number().int().min(60).default(600),
+})
+
 const photos = z.strictObject({
   interval_seconds: z.number().int().min(5).default(60),
   landscape_only: z.boolean().default(false),
@@ -246,6 +254,7 @@ export function createConfigSchema(baseDir: string) {
     policies: policies.prefault({}),
     sync: sync.prefault({}),
     mqtt: mqtt.optional(),
+    weather: weather.optional(),
     photos: photos.optional(),
   }).superRefine(crossChecks)
 }
@@ -255,6 +264,7 @@ type RawConfig = {
   calendars: { id: string, person: string, rules: { people: string[] }[], source: { type: string } }[]
   displays: { id: string }[]
   homeassistant?: unknown
+  weather?: unknown
 }
 
 // Checks that look across the whole file: unique ids, references that must
@@ -307,6 +317,10 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
       issue(['calendars', index, 'source'], 'uses a homeassistant source, but there is no "homeassistant" block (it needs a url and token)')
     }
   })
+
+  if (config.weather && !config.homeassistant) {
+    issue(['weather'], 'reads a Home Assistant weather entity, but there is no "homeassistant" block (it needs a url and token)')
+  }
 }
 
 export type AppConfig = z.output<ReturnType<typeof createConfigSchema>>
@@ -320,5 +334,6 @@ export type ButtonAction = ButtonConfig['single']
 export type PoliciesConfig = AppConfig['policies']
 export type SyncConfig = AppConfig['sync']
 export type MqttConfig = NonNullable<AppConfig['mqtt']>
+export type WeatherConfig = NonNullable<AppConfig['weather']>
 export type PhotosConfig = NonNullable<AppConfig['photos']>
 export type HomeAssistantConfig = NonNullable<AppConfig['homeassistant']>

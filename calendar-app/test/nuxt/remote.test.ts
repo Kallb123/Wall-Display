@@ -7,6 +7,7 @@ import { displayStateSchema } from '../../shared/display'
 import type { Command, DisplaySettings, DisplayState } from '../../shared/display'
 import { PIN_ERRORS, PIN_HEADER } from '../../shared/remote'
 import type { SocketStatus } from '~/composables/useDisplaySocket'
+import { OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES } from '~/utils/overlay'
 
 // The remote page against a pretend server: `$fetch` is replaced by one that
 // answers the display list, the commands and the PIN check as the real routes
@@ -56,6 +57,13 @@ function apply(command: Command): DisplayState {
   if (command.type === 'set_screen') state = stateWith({ ...state, screen: command.screen })
   if (command.type === 'set_month') state = stateWith({ ...state, view: 'month', month: command.month === 'current' ? null : command.month })
   if (command.type === 'set_brightness') state = stateWith({ ...state, brightness: command.brightness })
+  if (command.type === 'set_overlay') {
+    const { overlay } = command
+    state = stateWith({
+      ...state,
+      overlay: overlay && { text: overlay.text, icon: overlay.icon ?? null, until: overlay.ttl === undefined ? null : new Date(NOW.getTime() + overlay.ttl * 1000).toISOString() },
+    })
+  }
   return state
 }
 
@@ -309,6 +317,103 @@ describe('the remote page', () => {
     })
   })
 
+  describe('the message', () => {
+    const input = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.find<HTMLInputElement>('[data-testid="overlay-input"]')
+    const submit = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.find<HTMLButtonElement>('[data-testid="overlay-submit"]')
+
+    it('has a form for a message, and nothing about one on the wall when there is none', async () => {
+      const { wrapper } = await mountRemote()
+
+      expect(wrapper.find('[data-testid="overlay-current"]').exists()).toBe(false)
+      expect(input(wrapper).attributes('maxlength')).toBe('200')
+      expect(input(wrapper).attributes('placeholder')).toBe('Bins out tonight')
+      expect(wrapper.find('label[for="overlay-text"]').exists()).toBe(true)
+      expect(wrapper.find('[role="radiogroup"]').findAll('input[type="radio"]').length).toBe(OVERLAY_ICON_CHOICES.length + 1)
+      expect(wrapper.findAll('[data-testid="overlay-duration"] option').map(option => option.text())).toEqual(OVERLAY_DURATIONS.map(duration => duration.label))
+      expect(wrapper.find<HTMLSelectElement>('[data-testid="overlay-duration"]').element.value).toBe('1h')
+    })
+
+    it('cannot be sent with no text, or only spaces', async () => {
+      const { wrapper } = await mountRemote()
+      expect(submit(wrapper).attributes('disabled')).toBeDefined()
+
+      await input(wrapper).setValue('   ')
+      expect(submit(wrapper).attributes('disabled')).toBeDefined()
+
+      await input(wrapper).setValue(' Bins ')
+      expect(submit(wrapper).attributes('disabled')).toBeUndefined()
+    })
+
+    it('sends the text, icon and duration, and clears the text', async () => {
+      const { wrapper } = await mountRemote()
+
+      await input(wrapper).setValue(' Bins out tonight ')
+      await wrapper.find('[data-testid="overlay-icon-trash"]').setValue(true)
+      await wrapper.find('[data-testid="overlay-duration"]').setValue('3h')
+      await wrapper.find('[data-testid="overlay-form"]').trigger('submit')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_overlay', overlay: { text: 'Bins out tonight', icon: 'trash', ttl: 10_800 } }])
+      expect(input(wrapper).element.value).toBe('')
+    })
+
+    it('leaves out the icon for none and the ttl for until cleared', async () => {
+      const { wrapper } = await mountRemote()
+
+      await input(wrapper).setValue('Hello')
+      await wrapper.find('[data-testid="overlay-duration"]').setValue('cleared')
+      await wrapper.find('[data-testid="overlay-form"]').trigger('submit')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_overlay', overlay: { text: 'Hello' } }])
+    })
+
+    it('keeps the text when the wall does not take it', async () => {
+      const { wrapper } = await mountRemote()
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      await input(wrapper).setValue('Hello')
+      await wrapper.find('[data-testid="overlay-form"]').trigger('submit')
+      await flushPromises()
+
+      expect(input(wrapper).element.value).toBe('Hello')
+      expect(wrapper.find('[data-testid="error"]').exists()).toBe(true)
+    })
+
+    it('shows what is on the wall and when it ends, and Clear sends null', async () => {
+      const { wrapper } = await mountRemote({ overlay: { text: 'Bins out tonight', icon: 'trash', until: '2026-10-28T14:30:00Z' } })
+
+      expect(wrapper.find('[data-testid="overlay-current-text"]').text()).toBe('Bins out tonight')
+      expect(wrapper.find('[data-testid="overlay-current-until"]').text()).toBe('Until 14:30')
+
+      await wrapper.find('[data-testid="overlay-clear"]').trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_overlay', overlay: null }])
+      expect(wrapper.find('[data-testid="overlay-current"]').exists()).toBe(false)
+    })
+
+    it('says "Until cleared" for one with no end, and follows the socket', async () => {
+      const { wrapper, socket } = await mountRemote()
+
+      socket!.push(stateWith({ overlay: { text: 'Hello', icon: null, until: null } }))
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="overlay-current-until"]').text()).toBe('Until cleared')
+
+      socket!.push(stateWith())
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="overlay-current"]').exists()).toBe(false)
+    })
+
+    it('does not show one that has already run out', async () => {
+      const { wrapper } = await mountRemote({ overlay: { text: 'Old news', icon: null, until: '2026-10-28T09:00:00Z' } })
+
+      expect(wrapper.find('[data-testid="overlay-current"]').exists()).toBe(false)
+    })
+  })
+
   describe('more', () => {
     it('sends the brightness when the slider is let go, not on every step', async () => {
       const { wrapper } = await mountRemote({ brightness: 80 })
@@ -428,7 +533,7 @@ describe('the remote page', () => {
 
       // A wrong PIN is turned down by the server, and not kept.
       await wrapper.find('[data-testid="pin-input"]').setValue('1111')
-      await wrapper.find('form').trigger('submit')
+      await wrapper.find('[data-testid="pin-sheet"] form').trigger('submit')
       await flushPromises()
       expect(wrapper.find('[data-testid="pin-message"]').text()).toBe('Wrong PIN')
       expect(localStorage.getItem('wallcal.remote.pin')).toBeNull()
@@ -436,7 +541,7 @@ describe('the remote page', () => {
 
       // The right one is kept, and the command that was refused goes again with it.
       await wrapper.find('[data-testid="pin-input"]').setValue('4821')
-      await wrapper.find('form').trigger('submit')
+      await wrapper.find('[data-testid="pin-sheet"] form').trigger('submit')
       await flushPromises()
 
       expect(pinChecks).toEqual(['1111', '4821'])
@@ -462,7 +567,7 @@ describe('the remote page', () => {
       const { wrapper } = await mountRemote()
 
       await wrapper.find('[data-testid="pin-input"]').setValue('12')
-      await wrapper.find('form').trigger('submit')
+      await wrapper.find('[data-testid="pin-sheet"] form').trigger('submit')
       await flushPromises()
 
       expect(pinChecks).toEqual([])
@@ -475,7 +580,7 @@ describe('the remote page', () => {
       const { wrapper } = await mountRemote()
 
       await wrapper.find('[data-testid="pin-input"]').setValue('4821')
-      await wrapper.find('form').trigger('submit')
+      await wrapper.find('[data-testid="pin-sheet"] form').trigger('submit')
       await flushPromises()
 
       expect(wrapper.find('[data-testid="pin-message"]').text()).toBe(PIN_ERRORS.locked)

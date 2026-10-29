@@ -139,10 +139,12 @@ function entitiesFor(topic: (suffix: KnownTopic) => string): Entity[] {
       objectId: 'message',
       name: 'Message',
       icon: 'mdi:message-text',
-      // The overlay has no state topic, so Home Assistant shows what was last typed. The template wraps the text as
-      // the overlay command wants it, and an empty (or blank) value goes out as an empty payload, which clears it.
+      // The state topic carries the overlay's text, or nothing once it has gone, so the box empties when the message
+      // runs out as well as when it is cleared. The template wraps the text as the overlay command wants it, and an
+      // empty (or blank) value goes out as an empty payload, which clears it.
       config: {
         command_topic: topic('overlay/set'),
+        state_topic: topic('overlay/state'),
         command_template: '{{ {\'text\': value} | to_json if value | trim else \'\' }}',
         min: 0,
         max: MESSAGE_MAX_LENGTH,

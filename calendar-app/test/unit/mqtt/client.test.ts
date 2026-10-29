@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IClientOptions } from 'mqtt'
 import type { Command, DisplayState } from '../../../shared/display'
 import type { MqttConfig } from '../../../server/config/schema'
-import { defaultDisplayState, reduceCommand } from '../../../server/control/commands'
+import { defaultDisplayState, expireState, reduceCommand } from '../../../server/control/commands'
 import { createEventBus } from '../../../server/events/bus'
 import { createMqttBridge, MAX_RECONNECT_MS, RECHECK_MS, reconnectDelayMs, STABLE_MS, STOP_WAIT_MS } from '../../../server/mqtt/client'
 import type { MqttBridge, MqttLink } from '../../../server/mqtt/client'
@@ -227,6 +227,7 @@ describe('connecting', () => {
       'brightness/state': '100',
       'auto_presence/state': 'ON',
       'auto_brightness/state': 'ON',
+      'overlay/state': '',
     })
     expect(log.info).toHaveBeenCalledWith('[mqtt] hallway: connected to mqtt://broker.local:1883')
   })
@@ -347,6 +348,36 @@ describe('publishing the state', () => {
 
     expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not read the state: database closed')
     expect(client().published).toEqual([])
+  })
+
+  it('publishes the overlay\'s text on overlay/state, and nothing when it is cleared', () => {
+    const { client, control } = setup()
+    client().up()
+    client().clear()
+
+    client().message('wallcal/hallway/overlay/set', '{"text":"Bins out tonight","icon":"trash","ttl":3600}')
+    // The icon and the time left are not part of it, so a change to either alone publishes nothing.
+    client().message('wallcal/hallway/overlay/set', '{"text":"Bins out tonight"}')
+    client().message('wallcal/hallway/overlay/set', '')
+
+    expect(control.applyCommand).toHaveBeenCalledTimes(3)
+    expect(client().payloadsOn('wallcal/hallway/overlay/state')).toEqual(['Bins out tonight', ''])
+    expect(client().published.filter(message => message.topic === 'wallcal/hallway/overlay/state').every(message => message.qos === 1 && message.retain)).toBe(true)
+  })
+
+  it('publishes an empty overlay/state when the overlay runs out', () => {
+    const { client, control, bus, states } = setup()
+    client().up()
+    control.applyCommand('hallway', { type: 'set_overlay', overlay: { text: 'Back at 6', ttl: 600 } })
+    expect(client().payloadsOn('wallcal/hallway/overlay/state')).toEqual(['', 'Back at 6'])
+
+    // What the control service does when the timer fires.
+    vi.advanceTimersByTime(600 * SECOND)
+    const expired = expireState(states.get('hallway')!, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15 })
+    states.set('hallway', expired)
+    bus.emit('state.updated', { displayId: 'hallway', state: expired })
+
+    expect(client().payloadsOn('wallcal/hallway/overlay/state')).toEqual(['', 'Back at 6', ''])
   })
 
   it('republishes month/state when the month rolls over, and only that', () => {

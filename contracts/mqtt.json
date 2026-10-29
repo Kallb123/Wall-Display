@@ -410,6 +410,25 @@
         "\"Hi\""
       ]
     },
+    "overlay/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The text of the message shown over the display, or empty when there is none: it has expired, or been cleared from Home Assistant, the remote page or the API. The icon and the time left are not published. Home Assistant's message box follows it. A broker drops a retained message that is empty, so a client that subscribes while there is no overlay is sent nothing.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "examples": [
+        "Bins out tonight",
+        ""
+      ],
+      "invalid_examples": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ]
+    },
     "photo/next": {
       "direction": "to_app",
       "retained": false,

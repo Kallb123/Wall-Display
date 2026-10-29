@@ -297,6 +297,7 @@
       "unique_id": "wallcal_hallway_message",
       "icon": "mdi:message-text",
       "command_topic": "wallcal/hallway/overlay/set",
+      "state_topic": "wallcal/hallway/overlay/state",
       "command_template": "{{ {'text': value} | to_json if value | trim else '' }}",
       "min": 0,
       "max": 200,

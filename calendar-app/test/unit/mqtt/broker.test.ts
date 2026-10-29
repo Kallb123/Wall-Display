@@ -141,6 +141,8 @@ afterEach(async () => {
 })
 
 const STATE_COUNT = STATE_TOPICS.length
+/** What a late subscriber is sent with no overlay: availability and every state topic but `overlay/state`, because a broker keeps no retained message that is empty. */
+const RETAINED_COUNT = STATE_COUNT
 
 /** Waits until the broker has seen the bridge's availability and every state topic, so what is stored is complete. The discovery configs are under another prefix, so they don't count. */
 function allPublished(broker: TestBroker, clientId = 'wallcal-hallway'): boolean {
@@ -159,7 +161,7 @@ describe('the bridge and a broker', () => {
     await until('the changes to be published', () => broker.published.filter(message => message.topic === 'wallcal/hallway/brightness/state').length === 2)
 
     const late = await probe(broker, 'wallcal/hallway/#')
-    await until('the retained messages', () => late.received.length >= STATE_COUNT + 1)
+    await until('the retained messages', () => late.received.length >= RETAINED_COUNT)
 
     expect(late.received.every(message => message.retain)).toBe(true)
     expect(Object.fromEntries(late.received.map(message => [message.topic.replace('wallcal/hallway/', ''), message.payload]))).toMatchObject({
@@ -188,6 +190,21 @@ describe('the bridge and a broker', () => {
       { topic: 'wallcal/hallway/screen/state', payload: 'on', retain: true },
       { topic: 'wallcal/hallway/screen/state', payload: 'off', retain: false },
     ])
+  })
+
+  it('follows the overlay on overlay/state, and says nothing but an empty payload when it goes', async () => {
+    const broker = await startBroker()
+    const { control } = setup(broker.url)
+    await until('the state to be published', () => allPublished(broker))
+    const ha = await probe(broker, 'wallcal/hallway/overlay/state')
+    // An empty retained message is not kept by the broker, so there is nothing to receive yet.
+    await ha.client.publishAsync('wallcal/hallway/overlay/set', '{"text":"Bins out tonight","ttl":3600}', { qos: 1 })
+
+    await until('the text', () => ha.received.length === 1)
+    control.applyCommand('hallway', { type: 'set_overlay', overlay: null })
+
+    await until('the empty payload', () => ha.received.length === 2)
+    expect(ha.received.map(({ payload }) => payload)).toEqual(['Bins out tonight', ''])
   })
 
   it('applies a command another client publishes, and publishes the new state', async () => {
@@ -274,7 +291,7 @@ describe('the bridge and a broker', () => {
     await until('the state to be published again', () => allPublished(second))
 
     const late = await probe(second, 'wallcal/hallway/#')
-    await until('the retained messages', () => late.received.length >= STATE_COUNT + 1)
+    await until('the retained messages', () => late.received.length >= RETAINED_COUNT)
     expect(late.on('wallcal/hallway/availability')[0]!.payload).toBe('online')
     expect(late.on('wallcal/hallway/view/state')[0]!.payload).toBe('photo')
   })

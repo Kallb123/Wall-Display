@@ -56,6 +56,10 @@ export const displayStateSchema = z.object({
   screen: z.enum(SCREEN_STATES).default('on'),
   photo_source: z.enum(PHOTO_SOURCES).default('immich'),
   brightness: brightness.default(100),
+  /** Whether the presence policy may switch the screen. Home Assistant can turn it off. */
+  auto_presence: z.boolean().default(true),
+  /** Whether the brightness policy may act on the light level. */
+  auto_brightness: z.boolean().default(true),
   overlay: overlaySchema.nullable().default(null),
 })
 
@@ -71,6 +75,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   // Out of range is an error, not clamped: a slider that sends 120 has a bug worth seeing.
   z.strictObject({ type: z.literal('set_brightness'), brightness }),
   z.strictObject({ type: z.literal('set_photo_source'), photo_source: z.enum(PHOTO_SOURCES) }),
+  z.strictObject({ type: z.literal('set_auto_presence'), auto_presence: z.boolean() }),
+  z.strictObject({ type: z.literal('set_auto_brightness'), auto_brightness: z.boolean() }),
   z.strictObject({
     type: z.literal('set_overlay'),
     // null clears the overlay.
@@ -83,7 +89,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   }),
   z.strictObject({ type: z.literal('photo_next') }),
   z.strictObject({ type: z.literal('refresh') }),
-], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_overlay, photo_next or refresh' })
+], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_overlay, photo_next or refresh' })
 
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']

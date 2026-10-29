@@ -80,7 +80,7 @@ describe('display state, commands and the WebSocket', async () => {
   it('GET /api/displays/:id/state is the default state for a new display', async () => {
     const state = await $fetch<DisplayState>('/api/displays/hallway/state')
 
-    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, overlay: null })
+    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null })
   })
 
   it('GET /api/displays/:id/state answers 404 for an unknown display', async () => {

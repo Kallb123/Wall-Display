@@ -29,8 +29,8 @@ The dev server is at <http://localhost:3000>. Pages and endpoints so far:
 - `GET /api/events?from=…&to=…`: the events that overlap the range `[from, to)`, each with its people (name, initial, colour). `from` and `to` are a date such as `2026-10-01` (midnight at the start of that day in the display time zone) or an ISO 8601 time with `Z` or an offset. The range may be at most 366 days; anything else is a 400 with a short reason
 - `POST /api/refresh`: syncs every calendar now and answers `{ "calendars": [{ "calendarId", "status": "updated" | "not-modified" | "error", "error"? }] }` once all have finished. The error is a short message that never contains a feed URL. With `remote.pin` set in the config it needs the PIN in an `X-Wallcal-Pin` header: 401 without it or with a wrong one, and 429 after 10 wrong tries in 5 minutes from one address
 - `GET /api/displays`: every display's settings from the config (`id`, `name`, `theme`, `month_style`, `week_start` and the config's `timezone`), which the display page uses for its theme and time zone
-- `GET /api/displays/:id/state`: the display's current state (`view`, `month`, `screen`, `photo_source`, `brightness`, `overlay`), or a 404 for an id that isn't in the config
-- `POST /api/displays/:id/commands`: applies one command, such as `{ "type": "set_view", "view": "agenda" }`, and answers with the new state. The types are `set_view`, `next_view`, `set_month` (`YYYY-MM`, `current`, `prev` or `next`), `set_screen`, `set_brightness`, `set_photo_source`, `set_overlay` (`{ "text", "icon"?, "ttl"? }` in seconds, or `null` to clear), `photo_next` and `refresh`. A bad command is a 400 with a short reason. With `remote.pin` set it needs the `X-Wallcal-Pin` header, as `POST /api/refresh` does
+- `GET /api/displays/:id/state`: the display's current state (`view`, `month`, `month_set_at`, `screen`, `photo_source`, `brightness`, `auto_presence`, `auto_brightness`, `overlay`), or a 404 for an id that isn't in the config
+- `POST /api/displays/:id/commands`: applies one command, such as `{ "type": "set_view", "view": "agenda" }`, and answers with the new state. The types are `set_view`, `next_view`, `set_month` (`YYYY-MM`, `current`, `prev` or `next`), `set_screen`, `set_brightness`, `set_photo_source`, `set_auto_presence` (`{ "auto_presence": true | false }`), `set_auto_brightness` (the same with `auto_brightness`), `set_overlay` (`{ "text", "icon"?, "ttl"? }` in seconds, or `null` to clear), `photo_next` and `refresh`. A bad command is a 400 with a short reason. With `remote.pin` set it needs the `X-Wallcal-Pin` header, as `POST /api/refresh` does
 - `GET /api/remote`: `{ "pin_required": true | false }`, whether the routes above need a PIN. It never returns the PIN
 - `POST /api/remote/pin`: answers 204 if the `X-Wallcal-Pin` header holds the right PIN (or none is set), and 401 or 429 as above. The remote page uses it to check a PIN as it is typed in
 - `GET /remote.webmanifest?id=<display>`: the web app manifest for "Add to Home Screen" (`<display name> remote`, opening `/remote?id=<display>`). `id` defaults to the first display; an unknown one is a 404. Its icons are in `calendar-app/public/icons/`, and `node scripts/render-icons.mjs` redraws them
@@ -56,6 +56,23 @@ Events are kept for a rolling window of whole months around the current one: 12 
 Each calendar is polled on its own interval (`poll_seconds`, 120 for ICS by default), and the first polls are spread over a few seconds at start-up. A feed that fails keeps its last good events and is tried again after twice the interval, then four times, and so on up to an hour; the first success after that goes back to the normal interval. The reason for the last failure is stored in `sync_status` and logged, without the feed's URL, which is a secret. `POST /api/refresh` forces an immediate poll of every calendar.
 
 Who an event is for (its people) and the title shown on the wall are worked out when it is stored, from the names in its title and description and the calendar's keyword rules, as described in [architecture §3.3](docs/architecture.md). If the people or rules in the config change, the stored events are re-resolved at the next start without fetching anything, and a calendar that has been removed from the config is deleted along with its events.
+
+### MQTT
+
+With an `mqtt` block in the config, each display keeps its state on an MQTT broker and takes commands from it. [`contracts/mqtt.json`](contracts/mqtt.json) is the reference: every topic, its direction, whether it is retained, and a JSON Schema for its payload. Everything lives under `wallcal/<display id>/`, as text:
+
+- The app publishes the state, retained: `view/state`, `month/state` (the month the month view shows, as `YYYY-MM`), `screen/state`, `photo_source/state`, `brightness/state`, `auto_presence/state` and `auto_brightness/state` (`ON` or `OFF`). A change is published when it happens, and everything is published again whenever the connection to the broker is made.
+- The app subscribes to `view/set`, `month/set`, `screen/set`, `photo_source/set`, `brightness/set`, `auto_presence/set`, `auto_brightness/set`, `overlay/set`, `photo/next` and `refresh`. A payload that doesn't fit its topic is ignored and logged. A retained message on one of these topics is ignored too, so it isn't replayed at every reconnect; publish an empty retained message there to remove it from the broker.
+- `availability` is `online` while the app is connected. The broker publishes `offline` (the last will) if the app dies, and the app publishes it itself on a clean stop. The app opens one connection per display, named `<client_id>-<display id>`, so that each display has its own last will.
+
+The topics that the Raspberry Pi will use (`pi/…`) are in the contract, but the app doesn't use them yet. The app runs the same without a broker, or while the broker is down: it keeps retrying in the background, with a growing wait of up to a minute, and logs the first failure rather than every attempt.
+
+To watch it and to send a command, with the Mosquitto tools:
+
+```sh
+mosquitto_sub -h localhost -t 'wallcal/#' -v
+mosquitto_pub -h localhost -t wallcal/hallway/view/set -m agenda
+```
 
 ### Database
 

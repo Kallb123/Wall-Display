@@ -414,6 +414,7 @@ The base is `wallcal/<display_id>/`.
 | `…/photo_source/set` / `state` | ↔ | `immich` \| `google` \| `local` (which provider photo frame mode uses) |
 | `…/brightness/set` / `state` | ↔ | `0`–`100` |
 | `…/auto_presence/set` / `state` | ↔ | `ON` \| `OFF` |
+| `…/auto_brightness/set` / `state` | ↔ | `ON` \| `OFF` |
 | `…/overlay/set` | → app | JSON `{ "text": "Bins out tonight", "icon": "trash", "ttl": 3600 }`, or empty to clear |
 | `…/photo/next` | → app | (any) |
 | `…/refresh` | → app | (any). Forces a calendar re-sync. |
@@ -424,6 +425,8 @@ The base is `wallcal/<display_id>/`.
 | `…/pi/screen/set` | app → pi | `on` \| `off`. The agent then turns the panel on or off. |
 | `…/pi/screen/state` | pi → | the actual panel state, if it can be detected |
 | `…/availability`, `…/pi/availability` | both | `online` / `offline` (MQTT last-will) |
+
+[`contracts/mqtt.json`](../contracts/mqtt.json) is the authoritative definition of the topics and payloads, and tests hold the app's code to it. A `…/set` message that arrives with the retain flag set is ignored, so a stale one on the broker isn't replayed at every reconnect. A connection has one last will, so the app opens one connection per display and each has its own `…/availability`.
 
 ### 7.4 Home Assistant integration
 

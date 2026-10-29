@@ -42,6 +42,27 @@ const rulePattern = z.string().min(1, 'must not be empty').check((ctx) => {
   }
 })
 
+// The broker's address. Credentials go in `username` and `password`, never in
+// the URL, so nothing secret reaches a log line that prints the address.
+const mqttUrl = z.string().check((ctx) => {
+  const problem = mqttUrlProblem(ctx.value)
+  if (problem) ctx.issues.push({ code: 'custom', message: problem, input: ctx.value, continue: true })
+})
+
+function mqttUrlProblem(value: string): string | undefined {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return 'must be an mqtt:// or mqtts:// URL such as mqtt://mosquitto:1883'
+  }
+  if (url.protocol !== 'mqtt:' && url.protocol !== 'mqtts:') return 'must be an mqtt:// or mqtts:// URL such as mqtt://mosquitto:1883'
+  if (url.hostname === '') return 'must include the broker\'s host name, as in mqtt://mosquitto:1883'
+  if (url.username !== '' || url.password !== '') return 'must not contain a username or password (use the username and password settings instead)'
+  if ((url.pathname !== '' && url.pathname !== '/') || url.search !== '' || url.hash !== '') return 'must be just the broker\'s host and optional port, with no path'
+  return undefined
+}
+
 export function isHttpUrl(value: string): boolean {
   try {
     const { protocol } = new URL(value)
@@ -128,6 +149,17 @@ const policies = z.strictObject({
   }).prefault({}),
 })
 
+// Left out, MQTT is off. Each display connects as `<client_id>-<display id>`.
+const mqtt = z.strictObject({
+  url: mqttUrl,
+  username: text.optional(),
+  password: z.string().min(1, 'must not be empty').optional(),
+  client_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'must be 1 to 64 letters, digits, hyphens and underscores').default('wallcal'),
+}).refine(value => value.password === undefined || value.username !== undefined, {
+  message: 'needs a username as well (a password on its own is not sent)',
+  path: ['password'],
+})
+
 // The rolling window of events kept in the database, in whole months around
 // the current month. The remote's month picker reaches 12 months either side.
 const sync = z.strictObject({
@@ -204,6 +236,7 @@ export function createConfigSchema(baseDir: string) {
     }).optional(),
     policies: policies.prefault({}),
     sync: sync.prefault({}),
+    mqtt: mqtt.optional(),
     photos: photos.optional(),
   }).superRefine(crossChecks)
 }
@@ -277,5 +310,6 @@ export type ButtonConfig = AppConfig['button']
 export type ButtonAction = ButtonConfig['single']
 export type PoliciesConfig = AppConfig['policies']
 export type SyncConfig = AppConfig['sync']
+export type MqttConfig = NonNullable<AppConfig['mqtt']>
 export type PhotosConfig = NonNullable<AppConfig['photos']>
 export type HomeAssistantConfig = NonNullable<AppConfig['homeassistant']>

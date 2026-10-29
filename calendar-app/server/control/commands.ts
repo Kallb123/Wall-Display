@@ -65,6 +65,8 @@ function apply(state: DisplayState, command: Command, ctx: ControlContext): Disp
     case 'set_screen': return { ...state, screen: command.screen }
     case 'set_brightness': return { ...state, brightness: command.brightness }
     case 'set_photo_source': return { ...state, photo_source: command.photo_source }
+    case 'set_auto_presence': return { ...state, auto_presence: command.auto_presence }
+    case 'set_auto_brightness': return { ...state, auto_brightness: command.auto_brightness }
     case 'set_overlay': {
       const { overlay } = command
       if (overlay === null) return { ...state, overlay: null }

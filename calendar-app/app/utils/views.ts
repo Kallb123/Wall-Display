@@ -1,5 +1,6 @@
 import type { MonthKey, View } from '../../shared/display'
 import type { CalendarEvent } from '../../shared/types/events'
+import type { WeatherSnapshot } from '../../shared/weather'
 
 // What every view component is given by pages/display.vue. They all declare
 // `defineProps<ViewProps>()`, even when they ignore some of it, so a prop a
@@ -21,6 +22,8 @@ export interface ViewProps {
   timezone: string
   /** The month the month view shows: the one the server pinned in `state.month`, or else the current month. Not necessarily the month `now` is in. */
   month: MonthKey
+  /** The current conditions and the daily forecast, or null for none (no weather set up, or not heard yet). A view draws no weather at all then. */
+  weather: WeatherSnapshot | null
   /** The day a week starts on, for the month grid. */
   weekStart: 'monday' | 'sunday'
 }

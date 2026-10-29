@@ -136,7 +136,7 @@ describe('PlaceholderView', () => {
       event(2, { all_day: true, start_date: '2026-10-28', end_date: '2026-10-29', display_title: 'All day thing' }),
       event(3, { display_title: 'School run' }),
     ]
-    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'agenda', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday' } })
+    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'agenda', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null } })
 
     expect(wrapper.find('h1').text()).toBe('Agenda')
     const rows = wrapper.findAll('[data-testid="event"]').map(row => row.text())
@@ -149,7 +149,7 @@ describe('PlaceholderView', () => {
 
   it('shows at most eight events', async () => {
     const events = Array.from({ length: 12 }, (_, i) => event(i + 1, {}))
-    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'month', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday' } })
+    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'month', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null } })
 
     expect(wrapper.findAll('[data-testid="event"]')).toHaveLength(8)
   })

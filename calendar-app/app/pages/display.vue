@@ -3,6 +3,7 @@ import type { Component } from 'vue'
 import { currentMonth, displayStateSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState, View } from '../../shared/display'
 import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
+import type { WeatherSnapshot } from '../../shared/weather'
 import AgendaView from '~/components/views/AgendaView.vue'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
@@ -39,6 +40,7 @@ const displayId = ref<string | null>(null)
 const settings = ref<DisplaySettings | null>(null)
 const state = ref<DisplayState>(displayStateSchema.parse({}))
 const events = ref<CalendarEvent[]>([])
+const weather = ref<WeatherSnapshot | null>(null)
 /** The server answered and has no such display. */
 const unknown = ref(false)
 
@@ -49,6 +51,7 @@ function select(id: string) {
   settings.value = cached?.settings ?? null
   state.value = cached?.state ?? displayStateSchema.parse({})
   events.value = cached?.events ?? []
+  weather.value = cached?.weather ?? null
 }
 
 async function loadSettings() {
@@ -84,6 +87,7 @@ const viewProps = computed<ViewProps | null>(() => {
     timezone: display.timezone,
     month,
     weekStart: display.week_start,
+    weather: weather.value,
   }
 })
 
@@ -116,12 +120,17 @@ watch(socket.state, (next) => {
   if (next) state.value = next
 })
 
+// The server sends the weather (or null, for none) after the state on every connect, and again when it changes.
+watch(socket.weather, (next) => {
+  if (next !== undefined) weather.value = next
+})
+
 // The settings arriving, the month changing and midnight passing each change what to ask for.
 watch([shownMonth, today], () => void loadEvents(), { immediate: true })
 
-watch([settings, state, events], () => {
+watch([settings, state, events, weather], () => {
   if (!displayId.value || !settings.value) return
-  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, saved_at: new Date().toISOString() })
+  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, weather: weather.value, saved_at: new Date().toISOString() })
   saveLastDisplayId(storage, displayId.value)
 })
 

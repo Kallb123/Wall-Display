@@ -12,7 +12,7 @@ const NOW = new Date('2026-10-28T09:41:00Z')
 const events = fixtureEvents()
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'month', events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', ...overrides,
+  view: 'month', events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, ...overrides,
 })
 
 describe('MonthSoftView', () => {

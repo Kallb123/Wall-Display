@@ -1,3 +1,4 @@
+import { SOCKET_ROLES } from '../../shared/display'
 import type { ServerMessage, SocketRole } from '../../shared/display'
 
 // Keeps track of who is connected over WebSocket, by display and role, and
@@ -20,6 +21,8 @@ export interface SocketHub {
   sendToAll: (message: ServerMessage) => void
   /** How many peers are connected. */
   size: () => number
+  /** How many peers of one display are connected, by role. Every role is there, with 0 when none. */
+  counts: (displayId: string) => Record<SocketRole, number>
 }
 
 interface Entry {
@@ -60,6 +63,13 @@ export function createSocketHub(log: Pick<Console, 'warn'> = console): SocketHub
       send(message, () => true)
     },
     size: () => entries.size,
+    counts(displayId) {
+      const counts = Object.fromEntries(SOCKET_ROLES.map(role => [role, 0])) as Record<SocketRole, number>
+      for (const entry of entries.values()) {
+        if (entry.displayId === displayId) counts[entry.role]++
+      }
+      return counts
+    },
   }
 }
 

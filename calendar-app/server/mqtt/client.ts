@@ -71,6 +71,13 @@ export interface MqttBridgeStatus {
 
 export interface MqttBridge {
   status: () => MqttBridgeStatus[]
+  /**
+   * Publishes the discovery configs again on every connection that is up, for
+   * the settings page's "Republish discovery". A display that is down gets them
+   * when it connects, so it is left out. Returns the ids of the displays it
+   * published for, and none when discovery is off.
+   */
+  republishDiscovery: () => string[]
   /** Publishes `offline`, ends every connection and cancels the timers. Resolves within a few seconds even if the broker is gone. */
   stop: () => Promise<void>
 }
@@ -95,6 +102,12 @@ export function reconnectDelayMs(failures: number, random: number): number {
   return Math.min(Math.round(base * (1 - JITTER + 2 * JITTER * random)), MAX_RECONNECT_MS)
 }
 
+/** The broker as a log line or the settings page names it: the scheme, host and port, such as `mqtt://mosquitto:1883`. The credentials are in the config, not the URL, and never in this. */
+export function brokerName(url: string): string {
+  const broker = new URL(url)
+  return `${broker.protocol}//${broker.host}`
+}
+
 interface Link {
   displayId: string
   displayName: string
@@ -114,9 +127,7 @@ interface Link {
 
 export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, lastSync = () => null } = options
-  // The scheme, host and port only. The credentials are in `config`, not the URL.
-  const broker = new URL(config.url)
-  const brokerName = `${broker.protocol}//${broker.host}`
+  const broker = brokerName(config.url)
   let stopped = false
   let stopping: Promise<void> | undefined
 
@@ -202,7 +213,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     const client = link.client!
     link.state = 'connected'
     link.lastError = null
-    log.info(`[mqtt] ${link.displayId}: connected to ${brokerName}${link.failures > 0 ? ` (after ${link.failures} failed attempt(s))` : ''}`)
+    log.info(`[mqtt] ${link.displayId}: connected to ${broker}${link.failures > 0 ? ` (after ${link.failures} failed attempt(s))` : ''}`)
     link.connectedAt = now().getTime()
     link.reported = false
     link.published.clear()
@@ -234,8 +245,8 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       link.reported = true
       const reason = link.lastError ? ` (${link.lastError})` : ''
       log.warn(wasConnected
-        ? `[mqtt] ${link.displayId}: lost the connection to ${brokerName}${reason}; trying again in the background`
-        : `[mqtt] ${link.displayId}: cannot connect to ${brokerName}${reason}; trying again in the background`)
+        ? `[mqtt] ${link.displayId}: lost the connection to ${broker}${reason}; trying again in the background`
+        : `[mqtt] ${link.displayId}: cannot connect to ${broker}${reason}; trying again in the background`)
     }
     // A client can report `close` more than once for one connection.
     if (link.retry) return
@@ -363,6 +374,16 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
   return {
     status: () => links.map(({ displayId, state, lastError }) => ({ displayId, state, lastError })),
+
+    republishDiscovery() {
+      if (!config.discovery || stopped) return []
+      const connected = links.filter(link => link.state === 'connected')
+      for (const link of connected) publishDiscovery(link)
+      log.info(connected.length > 0
+        ? `[mqtt] the discovery configs were published again for ${connected.map(link => link.displayId).join(', ')}, as asked`
+        : '[mqtt] asked to publish the discovery configs again, but no display is connected')
+      return connected.map(link => link.displayId)
+    },
 
     stop() {
       stopping ??= (async () => {

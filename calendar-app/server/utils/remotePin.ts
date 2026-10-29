@@ -8,9 +8,11 @@ const guard = createPinGuard()
 /**
  * Lets a request through when `remote.pin` is unset or the request carries it
  * in the `x-wallcal-pin` header. Otherwise throws a 401, or a 429 for a client
- * that has sent too many wrong PINs. Call it first in a route, before anything
- * that would tell an unauthenticated caller something. The client is the
- * socket's address, not `X-Forwarded-For`, which a caller could set to dodge the
+ * that has sent too many wrong PINs. The PIN middleware
+ * (`server/middleware/pin.ts`) calls it for every write under `/api/`, before
+ * the route runs, so routes don't call it themselves: each call counts a wrong
+ * PIN, and a route that did would count it twice. The client is the socket's
+ * address, not `X-Forwarded-For`, which a caller could set to dodge the
  * lockout. The PIN is never logged or echoed.
  */
 export function requireRemotePin(event: H3Event): void {

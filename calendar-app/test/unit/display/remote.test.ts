@@ -8,6 +8,7 @@ import {
   monthCommandFor,
   monthLabel,
   monthOptions,
+  requestFailure,
   savePin,
 } from '../../../app/utils/remote'
 
@@ -139,5 +140,24 @@ describe('the kept PIN', () => {
     expect(() => savePin(broken, '4821')).not.toThrow()
     expect(() => clearPin(broken)).not.toThrow()
     expect(() => savePin(null, '4821')).not.toThrow()
+  })
+})
+
+describe('requestFailure', () => {
+  it('reads the status and the server\'s message from a failed $fetch', () => {
+    const error = Object.assign(new Error('401'), { statusCode: 401, data: { statusCode: 401, message: 'Wrong PIN' } })
+
+    expect(requestFailure(error)).toEqual({ status: 401, message: 'Wrong PIN' })
+  })
+
+  it('has a status but no message when the body has none', () => {
+    expect(requestFailure(Object.assign(new Error('500'), { statusCode: 500, data: null }))).toEqual({ status: 500, message: null })
+    expect(requestFailure(Object.assign(new Error('500'), { statusCode: 500, data: { message: 42 } }))).toEqual({ status: 500, message: null })
+  })
+
+  it('has no status when there was no answer', () => {
+    expect(requestFailure(new TypeError('Failed to fetch'))).toEqual({ status: null, message: null })
+    expect(requestFailure('boom')).toEqual({ status: null, message: null })
+    expect(requestFailure(null)).toEqual({ status: null, message: null })
   })
 })

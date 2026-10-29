@@ -80,3 +80,13 @@ export function clearPin(storage: Storage | null | undefined): void {
     // Nothing to do: a PIN that can't be removed is refused again, and asked for again.
   }
 }
+
+/** The HTTP status and the server's `message` of a failed `$fetch`, or a null status if it never got an answer. */
+export function requestFailure(error: unknown): { status: number | null, message: string | null } {
+  if (typeof error !== 'object' || error === null) return { status: null, message: null }
+  const { statusCode, data } = error as { statusCode?: unknown, data?: { message?: unknown } | null }
+  return {
+    status: typeof statusCode === 'number' ? statusCode : null,
+    message: typeof data?.message === 'string' ? data.message : null,
+  }
+}

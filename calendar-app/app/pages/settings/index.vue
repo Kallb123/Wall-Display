@@ -1,10 +1,9 @@
 <script setup lang="ts">
-useHead({ title: 'Settings' })
+// /settings is not a page of its own: it opens on the first tab. The router
+// redirects (replacing the entry, so Back leaves settings instead of bouncing off this).
+definePageMeta({ redirect: '/settings/calendars' })
 </script>
 
 <template>
-  <main>
-    <h1>Settings</h1>
-    <p>This page is coming in a later PR.</p>
-  </main>
+  <div />
 </template>

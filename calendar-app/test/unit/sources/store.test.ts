@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { calendars, events, syncStatus } from '../../../server/db/schema'
 import type { CalendarConfig } from '../../../server/config/schema'
 import type { Db } from '../../../server/db/client'
-import { configHash, ensureCalendarRow, replaceCalendarEvents, reresolveStoredEvents, syncCalendarRows } from '../../../server/sources/store'
+import { configHash, ensureCalendarRow, lastSyncAt, replaceCalendarEvents, reresolveStoredEvents, syncCalendarRows } from '../../../server/sources/store'
 import type { NormalisedEvent } from '../../../server/sources/types'
 import { migratedMemoryDb } from '../db/helpers'
 import { calendarConfig, PEOPLE, resolverFor } from './helpers'
@@ -413,5 +413,46 @@ describe('syncCalendarRows', () => {
     syncCalendarRows(db, [calendarConfig({ name: 'The family', person: 'mum' })], PEOPLE)
 
     expect(db.select().from(calendars).where(eq(calendars.id, 'family')).get()).toMatchObject({ name: 'The family', personId: 'mum' })
+  })
+})
+
+describe('lastSyncAt', () => {
+  it('is null when nothing has been synced, whether the database is empty or only has failures', () => {
+    const db = setup()
+    expect(lastSyncAt(db)).toBeNull()
+
+    db.insert(syncStatus).values({ calendarId: 'family', lastAttemptAt: new Date('2026-10-28T10:00:00Z'), lastError: 'HTTP 500 Internal Server Error' }).run()
+
+    expect(lastSyncAt(db)).toBeNull()
+  })
+
+  it('is the latest success across the calendars, to the millisecond', () => {
+    const db = setup()
+    db.insert(syncStatus).values({ calendarId: 'family', lastSuccessAt: new Date('2026-10-28T10:00:00.123Z') }).run()
+    db.insert(syncStatus).values({ calendarId: 'work', lastSuccessAt: new Date('2026-10-28T09:00:00Z') }).run()
+
+    expect(lastSyncAt(db)).toEqual(new Date('2026-10-28T10:00:00.123Z'))
+
+    db.update(syncStatus).set({ lastSuccessAt: new Date('2026-10-28T11:30:00Z') }).where(eq(syncStatus.calendarId, 'work')).run()
+
+    expect(lastSyncAt(db)).toEqual(new Date('2026-10-28T11:30:00Z'))
+  })
+
+  it('ignores a calendar that has never succeeded, and a failure after a success', () => {
+    const db = setup()
+    db.insert(syncStatus).values({ calendarId: 'family', lastAttemptAt: new Date('2026-10-28T12:00:00Z'), lastSuccessAt: new Date('2026-10-28T10:00:00Z'), lastError: 'HTTP 503 Service Unavailable' }).run()
+    db.insert(syncStatus).values({ calendarId: 'work', lastAttemptAt: new Date('2026-10-28T12:00:00Z'), lastError: 'HTTP 404 Not Found' }).run()
+
+    expect(lastSyncAt(db)).toEqual(new Date('2026-10-28T10:00:00Z'))
+  })
+
+  it('forgets a calendar that is no longer configured', () => {
+    const db = setup()
+    db.insert(syncStatus).values({ calendarId: 'work', lastSuccessAt: new Date('2026-10-28T11:00:00Z') }).run()
+    db.insert(syncStatus).values({ calendarId: 'family', lastSuccessAt: new Date('2026-10-28T10:00:00Z') }).run()
+
+    syncCalendarRows(db, [calendarConfig()], PEOPLE)
+
+    expect(lastSyncAt(db)).toEqual(new Date('2026-10-28T10:00:00Z'))
   })
 })

@@ -72,6 +72,16 @@ describe('the event bus', () => {
     expect(stateUpdated).not.toHaveBeenCalled()
   })
 
+  it('carries which calendar synced on sync.succeeded', () => {
+    const bus = createEventBus()
+    const succeeded = vi.fn()
+    bus.on('sync.succeeded', succeeded)
+
+    bus.emit('sync.succeeded', { calendarId: 'family' })
+
+    expect(succeeded).toHaveBeenCalledWith({ calendarId: 'family' })
+  })
+
   it('has one shared instance for the server', () => {
     const handler = vi.fn()
     const unsubscribe = getEventBus().on('events.updated', handler)

@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
-import { and, eq, inArray, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm'
 import { createPeopleResolver, DETECTION_VERSION } from '../../shared/people'
 import type { ResolvedPeople } from '../../shared/people'
 import type { CalendarConfig, Person } from '../config/schema'
 import type { Db } from '../db/client'
-import { calendars, events } from '../db/schema'
+import { calendars, events, syncStatus } from '../db/schema'
 import type { NewEventRow } from '../db/schema'
 import type { NormalisedEvent } from './types'
 
@@ -220,6 +220,21 @@ export function syncCalendarRows(db: Db, configured: readonly CalendarConfig[], 
   const removed = db.select({ id: calendars.id }).from(calendars).all().map(row => row.id).filter(id => !keep.has(id))
   if (removed.length > 0) db.delete(calendars).where(inArray(calendars.id, removed)).run()
   return { reresolved, removed }
+}
+
+/**
+ * When the most recent successful sync finished, across all calendars, or null
+ * if none has succeeded yet (a fresh database, or only failures so far). A
+ * failed sync leaves `last_success_at` alone, so this is the last time any
+ * calendar was known to be up to date.
+ */
+export function lastSyncAt(db: Db): Date | null {
+  const row = db.select({ at: syncStatus.lastSuccessAt }).from(syncStatus)
+    .where(isNotNull(syncStatus.lastSuccessAt))
+    .orderBy(desc(syncStatus.lastSuccessAt))
+    .limit(1)
+    .get()
+  return row?.at ?? null
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {

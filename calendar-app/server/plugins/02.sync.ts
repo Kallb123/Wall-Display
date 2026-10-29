@@ -32,6 +32,7 @@ export default defineNitroPlugin((nitroApp) => {
     // The database is looked up per sync, so a poll after the close hook has cleared it fails (and is ignored) instead of using a closed handle.
     sync: calendar => syncCalendar({ db: useDb(), calendar, config }),
     onChange: calendarIds => useEventBus().emit('events.updated', { calendarIds }),
+    onSuccess: calendarId => useEventBus().emit('sync.succeeded', { calendarId }),
   })
   setSyncScheduler(scheduler)
   scheduler.start()

@@ -30,18 +30,20 @@ function deferred<T>() {
 function setup(calendars: CalendarConfig[], syncImpl: (calendar: CalendarConfig) => Promise<SyncOutcome> = () => Promise.resolve(NOTHING_NEW), random = () => 0.5) {
   const sync = vi.fn(syncImpl)
   const onChange = vi.fn<(calendarIds: string[]) => void>()
+  const onSuccess = vi.fn<(calendarId: string) => void>()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const scheduler = createSyncScheduler({
     calendars,
     canSync: calendar => calendar.source.type === 'ics',
     sync,
     onChange,
+    onSuccess,
     random,
     log,
   })
   const calls = (id: string) => sync.mock.calls.filter(([calendar]) => calendar.id === id).length
   const logged = () => JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls])
-  return { scheduler, sync, onChange, log, calls, logged }
+  return { scheduler, sync, onChange, onSuccess, log, calls, logged }
 }
 
 beforeEach(() => {
@@ -277,6 +279,60 @@ describe('telling the app', () => {
     expect(log.error.mock.calls[0]![0]).toContain('listener broke')
   })
 
+  it('calls onSuccess after every successful sync, whether it found changes or nothing new', async () => {
+    const outcomes = [CHANGED, NOTHING_NEW, { status: 'updated' as const, changed: false, summary: 'the same events' }]
+    const { scheduler, onSuccess } = setup([ics('a'), ics('b')], calendar => Promise.resolve(calendar.id === 'a' ? outcomes.shift() ?? NOTHING_NEW : NOTHING_NEW), () => 0)
+    scheduler.start()
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onSuccess.mock.calls).toEqual([['a'], ['b']])
+    await vi.advanceTimersByTimeAsync(INTERVAL)
+    await vi.advanceTimersByTimeAsync(INTERVAL)
+    expect(onSuccess).toHaveBeenCalledTimes(6)
+  })
+
+  it('calls onSuccess for a forced poll too', async () => {
+    const { scheduler, onSuccess } = setup([ics('a'), ics('b')])
+
+    await scheduler.refreshAll()
+
+    expect(onSuccess.mock.calls).toEqual([['a'], ['b']])
+  })
+
+  it('does not call onSuccess after a failure, and calls it again once the calendar works', async () => {
+    let failing = true
+    const { scheduler, onSuccess } = setup([ics('a')], () => failing ? Promise.reject(FAILURE) : Promise.resolve(NOTHING_NEW), () => 0)
+    scheduler.start()
+
+    await vi.advanceTimersByTimeAsync(2 * INTERVAL)
+    expect(onSuccess).not.toHaveBeenCalled()
+
+    failing = false
+    await vi.advanceTimersByTimeAsync(MAX_BACKOFF_MS)
+    expect(onSuccess).toHaveBeenCalled()
+  })
+
+  it('calls onSuccess for a calendar that works while another one fails', async () => {
+    const { scheduler, onSuccess } = setup([ics('bad'), ics('good')], calendar => calendar.id === 'bad' ? Promise.reject(FAILURE) : Promise.resolve(NOTHING_NEW), () => 0)
+    scheduler.start()
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(onSuccess.mock.calls).toEqual([['good']])
+  })
+
+  it('carries on if onSuccess throws, still telling the app about the change first', async () => {
+    const { scheduler, onChange, onSuccess, calls, log } = setup([ics('a')], () => Promise.resolve(CHANGED), () => 0)
+    onSuccess.mockImplementation(() => { throw new Error('bus broke') })
+    scheduler.start()
+
+    await vi.advanceTimersByTimeAsync(INTERVAL)
+
+    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(calls('a')).toBe(2)
+    expect(log.error.mock.calls[0]![0]).toContain('bus broke')
+  })
+
   it('logs the first success and every change, but not a poll that found nothing new', async () => {
     const outcomes = [NOTHING_NEW, NOTHING_NEW, CHANGED, NOTHING_NEW]
     const { scheduler, log } = setup([ics('a')], () => Promise.resolve(outcomes.shift() ?? NOTHING_NEW), () => 0)
@@ -452,9 +508,9 @@ describe('stop', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('ignores a sync that finishes afterwards: no log, no change, no next poll', async () => {
+  it('ignores a sync that finishes afterwards: no log, no change, no success, no next poll', async () => {
     const gate = deferred<SyncOutcome>()
-    const { scheduler, sync, onChange, log } = setup([ics('a')], () => gate.promise, () => 0)
+    const { scheduler, sync, onChange, onSuccess, log } = setup([ics('a')], () => gate.promise, () => 0)
     scheduler.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(sync).toHaveBeenCalledTimes(1)
@@ -464,6 +520,7 @@ describe('stop', () => {
     await vi.advanceTimersByTimeAsync(2 * MAX_BACKOFF_MS)
 
     expect(onChange).not.toHaveBeenCalled()
+    expect(onSuccess).not.toHaveBeenCalled()
     expect(log.info).not.toHaveBeenCalled()
     expect(sync).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)

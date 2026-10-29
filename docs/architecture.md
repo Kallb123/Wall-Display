@@ -520,6 +520,8 @@ The HA `event` entity fires for every press either way, so HA can always react a
 
 (Entity IDs are illustrative. HA generates them from the discovery names.)
 
+Working versions with the generated entity IDs, broker setup and a dashboard are in [home-assistant.md](home-assistant.md).
+
 ### 7.5 Phone remote page
 
 `/remote` is a mobile-first page that works as an "Add to Home Screen" web app. It follows the phone's light or dark setting. From top to bottom (mocks 1e, 1f and 3b):
@@ -677,6 +679,7 @@ wall-display/
 ├── docker-compose.build.yml     # override that builds it from the checkout instead
 └── docs/
     ├── architecture.md
+    ├── home-assistant.md
     └── implementation-plan.md
 ```
 

@@ -30,9 +30,7 @@ describe('MonthSoftView', () => {
   it('titles the month and year', async () => {
     const wrapper = await mountSuspended(MonthSoftView, { props: props() })
 
-    const title = wrapper.find('[data-testid="month-title"]').text()
-    expect(title).toContain('October')
-    expect(title).toContain('2026')
+    expect(wrapper.find('[data-testid="month-title"]').text()).toBe('October 2026')
   })
 
   it('lists today and the next three days in the panel, with the big date', async () => {
@@ -88,9 +86,7 @@ describe('MonthSoftView', () => {
   it('shows a pinned month in the grid while the panel stays on today', async () => {
     const wrapper = await mountSuspended(MonthSoftView, { props: props({ month: '2027-03' }) })
 
-    const title = wrapper.find('[data-testid="month-title"]').text()
-    expect(title).toContain('March')
-    expect(title).toContain('2027')
+    expect(wrapper.find('[data-testid="month-title"]').text()).toBe('March 2027')
     expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(35)
     expect(wrapper.find('[data-testid="today-number"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="panel-day"]')[0]!.find('h2').text()).toBe('Today')

@@ -50,9 +50,9 @@ function numberColours(cell: DayCell): { background: string, color: string } {
   return { background: 'transparent', color: cell.inMonth ? 'var(--text)' : 'var(--faint)' }
 }
 
-/** The badges an item gets: its first people, as many as the layout kept initials for. */
-function badgesOf(item: ItemPeople): { initial: string, colour: string }[] {
-  return item.initials.map((initial, index) => ({ initial, colour: item.people[index]!.colour }))
+/** The badges an item gets: its first people, as many as the layout kept initials for. Keyed by person, as two can share an initial. */
+function badgesOf(item: ItemPeople): { id: string, initial: string, colour: string }[] {
+  return item.initials.map((initial, index) => ({ id: item.people[index]!.id, initial, colour: item.people[index]!.colour }))
 }
 
 /** A bar's fill. With nobody on it (no person matched) it is the surface colour and has no badge. */
@@ -77,8 +77,8 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   <section class="view" data-testid="month-view">
     <div class="side">
       <h1 class="title" data-testid="month-title">
-        <span class="month">{{ monthName }}</span>
-        <span class="year">{{ year }}</span>
+        <!-- The space is for the text ("October 2026"); between flex items it takes no room. -->
+        <span class="month">{{ monthName }}</span>{{ ' ' }}<span class="year">{{ year }}</span>
       </h1>
 
       <div class="panel" data-testid="panel">
@@ -121,7 +121,7 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
                 <span class="badges">
                   <span
                     v-for="badge in badgesOf(row.item)"
-                    :key="badge.initial"
+                    :key="badge.id"
                     class="badge"
                     :style="{ background: badge.colour }"
                   >{{ badge.initial }}</span>
@@ -179,7 +179,7 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
             <span v-if="bar.initials.length" class="badges">
               <span
                 v-for="badge in badgesOf(bar)"
-                :key="badge.initial"
+                :key="badge.id"
                 class="badge"
                 :style="{ background: badge.colour }"
               >{{ badge.initial }}</span>
@@ -198,7 +198,7 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
             <span v-if="row.initials.length" class="badges">
               <span
                 v-for="badge in badgesOf(row)"
-                :key="badge.initial"
+                :key="badge.id"
                 class="badge"
                 :style="{ background: badge.colour }"
               >{{ badge.initial }}</span>

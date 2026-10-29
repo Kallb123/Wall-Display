@@ -16,6 +16,10 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     // The stage is 2560×1440, so that is the window it is judged in.
     viewport: { width: 2560, height: 1440 },
+    // Headless Chromium takes its font hinting from the machine's fontconfig
+    // unless told, so the same page drew narrower glyphs on CI than locally and
+    // cut titles at a different letter. Fixed here, every machine draws text alike.
+    launchOptions: { args: ['--font-render-hinting=none'] },
     deviceScaleFactor: 1,
     timezoneId: 'Europe/London',
     locale: 'en-GB',

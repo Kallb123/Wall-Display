@@ -1,4 +1,4 @@
-// The shapes shared by the calendar sources (ICS now, Home Assistant later).
+// The shapes shared by the calendar sources (ICS and Home Assistant).
 // Pure types: nothing here touches the network or the database.
 
 /**

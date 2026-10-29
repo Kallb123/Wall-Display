@@ -155,6 +155,16 @@ export function replaceCalendarEvents(
   })
 }
 
+type SyncStatusFields = Partial<Omit<typeof syncStatus.$inferInsert, 'calendarId'>>
+
+/**
+ * Writes the given fields of a calendar's sync status and leaves the others as
+ * they were. Makes the row if the calendar has none yet.
+ */
+export function recordSyncStatus(db: Db, calendarId: string, fields: SyncStatusFields): void {
+  db.insert(syncStatus).values({ calendarId, ...fields }).onConflictDoUpdate({ target: syncStatus.calendarId, set: fields }).run()
+}
+
 export interface ReresolveResult {
   /** Events the calendar had stored. */
   checked: number

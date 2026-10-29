@@ -1,5 +1,5 @@
 import type { CalendarConfig } from '../config/schema'
-import { safeErrorMessage } from './ics/errors'
+import { safeErrorMessage } from './errors'
 
 // Polls each calendar on its own interval, so a slow or broken feed never holds
 // up the others. It decides when to sync and what to do with how it went:

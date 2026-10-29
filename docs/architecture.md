@@ -383,6 +383,7 @@ The app holds one state document per display (multiple displays are supported vi
 
 - `month` is `null` when the month view follows the current month, which is the normal case. Otherwise it is a pinned month such as `"2026-12"`, limited to 12 months either side of today. A pinned month goes back to `null` when the view changes away from `month`, when someone picks the current month, and after `month_return_minutes` with no month change (default 15, set per display). So the wall never stays stuck on another month.
 - `month_set_at` is the time (an ISO 8601 instant) the pinned month was last set. `month_return_minutes` counts from it, and it is `null` whenever `month` is. Every `set_month` that pins a month restarts the count, even for the month already shown. `set_month` also switches the view to `month`, since a month only means something there.
+- `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`) and clears itself when it ends (§6.5).
 - Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`) and `month_return_minutes`, live in config (and later in the settings page), not in this state.
 
@@ -417,6 +418,7 @@ The base is `wallcal/<display_id>/`.
 | `…/auto_presence/set` / `state` | ↔ | `ON` \| `OFF` |
 | `…/auto_brightness/set` / `state` | ↔ | `ON` \| `OFF` |
 | `…/overlay/set` | → app | JSON `{ "text": "Bins out tonight", "icon": "trash", "ttl": 3600 }`, or empty to clear |
+| `…/overlay/state` | app → | the overlay's text, or empty when there is none, because it expired or was cleared (retained). The icon and the time left are not published. |
 | `…/photo/next` | → app | (any) |
 | `…/refresh` | → app | (any). Forces a calendar re-sync. |
 | `…/last_sync/state` | app → | ISO 8601 instant (UTC) of the last successful calendar sync, such as `2026-10-28T12:00:00.000Z` (retained). Not published until a calendar has synced. |
@@ -446,7 +448,7 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | Brightness | `number` (slider) |
 | Auto presence | `switch` |
 | Auto brightness | `switch` |
-| Message | `text` (sets the overlay banner) |
+| Message | `text` (sets the overlay banner, and empties when the banner expires or is cleared) |
 | Next photo | `button` |
 | Refresh calendars | `button` |
 | Last sync | `sensor` (timestamp) |

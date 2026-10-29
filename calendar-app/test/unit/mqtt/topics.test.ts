@@ -235,6 +235,7 @@ describe('statePayloads', () => {
       'brightness/state': '80',
       'auto_presence/state': 'OFF',
       'auto_brightness/state': 'ON',
+      'overlay/state': '',
     })
   })
 
@@ -249,6 +250,19 @@ describe('statePayloads', () => {
 
     expect([on['auto_presence/state'], on['auto_brightness/state']]).toEqual(['ON', 'ON'])
     expect([off['auto_presence/state'], off['auto_brightness/state']]).toEqual(['OFF', 'OFF'])
+  })
+
+  it('shows the overlay\'s text, and nothing when there is no overlay', () => {
+    const overlay = { text: 'Bins out tonight', icon: null, until: null }
+
+    expect(statePayloads(state({ overlay }), NOW, 'Europe/London')['overlay/state']).toBe('Bins out tonight')
+    expect(statePayloads(state({ overlay: null }), NOW, 'Europe/London')['overlay/state']).toBe('')
+  })
+
+  it('shows only the text of an overlay that has an icon and a time to go', () => {
+    const overlay = { text: 'Back at 6', icon: 'clock', until: '2026-10-28T13:00:00.000Z' }
+
+    expect(statePayloads(state({ overlay }), NOW, 'Europe/London')['overlay/state']).toBe('Back at 6')
   })
 
   it('shows the pinned month while one is pinned', () => {

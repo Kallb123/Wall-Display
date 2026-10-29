@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import ClockWidget from '~/components/ClockWidget.vue'
 import OfflineBadge from '~/components/OfflineBadge.vue'
+import OverlayBanner from '~/components/OverlayBanner.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
 import type { CalendarEvent } from '../../shared/types/events'
 
@@ -70,6 +71,53 @@ describe('OfflineBadge', () => {
 
     await wrapper.setProps({ status: 'open' })
     expect(wrapper.find('[data-testid="offline-badge"]').exists()).toBe(false)
+  })
+})
+
+describe('OverlayBanner', () => {
+  const now = new Date('2026-10-28T09:41:00Z')
+  const banner = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.find('[data-testid="overlay-banner"]')
+
+  it('shows the text as a status message', async () => {
+    const overlay = { text: 'Bins out tonight', icon: null, until: '2026-10-28T11:41:00Z' }
+    const wrapper = await mountSuspended(OverlayBanner, { props: { overlay, now } })
+
+    expect(banner(wrapper).text()).toBe('Bins out tonight')
+    expect(banner(wrapper).attributes('role')).toBe('status')
+  })
+
+  it('shows one that stays until cleared', async () => {
+    const wrapper = await mountSuspended(OverlayBanner, { props: { overlay: { text: 'Hello', icon: null, until: null }, now } })
+
+    expect(banner(wrapper).exists()).toBe(true)
+  })
+
+  it('shows nothing for no overlay', async () => {
+    const wrapper = await mountSuspended(OverlayBanner, { props: { overlay: null, now } })
+
+    expect(banner(wrapper).exists()).toBe(false)
+  })
+
+  it('shows nothing once its time has passed, and goes when the clock gets there', async () => {
+    const overlay = { text: 'Bins out tonight', icon: null, until: '2026-10-28T09:41:30Z' }
+    const wrapper = await mountSuspended(OverlayBanner, { props: { overlay: { ...overlay, until: '2026-10-28T09:40:00Z' }, now } })
+    expect(banner(wrapper).exists()).toBe(false)
+
+    await wrapper.setProps({ overlay })
+    expect(banner(wrapper).exists()).toBe(true)
+
+    await wrapper.setProps({ now: new Date('2026-10-28T09:41:30Z') })
+    expect(banner(wrapper).exists()).toBe(false)
+  })
+
+  it('draws the icon it is named, or the plain message icon', async () => {
+    const wrapper = await mountSuspended(OverlayBanner, { props: { overlay: { text: 'Bins', icon: 'mdi:trash-can', until: null }, now } })
+    const trash = banner(wrapper).find('svg').classes()
+    expect(trash).toContain('lucide-trash2-icon')
+
+    await wrapper.setProps({ overlay: { text: 'Hello', icon: 'no-such-icon', until: null } })
+
+    expect(banner(wrapper).find('svg').classes()).toContain('lucide-message-circle-icon')
   })
 })
 

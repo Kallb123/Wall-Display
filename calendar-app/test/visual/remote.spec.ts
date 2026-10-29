@@ -98,6 +98,84 @@ test('shows this month in the picker, with no way back, when none is pinned', as
   await expect(page.getByTestId('month-current')).toHaveCount(0)
 })
 
+test.describe('the message', () => {
+  const bins = { text: 'Bins out tonight', icon: 'trash', until: '2026-10-28T14:30:00.000Z' }
+
+  test('shows what is on the wall and when it ends', async ({ page }) => {
+    await openRemote(page, { view: 'agenda', brightness: 80, overlay: bins })
+
+    await expect(page.getByTestId('overlay-current-text')).toHaveText('Bins out tonight')
+    await expect(page.getByTestId('overlay-current-until')).toHaveText('Until 14:30')
+    await expect(page).toHaveScreenshot('message.png', { fullPage: true })
+  })
+
+  test.describe('dark', () => {
+    test.use({ colorScheme: 'dark' })
+
+    test('shows what is on the wall and when it ends', async ({ page }) => {
+      await openRemote(page, { view: 'agenda', brightness: 80, overlay: bins })
+
+      await expect(page.getByTestId('overlay-current')).toBeVisible()
+      await expect(page).toHaveScreenshot('message-dark.png', { fullPage: true })
+    })
+  })
+
+  test('only has the form when nothing is on the wall', async ({ page }) => {
+    await openRemote(page, { view: 'agenda' })
+
+    await expect(page.getByTestId('overlay-current')).toHaveCount(0)
+    await expect(page.getByTestId('overlay-submit')).toBeDisabled()
+  })
+
+  test('sends exactly what was filled in, then clears the text', async ({ page }) => {
+    await openRemote(page, { view: 'agenda' })
+    const commands = await recordCommands(page)
+
+    await page.getByTestId('overlay-input').fill('  Bins out tonight  ')
+    await expect(page.getByTestId('overlay-submit')).toBeEnabled()
+    await page.getByTestId('overlay-icon-trash').click()
+    await page.getByTestId('overlay-duration').selectOption({ label: '3 hours' })
+    await page.getByTestId('overlay-submit').click()
+
+    await expect.poll(() => commands).toEqual([{ type: 'set_overlay', overlay: { text: 'Bins out tonight', icon: 'trash', ttl: 10800 } }])
+    await expect(page.getByTestId('overlay-input')).toHaveValue('')
+    await expect(page.getByTestId('overlay-submit')).toBeDisabled()
+    // The answer is shown at once.
+    await expect(page.getByTestId('overlay-current-text')).toHaveText('Bins out tonight')
+  })
+
+  test('sends the plain form with the defaults, and Enter in the box sends it', async ({ page }) => {
+    await openRemote(page, { view: 'agenda' })
+    const commands = await recordCommands(page)
+
+    await page.getByTestId('overlay-input').fill('Hello')
+    await page.getByTestId('overlay-input').press('Enter')
+
+    await expect.poll(() => commands).toEqual([{ type: 'set_overlay', overlay: { text: 'Hello', ttl: 3600 } }])
+  })
+
+  test('Clear sends null', async ({ page }) => {
+    await openRemote(page, { view: 'agenda', overlay: { text: 'Hello', icon: null, until: null } })
+    await expect(page.getByTestId('overlay-current-until')).toHaveText('Until cleared')
+    const commands = await recordCommands(page)
+
+    await page.getByTestId('overlay-clear').click()
+
+    await expect.poll(() => commands).toEqual([{ type: 'set_overlay', overlay: null }])
+    await expect(page.getByTestId('overlay-current')).toHaveCount(0)
+  })
+
+  test('has tap targets of at least 44 pixels', async ({ page }) => {
+    await openRemote(page, { view: 'agenda', overlay: bins })
+
+    for (const testid of ['overlay-clear', 'overlay-input', 'overlay-duration', 'overlay-submit', 'overlay-icon-none', 'overlay-icon-gift']) {
+      const box = (await page.getByTestId(testid).boundingBox())!
+      expect(box.height, testid).toBeGreaterThanOrEqual(44)
+      expect(box.width, testid).toBeGreaterThanOrEqual(44)
+    }
+  })
+})
+
 test('asks for the PIN, and says when it is wrong', async ({ page }) => {
   await openRemote(page, { view: 'agenda' }, true)
 
@@ -152,16 +230,17 @@ test('says the wall could not be reached when a command gets no answer', async (
 
 /**
  * Answers every command with the state it would give (just the view, screen
- * and month for these tests) and lists what was sent, in order.
+ * and overlay for these tests) and lists what was sent, in order.
  */
 async function recordCommands(page: Page) {
   const sent: unknown[] = []
   let state = displayStateSchema.parse({})
   await page.route('**/api/displays/hallway/commands', async (route) => {
-    const command = route.request().postDataJSON() as { type: string, view?: DisplayState['view'], screen?: DisplayState['screen'] }
+    const command = route.request().postDataJSON() as { type: string, view?: DisplayState['view'], screen?: DisplayState['screen'], overlay?: { text: string, icon?: string, ttl?: number } | null }
     sent.push(command)
     if (command.type === 'set_view') state = displayStateSchema.parse({ ...state, view: command.view })
     if (command.type === 'set_screen') state = displayStateSchema.parse({ ...state, screen: command.screen })
+    if (command.type === 'set_overlay') state = displayStateSchema.parse({ ...state, overlay: command.overlay && { text: command.overlay.text, icon: command.overlay.icon ?? null, until: null } })
     await route.fulfill({ json: state })
   })
   return sent

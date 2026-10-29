@@ -32,6 +32,7 @@ export const STATE_TOPICS = [
   'brightness/state',
   'auto_presence/state',
   'auto_brightness/state',
+  'overlay/state',
 ] as const
 export type StateTopic = (typeof STATE_TOPICS)[number]
 
@@ -144,7 +145,7 @@ export function parseCommandPayload(suffix: CommandTopic, payload: string): Pars
 /** `ON` or `OFF`, as the auto_presence and auto_brightness topics carry a setting. */
 export const onOffPayload = (value: boolean): string => value ? 'ON' : 'OFF'
 
-/** Every state topic's payload for `state`. `month/state` is the month the month view shows, so it is the current month in `timeZone` at `now` when nothing is pinned. */
+/** Every state topic's payload for `state`. `month/state` is the month the month view shows, so it is the current month in `timeZone` at `now` when nothing is pinned. `overlay/state` is the overlay's text, or empty when none is shown (it has expired, or been cleared), so Home Assistant's message box empties with it. */
 export function statePayloads(state: DisplayState, now: Date, timeZone: string): Record<StateTopic, string> {
   return {
     'view/state': state.view,
@@ -154,6 +155,7 @@ export function statePayloads(state: DisplayState, now: Date, timeZone: string):
     'brightness/state': String(state.brightness),
     'auto_presence/state': onOffPayload(state.auto_presence),
     'auto_brightness/state': onOffPayload(state.auto_brightness),
+    'overlay/state': state.overlay?.text ?? '',
   }
 }
 

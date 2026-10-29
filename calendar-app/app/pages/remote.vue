@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ListTodo, Lock, Moon, Power, X } from 'lucide-vue-next'
+import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ListTodo, Lock, MessageCircle, Moon, Power, X } from 'lucide-vue-next'
 import { MONTH_RANGE, currentMonth, monthDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, View } from '../../shared/display'
 import { reconnectDelay } from '~/utils/backoff'
+import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
 import { monthCommandFor, monthOptions } from '~/utils/remote'
 import { THEMES, themeStyle } from '~/utils/themes'
 
@@ -134,6 +135,36 @@ async function sendBrightness(event: Event) {
   draftBrightness.value = value
   await commands.send({ type: 'set_brightness', brightness: value })
   draftBrightness.value = null
+}
+
+// The message on the wall, if there is one. `now` ticks each minute, so one that
+// has run out goes from here too if the socket is slow to say so.
+const overlay = computed(() => state.value && isOverlayShowing(state.value.overlay, now.value) ? state.value.overlay : null)
+const overlayUntil = computed(() => overlay.value && settings.value ? overlayEndLabel(overlay.value, now.value, settings.value.timezone) : '')
+
+const draftText = ref('')
+/** The picked icon's name, or '' for none (the wall then shows its plain message icon). */
+const draftIcon = ref('')
+const draftDuration = ref(DEFAULT_OVERLAY_DURATION)
+const sendingOverlay = ref(false)
+const canShow = computed(() => draftText.value.trim() !== '' && !sendingOverlay.value)
+
+async function showOverlay() {
+  const text = draftText.value.trim()
+  if (!canShow.value) return
+  const ttl = OVERLAY_DURATIONS.find(duration => duration.key === draftDuration.value)?.ttl
+  sendingOverlay.value = true
+  const sent = await commands.send({
+    type: 'set_overlay',
+    overlay: { text, ...(draftIcon.value ? { icon: draftIcon.value } : {}), ...(ttl === undefined ? {} : { ttl }) },
+  })
+  sendingOverlay.value = false
+  // A refused one keeps its text, so it can be sent again.
+  if (sent) draftText.value = ''
+}
+
+function clearOverlay() {
+  void commands.send({ type: 'set_overlay', overlay: null })
 }
 
 const refresh = ref<'idle' | 'sending' | 'asked'>('idle')
@@ -285,6 +316,70 @@ function submitPin() {
             >
               Back to this month
             </button>
+          </div>
+        </section>
+
+        <section aria-labelledby="message-title" data-testid="message">
+          <h2 id="message-title" class="label">
+            Message
+          </h2>
+          <div class="card note">
+            <div v-if="overlay" class="current" data-testid="overlay-current">
+              <span class="power live">
+                <AppIcon :icon="overlayIcon(overlay.icon)" :size="26" />
+              </span>
+              <div class="current-text">
+                <p class="current-message" data-testid="overlay-current-text">
+                  {{ overlay.text }}
+                </p>
+                <p class="hint" data-testid="overlay-current-until">
+                  {{ overlayUntil }}
+                </p>
+              </div>
+              <button type="button" class="button small" data-testid="overlay-clear" @click="clearOverlay">
+                Clear
+              </button>
+            </div>
+
+            <form class="compose" :class="{ divided: overlay }" data-testid="overlay-form" @submit.prevent="showOverlay">
+              <label for="overlay-text" class="slider-label">{{ overlay ? 'Change the message' : 'Put a message on the wall' }}</label>
+              <input
+                id="overlay-text"
+                v-model="draftText"
+                class="text"
+                type="text"
+                maxlength="200"
+                placeholder="Bins out tonight"
+                autocomplete="off"
+                enterkeyhint="send"
+                data-testid="overlay-input"
+              >
+
+              <div class="icons" role="radiogroup" aria-label="Icon">
+                <label class="icon-choice">
+                  <input v-model="draftIcon" type="radio" name="overlay-icon" value="" aria-label="No icon" data-testid="overlay-icon-none">
+                  <span class="face"><AppIcon :icon="MessageCircle" :size="26" /></span>
+                </label>
+                <label v-for="choice in OVERLAY_ICON_CHOICES" :key="choice.name" class="icon-choice">
+                  <input v-model="draftIcon" type="radio" name="overlay-icon" :value="choice.name" :aria-label="choice.label" :data-testid="`overlay-icon-${choice.name}`">
+                  <span class="face"><AppIcon :icon="overlayIcon(choice.name)" :size="26" /></span>
+                </label>
+              </div>
+
+              <label for="overlay-duration" class="slider-label">Show for</label>
+              <span class="select">
+                <select id="overlay-duration" v-model="draftDuration" data-testid="overlay-duration">
+                  <option v-for="duration in OVERLAY_DURATIONS" :key="duration.key" :value="duration.key">
+                    {{ duration.label }}
+                  </option>
+                </select>
+                <AppIcon class="caret" :icon="ChevronDown" :size="22" />
+              </span>
+
+              <button type="submit" class="button primary" :disabled="!canShow" data-testid="overlay-submit">
+                Show on the wall
+              </button>
+            </form>
           </div>
         </section>
 
@@ -682,6 +777,125 @@ select {
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 4px;
+}
+
+.note {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+
+.current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* The same round badge as the screen card's, in the accent: this is what is on the wall now. */
+.power.live {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.current-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.current-message {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compose.divided {
+  padding-top: 16px;
+  border-top: 2px solid var(--line);
+}
+
+.text {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 20px;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.text::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.icons {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  justify-items: center;
+  gap: 8px 0;
+  margin: 4px 0 8px;
+}
+
+/* A real radio, laid invisibly over its round face, so the arrow keys and the screen reader work as they should. */
+.icon-choice {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: 48px;
+  height: 48px;
+}
+
+.icon-choice input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.face {
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--bg);
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.icon-choice input:checked + .face {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.icon-choice input:focus-visible + .face {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.compose .select {
+  margin-bottom: 8px;
+}
+
+.button.small {
+  flex: none;
+  min-height: 44px;
+  padding: 0 18px;
 }
 
 .more {

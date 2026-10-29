@@ -14,7 +14,7 @@ import { displayBase } from '../../../server/mqtt/topics'
 
 interface ContractTopic {
   direction: 'to_app' | 'from_app' | 'to_pi' | 'from_pi'
-  payload: { encoding: 'text' | 'json' | 'any', schema?: { enum?: string[], properties?: { text: { maxLength: number } } } }
+  payload: { encoding: 'text' | 'json' | 'any', schema?: { enum?: string[], maxLength?: number, properties?: { text: { maxLength: number } } } }
 }
 
 const contract = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../contracts/mqtt.json', import.meta.url)), 'utf8')) as { topics: Record<string, ContractTopic> }
@@ -269,12 +269,15 @@ describe('the entities', () => {
     }
   })
 
-  it('has a message box that has no state topic, is as long as an overlay and clears the overlay when empty', () => {
+  it('has a message box that follows the overlay, is as long as an overlay and clears the overlay when empty', () => {
     const message = config('message')
 
     expect(message.command_topic).toBe('wallcal/hallway/overlay/set')
-    expect(message).not.toHaveProperty('state_topic')
+    expect(message.state_topic).toBe('wallcal/hallway/overlay/state')
     expect(message).toMatchObject({ min: 0, mode: 'text', max: contract.topics['overlay/set']!.payload.schema!.properties.text.maxLength })
+    // The state topic must never carry more than the box takes.
+    expect(contract.topics['overlay/state']!.payload.schema!.maxLength).toBe(message.max)
+    expect(accepts('overlay/state', '')).toBe(true)
     expect(message.command_template).toBe('{{ {\'text\': value} | to_json if value | trim else \'\' }}')
   })
 

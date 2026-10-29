@@ -106,3 +106,95 @@ test('says so for a display that is not in the config', async ({ page }) => {
 
   await expect(page.getByTestId('stage')).toContainText('Unknown display')
 })
+
+test.describe('the overlay banner', () => {
+  const bins = { text: 'Bins out tonight', icon: 'trash', until: '2026-10-28T18:00:00.000Z' }
+
+  test('sits over the month view in the light theme', async ({ page }) => {
+    await playServer(page, { view: 'month', overlay: bins })
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('overlay-banner')).toHaveText('Bins out tonight')
+    await expect(page.getByTestId('overlay-banner')).toHaveAttribute('role', 'status')
+    await expect(page).toHaveScreenshot('overlay-month.png')
+  })
+
+  test('sits over the agenda in the dark theme, and a long message stops at two lines', async ({ page }) => {
+    const text = 'Dinner is at six, so please wash your hands, put your shoes away and come and lay the table before the pasta goes cold, and tell Grandma we are nearly ready to eat'
+    await playServer(page, { view: 'agenda', overlay: { text, icon: 'utensils', until: null } })
+    await page.goto('/display?id=kitchen')
+    await settle(page)
+
+    await expect(page.getByTestId('overlay-banner')).toContainText('Dinner is at six')
+    await expect(page).toHaveScreenshot('overlay-agenda-dark.png')
+  })
+
+  test('is shown on the photo frame, and stays put when the view changes', async ({ page }) => {
+    const server = await playServer(page, { view: 'photo', overlay: bins })
+    await page.goto('/display?id=hallway')
+
+    await expect(page.locator('h1')).toHaveText('Photo')
+    await expect(page.getByTestId('overlay-banner')).toBeVisible()
+
+    server.send({ view: 'agenda' })
+    await expect(page.getByTestId('agenda-view')).toBeVisible()
+    await expect(page.getByTestId('overlay-banner')).toBeVisible()
+  })
+
+  test('goes when the server clears it, and comes when the server sets one', async ({ page }) => {
+    const server = await playServer(page, { view: 'month', overlay: bins })
+    await page.goto('/display?id=hallway')
+    await settle(page)
+    await expect(page.getByTestId('overlay-banner')).toBeVisible()
+
+    server.send({ overlay: null })
+    await expect(page.getByTestId('overlay-banner')).toHaveCount(0)
+
+    server.send({ overlay: { text: 'Parcel at the door', icon: 'package', until: null } })
+    await expect(page.getByTestId('overlay-banner')).toHaveText('Parcel at the door')
+  })
+
+  test('goes by itself when its time passes, with no word from the server', async ({ page }) => {
+    await playServer(page, { view: 'month', overlay: { text: 'Bins out tonight', icon: 'trash', until: '2026-10-28T10:00:00.000Z' } })
+    await page.goto('/display?id=hallway')
+    await settle(page)
+    await expect(page.getByTestId('overlay-banner')).toBeVisible()
+
+    await page.clock.setFixedTime(new Date('2026-10-28T10:00:00Z'))
+
+    await expect(page.getByTestId('overlay-banner')).toHaveCount(0)
+  })
+
+  test('is blacked out with the rest when the screen is off', async ({ page }) => {
+    const server = await playServer(page, { view: 'month', overlay: bins })
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    server.send({ screen: 'off' })
+
+    await expect(page.getByTestId('dimmer')).toHaveCSS('opacity', '1')
+    // It is still in the page, but the dimmer is after it and covers it.
+    const order = await page.evaluate(() => {
+      const banner = document.querySelector('[data-testid="overlay-banner"]')!
+      const dimmer = document.querySelector('[data-testid="dimmer"]')!
+      return banner.compareDocumentPosition(dimmer) & Node.DOCUMENT_POSITION_FOLLOWING
+    })
+    expect(order).toBeTruthy()
+  })
+
+  test('is not shown for a display that is not in the config, even from an old cache', async ({ page }) => {
+    await playServer(page)
+    const cached = {
+      settings: { id: 'garage', name: 'Garage', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
+      state: { view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: bins },
+      events: [],
+      saved_at: '2026-10-28T09:00:00.000Z',
+    }
+    await page.addInitScript(value => localStorage.setItem('wallcal:display:garage', JSON.stringify(value)), cached)
+    await page.goto('/display?id=garage')
+
+    await expect(page.getByTestId('stage')).toContainText('Unknown display')
+    await expect(page.getByTestId('overlay-banner')).toHaveCount(0)
+  })
+})

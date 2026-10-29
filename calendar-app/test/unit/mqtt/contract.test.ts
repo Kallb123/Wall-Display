@@ -147,8 +147,7 @@ describe('the topics', () => {
     const settings = COMMAND_TOPICS.filter(topic => topic.endsWith('/set')).map(topic => topic.replace(/\/set$/, ''))
     const states = STATE_TOPICS.map(topic => topic.replace(/\/state$/, ''))
 
-    // overlay has no state topic: it is a message, not a setting, and the state keeps it.
-    expect(sorted(states)).toEqual(sorted(settings.filter(setting => setting !== 'overlay')))
+    expect(sorted(states)).toEqual(sorted(settings))
   })
 
   it('retains state, availability and last sync, and does not retain commands', () => {
@@ -228,6 +227,8 @@ describe('state payloads', () => {
     ['both policies off', { ...defaultDisplayState(), auto_presence: false, auto_brightness: false }],
     ['only presence off', { ...defaultDisplayState(), auto_presence: false }],
     ['only brightness off', { ...defaultDisplayState(), auto_brightness: false }],
+    ['an overlay', { ...defaultDisplayState(), overlay: { text: 'Bins out tonight', icon: 'trash', until: '2026-10-28T13:00:00.000Z' } }],
+    ['the longest overlay', { ...defaultDisplayState(), overlay: { text: 'x'.repeat(200), icon: null, until: null } }],
   ]
 
   it.each(states)('%s: every payload passes its topic\'s schema', (_, state) => {
@@ -247,6 +248,14 @@ describe('state payloads', () => {
   it('says online and offline as the contract does', () => {
     expect(contractAccepts(AVAILABILITY_TOPIC, ONLINE)).toBe(true)
     expect(contractAccepts(AVAILABILITY_TOPIC, OFFLINE)).toBe(true)
+  })
+
+  it('shows the overlay\'s text, and nothing once there is no overlay', () => {
+    const shown = { ...defaultDisplayState(), overlay: { text: 'Back at 6', icon: null, until: null } }
+
+    expect(statePayloads(shown, NOW, 'Europe/London')['overlay/state']).toBe('Back at 6')
+    expect(statePayloads(defaultDisplayState(), NOW, 'Europe/London')['overlay/state']).toBe('')
+    expect(contractAccepts('overlay/state', '')).toBe(true)
   })
 
   it('shows the same settings that the matching command sets', () => {

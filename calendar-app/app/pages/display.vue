@@ -4,6 +4,7 @@ import { currentMonth, displayStateSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState, View } from '../../shared/display'
 import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
 import AgendaView from '~/components/views/AgendaView.vue'
+import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
@@ -19,7 +20,8 @@ useHead({ title: 'Display' })
 
 // Each view. The placeholder stands in for the ones not built yet.
 const viewComponents: Record<View, Component> = {
-  month: PlaceholderView,
+  // The Soft style. The Classic one arrives in PR 5.7 and will be chosen here by `month_style`.
+  month: MonthSoftView,
   week: PlaceholderView,
   agenda: AgendaView,
   photo: PlaceholderView,

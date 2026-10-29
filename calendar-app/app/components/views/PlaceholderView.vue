@@ -5,8 +5,8 @@ import { personFill } from '~/utils/themes'
 import { todayIn } from '~/utils/eventRanges'
 import type { ViewProps } from '~/utils/views'
 
-// Stands in for the views that aren't built yet (the month view arrives in
-// PR 1.7). It shows the design system at work: the display face, a
+// Stands in for the views that aren't built yet (the month and agenda views
+// have their own). It shows the design system at work: the display face, a
 // sage panel with the clock, and a card of upcoming events on person-coloured
 // bars. Replace one entry of `viewFor` in pages/display.vue per real view.
 const props = defineProps<ViewProps>()

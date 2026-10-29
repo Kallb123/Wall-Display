@@ -84,7 +84,8 @@ jobs:
           for (const e of events.filter(e => (e.start_date ?? e.start).startsWith('2026-10-28'))) console.log(e.id, e.start, e.end, e.display_title, e.people.map(p => p.id).join(','))
           TS
           node node_modules/.pnpm/jiti@*/node_modules/jiti/lib/jiti-cli.mjs ./fx2.tmp.ts
-          for f in test-results/month-*/error-context.md; do echo "=== $f"; cat "$f" || true; done
+          # The light month's actual screenshot, base64 in 4000-character lines between markers.
+          for f in test-results/month-October-2026-light-theme-chromium/october-light-actual.png; do echo "BEGIN-PNG $f"; base64 -w 4000 "$f" || true; echo END-PNG; done
 
       # TEMPORARY: print where the screenshot diffs are, as the artifact can't be fetched from the session.
       - name: Summarise screenshot diffs

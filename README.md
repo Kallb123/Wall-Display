@@ -57,6 +57,23 @@ Each calendar is polled on its own interval (`poll_seconds`, 120 for ICS by defa
 
 Who an event is for (its people) and the title shown on the wall are worked out when it is stored, from the names in its title and description and the calendar's keyword rules, as described in [architecture §3.3](docs/architecture.md). If the people or rules in the config change, the stored events are re-resolved at the next start without fetching anything, and a calendar that has been removed from the config is deleted along with its events.
 
+### MQTT
+
+With an `mqtt` block in the config, each display keeps its state on an MQTT broker and takes commands from it. [`contracts/mqtt.json`](contracts/mqtt.json) is the reference: every topic, its direction, whether it is retained, and a JSON Schema for its payload. Everything lives under `wallcal/<display id>/`, as text:
+
+- The app publishes the state, retained: `view/state`, `month/state` (the month the month view shows, as `YYYY-MM`), `screen/state`, `photo_source/state`, `brightness/state`, `auto_presence/state` and `auto_brightness/state` (`ON` or `OFF`). A change is published when it happens, and everything is published again whenever the connection to the broker is made.
+- The app subscribes to `view/set`, `month/set`, `screen/set`, `photo_source/set`, `brightness/set`, `auto_presence/set`, `auto_brightness/set`, `overlay/set`, `photo/next` and `refresh`. A payload that doesn't fit its topic is ignored and logged. A retained message on one of these topics is ignored too, so it isn't replayed at every reconnect; publish an empty retained message there to remove it from the broker.
+- `availability` is `online` while the app is connected. The broker publishes `offline` (the last will) if the app dies, and the app publishes it itself on a clean stop. The app opens one connection per display, named `<client_id>-<display id>`, so that each display has its own last will.
+
+The topics that the Raspberry Pi will use (`pi/…`) are in the contract, but the app doesn't use them yet. The app runs the same without a broker, or while the broker is down: it keeps retrying in the background, with a growing wait of up to a minute, and logs the first failure rather than every attempt.
+
+To watch it and to send a command, with the Mosquitto tools:
+
+```sh
+mosquitto_sub -h localhost -t 'wallcal/#' -v
+mosquitto_pub -h localhost -t wallcal/hallway/view/set -m agenda
+```
+
 ### Database
 
 Events, sync status, display state, photo records and special days are stored in SQLite (`better-sqlite3`, with Drizzle ORM). The database is `wallcal.db` in the data folder, which is `/data` in production and `calendar-app/.data/` under `pnpm dev` (git-ignored). Set `WALLCAL_DATA_DIR` to use another folder. The folder is created if it is missing, and the server stops at start-up with a message if it can't open the database there.

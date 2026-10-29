@@ -1,35 +1,38 @@
 import { expect, test } from '@playwright/test'
 import { NOW, playServer, settle } from './helpers'
 
-test('light theme, month view', async ({ page }) => {
-  await playServer(page, { view: 'month' })
-  await page.goto('/display?id=hallway')
-  await settle(page)
+// The shell around the views: themes, the socket, dimming, offline, scaling. The
+// month view's own look is in month.spec.ts, and the agenda's in agenda.spec.ts.
+// The week view is still the placeholder, which is what these use when they
+// need a view that isn't any of those.
 
-  await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'light')
-  await expect(page.locator('h1')).toHaveText('Month')
-  await expect(page.getByTestId('clock-time')).toHaveText('09:41')
-  await expect(page).toHaveScreenshot('light.png')
-})
+test.describe('the theme follows the display', () => {
+  for (const [id, theme] of [['hallway', 'light'], ['kitchen', 'dark']]) {
+    test(`${id} is ${theme}`, async ({ page }) => {
+      await playServer(page, { view: 'month' })
+      await page.goto(`/display?id=${id}`)
+      await settle(page)
 
-test('dark theme', async ({ page }) => {
-  await playServer(page, { view: 'month' })
-  await page.goto('/display?id=kitchen')
-  await settle(page)
-
-  await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'dark')
-  await expect(page).toHaveScreenshot('dark.png')
+      await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', theme!)
+      await expect(page.getByTestId('month-view')).toBeVisible()
+    })
+  }
 })
 
 test('the view follows the server', async ({ page }) => {
   const server = await playServer(page, { view: 'month' })
   await page.goto('/display?id=hallway')
-  await expect(page.locator('h1')).toHaveText('Month')
+  await expect(page.getByTestId('month-title')).toHaveText('October 2026')
 
   server.send({ view: 'agenda' })
 
   await expect(page.getByTestId('agenda-view')).toBeVisible()
-  await expect(page.locator('h1')).toHaveCount(0)
+  await expect(page.getByTestId('month-view')).toHaveCount(0)
+
+  server.send({ view: 'week' })
+
+  await expect(page.locator('h1')).toHaveText('Week')
+  await expect(page.getByTestId('agenda-view')).toHaveCount(0)
 })
 
 test('dims with brightness, and goes black when the screen is off', async ({ page }) => {
@@ -65,7 +68,7 @@ test('shows the last-known wall and an offline badge when the server cannot be r
   await settle(offline)
   await expect(offline.getByTestId('offline-badge')).toBeVisible()
   await expect(offline.getByTestId('offline-badge')).toHaveText('Offline')
-  await expect(offline.locator('h1')).toHaveText('Month')
+  await expect(offline.getByTestId('month-title')).toHaveText('October 2026')
   await expect(offline).toHaveScreenshot('offline.png')
 })
 

@@ -3,6 +3,7 @@
 A self-hosted smart wall calendar, similar to a Skylight calendar but running on your own server. It's a Nuxt app on the home server, a Chromium kiosk on a Raspberry Pi, and Home Assistant integration over MQTT.
 
 - [Architecture](docs/architecture.md)
+- [Home Assistant](docs/home-assistant.md)
 - [Implementation plan](docs/implementation-plan.md)
 
 ## Development
@@ -91,6 +92,8 @@ The app also publishes MQTT discovery configs, so Home Assistant creates a "Wall
 The configs are retained, so it makes no difference whether the app or Home Assistant starts first. If Home Assistant restarts, it announces `online` on `homeassistant/status`, and the app publishes the configs again. The entities show as unavailable while the app is offline (they follow `availability`). If Home Assistant listens on a different discovery prefix, set `discovery_prefix` under `mqtt`. Set `discovery: false` to turn all of this off.
 
 To remove a device, delete it in Home Assistant, and set `discovery: false` or the app will bring it back at the next start. Or publish an empty retained message on each `homeassistant/<type>/wallcal_<display id>/<entity>/config` topic.
+
+[docs/home-assistant.md](docs/home-assistant.md) covers broker setup, example automations and a dashboard card.
 
 ### Database
 

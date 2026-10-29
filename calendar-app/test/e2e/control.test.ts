@@ -148,6 +148,17 @@ describe('display state, commands and the WebSocket', async () => {
     }
   })
 
+  it('tells a new socket there is no weather when the config has no weather block, and GET /api/weather says so', async () => {
+    const display = connect('display=hallway&role=display')
+    await display.opened
+
+    expect(await display.next(message => message.type === 'weather.updated')).toEqual({ type: 'weather.updated', weather: null })
+    // The state comes first, as it always did.
+    expect(display.messages[0]).toMatchObject({ type: 'state.updated' })
+    expect(await $fetch('/api/weather')).toEqual({ weather: null })
+    display.socket.close()
+  })
+
   it('/_ws sends the whole state on connect, then every change to that display', async () => {
     const remote = connect('display=hallway&role=remote')
     await remote.opened

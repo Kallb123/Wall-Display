@@ -1,10 +1,12 @@
-// A small typed bus for events inside the server. The sync scheduler and the
-// display control emit on it, and the WebSocket hub subscribes to push the
-// change to the displays and remotes (MQTT will subscribe too).
+// A small typed bus for events inside the server. The sync scheduler, the
+// display control and the weather service emit on it, and the WebSocket hub
+// subscribes to push the change to the displays and remotes (MQTT will
+// subscribe too).
 // Plain module state, so a unit test can import it; handlers get it through
 // `useEventBus()` in server/utils/.
 
 import type { DisplayState } from '../../shared/display'
+import type { WeatherSnapshot } from '../../shared/weather'
 
 /** The events on the bus, by name, with their payloads. */
 export interface BusEvents {
@@ -16,6 +18,8 @@ export interface BusEvents {
   'photo.next': { displayId: string }
   /** A calendar synced successfully, whether or not its events changed. */
   'sync.succeeded': { calendarId: string }
+  /** The weather changed, or the displays' copy is due a refresh. `weather` is the whole new snapshot. */
+  'weather.updated': { weather: WeatherSnapshot }
 }
 
 export type BusHandler<Name extends keyof BusEvents> = (payload: BusEvents[Name]) => void

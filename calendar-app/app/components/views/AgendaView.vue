@@ -5,13 +5,19 @@ import { agendaDays } from '~/utils/agenda'
 import type { AgendaDay, AgendaItem } from '~/utils/agenda'
 import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
+import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
+import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather'
 
 // Today and tomorrow in large type (architecture §4.1): a card for each, with
 // the all-day events first, then the timed ones, and a "now" marker in today's.
 // There is no mock for it yet, so it borrows the Soft month's side panel: a
 // sage panel for today, a plain tile for tomorrow, and the same initial badges.
 // A special day's greeting (architecture §6) goes above today's list.
+//
+// The weather (PR 2.7) is a line under each long date: today's has the current
+// conditions as well as the forecast, tomorrow's only the forecast. A day with
+// no weather has no line, so the card is as it was.
 const props = defineProps<ViewProps>()
 
 const MAX_BADGES = 3
@@ -21,7 +27,7 @@ type Row
   = | { kind: 'all-day' | 'timed', item: AgendaItem }
     | { kind: 'now' }
 
-const days = computed(() => agendaDays(props.events, props.now, props.timezone))
+const days = computed(() => agendaDays(props.events, props.now, props.timezone).map((day, index) => ({ ...day, weather: weatherLine(day, index === 0) })))
 const time = computed(() => formatTime(props.now, props.timezone))
 
 /** The day's rows in order. The marker is only worth drawing among timed events. */
@@ -37,6 +43,16 @@ function rowsFor(day: AgendaDay): Row[] {
 }
 
 const isEmpty = (day: AgendaDay) => day.allDay.length + day.timed.length === 0 && day.more === 0
+
+/** The line under a day's date: an icon, the words and the high / low, any of which can be missing. Null when there is nothing to say. */
+function weatherLine(day: AgendaDay, today: boolean) {
+  const forecast = weatherOn(props.weather, day.date)
+  const current = today ? currentWeather(props.weather, props.now) : null
+  const condition = current?.condition ?? forecast?.condition ?? null
+  const text = current ? formatCurrent(current) : weatherLabel(forecast?.condition ?? null)
+  const range = forecast ? formatHighLow(forecast) : null
+  return condition || text || range ? { icon: weatherIcon(condition), text, range } : null
+}
 
 function fill(event: CalendarEvent): string {
   // An event with nobody on it (no person matched) gets the muted colour.
@@ -64,6 +80,11 @@ function barColour(event: CalendarEvent): string {
           </h2>
           <p class="date">
             {{ day.longDate }}
+          </p>
+          <p v-if="day.weather" class="weather" data-testid="agenda-weather">
+            <AppIcon v-if="day.weather.icon" :icon="day.weather.icon" :size="48" />
+            <span v-if="day.weather.text">{{ day.weather.text }}</span>
+            <span v-if="day.weather.range" class="range">{{ day.weather.range }}</span>
           </p>
         </div>
         <div v-if="index === 0" class="clock" data-testid="clock-time">
@@ -178,6 +199,30 @@ function barColour(event: CalendarEvent): string {
   font-size: 48px;
   font-weight: 600;
   line-height: 1.1;
+}
+
+.weather {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.weather svg {
+  flex: none;
+}
+
+/* Set apart from the words, so "Rain 14° / 8°" doesn't read as one phrase. */
+span + .range {
+  margin-left: 20px;
+}
+
+.range {
+  font-variant-numeric: tabular-nums;
 }
 
 .clock {

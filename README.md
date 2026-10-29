@@ -23,7 +23,7 @@ pnpm dev
 The dev server is at <http://localhost:3000>. Pages and endpoints so far:
 
 - `/display`: the wall display. A 2560×1440 stage scaled to fit the window, showing the view the server chose (placeholders for now) in the theme set for the display in config. `/display?id=hallway` picks a display; with no `id` it shows the first one in the config (or the last one it showed, if the server can't be reached). It keeps the last-known state and events in `localStorage`, so a reload while the server is down still shows the wall, and a small "Offline" badge appears once the WebSocket has been down for 3 seconds. `brightness` dims it with a black overlay and `screen: off` makes it black
-- `/remote`: the phone remote (stub)
+- `/remote`: the phone remote, built for a phone and following its light or dark setting. `/remote?id=hallway` picks a display; with no `id` it controls the first one in the config. From top to bottom it has the display's name with a connection pill (Connected, Reconnecting, or Offline after 10 seconds without the WebSocket), a Screen card with an on/off toggle (the rest fades to half opacity while the screen is off), tiles for Agenda, Month, Week and Night, a month picker (shown only in Month view: arrows and a dropdown covering 12 months either side, with "Back to this month" while another month is pinned), and a plain "More" section with brightness and Refresh calendars. It stays live over the same WebSocket as the display. If the config sets `remote.pin`, the page asks for the PIN once, keeps it in the phone's `localStorage` and sends it with every command. "Add to Home Screen" (Share menu on iOS, menu on Android) installs it as a full-screen app for that display, using the manifest and icon the server provides
 - `/settings`: settings (stub)
 - `/api/health`: returns `{ "status": "ok", "uptime": <seconds>, "db": "ok" }`, or a 503 with `{ "status": "error", "db": "error" }` if the database doesn't answer
 - `GET /api/events?from=…&to=…`: the events that overlap the range `[from, to)`, each with its people (name, initial, colour). `from` and `to` are a date such as `2026-10-01` (midnight at the start of that day in the display time zone) or an ISO 8601 time with `Z` or an offset. The range may be at most 366 days; anything else is a 400 with a short reason
@@ -69,7 +69,7 @@ pnpm test
 pnpm build
 ```
 
-The display's visual tests (`display.spec.ts` for the shell, `agenda.spec.ts` for the agenda view and `month.spec.ts` for the month view) are Playwright screenshots at 2560×1440 with a frozen clock and fixture events, in both themes. They run against the built app, so build first:
+The visual tests (`display.spec.ts` for the shell, `agenda.spec.ts` for the agenda view and `month.spec.ts` for the month view) are Playwright screenshots at 2560×1440 with a frozen clock and fixture events, in both themes. `remote.spec.ts` does the same for the phone remote at 390×844, in the phone's light and dark settings, with the screen off, and with a pinned month, and checks that a tap sends the right command. They run against the built app, so build first:
 
 ```sh
 pnpm build

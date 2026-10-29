@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
-import { $fetch, setup, url } from '@nuxt/test-utils/e2e'
+import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { DisplaySettings, DisplayState, ServerMessage } from '../../shared/display'
+import type { RemoteInfo } from '../../shared/remote'
 
 describe('display state, commands and the WebSocket', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -103,6 +104,48 @@ describe('display state, commands and the WebSocket', async () => {
 
   it('POST /api/displays/:id/commands answers 404 for an unknown display', async () => {
     await expect(command('garage', { type: 'next_view' })).rejects.toMatchObject(reason(404, 'Unknown display "garage"'))
+  })
+
+  it('GET /api/remote says no PIN is needed, and POST /api/remote/pin accepts anything', async () => {
+    expect(await $fetch<RemoteInfo>('/api/remote')).toEqual({ pin_required: false })
+
+    const response = await fetch('/api/remote/pin', { method: 'POST' })
+    expect(response.status).toBe(204)
+    expect(await response.text()).toBe('')
+  })
+
+  it('GET /remote.webmanifest names the display and points at its remote, with the icons', async () => {
+    const response = await fetch('/remote.webmanifest?id=hallway')
+
+    expect(response.headers.get('content-type')).toContain('application/manifest+json')
+    expect(await response.json()).toEqual({
+      name: 'Hallway remote',
+      short_name: 'Hallway',
+      id: '/remote?id=hallway',
+      start_url: '/remote?id=hallway',
+      scope: '/remote',
+      display: 'standalone',
+      background_color: '#f5ead8',
+      theme_color: '#f5ead8',
+      icons: [
+        { src: '/icons/remote-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icons/remote-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/icons/remote-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
+    })
+  })
+
+  it('GET /remote.webmanifest uses the first display when no id is given, and answers 404 for an unknown one', async () => {
+    expect(await $fetch<{ short_name: string }>('/remote.webmanifest')).toMatchObject({ short_name: 'Hallway' })
+    await expect($fetch('/remote.webmanifest?id=garage')).rejects.toMatchObject(reason(404, 'Unknown display "garage"'))
+  })
+
+  it('serves the icons the manifest lists', async () => {
+    for (const icon of ['remote-192.png', 'remote-512.png', 'remote-maskable-512.png', 'apple-touch-icon.png']) {
+      const response = await fetch(`/icons/${icon}`)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('image/png')
+    }
   })
 
   it('/_ws sends the whole state on connect, then every change to that display', async () => {

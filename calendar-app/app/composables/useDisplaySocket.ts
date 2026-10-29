@@ -1,10 +1,12 @@
 import { displayStateSchema } from '../../shared/display'
-import type { DisplayState } from '../../shared/display'
+import type { DisplayState, SocketRole } from '../../shared/display'
 import { reconnectDelay } from '~/utils/backoff'
 
 export type SocketStatus = 'connecting' | 'open' | 'closed'
 
-export interface DisplaySocketHandlers {
+export interface DisplaySocketOptions {
+  /** Who is connecting: the wall (the default) or the phone's remote page. */
+  role?: SocketRole
   /** Every time the socket opens, including after a reconnect (events may have changed while it was down). */
   onOpen?: () => void
   /** The server has synced calendars. The page decides whether it cares. */
@@ -12,13 +14,14 @@ export interface DisplaySocketHandlers {
 }
 
 /**
- * The display's socket (`/_ws?display=<id>&role=display`). The server sends the
- * whole state when it connects and again whenever it changes, so `state` is
- * null only until the first message. If the socket closes or errors it is
- * opened again after a growing wait (see `reconnectDelay`), for as long as the
- * scope lives. `displayId` may be null (nothing to connect to yet) and may change.
+ * A display's socket (`/_ws?display=<id>&role=display`, or `role=remote` for
+ * the phone). The server sends the whole state when it connects and again
+ * whenever it changes, so `state` is null only until the first message. If
+ * the socket closes or errors it is opened again after a growing wait (see
+ * `reconnectDelay`), for as long as the scope lives. `displayId` may be null
+ * (nothing to connect to yet) and may change.
  */
-export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, handlers: DisplaySocketHandlers = {}) {
+export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, options: DisplaySocketOptions = {}) {
   const status = ref<SocketStatus>('connecting')
   const state = ref<DisplayState | null>(null)
 
@@ -40,13 +43,13 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, han
   function connect(id: string) {
     status.value = 'connecting'
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
-    const current = new WebSocket(`${scheme}://${location.host}/_ws?display=${encodeURIComponent(id)}&role=display`)
+    const current = new WebSocket(`${scheme}://${location.host}/_ws?display=${encodeURIComponent(id)}&role=${options.role ?? 'display'}`)
     socket = current
 
     current.onopen = () => {
       attempt = 0
       status.value = 'open'
-      handlers.onOpen?.()
+      options.onOpen?.()
     }
 
     current.onmessage = (event) => {
@@ -76,7 +79,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, han
       const parsed = displayStateSchema.safeParse(next)
       if (parsed.success) state.value = parsed.data
     } else if (type === 'events.updated') {
-      handlers.onEventsUpdated?.()
+      options.onEventsUpdated?.()
     }
     // Anything else (photo.next, for now) is not for this page yet.
   }

@@ -52,6 +52,11 @@ export async function playServer(page: Page, initial: Partial<DisplayState> = {}
  */
 export async function settle(page: Page) {
   await expect(page.getByTestId('event').or(page.getByTestId('empty-day')).first()).toBeVisible()
+  await fontsReady(page)
+}
+
+/** Waits for the two bundled fonts, for a page that has no events to wait for. */
+export async function fontsReady(page: Page) {
   await page.evaluate(async () => {
     await Promise.all([document.fonts.load('400 40px Caprasimo'), document.fonts.load('700 40px Figtree')])
     await document.fonts.ready

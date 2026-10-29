@@ -596,8 +596,7 @@ Real backlight control would need **DDC/CI** (`ddcutil`). Support on Samsung sma
 ```yaml
 services:
   calendar-app:
-    build: ./calendar-app
-    image: wallcal/calendar-app:latest   # built locally
+    image: ghcr.io/kallb123/wall-display/calendar-app:latest   # published by CI
     restart: unless-stopped
     ports: ["8080:8080"]
     environment:
@@ -615,7 +614,7 @@ services:
       - ./mosquitto/data:/mosquitto/data
 ```
 
-The image is a multi-stage build on `node:24-bookworm-slim` (glibc, for `better-sqlite3` and `sharp`). It holds only the Nitro `.output/`, runs as the `node` user (uid 1000), so `./data` must be writable by uid 1000, and has a `HEALTHCHECK` on `/api/health`. Nitro closes cleanly on SIGTERM, so `docker stop` returns at once and no init process is needed. Mosquitto allows anonymous connections by default, which suits a home LAN; `mosquitto/config/mosquitto.conf` explains how to add a password file.
+The `Publish images` workflow builds the image for amd64 and arm64 and pushes it to GHCR on every push to `main` (`:latest`, `:sha-<short sha>`) and on `v*` tags (`:1.2.3`, `:1.2`). `docker-compose.build.yml` builds it from the checkout instead. The image is a multi-stage build on `node:24-bookworm-slim` (glibc, for `better-sqlite3` and `sharp`). It holds only the Nitro `.output/`, runs as the `node` user (uid 1000), so `./data` must be writable by uid 1000, and has a `HEALTHCHECK` on `/api/health`. Nitro closes cleanly on SIGTERM, so `docker stop` returns at once and no init process is needed. Mosquitto allows anonymous connections by default, which suits a home LAN; `mosquitto/config/mosquitto.conf` explains how to add a password file.
 
 Back up `./data` as well as `./config`. Special days and their art are only stored there, so they can't be rebuilt from YAML or from a provider.
 
@@ -660,7 +659,8 @@ wall-display/
 ├── contracts/mqtt.json          # MQTT topics + payload schemas (shared by app and agent tests)
 ├── config.example.yaml
 ├── secrets.example.yaml
-├── docker-compose.yml
+├── docker-compose.yml           # pulls the image from GHCR
+├── docker-compose.build.yml     # override that builds it from the checkout instead
 └── docs/
     ├── architecture.md
     └── implementation-plan.md

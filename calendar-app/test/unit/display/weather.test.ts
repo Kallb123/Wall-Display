@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Cloud, CloudFog, CloudHail, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Moon, Sun, TriangleAlert, Wind } from 'lucide-vue-next'
 import { WEATHER_CONDITIONS } from '../../../shared/weather'
-import { formatHighLow, weatherIcon } from '../../../app/utils/weather'
+import { formatCurrent, formatHighLow, weatherIcon } from '../../../app/utils/weather'
 
 describe('weatherIcon', () => {
   it('picks a picture for each condition', () => {
@@ -28,6 +28,22 @@ describe('weatherIcon', () => {
 
   it('gives nothing for no condition', () => {
     expect(weatherIcon(null)).toBeNull()
+  })
+})
+
+describe('formatCurrent', () => {
+  it('writes the temperature and the label', () => {
+    expect(formatCurrent({ condition: 'rainy', temperature: 12.4 })).toBe('12° · Rain')
+    expect(formatCurrent({ condition: 'partlycloudy', temperature: -0.2 })).toBe('0° · Partly cloudy')
+  })
+
+  it('leaves out the part that is missing', () => {
+    expect(formatCurrent({ condition: 'sunny', temperature: null })).toBe('Sunny')
+    expect(formatCurrent({ condition: null, temperature: 3 })).toBe('3°')
+  })
+
+  it('is null when neither is known', () => {
+    expect(formatCurrent({ condition: null, temperature: null })).toBeNull()
   })
 })
 

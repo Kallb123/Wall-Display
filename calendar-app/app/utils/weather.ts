@@ -2,8 +2,8 @@ import type { Component } from 'vue'
 import {
   Cloud, CloudFog, CloudHail, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Moon, Sun, TriangleAlert, Wind,
 } from 'lucide-vue-next'
-import { formatTemperature } from '../../shared/weather'
-import type { WeatherCondition, WeatherDay } from '../../shared/weather'
+import { formatTemperature, weatherLabel } from '../../shared/weather'
+import type { WeatherCondition, WeatherCurrent, WeatherDay } from '../../shared/weather'
 
 // What the views need to draw the weather (PR 2.7): an icon for each of Home
 // Assistant's conditions, and a day's high and low as text. The icons are
@@ -33,6 +33,13 @@ const ICONS = {
 /** The icon for a condition, or null when there is none to draw. */
 export function weatherIcon(condition: WeatherCondition | null): Component | null {
   return condition === null ? null : ICONS[condition]
+}
+
+/** `12° · Rain`, or just the one that is known, or null when neither is. */
+export function formatCurrent(current: WeatherCurrent): string | null {
+  const parts = [current.temperature === null ? null : formatTemperature(current.temperature), weatherLabel(current.condition)]
+  const known = parts.filter(part => part !== null)
+  return known.length ? known.join(' · ') : null
 }
 
 /** `14° / 8°`, or just the one that is known, or null when neither is. */

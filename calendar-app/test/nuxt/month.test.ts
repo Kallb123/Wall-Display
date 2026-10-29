@@ -3,6 +3,7 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import type { ViewProps } from '~/utils/views'
+import type { WeatherSnapshot } from '../../shared/weather'
 
 // The Soft month view on the fixture family and the day the mocks are set on,
 // Wed 28 Oct 2026. The layout itself is tested in test/unit/shared; this is
@@ -10,6 +11,18 @@ import type { ViewProps } from '~/utils/views'
 
 const NOW = new Date('2026-10-28T09:41:00Z')
 const events = fixtureEvents()
+
+const weather: WeatherSnapshot = {
+  current: { condition: 'rainy', temperature: 12.4 },
+  daily: [
+    { date: '2026-10-27', condition: 'cloudy', high: 13, low: 7 },
+    { date: '2026-10-28', condition: 'rainy', high: 14, low: 8 },
+    { date: '2026-10-29', condition: 'sunny', high: 12.6, low: null },
+    { date: '2026-10-30', condition: null, high: null, low: 4 },
+  ],
+  temperature_unit: '°C',
+  updated_at: NOW.toISOString(),
+}
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
   view: 'month', events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, ...overrides,
@@ -123,5 +136,54 @@ describe('MonthSoftView', () => {
     expect(art[0]!.attributes('data-day')).toBe('2026-09-28')
     expect(wrapper.find('.greeting').text()).toBe('Happy Halloween')
     expect(wrapper.find('.panel-art .scene').exists()).toBe(true)
+  })
+
+  describe('weather', () => {
+    it('draws nothing without a snapshot', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props() })
+
+      expect(wrapper.find('[data-testid="weather-now"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="day-weather"]').exists()).toBe(false)
+      expect(wrapper.find('svg').exists()).toBe(false)
+    })
+
+    it('shows the current conditions under the weekday', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather }) })
+
+      const current = wrapper.find('[data-testid="weather-now"]')
+      expect(current.text()).toBe('12° · Rain')
+      expect(current.find('svg').classes()).toContain('lucide-cloud-rain-icon')
+      expect(wrapper.find('.weekday').text()).toContain('Wednesday')
+    })
+
+    it('shows each panel day\'s forecast, leaving out what is not known', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather }) })
+
+      const days = wrapper.findAll('[data-testid="panel-day"]')
+      // The 27th is before the panel starts, and the 31st has no entry.
+      expect(days.map(day => day.find('[data-testid="day-weather"]').exists())).toEqual([true, true, true, false])
+      expect(days[0]!.find('[data-testid="day-weather"]').text()).toBe('14° / 8°')
+      expect(days[0]!.find('[data-testid="day-weather"] svg').classes()).toContain('lucide-cloud-rain-icon')
+      expect(days[1]!.find('[data-testid="day-weather"]').text()).toBe('13°')
+      expect(days[2]!.find('[data-testid="day-weather"]').text()).toBe('4°')
+      expect(days[2]!.find('[data-testid="day-weather"] svg').exists()).toBe(false)
+    })
+
+    it('drops the current conditions once they are old, and keeps the forecast', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather, now: new Date('2026-10-28T13:00:00Z') }) })
+
+      expect(wrapper.find('[data-testid="weather-now"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="day-weather"]').exists()).toBe(true)
+    })
+
+    it('goes when the snapshot does', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather }) })
+      expect(wrapper.find('[data-testid="weather-now"]').exists()).toBe(true)
+
+      await wrapper.setProps({ weather: null })
+
+      expect(wrapper.find('[data-testid="weather-now"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="day-weather"]').exists()).toBe(false)
+    })
   })
 })

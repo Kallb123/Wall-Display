@@ -1,4 +1,5 @@
 import ICAL from 'ical.js'
+import { addDays, instantId, midnightOf, NO_TITLE, overlaps } from '../span'
 import { isKnownTimeZone, zonedWallTimeToUtc } from '../time'
 import type { NormalisedEvent, SyncWindow } from '../types'
 import { IcsSourceError } from './errors'
@@ -26,7 +27,6 @@ export interface ExpandResult {
 }
 
 const DEFAULT_MAX_OCCURRENCES = 20_000
-const NO_TITLE = '(No title)'
 
 interface Context {
   timeZone: string
@@ -296,8 +296,7 @@ function slotOf(time: ICAL.Time, tzid: string | null, dateSeries: boolean, conte
     }
   }
   const at = instantOf(time, tzid, context)
-  const iso = new Date(at).toISOString() // 2026-10-28T16:00:00.000Z
-  return { id: `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}Z`, at }
+  return { id: instantId(at), at }
 }
 
 /**
@@ -323,8 +322,8 @@ function spanFromTimes(start: ICAL.Time, startTzid: string | null, end: ICAL.Tim
     if (endDate <= startDate) endDate = addDays(startDate, 1)
     return {
       allDay: true,
-      startAt: midnightOf(startDate, context),
-      endAt: midnightOf(endDate, context),
+      startAt: midnightOf(startDate, context.timeZone),
+      endAt: midnightOf(endDate, context.timeZone),
       startDate,
       endDate,
     }
@@ -344,35 +343,19 @@ function spanOf(event: ICAL.Event, context: Context): Span | null {
 
 function allDaySpan(startDate: string, days: number, context: Context): Span {
   const endDate = addDays(startDate, days)
-  return { allDay: true, startAt: midnightOf(startDate, context), endAt: midnightOf(endDate, context), startDate, endDate }
+  return { allDay: true, startAt: midnightOf(startDate, context.timeZone), endAt: midnightOf(endDate, context.timeZone), startDate, endDate }
 }
 
 function daysBetween(from: string, to: string): number {
   return Math.round((Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)) - 1, Number(to.slice(8, 10))) - Date.UTC(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10)))) / 86_400_000)
 }
 
-function midnightOf(date: string, context: Context): number {
-  return zonedWallTimeToUtc({ year: Number(date.slice(0, 4)), month: Number(date.slice(5, 7)), day: Number(date.slice(8, 10)) }, context.timeZone).getTime()
-}
-
 function dateString(time: ICAL.Time): string {
   return `${pad(time.year, 4)}-${pad(time.month)}-${pad(time.day)}`
 }
 
-function addDays(date: string, days: number): string {
-  const moved = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)) + days))
-  return moved.toISOString().slice(0, 10)
-}
-
 function pad(value: number, width = 2): string {
   return String(value).padStart(width, '0')
-}
-
-/** Overlap with the window: a zero-length event counts if it starts inside it. */
-function overlaps(span: Pick<Span, 'startAt' | 'endAt'>, window: SyncWindow): boolean {
-  const from = window.start.getTime()
-  return span.startAt < window.end.getTime()
-    && (span.endAt > from || (span.endAt === span.startAt && span.startAt >= from))
 }
 
 // ---------------------------------------------------------------------------

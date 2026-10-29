@@ -1,5 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { discard, errorCode, networkErrorMessage, readBody, tooLargeMessage } from '../http'
 import { IcsSourceError } from './errors'
 
 // Fetches an ICS feed, conditionally. Error messages never include the URL
@@ -72,7 +73,7 @@ async function fetchIcsOverHttp(url: string, validators: Validators, fetchFn: ty
 
   let body: string
   try {
-    body = await readBody(response, maxBytes)
+    body = await readBody(response, maxBytes, () => tooLarge(maxBytes))
   } catch (error) {
     if (error instanceof IcsSourceError) throw error
     throw networkError(error, timeoutMs)
@@ -81,57 +82,12 @@ async function fetchIcsOverHttp(url: string, validators: Validators, fetchFn: ty
   return { status: 'ok', body, etag: response.headers.get('etag'), lastModified: response.headers.get('last-modified') }
 }
 
-/** Reads the body as UTF-8, stopping as soon as it passes the limit. */
-async function readBody(response: Response, maxBytes: number): Promise<string> {
-  if (!response.body) {
-    const text = await response.text()
-    if (new TextEncoder().encode(text).length > maxBytes) throw tooLarge(maxBytes)
-    return text
-  }
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let received = 0
-  let text = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      received += value.byteLength
-      if (received > maxBytes) throw tooLarge(maxBytes)
-      text += decoder.decode(value, { stream: true })
-    }
-    return text + decoder.decode()
-  } finally {
-    await reader.cancel().catch(() => undefined)
-  }
-}
-
-async function discard(response: Response): Promise<void> {
-  await response.body?.cancel().catch(() => undefined)
-}
-
 function tooLarge(maxBytes: number): IcsSourceError {
-  return new IcsSourceError('fetch', `the calendar is larger than ${Math.round(maxBytes / (1024 * 1024))} MB`)
+  return new IcsSourceError('fetch', tooLargeMessage(maxBytes))
 }
 
-// Whatever went wrong, say it without the original message: undici's messages
-// can name the host, and Node's can carry the whole URL.
 function networkError(error: unknown, timeoutMs: number): IcsSourceError {
-  const name = error instanceof Error ? error.name : ''
-  if (name === 'TimeoutError' || name === 'AbortError') {
-    return new IcsSourceError('fetch', `timed out after ${+(timeoutMs / 1000).toFixed(2)} s`)
-  }
-  const code = errorCode(error)
-  return new IcsSourceError('fetch', code ? `could not connect (${code})` : 'could not connect')
-}
-
-function errorCode(error: unknown): string | null {
-  for (let current: unknown = error, depth = 0; current && depth < 4; depth++) {
-    const code = (current as { code?: unknown }).code
-    if (typeof code === 'string' && /^[A-Z0-9_]+$/.test(code)) return code
-    current = (current as { cause?: unknown }).cause
-  }
-  return null
+  return new IcsSourceError('fetch', networkErrorMessage(error, timeoutMs))
 }
 
 async function readIcsFile(url: string, validators: Validators, maxBytes: number): Promise<FetchIcsResult> {

@@ -3,10 +3,10 @@ import { createPeopleResolver } from '../../../shared/people'
 import type { CalendarConfig, Person, SyncConfig } from '../../config/schema'
 import type { Db } from '../../db/client'
 import { syncStatus } from '../../db/schema'
-import { ensureCalendarRow, replaceCalendarEvents } from '../store'
+import { safeErrorMessage } from '../errors'
+import { ensureCalendarRow, recordSyncStatus, replaceCalendarEvents } from '../store'
 import type { ReplaceResult } from '../store'
 import { syncWindow } from '../time'
-import { safeErrorMessage } from './errors'
 import { expandIcs } from './expand'
 import { fetchIcs } from './fetch'
 
@@ -60,14 +60,14 @@ export async function syncIcsCalendar({ db, calendar, people, timeZone, sync, no
     }, { fetch: fetchFn })
 
     if (response.status === 'not-modified') {
-      recordStatus(db, calendar.id, { lastAttemptAt: attemptedAt, lastSuccessAt: attemptedAt, lastError: null })
+      recordSyncStatus(db, calendar.id, { lastAttemptAt: attemptedAt, lastSuccessAt: attemptedAt, lastError: null })
       return { status: 'not-modified' }
     }
 
     const { events, warnings } = expandIcs(response.body, window, { timeZone })
     const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people))
     // Only now, with the events safely stored, remember the validators.
-    recordStatus(db, calendar.id, {
+    recordSyncStatus(db, calendar.id, {
       lastAttemptAt: attemptedAt,
       lastSuccessAt: attemptedAt,
       lastError: null,
@@ -78,14 +78,7 @@ export async function syncIcsCalendar({ db, calendar, people, timeZone, sync, no
     })
     return { status: 'updated', warnings, ...result }
   } catch (error) {
-    recordStatus(db, calendar.id, { lastAttemptAt: attemptedAt, lastError: safeErrorMessage(error) })
+    recordSyncStatus(db, calendar.id, { lastAttemptAt: attemptedAt, lastError: safeErrorMessage(error) })
     throw error
   }
-}
-
-type StatusFields = Partial<Omit<typeof syncStatus.$inferInsert, 'calendarId'>>
-
-/** Writes the given fields and leaves the others as they were. */
-function recordStatus(db: Db, calendarId: string, fields: StatusFields): void {
-  db.insert(syncStatus).values({ calendarId, ...fields }).onConflictDoUpdate({ target: syncStatus.calendarId, set: fields }).run()
 }

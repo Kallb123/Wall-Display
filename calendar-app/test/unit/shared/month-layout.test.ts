@@ -1,12 +1,9 @@
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { fixtureEvents } from '../../helpers/fixtureEvents'
 import { loadConfig } from '../../../server/config/load'
-import { expandIcs } from '../../../server/sources/ics/expand'
-import { syncWindow } from '../../../server/sources/time'
 import { LANES, MAX_BADGE_INITIALS, monthLayout, PANEL_DAYS, WEEK_ROWS } from '../../../shared/month-layout'
 import type { MonthLayout, MonthLayoutInput, WeekRow } from '../../../shared/month-layout'
-import { createPeopleResolver } from '../../../shared/people'
 import type { CalendarEvent, EventPerson } from '../../../shared/types/events'
 
 // The family from config.dev.yaml and its two ICS fixtures, set around Wed 28
@@ -21,32 +18,6 @@ const dev = loadConfig({ configFile: join(APP_DIR, 'config.dev.yaml'), env: {} }
 const person = (id: string): EventPerson => {
   const found = dev.people.find(candidate => candidate.id === id)!
   return { id: found.id, name: found.name, initial: found.initial, colour: found.colour }
-}
-
-/** The fixtures' events as the API returns them: expanded, with their people and display titles resolved. */
-function fixtureEvents(): CalendarEvent[] {
-  const window = syncWindow(new Date(`${TODAY}T12:00:00Z`), LONDON, 12, 12)
-  let id = 1
-  return dev.calendars.flatMap((calendar) => {
-    const resolve = createPeopleResolver(calendar, dev.people)
-    const { events } = expandIcs(readFileSync(join(APP_DIR, 'test/fixtures/ics', `${calendar.id}.ics`), 'utf8'), window, { timeZone: LONDON })
-    return events.map((event): CalendarEvent => {
-      const resolved = resolve(event)
-      return {
-        id: id++,
-        calendar_id: calendar.id,
-        title: event.title,
-        display_title: resolved.displayTitle,
-        location: event.location,
-        start: event.startAt.toISOString(),
-        end: event.endAt.toISOString(),
-        all_day: event.allDay,
-        start_date: event.startDate,
-        end_date: event.endDate,
-        people: resolved.personIds.map(person),
-      }
-    })
-  })
 }
 
 const FIXTURES = fixtureEvents()

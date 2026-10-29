@@ -57,10 +57,18 @@ calendars:
     person: home
     source: { type: homeassistant, entity_id: calendar.bin_collection } # poll_seconds default 300
 
-# Only needed if a calendar uses a homeassistant source.
+# Needed if a calendar uses a homeassistant source, or you set up weather below.
 homeassistant:
   url: http://homeassistant.local:8123
   token: !secret ha_token # a long-lived access token
+
+# The weather on the wall: the current conditions under today's date in the
+# month view, and a forecast for each of the days beside it, and in the agenda.
+# Leave this out and no weather is shown. It reads one Home Assistant weather
+# entity through the homeassistant block above, so that is needed too.
+weather:
+  entity_id: weather.home # a weather entity; it must be able to give a daily forecast
+  poll_seconds: 600 # default 600; at least 60
 
 # One entry per screen. Open /display?id=hallway on it.
 displays:

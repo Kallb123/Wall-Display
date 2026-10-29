@@ -40,6 +40,8 @@ export function useRemoteCommands(displayId: MaybeRefOrGetter<string | null>, on
 
   /** Commands the server refused for want of a PIN, in order, to send again once it has one. */
   let refused: Command[] = []
+  /** Counts commands sent. Only the latest one's answer is shown: two quick taps can be answered out of order. */
+  let sendCount = 0
 
   const pinHeaders = (pin: string | null): Record<string, string> => pin ? { [PIN_HEADER]: pin } : {}
 
@@ -58,6 +60,7 @@ export function useRemoteCommands(displayId: MaybeRefOrGetter<string | null>, on
     const id = toValue(displayId)
     if (!id) return false
     const pin = loadPin(storage)
+    const count = ++sendCount
     try {
       const next = await $fetch<unknown>(`/api/displays/${encodeURIComponent(id)}/commands`, {
         method: 'POST',
@@ -65,7 +68,8 @@ export function useRemoteCommands(displayId: MaybeRefOrGetter<string | null>, on
         headers: pinHeaders(pin),
       })
       const parsed = displayStateSchema.safeParse(next)
-      if (parsed.success) onState(parsed.data)
+      // An older answer would undo a newer one, and the socket only speaks again on the next change.
+      if (parsed.success && count === sendCount) onState(parsed.data)
       error.value = null
       return true
     } catch (caught) {

@@ -164,6 +164,27 @@ describe('the remote page', () => {
     expect(pressed()).toEqual(['Agenda'])
   })
 
+  it('keeps the latest tap\'s answer when an earlier one comes back after it', async () => {
+    const { wrapper } = await mountRemote({ view: 'month' })
+    let answerFirst!: () => void
+    fetchMock.mockImplementationOnce(async (url: string, options: Options) => {
+      const answer = await server(url, options)
+      await new Promise<void>((resolve) => {
+        answerFirst = resolve
+      })
+      return answer
+    })
+
+    await wrapper.find('[data-testid="tile-agenda"]').trigger('click')
+    await wrapper.find('[data-testid="tile-week"]').trigger('click')
+    await flushPromises()
+    answerFirst()
+    await flushPromises()
+
+    expect(sent()).toEqual([{ type: 'set_view', view: 'agenda' }, { type: 'set_view', view: 'week' }])
+    expect(wrapper.find('[data-testid="tile-week"]').attributes('aria-pressed')).toBe('true')
+  })
+
   it('follows a state the socket sends', async () => {
     const { wrapper, socket } = await mountRemote({ view: 'month' })
 

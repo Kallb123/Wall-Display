@@ -1,0 +1,629 @@
+{
+  "$comment": "The wire contract for the Wall Display MQTT topics (architecture section 7.3). Nothing reads this file at run time. The app's Vitest suite (calendar-app/test/unit/mqtt/contract.test.ts) and the pi agent's pytest suite both check their code against it, so a topic or payload cannot change in one place without the other noticing. Each payload schema is JSON Schema draft 2020-12. It applies to the payload as UTF-8 text, or, when encoding is \"json\", to the parsed JSON. Match \"pattern\" as a whole-string match. direction says who publishes: to_app (Home Assistant or anything else, to the app), from_app (the app, to anyone), to_pi (the app, to the pi agent) or from_pi (the pi agent, to anyone). Every topic sits under base, so wallcal/hallway/view/set is the topic view/set for the display with id hallway.",
+  "version": 1,
+  "base": "wallcal/{display_id}",
+  "topics": {
+    "view/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Shows a view. \"next\" steps through the calendar views (month, agenda, week), as the next_view command does.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "month",
+            "week",
+            "agenda",
+            "photo",
+            "night",
+            "next"
+          ]
+        }
+      },
+      "examples": [
+        "month",
+        "agenda",
+        "night",
+        "next"
+      ],
+      "invalid_examples": [
+        "Month",
+        "calendar",
+        "next_view",
+        "",
+        "month "
+      ]
+    },
+    "view/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The view the display is showing.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "month",
+            "week",
+            "agenda",
+            "photo",
+            "night"
+          ]
+        }
+      },
+      "examples": [
+        "month",
+        "photo"
+      ],
+      "invalid_examples": [
+        "next",
+        "Month",
+        ""
+      ]
+    },
+    "month/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Pins the month view to a month, or steps from the month it shows. \"current\" goes back to following the calendar. A month more than 12 months from today is clamped to 12.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^(\\d{4}-(0[1-9]|1[0-2])|current|prev|next)$"
+        }
+      },
+      "examples": [
+        "2026-12",
+        "current",
+        "prev",
+        "next"
+      ],
+      "invalid_examples": [
+        "2026-13",
+        "2026-00",
+        "2026-1",
+        "12/2026",
+        "Current",
+        "last",
+        ""
+      ]
+    },
+    "month/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The month the month view shows, as YYYY-MM: the pinned month, or the current month in the display time zone when nothing is pinned.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        }
+      },
+      "examples": [
+        "2026-10",
+        "2027-01"
+      ],
+      "invalid_examples": [
+        "2026-13",
+        "current",
+        ""
+      ]
+    },
+    "screen/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Turns the screen on or off. This changes the desired state; the pi agent follows it.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        }
+      },
+      "examples": [
+        "on",
+        "off"
+      ],
+      "invalid_examples": [
+        "ON",
+        "true",
+        "1",
+        ""
+      ]
+    },
+    "screen/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The desired screen state.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        }
+      },
+      "examples": [
+        "on",
+        "off"
+      ],
+      "invalid_examples": [
+        "ON",
+        "true",
+        ""
+      ]
+    },
+    "photo_source/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Chooses which provider photo frame mode uses.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "immich",
+            "google",
+            "local"
+          ]
+        }
+      },
+      "examples": [
+        "immich",
+        "google",
+        "local"
+      ],
+      "invalid_examples": [
+        "Immich",
+        "dropbox",
+        ""
+      ]
+    },
+    "photo_source/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The provider photo frame mode uses.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "immich",
+            "google",
+            "local"
+          ]
+        }
+      },
+      "examples": [
+        "immich",
+        "local"
+      ],
+      "invalid_examples": [
+        "Immich",
+        "dropbox",
+        ""
+      ]
+    },
+    "brightness/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Sets the backlight brightness, a whole number from 0 to 100. A whole number written with a trailing .0 is accepted too, because Home Assistant number entities can send 50.0. Anything out of range is rejected, not clamped.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^(100|[1-9]?[0-9])(\\.0+)?$"
+        }
+      },
+      "examples": [
+        "0",
+        "80",
+        "100",
+        "50.0"
+      ],
+      "invalid_examples": [
+        "50.5",
+        "abc",
+        "101",
+        "-1",
+        "",
+        "1e2",
+        "050",
+        "80%"
+      ]
+    },
+    "brightness/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The brightness, as a plain integer from 0 to 100.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^(100|[1-9]?[0-9])$"
+        }
+      },
+      "examples": [
+        "0",
+        "80",
+        "100"
+      ],
+      "invalid_examples": [
+        "50.0",
+        "101",
+        "-1",
+        ""
+      ]
+    },
+    "auto_presence/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Turns the built-in presence policy on or off (the screen follows the presence sensor). Upper case, as Home Assistant switches send it.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ]
+        }
+      },
+      "examples": [
+        "ON",
+        "OFF"
+      ],
+      "invalid_examples": [
+        "on",
+        "true",
+        "1",
+        ""
+      ]
+    },
+    "auto_presence/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "Whether the presence policy is on.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ]
+        }
+      },
+      "examples": [
+        "ON",
+        "OFF"
+      ],
+      "invalid_examples": [
+        "on",
+        "true",
+        ""
+      ]
+    },
+    "auto_brightness/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Turns the built-in auto-brightness policy on or off (brightness follows the light sensor). Upper case, as Home Assistant switches send it.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ]
+        }
+      },
+      "examples": [
+        "ON",
+        "OFF"
+      ],
+      "invalid_examples": [
+        "on",
+        "true",
+        "1",
+        ""
+      ]
+    },
+    "auto_brightness/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "Whether the auto-brightness policy is on.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ]
+        }
+      },
+      "examples": [
+        "ON",
+        "OFF"
+      ],
+      "invalid_examples": [
+        "on",
+        "true",
+        ""
+      ]
+    },
+    "overlay/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Shows a message over the display. ttl is seconds until it goes away (at most a week); left out, it stays until cleared. An empty payload, or one of only whitespace, clears the overlay. Anything else that does not match the schema is rejected.",
+      "payload": {
+        "encoding": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "pattern": "\\S",
+              "maxLength": 200
+            },
+            "icon": {
+              "type": "string",
+              "pattern": "\\S",
+              "maxLength": 50
+            },
+            "ttl": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 604800
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "empty": "clear"
+      },
+      "examples": [
+        "{\"text\":\"Bins out tonight\",\"icon\":\"trash\",\"ttl\":3600}",
+        "{\"text\":\"Back at 6\"}",
+        ""
+      ],
+      "invalid_examples": [
+        "not json",
+        "{}",
+        "{\"text\":\"\"}",
+        "{\"text\":\"   \"}",
+        "{\"text\":\"Hi\",\"colour\":\"red\"}",
+        "{\"text\":\"Hi\",\"ttl\":0}",
+        "{\"text\":\"Hi\",\"ttl\":604801}",
+        "{\"text\":\"Hi\",\"ttl\":1.5}",
+        "[]",
+        "null",
+        "\"Hi\""
+      ]
+    },
+    "photo/next": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Shows the next photo. The payload is ignored.",
+      "payload": {
+        "encoding": "any"
+      },
+      "examples": [
+        "",
+        "1"
+      ],
+      "invalid_examples": []
+    },
+    "refresh": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Forces a calendar re-sync. The payload is ignored.",
+      "payload": {
+        "encoding": "any"
+      },
+      "examples": [
+        "",
+        "1"
+      ],
+      "invalid_examples": []
+    },
+    "special_day/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "Today's special day name, or empty when there is none. The app does not publish it yet.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "examples": [
+        "Christmas",
+        ""
+      ],
+      "invalid_examples": []
+    },
+    "pi/button": {
+      "direction": "from_pi",
+      "retained": false,
+      "description": "A press of the physical button, as the pi agent classifies it.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "single",
+            "double",
+            "long"
+          ]
+        }
+      },
+      "examples": [
+        "single",
+        "double",
+        "long"
+      ],
+      "invalid_examples": [
+        "Single",
+        "triple",
+        "press",
+        ""
+      ]
+    },
+    "pi/presence": {
+      "direction": "from_pi",
+      "retained": true,
+      "description": "Whether the mmWave sensor sees someone.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ]
+        }
+      },
+      "examples": [
+        "ON",
+        "OFF"
+      ],
+      "invalid_examples": [
+        "on",
+        "true",
+        "1",
+        ""
+      ]
+    },
+    "pi/illuminance": {
+      "direction": "from_pi",
+      "retained": false,
+      "description": "The ambient light in lux, a non-negative number.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+        }
+      },
+      "examples": [
+        "0",
+        "12.5",
+        "430"
+      ],
+      "invalid_examples": [
+        "-1",
+        "abc",
+        "",
+        "12,5",
+        ".5",
+        "1e3"
+      ]
+    },
+    "pi/screen/set": {
+      "direction": "to_pi",
+      "retained": true,
+      "description": "Tells the pi agent to turn the panel on or off. Retained, so an agent that starts later still gets the last request. The app does not publish it yet.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        }
+      },
+      "examples": [
+        "on",
+        "off"
+      ],
+      "invalid_examples": [
+        "ON",
+        "true",
+        ""
+      ]
+    },
+    "pi/screen/state": {
+      "direction": "from_pi",
+      "retained": true,
+      "description": "The actual panel state, if the agent can detect it.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        }
+      },
+      "examples": [
+        "on",
+        "off"
+      ],
+      "invalid_examples": [
+        "ON",
+        "true",
+        ""
+      ]
+    },
+    "availability": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The app is online, or offline (the MQTT last-will, so the broker publishes it if the app dies).",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "online",
+            "offline"
+          ]
+        }
+      },
+      "examples": [
+        "online",
+        "offline"
+      ],
+      "invalid_examples": [
+        "Online",
+        "ON",
+        ""
+      ]
+    },
+    "pi/availability": {
+      "direction": "from_pi",
+      "retained": true,
+      "description": "The pi agent is online, or offline (its MQTT last-will).",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "online",
+            "offline"
+          ]
+        }
+      },
+      "examples": [
+        "online",
+        "offline"
+      ],
+      "invalid_examples": [
+        "Online",
+        "ON",
+        ""
+      ]
+    }
+  }
+}

@@ -105,3 +105,8 @@ export function formatTemperature(value: number): string {
 export function weatherLabel(value: WeatherCondition | null): string | null {
   return value === null ? null : WEATHER_LABELS[value]
 }
+
+/** The body of `GET /api/weather`: null when weather is off or nothing has been fetched yet. */
+export interface WeatherResponse {
+  weather: WeatherSnapshot | null
+}

@@ -69,6 +69,23 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:visual
 
+      # TEMPORARY: the fixture events as CI builds them, and what the failed pages showed.
+      - name: Fingerprint the fixture events
+        if: failure()
+        run: |
+          cat > fx2.tmp.ts <<'TS'
+          import { createHash } from 'node:crypto'
+          import { fixtureEvents } from './test/helpers/fixtureEvents'
+          const events = fixtureEvents({ configFile: 'test/visual/config.visual.yaml' })
+          console.log(process.version, Intl.DateTimeFormat().resolvedOptions().timeZone, events.length, createHash('sha1').update(JSON.stringify(events)).digest('hex'))
+          const perDay = new Map<string, number>()
+          for (const e of events) { const d = (e.start_date ?? e.start).slice(0, 10); if (d.startsWith('2026-10')) perDay.set(d, (perDay.get(d) ?? 0) + 1) }
+          console.log([...perDay].sort().map(([d, n]) => `${d.slice(8)}:${n}`).join(' '))
+          for (const e of events.filter(e => (e.start_date ?? e.start).startsWith('2026-10-28'))) console.log(e.id, e.start, e.end, e.display_title, e.people.map(p => p.id).join(','))
+          TS
+          node node_modules/.pnpm/jiti@*/node_modules/jiti/lib/jiti-cli.mjs ./fx2.tmp.ts
+          for f in test-results/month-*/error-context.md; do echo "=== $f"; cat "$f" || true; done
+
       # TEMPORARY: print where the screenshot diffs are, as the artifact can't be fetched from the session.
       - name: Summarise screenshot diffs
         if: failure()

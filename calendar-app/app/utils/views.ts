@@ -5,6 +5,10 @@ import type { CalendarEvent } from '../../shared/types/events'
 // `defineProps<ViewProps>()`, even when they ignore some of it, so a prop a
 // view doesn't use is still a prop and never falls through to its root element
 // as an HTML attribute. Pure: no Nuxt or Vue imports.
+//
+// Import it by a relative path in a view. `defineProps` needs the compiler to
+// read the type itself, and it can only follow `~/` once Nuxt has written
+// .nuxt/tsconfig, which a clean build (the Docker image) may not have done yet.
 
 export interface ViewProps {
   /** The view being shown. */

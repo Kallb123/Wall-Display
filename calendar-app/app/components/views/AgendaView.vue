@@ -5,7 +5,7 @@ import { agendaDays } from '~/utils/agenda'
 import type { AgendaDay, AgendaItem } from '~/utils/agenda'
 import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
-import type { ViewProps } from '~/utils/views'
+import type { ViewProps } from '../../utils/views'
 
 // Today and tomorrow in large type (architecture §4.1): a card for each, with
 // the all-day events first, then the timed ones, and a "now" marker in today's.

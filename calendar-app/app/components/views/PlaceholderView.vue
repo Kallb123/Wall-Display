@@ -3,7 +3,7 @@ import type { CalendarEvent } from '../../../shared/types/events'
 import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
 import { todayIn } from '~/utils/eventRanges'
-import type { ViewProps } from '~/utils/views'
+import type { ViewProps } from '../../utils/views'
 
 // Stands in for the views that aren't built yet (the month and agenda views
 // have their own). It shows the design system at work: the display face, a

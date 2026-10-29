@@ -3,7 +3,7 @@ import { formatWeekday } from '~/utils/format'
 import { todayIn } from '~/utils/eventRanges'
 import { fitPanelDay } from '~/utils/monthPanel'
 import { personFill } from '~/utils/themes'
-import type { ViewProps } from '~/utils/views'
+import type { ViewProps } from '../../utils/views'
 import { monthLayout } from '../../../shared/month-layout'
 import type { DayCell, ItemPeople } from '../../../shared/month-layout'
 

@@ -102,3 +102,13 @@ Check <http://localhost:8080/api/health> (use the server's address from another 
 - `docker compose --profile mqtt up -d` also starts a Mosquitto broker on port 1883, with its settings in `mosquitto/config/mosquitto.conf`. It allows anonymous connections, so keep it on your home network (the file explains how to add a password). Leave the profile off if you use the Home Assistant Mosquitto add-on.
 - To update, `git pull` then `docker compose up -d --build`.
 - Back up `./data` and `./config`. Special days and their art are stored only in `./data`.
+
+## Raspberry Pi kiosk
+
+The wall display runs on a Raspberry Pi with Raspberry Pi OS Lite, showing the `/display` page in a Chromium kiosk. [`kiosk/setup.sh`](kiosk/setup.sh) sets that up: auto-login, a minimal Wayland compositor, Chromium with flags tuned for the Pi, no screen blanking, and a restart if Chromium exits. The Pi holds nothing but the display URL, so reflashing is the way to start again.
+
+```sh
+sudo ./kiosk/setup.sh --url 'http://<server>:8080/display?id=hallway'
+```
+
+[`kiosk/README.md`](kiosk/README.md) covers reflashing the Pi, the setup options, extra Chromium flags, logs and troubleshooting.

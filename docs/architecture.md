@@ -559,7 +559,7 @@ More complex logic, such as "only when someone is home", "not during a film" or 
 
 ### 8.1 Software
 
-- Raspberry Pi OS Lite (Bookworm or later) with a minimal Wayland compositor, auto-login, and Chromium in `--kiosk` mode pointed at `http://<server>:8080/display?id=hallway`.
+- Raspberry Pi OS Lite (Bookworm or later) with a minimal Wayland compositor, auto-login, and Chromium in `--kiosk` mode pointed at `http://<server>:8080/display?id=hallway`. Setup and reflashing are in [`kiosk/README.md`](../kiosk/README.md).
 - Turn off the screen blanker and screensaver. The panel power is controlled by the agent.
 - `pi-agent` is a Python systemd service with `Restart=always`:
   - `gpiozero` for the button (debounce; single, double and long press detection)

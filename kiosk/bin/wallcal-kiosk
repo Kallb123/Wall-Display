@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# wallcal-kiosk: run Chromium on the wall display page and restart it whenever it exits.
+# Runs inside the compositor session (see wallcal-kiosk-session) as the kiosk user.
+set -euo pipefail
+
+CONF=${WALLCAL_KIOSK_CONF:-/etc/wallcal-kiosk/kiosk.conf}
+FLAGS_FILE=${WALLCAL_KIOSK_FLAGS:-/etc/wallcal-kiosk/chromium-flags.conf}
+LOCAL_FLAGS_FILE=${WALLCAL_KIOSK_LOCAL_FLAGS:-/etc/wallcal-kiosk/chromium-flags.local.conf}
+
+# Timing knobs. The defaults are the real behaviour; the tests shorten them.
+BACKOFF_START=${WALLCAL_KIOSK_BACKOFF_START:-2}
+BACKOFF_MAX=${WALLCAL_KIOSK_BACKOFF_MAX:-60}
+STABLE_AFTER=${WALLCAL_KIOSK_STABLE_AFTER:-60}
+WAIT_INTERVAL=${WALLCAL_KIOSK_WAIT_INTERVAL:-5}
+
+print_only=0
+BG_PID=0
+FLAGS=()
+
+usage() {
+  cat <<'USAGE'
+Usage: wallcal-kiosk [--print-command]
+
+Starts Chromium in kiosk mode on the display URL from the kiosk config and
+restarts it whenever it exits.
+
+  --print-command  print the Chromium command, one argument per line, and exit
+  -h, --help       show this help
+
+Environment overrides (for tests and debugging):
+  WALLCAL_KIOSK_CONF         kiosk config (default /etc/wallcal-kiosk/kiosk.conf)
+  WALLCAL_KIOSK_FLAGS        Chromium flags (default /etc/wallcal-kiosk/chromium-flags.conf)
+  WALLCAL_KIOSK_LOCAL_FLAGS  extra flags (default /etc/wallcal-kiosk/chromium-flags.local.conf)
+  WALLCAL_CHROMIUM           path to the browser
+USAGE
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Log to the journal (when logger exists) and to stderr, which the session log captures.
+log() {
+  printf '%(%Y-%m-%d %H:%M:%S)T wallcal-kiosk: %s\n' -1 "$*" >&2
+  if have logger; then
+    logger -t wallcal-kiosk -- "$*" || true
+  fi
+}
+
+die() {
+  # --print-command is a query, so keep it quiet: no journal entry.
+  if ((print_only)); then
+    printf 'wallcal-kiosk: %s\n' "$*" >&2
+  else
+    log "error: $*"
+  fi
+  exit 1
+}
+
+# Append each non-blank, non-comment line of a flags file, trimmed, as one argument.
+read_flags() {
+  local line
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    if [[ -n $line && $line != '#'* ]]; then
+      FLAGS+=("$line")
+    fi
+  done <"$1"
+}
+
+# Run a command in the background and wait for it. A plain foreground command would
+# delay the TERM/INT trap until it finished; waiting lets the trap fire at once.
+bg() {
+  local rc=0
+  "$@" &
+  BG_PID=$!
+  wait "$BG_PID" || rc=$?
+  BG_PID=0
+  return "$rc"
+}
+
+nap() { bg sleep "$1" || true; }
+
+stop() {
+  trap - TERM INT
+  log "stop signal received; shutting down"
+  if ((BG_PID > 0)); then
+    kill "$BG_PID" 2>/dev/null || true
+    wait "$BG_PID" 2>/dev/null || true
+  fi
+  exit 0
+}
+
+# Keep one previous log, so a crash loop cannot grow the log without bound.
+rotate_log() {
+  if [[ -f $1 ]]; then
+    mv -f "$1" "$1.1"
+  fi
+}
+
+set_mode() {
+  local mode=${WALLCAL_MODE:-auto} line output=
+  if [[ $mode == auto ]]; then
+    return 0
+  fi
+  if ! have wlr-randr || [[ -z ${WAYLAND_DISPLAY:-} ]]; then
+    log "cannot set mode $mode: needs wlr-randr and a Wayland session; leaving the monitor's own mode"
+    return 0
+  fi
+  # Output names are the unindented lines of wlr-randr's listing.
+  while IFS= read -r line; do
+    if [[ $line == [![:space:]]* ]]; then
+      output=${line%% *}
+      break
+    fi
+  done < <(wlr-randr 2>/dev/null || true)
+  if [[ -z $output ]]; then
+    log "wlr-randr listed no outputs; leaving the monitor's own mode"
+    return 0
+  fi
+  if wlr-randr --output "$output" --mode "$mode"; then
+    log "set $output to $mode"
+  else
+    log "could not set $output to $mode; carrying on"
+  fi
+}
+
+# After a crash or power cut Chromium asks "Restore pages?" on the next start.
+# Marking the last exit as clean suppresses the prompt.
+clear_crash_flags() {
+  local prefs=$PROFILE_DIR/Default/Preferences
+  if [[ -f $prefs ]]; then
+    sed -i -e 's/"exited_cleanly":false/"exited_cleanly":true/' \
+      -e 's/"exit_type":"[^"]*"/"exit_type":"Normal"/' "$prefs" ||
+      log "could not clear the crash flags in $prefs"
+  fi
+}
+
+# Don't start Chromium until the server answers: on a cold boot with the server
+# down this shows black rather than Chromium's error page. Any HTTP response counts.
+wait_for_server() {
+  local errfile=$STATE_DIR/curl.err reason=
+  local failing=0 last_logged=0
+  until bg curl -sS -o /dev/null --max-time 5 "$WALLCAL_URL" 2>"$errfile"; do
+    if ((!failing || SECONDS - last_logged >= 60)); then
+      reason=
+      read -r reason <"$errfile" || true
+      log "server not reachable yet (${reason:-no detail}); waiting"
+      failing=1
+      last_logged=$SECONDS
+    fi
+    nap "$WAIT_INTERVAL"
+  done
+  if ((failing)); then
+    log "server reachable"
+  fi
+}
+
+while (($#)); do
+  case $1 in
+    --print-command) print_only=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'wallcal-kiosk: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+# The config wins over any WALLCAL_* values already in the environment.
+[[ -r $CONF ]] || die "cannot read the kiosk config $CONF"
+# shellcheck source=/dev/null
+source "$CONF"
+WALLCAL_URL=${WALLCAL_URL:-}
+[[ -n $WALLCAL_URL ]] || die "WALLCAL_URL is empty in $CONF"
+
+BROWSER=${WALLCAL_CHROMIUM:-}
+if [[ -z $BROWSER ]]; then
+  BROWSER=$(command -v chromium || command -v chromium-browser || true)
+fi
+[[ -n $BROWSER ]] || die "neither chromium nor chromium-browser is installed"
+
+[[ -r $FLAGS_FILE ]] || die "cannot read the Chromium flags file $FLAGS_FILE"
+read_flags "$FLAGS_FILE"
+if [[ -r $LOCAL_FLAGS_FILE ]]; then
+  read_flags "$LOCAL_FLAGS_FILE"
+fi
+
+PROFILE_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/wallcal-kiosk/chromium
+cmd=("$BROWSER" "${FLAGS[@]}" "--user-data-dir=$PROFILE_DIR" "$WALLCAL_URL")
+
+if ((print_only)); then
+  printf '%s\n' "${cmd[@]}"
+  exit 0
+fi
+
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/wallcal-kiosk
+mkdir -p "$STATE_DIR"
+CHROMIUM_LOG=$STATE_DIR/chromium.log
+rotate_log "$CHROMIUM_LOG"
+
+trap stop TERM INT
+
+log "kiosk starting for $WALLCAL_URL"
+set_mode
+
+backoff=$BACKOFF_START
+while true; do
+  wait_for_server
+  clear_crash_flags
+  started=$SECONDS
+  log "starting $BROWSER"
+  status=0
+  bg "${cmd[@]}" >>"$CHROMIUM_LOG" 2>&1 || status=$?
+  ran=$((SECONDS - started))
+  log "chromium exited with status $status after ${ran}s"
+  # A long run means it was healthy, so the next failure starts from the short delay.
+  if ((ran >= STABLE_AFTER)); then
+    backoff=$BACKOFF_START
+  fi
+  log "restarting in ${backoff}s"
+  nap "$backoff"
+  if ((ran < STABLE_AFTER)); then
+    backoff=$((backoff * 2 > BACKOFF_MAX ? BACKOFF_MAX : backoff * 2))
+  fi
+done

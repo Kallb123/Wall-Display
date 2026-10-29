@@ -18,18 +18,18 @@ describe('the mqtt block', () => {
 
   it('takes a full block', async () => {
     const raw = minimalConfig()
-    raw.mqtt = { url: 'mqtts://broker.example.com:8883', username: 'wallcal', password: 'hunter2', client_id: 'wall_cal-1' }
+    raw.mqtt = { url: 'mqtts://broker.example.com:8883', username: 'wallcal', password: 'hunter2', client_id: 'wall_cal-1', discovery: false, discovery_prefix: 'ha/discovery' }
     const { config } = await load({ config: raw })
 
-    expect(config.mqtt).toEqual({ url: 'mqtts://broker.example.com:8883', username: 'wallcal', password: 'hunter2', client_id: 'wall_cal-1' })
+    expect(config.mqtt).toEqual({ url: 'mqtts://broker.example.com:8883', username: 'wallcal', password: 'hunter2', client_id: 'wall_cal-1', discovery: false, discovery_prefix: 'ha/discovery' })
   })
 
-  it('needs only a URL, and the client id defaults to wallcal', async () => {
+  it('needs only a URL, and the client id defaults to wallcal, with Home Assistant discovery on under homeassistant', async () => {
     const raw = minimalConfig()
     raw.mqtt = { url: 'mqtt://mosquitto:1883' }
     const { config } = await load({ config: raw })
 
-    expect(config.mqtt).toEqual({ url: 'mqtt://mosquitto:1883', client_id: 'wallcal' })
+    expect(config.mqtt).toEqual({ url: 'mqtt://mosquitto:1883', client_id: 'wallcal', discovery: true, discovery_prefix: 'homeassistant' })
   })
 
   it.each([
@@ -103,6 +103,35 @@ describe('the mqtt block', () => {
     ['more than 64 characters', 'a'.repeat(65)],
   ])('rejects a client_id with %s', async (_name, clientId) => {
     expect(await messageFor({ url: 'mqtt://mosquitto:1883', client_id: clientId })).toContain('mqtt.client_id: must be 1 to 64 letters, digits, hyphens and underscores')
+  })
+
+  it.each([
+    ['one level', 'homeassistant'],
+    ['several levels', 'ha/discovery/v2'],
+    ['hyphens, underscores and capitals', 'Home_Assistant-2'],
+  ])('accepts a discovery_prefix with %s', async (_name, prefix) => {
+    const raw = minimalConfig()
+    raw.mqtt = { url: 'mqtt://mosquitto:1883', discovery_prefix: prefix }
+    const { config } = await load({ config: raw })
+
+    expect(config.mqtt?.discovery_prefix).toBe(prefix)
+  })
+
+  it.each([
+    ['nothing', ''],
+    ['a leading slash', '/homeassistant'],
+    ['a trailing slash', 'homeassistant/'],
+    ['an empty level', 'home//assistant'],
+    ['a + wildcard', 'home/+'],
+    ['a # wildcard', 'home/#'],
+    ['a space', 'home assistant'],
+    ['a dot', 'home.assistant'],
+  ])('rejects a discovery_prefix with %s', async (_name, prefix) => {
+    expect(await messageFor({ url: 'mqtt://mosquitto:1883', discovery_prefix: prefix })).toContain('mqtt.discovery_prefix: must be one or more topic levels')
+  })
+
+  it('rejects a discovery that is not true or false', async () => {
+    expect(await messageFor({ url: 'mqtt://mosquitto:1883', discovery: 'yes' })).toContain('mqtt.discovery: ')
   })
 
   it('rejects an unknown setting', async () => {

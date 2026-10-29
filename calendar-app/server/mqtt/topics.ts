@@ -35,6 +35,9 @@ export const STATE_TOPICS = [
 ] as const
 export type StateTopic = (typeof STATE_TOPICS)[number]
 
+/** When the last calendar sync finished. Retained, but not one of `STATE_TOPICS`: those are the display's settings, each paired with a command topic, and this is a fact about the app. */
+export const LAST_SYNC_TOPIC = 'last_sync/state'
+
 /** `online` while connected. The broker publishes `offline` if the app dies (the last will). */
 export const AVAILABILITY_TOPIC = 'availability'
 export const ONLINE = 'online'
@@ -138,7 +141,8 @@ export function parseCommandPayload(suffix: CommandTopic, payload: string): Pars
   return { ok: true, command: parsed.data }
 }
 
-const onOffPayload = (value: boolean): string => value ? 'ON' : 'OFF'
+/** `ON` or `OFF`, as the auto_presence and auto_brightness topics carry a setting. */
+export const onOffPayload = (value: boolean): string => value ? 'ON' : 'OFF'
 
 /** Every state topic's payload for `state`. `month/state` is the month the month view shows, so it is the current month in `timeZone` at `now` when nothing is pinned. */
 export function statePayloads(state: DisplayState, now: Date, timeZone: string): Record<StateTopic, string> {
@@ -151,4 +155,9 @@ export function statePayloads(state: DisplayState, now: Date, timeZone: string):
     'auto_presence/state': onOffPayload(state.auto_presence),
     'auto_brightness/state': onOffPayload(state.auto_brightness),
   }
+}
+
+/** What `last_sync/state` carries: an ISO 8601 UTC instant, such as `2026-10-28T12:00:00.000Z`. */
+export function lastSyncPayload(at: Date): string {
+  return at.toISOString()
 }

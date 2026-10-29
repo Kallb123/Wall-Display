@@ -10,8 +10,21 @@ describe('the display state schema', () => {
       screen: 'on',
       photo_source: 'immich',
       brightness: 100,
+      auto_presence: true,
+      auto_brightness: true,
       overlay: null,
     })
+  })
+
+  it('turns both automatic policies on for a stored document that predates them', () => {
+    const state = displayStateSchema.parse({ view: 'week', month: null, screen: 'off', photo_source: 'local', brightness: 20, overlay: null })
+
+    expect(state).toMatchObject({ auto_presence: true, auto_brightness: true })
+  })
+
+  it('keeps an automatic policy that was switched off', () => {
+    expect(displayStateSchema.parse({ auto_presence: false })).toMatchObject({ auto_presence: false, auto_brightness: true })
+    expect(displayStateSchema.parse({ auto_brightness: false })).toMatchObject({ auto_presence: true, auto_brightness: false })
   })
 
   it('keeps what a stored document has and defaults the rest', () => {
@@ -60,6 +73,10 @@ describe('the command schema', () => {
     [{ type: 'set_brightness', brightness: 0 }],
     [{ type: 'set_brightness', brightness: 100 }],
     [{ type: 'set_photo_source', photo_source: 'local' }],
+    [{ type: 'set_auto_presence', auto_presence: false }],
+    [{ type: 'set_auto_presence', auto_presence: true }],
+    [{ type: 'set_auto_brightness', auto_brightness: false }],
+    [{ type: 'set_auto_brightness', auto_brightness: true }],
     [{ type: 'set_overlay', overlay: { text: 'Bins out tonight' } }],
     [{ type: 'set_overlay', overlay: { text: 'Bins out tonight', icon: 'trash', ttl: 3600 } }],
     [{ type: 'set_overlay', overlay: null }],
@@ -88,6 +105,11 @@ describe('the command schema', () => {
     ['fractional brightness', { type: 'set_brightness', brightness: 1.5 }],
     ['brightness as a string', { type: 'set_brightness', brightness: '50' }],
     ['an unknown photo source', { type: 'set_photo_source', photo_source: 'flickr' }],
+    ['auto_presence as a string', { type: 'set_auto_presence', auto_presence: 'ON' }],
+    ['auto_presence missing', { type: 'set_auto_presence' }],
+    ['a misspelt auto_presence', { type: 'set_auto_presence', auto_presense: true }],
+    ['auto_brightness as a number', { type: 'set_auto_brightness', auto_brightness: 1 }],
+    ['an extra key on set_auto_brightness', { type: 'set_auto_brightness', auto_brightness: true, brightness: 50 }],
     ['a zero ttl', { type: 'set_overlay', overlay: { text: 'Hi', ttl: 0 } }],
     ['a ttl over a week', { type: 'set_overlay', overlay: { text: 'Hi', ttl: 604801 } }],
     ['an empty overlay text', { type: 'set_overlay', overlay: { text: '' } }],

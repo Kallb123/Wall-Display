@@ -218,6 +218,18 @@ describe('the other commands', () => {
     expect(reduceCommand(state(), { type: 'set_photo_source', photo_source: 'google' }, ctx()).photo_source).toBe('google')
   })
 
+  it('switch the automatic policies on and off', () => {
+    expect(defaultDisplayState()).toMatchObject({ auto_presence: true, auto_brightness: true })
+
+    const off = reduceCommand(state(), { type: 'set_auto_presence', auto_presence: false }, ctx())
+    expect(off).toMatchObject({ auto_presence: false, auto_brightness: true })
+    expect(reduceCommand(off, { type: 'set_auto_presence', auto_presence: true }, ctx()).auto_presence).toBe(true)
+
+    const dim = reduceCommand(state(), { type: 'set_auto_brightness', auto_brightness: false }, ctx())
+    expect(dim).toMatchObject({ auto_presence: true, auto_brightness: false })
+    expect(reduceCommand(dim, { type: 'set_auto_brightness', auto_brightness: true }, ctx()).auto_brightness).toBe(true)
+  })
+
   it('leave everything else as it was', () => {
     const start = pinned('2026-12', NOW, { brightness: 55 })
 

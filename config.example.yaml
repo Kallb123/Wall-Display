@@ -105,6 +105,19 @@ sync:
   months_back: 12
   months_ahead: 12
 
+# MQTT, for Home Assistant and other things that talk to the displays. Leave
+# out to turn MQTT off; the app works the same without it, and if the broker is
+# down it keeps trying in the background. With the compose "mqtt" profile the
+# broker is reachable as "mosquitto". With the Home Assistant Mosquitto add-on,
+# use the Home Assistant host instead (such as mqtt://homeassistant.local:1883).
+# Each display connects as <client_id>-<display id> and publishes under
+# wallcal/<display id>/, for example wallcal/hallway/view/state.
+mqtt:
+  url: mqtt://mosquitto:1883 # mqtt:// or mqtts://, port optional; no username or password in it
+  username: wallcal # optional
+  password: !secret mqtt_password # optional, needs a username
+  client_id: wallcal # default wallcal; 1-64 letters, digits, - and _
+
 # Photo frame mode. Leave out if you don't use it.
 photos:
   interval_seconds: 60 # at least 5

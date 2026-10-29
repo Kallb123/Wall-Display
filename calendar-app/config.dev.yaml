@@ -38,3 +38,8 @@ displays:
   - id: hallway
     name: Hallway
     theme: light
+
+# MQTT is off here. To try it against a broker on this machine (for example
+# `docker compose --profile mqtt up -d` from the repo root), remove the # signs:
+# mqtt:
+#   url: mqtt://localhost:1883

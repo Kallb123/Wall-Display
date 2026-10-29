@@ -51,7 +51,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, overlay: null,
+      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null,
     })
   })
 
@@ -345,7 +345,7 @@ describe('stopping', () => {
 describe('the store', () => {
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', brightness: 20, overlay: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 

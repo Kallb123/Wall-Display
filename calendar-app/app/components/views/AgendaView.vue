@@ -1,23 +1,18 @@
 <script setup lang="ts">
 import { Leaf } from 'lucide-vue-next'
-import type { View } from '../../../shared/display'
 import type { CalendarEvent } from '../../../shared/types/events'
 import { agendaDays } from '~/utils/agenda'
 import type { AgendaDay, AgendaItem } from '~/utils/agenda'
 import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
+import type { ViewProps } from '../../utils/views'
 
 // Today and tomorrow in large type (architecture §4.1): a card for each, with
 // the all-day events first, then the timed ones, and a "now" marker in today's.
 // There is no mock for it yet, so it borrows the Soft month's side panel: a
 // sage panel for today, a plain tile for tomorrow, and the same initial badges.
 // A special day's greeting (architecture §6) goes above today's list.
-const props = defineProps<{
-  view: View
-  events: CalendarEvent[]
-  now: Date
-  timezone: string
-}>()
+const props = defineProps<ViewProps>()
 
 const MAX_BADGES = 3
 
@@ -142,9 +137,11 @@ function barColour(event: CalendarEvent): string {
   border-radius: var(--radius-lg);
 }
 
-/* The sage panel, as in the Soft month's side panel. */
+/* The sage panel, as in the Soft month's side panel. Its muted text is the panel's own, not the page's. */
 .today {
   --ring: var(--panel);
+  --muted: var(--panel-muted);
+  color: var(--panel-text);
   background: var(--panel);
   box-shadow: var(--shadow-lift);
 }
@@ -241,7 +238,7 @@ function barColour(event: CalendarEvent): string {
   height: 60px;
   border-radius: 50%;
   box-shadow: 0 0 0 4px var(--ring);
-  color: var(--color-charcoal-900);
+  color: var(--color-neutral-900);
   font-size: 30px;
   font-weight: 700;
 }

@@ -4,13 +4,17 @@
 
 const formatters = new Map<string, Intl.DateTimeFormat>()
 
-function formatterFor(kind: 'time' | 'date', timeZone: string): Intl.DateTimeFormat {
+const OPTIONS = {
+  time: { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
+  date: { weekday: 'long', day: 'numeric', month: 'long' },
+  weekday: { weekday: 'long' },
+} as const satisfies Record<string, Intl.DateTimeFormatOptions>
+
+function formatterFor(kind: keyof typeof OPTIONS, timeZone: string): Intl.DateTimeFormat {
   const key = `${kind}|${timeZone}`
   let formatter = formatters.get(key)
   if (!formatter) {
-    formatter = kind === 'time'
-      ? new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-      : new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long', day: 'numeric', month: 'long' })
+    formatter = new Intl.DateTimeFormat('en-GB', { timeZone, ...OPTIONS[kind] })
     formatters.set(key, formatter)
   }
   return formatter
@@ -24,4 +28,9 @@ export function formatTime(date: Date, timeZone: string): string {
 /** `Wednesday 28 October`. */
 export function formatLongDate(date: Date, timeZone: string): string {
   return formatterFor('date', timeZone).format(date)
+}
+
+/** `Wednesday`. */
+export function formatWeekday(date: Date, timeZone: string): string {
+  return formatterFor('weekday', timeZone).format(date)
 }

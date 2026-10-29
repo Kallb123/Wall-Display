@@ -1,20 +1,15 @@
 <script setup lang="ts">
-import type { View } from '../../../shared/display'
 import type { CalendarEvent } from '../../../shared/types/events'
 import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
 import { todayIn } from '~/utils/eventRanges'
+import type { ViewProps } from '../../utils/views'
 
-// Stands in for the views that aren't built yet (the month view arrives in
-// PR 1.7). It shows the design system at work: the display face, a
+// Stands in for the views that aren't built yet (the month and agenda views
+// have their own). It shows the design system at work: the display face, a
 // sage panel with the clock, and a card of upcoming events on person-coloured
 // bars. Replace one entry of `viewFor` in pages/display.vue per real view.
-const props = defineProps<{
-  view: View
-  events: CalendarEvent[]
-  now: Date
-  timezone: string
-}>()
+const props = defineProps<ViewProps>()
 
 const MAX_EVENTS = 8
 const MAX_BADGES = 3
@@ -149,7 +144,7 @@ function fill(event: CalendarEvent): string {
   height: 56px;
   border-radius: 50%;
   box-shadow: 0 0 0 4px var(--bg);
-  color: var(--color-charcoal-900);
+  color: var(--color-neutral-900);
   font-size: 28px;
   font-weight: 700;
 }

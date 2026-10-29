@@ -21,6 +21,8 @@ describe('themeStyle', () => {
     expect(style['--today-cell']).toBe(THEMES.light.todayCell)
     expect(style['--on-accent']).toBe(THEMES.light.onAccent)
     expect(style['--accent2']).toBe(THEMES.light.accent2)
+    expect(style['--panel-text']).toBe(THEMES.light.panelText)
+    expect(style['--today-num-bg']).toBe(THEMES.light.todayNumBg)
     expect(style['--bar-mix']).toBe('36%')
     expect(Object.keys(style)).toHaveLength(THEME_TOKENS.length)
   })

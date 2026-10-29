@@ -5,43 +5,77 @@
 // §6.4) is just another `ThemeTokens` passed to `themeStyle` instead of one of these.
 // Pure: no Nuxt or Vue imports.
 
-export const THEME_TOKENS = ['bg', 'surface', 'text', 'muted', 'line', 'accent', 'accent2', 'onAccent', 'todayCell', 'panel', 'tile', 'veil', 'barMix'] as const
+export const THEME_TOKENS = [
+  'bg', 'surface', 'text', 'muted',
+  // The dimmest text: a date number outside the month shown.
+  'faint',
+  'line', 'accent', 'accent2', 'onAccent',
+  // Accent-coloured text, darker than `accent` on light so it reads on a tile ("+3 more").
+  'accentInk',
+  'todayCell',
+  // The pill behind today's date number in the grid, and the text on it.
+  'todayNumBg', 'todayNumFg',
+  // The side panel that holds today's date, with its text and its secondary text.
+  'panel', 'panelText', 'panelMuted',
+  // A day tile in the month, and a day outside it (transparent on dark).
+  'tile', 'tileOut',
+  // The text on a person's bar.
+  'barText',
+  'veil', 'barMix',
+] as const
 export type ThemeToken = (typeof THEME_TOKENS)[number]
 export type ThemeTokens = Record<ThemeToken, string>
 
+// Both follow the Soft month mock's light and dark themes.
 export const THEMES: Record<'light' | 'dark', ThemeTokens> = {
-  // Cream, the default.
+  // Warm cream, the default.
   light: {
-    bg: 'var(--color-cream-100)',
-    surface: 'var(--color-cream-200)',
-    text: 'var(--color-cream-900)',
-    muted: 'var(--color-cream-700)',
-    line: 'var(--color-cream-300)',
-    accent: 'var(--color-terracotta-600)',
-    accent2: 'var(--color-sage-600)',
-    onAccent: 'var(--color-cream-100)',
-    todayCell: 'var(--color-terracotta-100)',
+    bg: 'var(--color-bg)',
+    surface: 'var(--color-surface)',
+    text: 'var(--color-text)',
+    muted: 'var(--color-neutral-700)',
+    faint: 'var(--color-neutral-500)',
+    line: 'var(--color-neutral-300)',
+    accent: 'var(--color-accent)',
+    accent2: 'var(--color-accent-2-600)',
+    onAccent: 'var(--color-neutral-100)',
+    accentInk: 'var(--color-accent-700)',
+    todayCell: 'var(--color-accent-200)',
+    todayNumBg: 'var(--color-accent-600)',
+    todayNumFg: 'var(--color-neutral-100)',
     // The sage panel that holds today's date.
-    panel: 'var(--color-sage-300)',
-    tile: 'var(--color-cream-200)',
-    // Over past days: a translucent cream, so what is under it still shows.
-    veil: 'oklch(97% 0.02 85 / 0.55)',
+    panel: 'var(--color-accent-2-200)',
+    panelText: 'var(--color-accent-2-900)',
+    panelMuted: 'var(--color-accent-2-700)',
+    tile: 'var(--color-surface)',
+    tileOut: 'var(--color-neutral-200)',
+    barText: 'var(--color-text)',
+    // Over past days: the page background, translucent, so what is under it still shows.
+    veil: 'color-mix(in oklch, var(--color-bg) 58%, transparent)',
     barMix: '36%',
   },
   // Warm charcoal. Bars need more of the person's colour to show against a dark ground.
   dark: {
-    bg: 'var(--color-charcoal-900)',
-    surface: 'var(--color-charcoal-800)',
-    text: 'var(--color-cream-100)',
-    muted: 'var(--color-charcoal-300)',
-    line: 'var(--color-charcoal-700)',
-    accent: 'var(--color-terracotta-400)',
-    accent2: 'var(--color-sage-400)',
-    onAccent: 'var(--color-charcoal-900)',
-    todayCell: 'var(--color-terracotta-900)',
-    panel: 'var(--color-sage-700)',
-    tile: 'var(--color-charcoal-800)',
-    veil: 'oklch(18% 0.008 60 / 0.55)',
+    bg: 'var(--color-neutral-900)',
+    surface: 'var(--color-neutral-800)',
+    text: 'var(--color-neutral-100)',
+    muted: 'var(--color-neutral-400)',
+    faint: 'var(--color-neutral-600)',
+    line: 'var(--color-neutral-800)',
+    accent: 'var(--color-accent-400)',
+    accent2: 'var(--color-accent-2-400)',
+    onAccent: 'var(--color-neutral-900)',
+    accentInk: 'var(--color-accent-300)',
+    todayCell: 'color-mix(in oklch, var(--color-accent-800) 70%, var(--color-neutral-900))',
+    todayNumBg: 'var(--color-accent-400)',
+    todayNumFg: 'var(--color-neutral-900)',
+    panel: 'var(--color-accent-2-900)',
+    panelText: 'var(--color-accent-2-100)',
+    panelMuted: 'var(--color-accent-2-300)',
+    tile: 'color-mix(in oklch, var(--color-neutral-800) 70%, var(--color-neutral-900))',
+    tileOut: 'transparent',
+    barText: 'var(--color-neutral-100)',
+    veil: 'color-mix(in oklch, var(--color-neutral-900) 58%, transparent)',
     barMix: '52%',
   },
 }

@@ -4,11 +4,13 @@ import { currentMonth, displayStateSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState, View } from '../../shared/display'
 import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
 import AgendaView from '~/components/views/AgendaView.vue'
+import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
 import { STAGE_HEIGHT, STAGE_WIDTH } from '~/utils/stage'
 import { THEMES, themeStyle } from '~/utils/themes'
+import type { ViewProps } from '~/utils/views'
 
 // The wall. A fixed 2560×1440 stage scaled to fit the window, showing the view
 // the server chose (architecture §4.1). The page never picks a view or a month
@@ -18,7 +20,8 @@ useHead({ title: 'Display' })
 
 // Each view. The placeholder stands in for the ones not built yet.
 const viewComponents: Record<View, Component> = {
-  month: PlaceholderView,
+  // The Soft style. The Classic one arrives in PR 5.7 and will be chosen here by `month_style`.
+  month: MonthSoftView,
   week: PlaceholderView,
   agenda: AgendaView,
   photo: PlaceholderView,
@@ -68,6 +71,21 @@ async function loadSettings() {
 const timezone = computed(() => settings.value?.timezone ?? null)
 const shownMonth = computed(() => timezone.value ? (state.value.month ?? currentMonth(now.value, timezone.value)) : null)
 const today = computed(() => timezone.value ? todayIn(now.value, timezone.value) : null)
+
+/** What each view is given, or null until the settings (and so the time zone and week start) have arrived. */
+const viewProps = computed<ViewProps | null>(() => {
+  const display = settings.value
+  const month = shownMonth.value
+  if (!display || !month) return null
+  return {
+    view: state.value.view,
+    events: events.value,
+    now: now.value,
+    timezone: display.timezone,
+    month,
+    weekStart: display.week_start,
+  }
+})
 
 // A slow answer to an old request must not replace a newer one.
 let loadCount = 0
@@ -131,17 +149,14 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
       <p v-if="unknown" class="message">
         Unknown display
       </p>
-      <p v-else-if="!settings" class="message">
+      <p v-else-if="!viewProps" class="message">
         Connecting&hellip;
       </p>
       <Transition v-else name="view-fade" mode="out-in">
         <component
           :is="viewFor(state.view)"
           :key="state.view"
-          :view="state.view"
-          :events="events"
-          :now="now"
-          :timezone="settings.timezone"
+          v-bind="viewProps"
         />
       </Transition>
 

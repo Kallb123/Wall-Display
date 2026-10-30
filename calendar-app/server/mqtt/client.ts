@@ -5,7 +5,7 @@ import type { MqttConfig } from '../config/schema'
 import type { DisplayControl } from '../control/service'
 import type { EventBus } from '../events/bus'
 import { BIRTH_ONLINE, birthTopic, discoveryMessages } from './discovery'
-import { AVAILABILITY_TOPIC, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseCommandTopic, statePayloads, topicFor } from './topics'
+import { AVAILABILITY_TOPIC, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseCommandTopic, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
 import type { StateTopic } from './topics'
 
 // Keeps each display's state on an MQTT broker and takes commands from it
@@ -48,6 +48,8 @@ export interface MqttBridgeOptions {
   displays: readonly { id: string, name: string }[]
   /** When the last calendar sync succeeded, for `last_sync/state`. Called on every check, so it should be cheap. Default: never synced. */
   lastSync?: () => Date | null
+  /** Today's special day name, for `special_day/state`: `null` when there is none (published as empty) and `undefined` while that isn't known yet (not published). Called on every check, so it should be cheap. Default: not known. */
+  specialDay?: () => string | null | undefined
   /** The display time zone, which decides what the current month is. */
   timeZone: string
   control: Pick<DisplayControl, 'getState' | 'applyCommand'>
@@ -114,8 +116,8 @@ interface Link {
   client: MqttLink | undefined
   state: MqttBridgeStatus['state']
   lastError: string | null
-  /** What this connection last published on each state topic (and on `last_sync/state`). Emptied on every connect, so a connect publishes everything. */
-  published: Map<StateTopic | typeof LAST_SYNC_TOPIC, string>
+  /** What this connection last published on each state topic (and on `last_sync/state` and `special_day/state`). Emptied on every connect, so a connect publishes everything. */
+  published: Map<StateTopic | typeof LAST_SYNC_TOPIC | typeof SPECIAL_DAY_TOPIC, string>
   /** Connections that failed or dropped since the last one that lasted `STABLE_MS`. */
   failures: number
   /** When the current connection came up, in ms. */
@@ -126,7 +128,7 @@ interface Link {
 }
 
 export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
-  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, lastSync = () => null } = options
+  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, lastSync = () => null, specialDay = () => undefined } = options
   const broker = brokerName(config.url)
   let stopped = false
   let stopping: Promise<void> | undefined
@@ -189,6 +191,17 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
   }
 
+  /** `special_day/state`'s payload, or nothing while today's special day isn't known. A getter that fails is logged and skipped, like the last sync's. */
+  function specialDayEntry(link: Link): [typeof SPECIAL_DAY_TOPIC, string][] {
+    try {
+      const name = specialDay()
+      return name === undefined ? [] : [[SPECIAL_DAY_TOPIC, specialDayPayload(name)]]
+    } catch (error) {
+      log.error(`[mqtt] ${link.displayId}: could not read today's special day: ${describe(error)}`)
+      return []
+    }
+  }
+
   /** Publishes the state topics whose payload is not what this connection last published. */
   function publishState(link: Link): void {
     if (link.state !== 'connected') return
@@ -199,7 +212,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       log.error(`[mqtt] ${link.displayId}: could not read the state: ${describe(error)}`)
       return
     }
-    const entries = [...Object.entries(statePayloads(state, now(), timeZone)) as [StateTopic, string][], ...lastSyncEntry(link)]
+    const entries = [...Object.entries(statePayloads(state, now(), timeZone)) as [StateTopic, string][], ...lastSyncEntry(link), ...specialDayEntry(link)]
     for (const [topic, payload] of entries) {
       if (link.published.get(topic) === payload) continue
       link.published.set(topic, payload)
@@ -339,6 +352,8 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   })
   // A sync changes `last_sync/state` and nothing else, so nothing else would tell the bridge.
   const unsubscribeSync = bus.on('sync.succeeded', () => links.forEach(publishState))
+  // A new resolution, or midnight, changes `special_day/state` and nothing else.
+  const unsubscribeSpecialDays = bus.on('special_days.updated', () => links.forEach(publishState))
   const recheck = setInterval(() => links.forEach(publishState), RECHECK_MS)
   recheck.unref()
 
@@ -391,6 +406,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         stopped = true
         unsubscribe()
         unsubscribeSync()
+        unsubscribeSpecialDays()
         clearInterval(recheck)
         await Promise.all(links.map(close))
       })()

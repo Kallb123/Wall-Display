@@ -13,6 +13,8 @@ import {
   OFFLINE,
   ONLINE,
   parseCommandPayload,
+  SPECIAL_DAY_TOPIC,
+  specialDayPayload,
   STATE_TOPICS,
   statePayloads,
 } from '../../../server/mqtt/topics'
@@ -44,10 +46,7 @@ const contract = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../cont
 const names = Object.keys(contract.topics)
 const entries = Object.entries(contract.topics)
 
-// Topics the contract has and the app does not carry out yet. Each comes off its list when its PR lands
-// and the app has it in STATE_TOPICS, or publishes it.
-/** The app publishes these, in a later PR. */
-const PUBLISHED_LATER: readonly string[] = ['special_day/state'] // PR S.1
+// Topics the contract has and the app does not carry out yet. Each comes off its list when its PR lands.
 /** The app publishes these to the pi agent, in a later PR. */
 const TO_PI_LATER: readonly string[] = ['pi/screen/set'] // PR 3.2
 
@@ -128,8 +127,8 @@ describe('the topics', () => {
     expect(namesWhere(topic => topic.direction === 'to_app')).toEqual(sorted(COMMAND_TOPICS))
   })
 
-  it('has the app\'s state, availability and last sync topics going out of the app, apart from those a later PR adds', () => {
-    const published = [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, ...PUBLISHED_LATER]
+  it('has the app\'s state, availability, last sync and special day topics going out of the app, and only those', () => {
+    const published = [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]
 
     expect(namesWhere(topic => topic.direction === 'from_app')).toEqual(sorted(published))
   })
@@ -150,8 +149,8 @@ describe('the topics', () => {
     expect(sorted(states)).toEqual(sorted(settings))
   })
 
-  it('retains state, availability and last sync, and does not retain commands', () => {
-    for (const name of [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
+  it('retains state, availability, last sync and special day, and does not retain commands', () => {
+    for (const name of [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
     for (const name of COMMAND_TOPICS) expect(contract.topics[name]!.retained, name).toBe(false)
   })
 })
@@ -276,5 +275,21 @@ describe('last sync', () => {
 
     expect(payload).toBe(iso)
     expect(contractAccepts(LAST_SYNC_TOPIC, payload)).toBe(true)
+  })
+})
+
+describe('special day', () => {
+  it.each([
+    'Christmas',
+    'Mum\'s birthday',
+    'Dîner de Noël',
+    '',
+  ])('%j: the payload passes the topic\'s schema', (name) => {
+    expect(contractAccepts(SPECIAL_DAY_TOPIC, specialDayPayload(name))).toBe(true)
+  })
+
+  it('is empty when there is no special day', () => {
+    expect(specialDayPayload(null)).toBe('')
+    expect(contractAccepts(SPECIAL_DAY_TOPIC, specialDayPayload(null))).toBe(true)
   })
 })

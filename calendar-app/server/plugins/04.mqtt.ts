@@ -25,6 +25,11 @@ export default defineNitroPlugin(async (nitroApp) => {
     control: useDisplayControl(),
     bus: useEventBus(),
     lastSync: () => lastSyncAt(useDb()),
+    // Looked up each time: the special days plugin starts after this one.
+    specialDay: () => {
+      const resolution = useSpecialDays()?.get()
+      return resolution === null || resolution === undefined ? undefined : (resolution.current?.name ?? null)
+    },
   })
   setMqttBridge(bridge)
 

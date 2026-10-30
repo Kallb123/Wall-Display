@@ -39,6 +39,9 @@ export type StateTopic = (typeof STATE_TOPICS)[number]
 /** When the last calendar sync finished. Retained, but not one of `STATE_TOPICS`: those are the display's settings, each paired with a command topic, and this is a fact about the app. */
 export const LAST_SYNC_TOPIC = 'last_sync/state'
 
+/** Today's special day name, or empty when there is none. Retained, and a fact about the app like `LAST_SYNC_TOPIC`, so not one of `STATE_TOPICS`. */
+export const SPECIAL_DAY_TOPIC = 'special_day/state'
+
 /** `online` while connected. The broker publishes `offline` if the app dies (the last will). */
 export const AVAILABILITY_TOPIC = 'availability'
 export const ONLINE = 'online'
@@ -162,4 +165,9 @@ export function statePayloads(state: DisplayState, now: Date, timeZone: string):
 /** What `last_sync/state` carries: an ISO 8601 UTC instant, such as `2026-10-28T12:00:00.000Z`. */
 export function lastSyncPayload(at: Date): string {
   return at.toISOString()
+}
+
+/** What `special_day/state` carries: today's special day name, or empty when there is none. */
+export function specialDayPayload(name: string | null): string {
+  return name ?? ''
 }

@@ -87,7 +87,7 @@ describe('discoveryMessages', () => {
     expect(discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1 })).toEqual(messages)
     expect(parsed.map(message => message.topic.split('/')[3])).toEqual([
       'view', 'month', 'previous_month', 'next_month', 'this_month', 'screen', 'photo_source',
-      'brightness', 'auto_presence', 'auto_brightness', 'message', 'next_photo', 'refresh', 'last_sync',
+      'brightness', 'auto_presence', 'auto_brightness', 'message', 'next_photo', 'refresh', 'last_sync', 'special_day',
     ])
   })
 
@@ -281,13 +281,14 @@ describe('the entities', () => {
     expect(message.command_template).toBe('{{ {\'text\': value} | to_json if value | trim else \'\' }}')
   })
 
-  it('has sensors for the month and the last sync, which only read', () => {
+  it('has sensors for the month, the last sync and the special day, which only read', () => {
     const sensors = parsed.filter(message => message.topic.includes('/sensor/'))
 
-    expect(sensors.map(message => message.config.name)).toEqual(['Month shown', 'Last sync'])
+    expect(sensors.map(message => message.config.name)).toEqual(['Month shown', 'Last sync', 'Special day'])
     for (const { config } of sensors) expect(config).not.toHaveProperty('command_topic')
     expect(config('month').state_topic).toBe('wallcal/hallway/month/state')
     expect(config('last_sync')).toMatchObject({ state_topic: 'wallcal/hallway/last_sync/state', device_class: 'timestamp', entity_category: 'diagnostic' })
+    expect(config('special_day')).toMatchObject({ state_topic: 'wallcal/hallway/special_day/state', icon: 'mdi:party-popper' })
   })
 
   it('keeps the settings that are rarely changed out of the main controls', () => {

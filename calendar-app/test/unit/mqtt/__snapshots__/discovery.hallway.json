@@ -395,5 +395,30 @@
       },
       "qos": 1
     }
+  },
+  {
+    "topic": "homeassistant/sensor/wallcal_hallway/special_day/config",
+    "payload": {
+      "name": "Special day",
+      "unique_id": "wallcal_hallway_special_day",
+      "icon": "mdi:party-popper",
+      "state_topic": "wallcal/hallway/special_day/state",
+      "availability_topic": "wallcal/hallway/availability",
+      "payload_available": "online",
+      "payload_not_available": "offline",
+      "device": {
+        "identifiers": [
+          "wallcal_hallway"
+        ],
+        "name": "Wall Calendar",
+        "manufacturer": "Wall Display",
+        "model": "Wall Calendar"
+      },
+      "origin": {
+        "name": "Wall Calendar",
+        "url": "https://github.com/kallb123/wall-display"
+      },
+      "qos": 1
+    }
   }
 ]

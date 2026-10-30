@@ -5,10 +5,11 @@ import type { Command, DisplayState } from '../../../shared/display'
 import type { MqttConfig } from '../../../server/config/schema'
 import { defaultDisplayState, expireState, reduceCommand } from '../../../server/control/commands'
 import { createEventBus } from '../../../server/events/bus'
+import type { EventBus } from '../../../server/events/bus'
 import { createMqttBridge, MAX_RECONNECT_MS, RECHECK_MS, reconnectDelayMs, STABLE_MS, STOP_WAIT_MS } from '../../../server/mqtt/client'
 import type { MqttBridge, MqttLink } from '../../../server/mqtt/client'
 import { discoveryMessages } from '../../../server/mqtt/discovery'
-import { COMMAND_TOPICS, lastSyncPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
+import { COMMAND_TOPICS, lastSyncPayload, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
 
 // The bridge with a fake MQTT client and fake timers: no network. The fake
 // records what is published and subscribed, and the test plays the broker by
@@ -97,7 +98,12 @@ class FakeClient extends EventEmitter implements MqttLink {
 
 const bridges: MqttBridge[] = []
 
-function setup(options: { displays?: string[], config?: MqttConfig, random?: () => number, lastSync?: () => Date | null } = {}) {
+/** The bridge doesn't read the resolution the event carries: it asks `specialDay` again. So an empty one will do. */
+function emitSpecialDays(bus: EventBus): void {
+  bus.emit('special_days.updated', { specialDays: { today: '2026-10-28', from: '2026-08-28', to: '2026-12-31', tiles: [], current: null, takeover: null } })
+}
+
+function setup(options: { displays?: string[], config?: MqttConfig, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
   const displays = options.displays ?? ['hallway']
   const bus = createEventBus()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -129,6 +135,7 @@ function setup(options: { displays?: string[], config?: MqttConfig, random?: () 
     // The name is the id with a capital: hallway is "Hallway".
     displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) })),
     lastSync: options.lastSync,
+    specialDay: options.specialDay,
     timeZone: 'Europe/London',
     control,
     bus,
@@ -831,6 +838,109 @@ describe('last sync', () => {
   })
 })
 
+describe('special day', () => {
+  const TOPIC = 'wallcal/hallway/special_day/state'
+  it('publishes the name, retained at QoS 1, when a connection comes up', () => {
+    const { client } = setup({ specialDay: () => 'Christmas' })
+
+    client().up()
+
+    expect(client().published.filter(message => message.topic === TOPIC)).toEqual([
+      { topic: TOPIC, payload: 'Christmas', qos: 1, retain: true },
+    ])
+    expect(client().payloadsOn(TOPIC)).toEqual([specialDayPayload('Christmas')])
+  })
+
+  it('publishes it empty when there is no special day today', () => {
+    const { client } = setup({ specialDay: () => null })
+
+    client().up()
+
+    expect(client().payloadsOn(TOPIC)).toEqual([''])
+  })
+
+  it('publishes nothing on it while it is not known, or when no getter is given', () => {
+    const unknown = setup({ specialDay: () => undefined })
+    unknown.client().up()
+    const none = setup()
+    none.client().up()
+
+    expect(unknown.client().payloadsOn(TOPIC)).toEqual([])
+    expect(none.client().payloadsOn(TOPIC)).toEqual([])
+  })
+
+  it('follows each new resolution, and publishes only what changed', () => {
+    let name: string | null | undefined
+    const { client, bus } = setup({ specialDay: () => name })
+    client().up()
+    client().clear()
+
+    name = 'Christmas'
+    emitSpecialDays(bus)
+    expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([[TOPIC, 'Christmas']])
+
+    // The same day again, as when an edit changes only the art.
+    client().clear()
+    emitSpecialDays(bus)
+    expect(client().published).toEqual([])
+
+    // Midnight: the day is over, so the retained name is cleared.
+    name = null
+    emitSpecialDays(bus)
+    expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([[TOPIC, '']])
+  })
+
+  it('goes out on every display\'s connection', () => {
+    let name: string | null = null
+    const { client, bus } = setup({ displays: ['hallway', 'kitchen'], specialDay: () => name })
+    client('hallway').up()
+    client('kitchen').up()
+    client('hallway').clear()
+    client('kitchen').clear()
+
+    name = 'Christmas'
+    emitSpecialDays(bus)
+
+    expect(client('hallway').payloadsOn(TOPIC)).toEqual(['Christmas'])
+    expect(client('kitchen').payloadsOn('wallcal/kitchen/special_day/state')).toEqual(['Christmas'])
+  })
+
+  it('sends it again after a reconnect', () => {
+    const { client } = setup({ specialDay: () => 'Christmas' })
+    client().up()
+    client().down()
+    vi.advanceTimersByTime(SECOND)
+
+    client().up()
+
+    expect(client().payloadsOn(TOPIC)).toEqual(['Christmas', 'Christmas'])
+  })
+
+  it('logs a getter that throws and still publishes the display state', () => {
+    const { client, log, bus } = setup({
+      specialDay: () => { throw new Error('not ready') },
+    })
+
+    client().up()
+
+    expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not read today\'s special day: not ready')
+    expect(client().payloadsOn(TOPIC)).toEqual([])
+    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual(STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`))
+
+    expect(() => emitSpecialDays(bus)).not.toThrow()
+    expect(log.error).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the password out of a getter\'s error', () => {
+    const { client, logged } = setup({ specialDay: () => { throw new Error(`failed for ${PASSWORD}`) } })
+
+    client().up()
+
+    expect(logged()).not.toContain(PASSWORD)
+    expect(logged()).toContain('***')
+  })
+})
+
 describe('reconnecting', () => {
   it('asks the client to reconnect after 1 s, then 2 s, 4 s and so on while the broker stays away', () => {
     const { client, bridge } = setup()
@@ -1062,6 +1172,19 @@ describe('stop', () => {
     client().clear()
 
     bus.emit('sync.succeeded', { calendarId: 'family' })
+
+    expect(client().published).toEqual([])
+  })
+
+  it('stops following special day changes', async () => {
+    let name: string | null = null
+    const { bridge, client, bus } = setup({ specialDay: () => name })
+    client().up()
+    await bridge.stop()
+    client().clear()
+
+    name = 'Christmas'
+    emitSpecialDays(bus)
 
     expect(client().published).toEqual([])
   })

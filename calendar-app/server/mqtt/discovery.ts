@@ -1,5 +1,5 @@
 import { PHOTO_SOURCES, SCREEN_STATES, VIEWS } from '../../shared/display'
-import { AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, OFFLINE, ONLINE, onOffPayload, topicFor } from './topics'
+import { AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, OFFLINE, ONLINE, onOffPayload, SPECIAL_DAY_TOPIC, topicFor } from './topics'
 import type { CommandTopic, StateTopic } from './topics'
 
 // What Home Assistant needs to show a display as a device (MQTT discovery,
@@ -27,7 +27,7 @@ export interface DiscoveryOptions {
 type Component = 'select' | 'sensor' | 'button' | 'switch' | 'number' | 'text'
 
 /** The topics that have a name in topics.ts, so renaming one stops this file building. */
-type KnownTopic = CommandTopic | StateTopic | typeof LAST_SYNC_TOPIC
+type KnownTopic = CommandTopic | StateTopic | typeof LAST_SYNC_TOPIC | typeof SPECIAL_DAY_TOPIC
 
 interface Entity {
   component: Component
@@ -170,6 +170,13 @@ function entitiesFor(topic: (suffix: KnownTopic) => string): Entity[] {
       objectId: 'last_sync',
       name: 'Last sync',
       config: { state_topic: topic(LAST_SYNC_TOPIC), device_class: 'timestamp', entity_category: 'diagnostic' },
+    },
+    {
+      component: 'sensor',
+      objectId: 'special_day',
+      name: 'Special day',
+      icon: 'mdi:party-popper',
+      config: { state_topic: topic(SPECIAL_DAY_TOPIC) },
     },
   ]
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { SpecialDaysResolution } from './special-days'
 import type { WeatherSnapshot } from './weather'
 
 // What a display is showing (the state document) and the commands that change
@@ -116,6 +117,8 @@ export type ServerMessage =
   | { type: 'photo.next', display_id: string }
   /** To every socket when the weather changes, and to a new socket on connect. Null when there is none (no weather entity, or no successful fetch yet). */
   | { type: 'weather.updated', weather: WeatherSnapshot | null }
+  /** To every socket when the special days change or the date does, and to a new socket on connect. Null only before the special days service has started. */
+  | { type: 'special_days.updated', special_days: SpecialDaysResolution | null }
 
 // Months, as `YYYY-MM` keys. Done with `Intl` and arithmetic, never the
 // process's time zone. A month's index is year * 12 + (month - 1).

@@ -3,9 +3,10 @@ import { parseSocketQuery } from '../ws/query'
 import { getSocketHub } from '../ws/hub'
 
 // The WebSocket at `/_ws?display=<id>&role=display|remote`. A new connection
-// gets the display's whole state and the weather (null when there is none),
-// then every `state.updated`, `events.updated` and `weather.updated` (the
-// control and weather plugins connect the event bus to the hub).
+// gets the display's whole state, the weather and the special days (each null
+// when there is none yet), then every `state.updated`, `events.updated`,
+// `weather.updated` and `special_days.updated` (the control, weather and
+// special days plugins connect the event bus to the hub).
 // The display shows the state and the remote shows what the display is
 // showing, so both only listen.
 export default defineWebSocketHandler({
@@ -27,6 +28,8 @@ export default defineWebSocketHandler({
     peer.send(JSON.stringify(message))
     const weather: ServerMessage = { type: 'weather.updated', weather: useWeather()?.get() ?? null }
     peer.send(JSON.stringify(weather))
+    const specialDays: ServerMessage = { type: 'special_days.updated', special_days: useSpecialDays()?.get() ?? null }
+    peer.send(JSON.stringify(specialDays))
   },
 
   // Commands go through POST /api/displays/:id/commands, not the socket, so anything the client sends is ignored.

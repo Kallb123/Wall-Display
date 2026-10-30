@@ -302,7 +302,8 @@ SpecialDay {
   id, name,
   month, day, year,        // year is set only when repeat = once
   repeat: yearly | once,
-  lead: day | week | month,
+  lead: day | week | month | days,
+  lead_days,               // 1–365, set only when lead = days
   tile_art,                // file name, or null
   takeover: bool,
   full_art,                // file name, or null
@@ -315,7 +316,7 @@ SpecialDay {
 | Field | Meaning |
 |---|---|
 | `repeat` | `yearly` repeats on the same date every year. `once` is a single date, such as moving day. |
-| `lead` | When the tile art starts to show on the calendar: `day` (only on the day), `week` (from 7 days before) or `month` (all of the day's month). |
+| `lead` | When the tile art starts to show on the calendar: `day` (only on the day), `week` (from 7 days before), `month` (all of the day's month) or `days` (from `lead_days` days before, a custom number from 1 to 365). |
 | `tile_art` | A square drawing, transparent PNG or SVG, for the day's tile. |
 | `takeover` | Whether the day takes over the whole wall when it arrives. |
 | `full_art`, `greeting`, `palette` | Used by the takeover only. |
@@ -549,7 +550,7 @@ It talks to the same command handler as MQTT, so it works even if HA is down. It
 **Special days editor.** On the left is a list of special days, each with a date chip (day and month), its name and a summary such as "Every year · tile art · full screen", plus an **Add** button. On the right, the selected day has:
 
 - name, date, and **Repeats** (Every year or Once)
-- **Day tile art**: a square drop zone for the drawing, and **Show on the calendar from** (On the day, A week before, All month)
+- **Day tile art**: a square drop zone for the drawing, and **Show on the calendar from** (On the day, A week before, All month, or a number of days before)
 - **Full-screen takeover**: an on/off toggle. When it's on, there's a 16:9 drop zone for the 2560×1440 art, a **Greeting** field and **Palette** swatches (Warm, Night, Frost, Sage). When it's off, these fade out.
 - **Delete**, **Preview on wall** and **Save**
 

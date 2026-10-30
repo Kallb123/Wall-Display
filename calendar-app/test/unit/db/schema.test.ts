@@ -179,6 +179,14 @@ describe('special_days', () => {
     expect(db.select().from(specialDays).get()).toMatchObject({ year: 2027, takeover: true, palette: 'sage' })
   })
 
+  it('accepts a days lead with its count', () => {
+    const { db } = migratedMemoryDb()
+
+    db.insert(specialDays).values(newSpecialDay({ lead: 'days', leadDays: 10 })).run()
+
+    expect(db.select().from(specialDays).get()).toMatchObject({ lead: 'days', leadDays: 10 })
+  })
+
   it.each([
     ['a month of 13', { month: 13 }],
     ['a month of 0', { month: 0 }],
@@ -186,6 +194,10 @@ describe('special_days', () => {
     ['a day of 0', { day: 0 }],
     ['a yearly day with a year', { year: 2027 }],
     ['a one-off day without a year', { repeat: 'once' as const }],
+    ['a days lead without a count', { lead: 'days' as const }],
+    ['a week lead with a count', { leadDays: 7 }],
+    ['a days lead of 0', { lead: 'days' as const, leadDays: 0 }],
+    ['a days lead of 366', { lead: 'days' as const, leadDays: 366 }],
   ])('rejects %s', (_name, overrides) => {
     const { db } = migratedMemoryDb()
 

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openDatabase, runMigrations } from '../../../server/db/client'
@@ -65,6 +65,24 @@ describe('runMigrations', () => {
 
     expect(firstResult.applied).toBe(firstResult.total)
     expect(secondResult).toEqual({ applied: 0, total: firstResult.total })
+  })
+
+  it('keeps the special days stored before lead_days was added (0002)', async () => {
+    // The migrations up to 0001, as a database from before 0002 had them.
+    const before = join(await tempDir(), 'migrations')
+    cpSync(MIGRATIONS_DIR, before, { recursive: true })
+    const journalFile = join(before, 'meta', '_journal.json')
+    const journal = JSON.parse(readFileSync(journalFile, 'utf8')) as { entries: { tag: string }[] }
+    journal.entries = journal.entries.filter(entry => entry.tag < '0002')
+    writeFileSync(journalFile, JSON.stringify(journal))
+
+    const handle = track(openDatabase(':memory:'))
+    runMigrations(handle, before)
+    handle.sqlite.prepare(`insert into special_days (id, name, month, day, repeat, lead, created_at, updated_at) values ('halloween', 'Halloween', 10, 31, 'yearly', 'week', 0, 0)`).run()
+
+    runMigrations(handle, MIGRATIONS_DIR)
+
+    expect(handle.sqlite.prepare('select id, lead, lead_days from special_days').all()).toEqual([{ id: 'halloween', lead: 'week', lead_days: null }])
   })
 
   it('fails clearly when the folder has no migrations', async () => {

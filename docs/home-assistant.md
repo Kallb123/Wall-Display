@@ -117,6 +117,7 @@ The entities use names relative to the device, so HA normally generates the IDs 
 | Next photo | `button.wall_calendar_next_photo` | Milestone 4. |
 | Refresh calendars | `button.wall_calendar_refresh_calendars` | Syncs every calendar now. |
 | Last sync | `sensor.wall_calendar_last_sync` | When a sync last succeeded (a timestamp, diagnostic). Unknown until the first successful sync. |
+| Special day | `sensor.wall_calendar_special_day` | The name of today's special day, or empty when there is none. If two fall on one date, it is the one that comes first by precedence (a one-off before a yearly one, then the most recently edited). Unknown until the app has worked out today's special days. |
 
 All of them show as unavailable while the app is offline. They follow the app's `availability` topic and its last will.
 
@@ -124,7 +125,6 @@ To show a message with an icon or a time limit, publish to the overlay topic you
 
 Not there yet:
 
-- A "Special day" sensor, with the special days track.
 - A second device, "Wall Calendar Pi", with `event.wall_calendar_pi_button`, presence and illuminance. The Pi agent publishes it in Milestone 3.
 
 ### How discovery behaves

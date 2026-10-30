@@ -481,7 +481,7 @@
     "special_day/state": {
       "direction": "from_app",
       "retained": true,
-      "description": "Today's special day name, or empty when there is none. The app does not publish it yet.",
+      "description": "Today's special day name, or empty when there is none.",
       "payload": {
         "encoding": "text",
         "schema": {

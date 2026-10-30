@@ -19,6 +19,7 @@ function specialDay(overrides: Partial<SpecialDay> = {}): SpecialDay {
     year: null,
     repeat: 'yearly',
     lead: 'day',
+    lead_days: null,
     tile_art: null,
     takeover: true,
     full_art: null,

@@ -11,10 +11,22 @@ const NOW = new Date('2026-10-28T12:00:00Z')
 const LATER = new Date('2026-10-29T08:30:00Z')
 
 function input(overrides: Partial<SpecialDayInput> = {}): SpecialDayInput {
-  return { name: 'Christmas', month: 12, day: 25, year: null, repeat: 'yearly', lead: 'month', takeover: true, greeting: 'Merry Christmas', palette: 'warm', ...overrides }
+  return { name: 'Christmas', month: 12, day: 25, year: null, repeat: 'yearly', lead: 'month', lead_days: null, takeover: true, greeting: 'Merry Christmas', palette: 'warm', ...overrides }
 }
 
 describe('createSpecialDay and getSpecialDay', () => {
+  it('stores a days lead with its count', () => {
+    const { db } = migratedMemoryDb()
+
+    expect(createSpecialDay(db, input({ lead: 'days', lead_days: 10 }), NOW)).toMatchObject({ lead: 'days', lead_days: 10 })
+  })
+
+  it('stores no lead days for the other leads, whatever the input carries', () => {
+    const { db } = migratedMemoryDb()
+
+    expect(createSpecialDay(db, input({ lead: 'week', lead_days: 10 }), NOW).lead_days).toBeNull()
+  })
+
   it('stores a day under a slug of its name, as the wire format', () => {
     const { db } = migratedMemoryDb()
 
@@ -28,6 +40,7 @@ describe('createSpecialDay and getSpecialDay', () => {
       year: null,
       repeat: 'yearly',
       lead: 'month',
+      lead_days: null,
       tile_art: null,
       takeover: true,
       full_art: null,

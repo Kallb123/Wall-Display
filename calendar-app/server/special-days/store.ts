@@ -22,6 +22,7 @@ function toSpecialDay(row: SpecialDayRow): SpecialDay {
     year: row.year,
     repeat: row.repeat,
     lead: row.lead,
+    lead_days: row.leadDays,
     tile_art: row.tileArt,
     takeover: row.takeover,
     full_art: row.fullArt,
@@ -41,6 +42,8 @@ function editableColumns(input: SpecialDayInput) {
     year: input.repeat === 'once' ? input.year : null,
     repeat: input.repeat,
     lead: input.lead,
+    // And a lead in days exactly when the lead is `days`.
+    leadDays: input.lead === 'days' ? input.lead_days : null,
     takeover: input.takeover,
     greeting: input.greeting,
     palette: input.palette,

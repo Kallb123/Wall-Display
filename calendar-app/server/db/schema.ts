@@ -19,7 +19,7 @@ export type PhotoOrientation = (typeof PHOTO_ORIENTATIONS)[number]
 export const SPECIAL_DAY_REPEATS = ['yearly', 'once'] as const
 export type SpecialDayRepeat = (typeof SPECIAL_DAY_REPEATS)[number]
 
-export const SPECIAL_DAY_LEADS = ['day', 'week', 'month'] as const
+export const SPECIAL_DAY_LEADS = ['day', 'week', 'month', 'days'] as const
 export type SpecialDayLead = (typeof SPECIAL_DAY_LEADS)[number]
 
 export const SPECIAL_DAY_PALETTES = ['warm', 'night', 'frost', 'sage'] as const
@@ -137,6 +137,8 @@ export const specialDays = sqliteTable('special_days', {
   year: integer('year'),
   repeat: text('repeat', { enum: SPECIAL_DAY_REPEATS }).notNull(),
   lead: text('lead', { enum: SPECIAL_DAY_LEADS }).notNull(),
+  /** Days before the day the tile art starts to show. Set only when `lead` is `days`. */
+  leadDays: integer('lead_days'),
   /** File names in `/data/special-days/`. */
   tileArt: text('tile_art'),
   takeover: integer('takeover', { mode: 'boolean' }).notNull().default(false),
@@ -149,6 +151,7 @@ export const specialDays = sqliteTable('special_days', {
   check('special_days_month_check', sql`${table.month} between 1 and 12`),
   check('special_days_day_check', sql`${table.day} between 1 and 31`),
   check('special_days_year_check', sql`(${table.repeat} = 'once') = (${table.year} is not null)`),
+  check('special_days_lead_days_check', sql`(${table.lead} = 'days') = (${table.leadDays} is not null) and (${table.leadDays} is null or ${table.leadDays} between 1 and 365)`),
 ])
 
 export type CalendarRow = typeof calendars.$inferSelect

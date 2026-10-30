@@ -82,6 +82,7 @@ describe('special days', async () => {
       year: null,
       repeat: 'yearly',
       lead: 'month',
+      lead_days: null,
       tile_art: null,
       takeover: true,
       full_art: null,
@@ -117,6 +118,17 @@ describe('special days', async () => {
     expect(await $fetch('/api/special-days/christmas')).toEqual(updated)
   })
 
+  it('PUT /api/special-days/:id takes a custom lead in days, and drops the count when the lead changes back', async () => {
+    // As the test before left it, which the tests after rely on.
+    const edited = { ...christmas, name: 'Xmas', lead: 'week', takeover: false, palette: 'frost' }
+
+    const custom = await update('christmas', { ...edited, lead: 'days', lead_days: 10 })
+    expect(custom).toMatchObject({ lead: 'days', lead_days: 10 })
+
+    const back = await update('christmas', edited)
+    expect(back).toMatchObject({ lead: 'week', lead_days: null })
+  })
+
   it('answers a bad body with a 400 that names the field', async () => {
     await expect(create({ ...christmas, name: '' })).rejects.toMatchObject(reason(400, 'name must'))
     await expect(create({ ...christmas, month: 13 })).rejects.toMatchObject(reason(400, 'month must'))
@@ -126,6 +138,8 @@ describe('special days', async () => {
     await expect(create({ ...christmas, repeat: 'once', year: 2027, month: 2, day: 29 })).rejects.toMatchObject(reason(400, 'day must'))
     await expect(create({ ...christmas, palette: 'neon' })).rejects.toMatchObject(reason(400, 'palette must be one of'))
     await expect(create({ ...christmas, lead: undefined })).rejects.toMatchObject(reason(400, 'lead'))
+    await expect(create({ ...christmas, lead: 'days' })).rejects.toMatchObject(reason(400, 'lead_days is required'))
+    await expect(create({ ...christmas, lead: 'days', lead_days: 400 })).rejects.toMatchObject(reason(400, 'lead_days must'))
     await expect(create({ ...christmas, tile_art: 'x.webp' })).rejects.toMatchObject(reason(400, 'tile_art'))
     await expect(create(null)).rejects.toMatchObject({ statusCode: 400 })
     await expect(update('christmas', { ...christmas, takeover: 'yes' })).rejects.toMatchObject(reason(400, 'takeover must'))

@@ -19,6 +19,7 @@ function day(overrides: Partial<SpecialDay> & { id: string }): SpecialDay {
     year: null,
     repeat: 'yearly',
     lead: 'day',
+    lead_days: null,
     tile_art: null,
     takeover: false,
     full_art: null,
@@ -103,8 +104,9 @@ describe('occurrences', () => {
 })
 
 describe('lead windows', () => {
-  const christmas = (lead: SpecialDay['lead']) => [day({ id: 'christmas', lead })]
-  const decorated = (lead: SpecialDay['lead'], today: string) => tileDates(christmas(lead), today, { from: '2026-12-25', to: '2026-12-25' }).length === 1
+  // A `days` lead needs its count, so it gets 3 here unless a test says otherwise.
+  const christmas = (lead: SpecialDay['lead'], leadDays = 3) => [day({ id: 'christmas', lead, lead_days: lead === 'days' ? leadDays : null })]
+  const decorated = (lead: SpecialDay['lead'], today: string, leadDays?: number) => tileDates(christmas(lead, leadDays), today, { from: '2026-12-25', to: '2026-12-25' }).length === 1
 
   it('starts a day lead on the day itself', () => {
     expect(decorated('day', '2026-12-24')).toBe(false)
@@ -121,6 +123,33 @@ describe('lead windows', () => {
     expect(decorated('month', '2026-11-30')).toBe(false)
     expect(decorated('month', '2026-12-01')).toBe(true)
     expect(decorated('month', '2026-12-31')).toBe(true)
+  })
+
+  it('starts a days lead that many days before', () => {
+    expect(decorated('days', '2026-12-21', 3)).toBe(false)
+    expect(decorated('days', '2026-12-22', 3)).toBe(true)
+    expect(decorated('days', '2026-12-24', 3)).toBe(true)
+  })
+
+  it('takes a days lead of 1 as from the day before', () => {
+    expect(decorated('days', '2026-12-23', 1)).toBe(false)
+    expect(decorated('days', '2026-12-24', 1)).toBe(true)
+  })
+
+  it('lets a long days lead start months ahead, across a year boundary', () => {
+    const days = [day({ id: 'birthday', month: 2, day: 10, lead: 'days', lead_days: 60 })]
+    const range = { from: '2027-02-10', to: '2027-02-10' }
+
+    // 60 days before 10 February 2027 is 12 December 2026.
+    expect(tileDates(days, '2026-12-11', range)).toEqual([])
+    expect(tileDates(days, '2026-12-12', range)).toEqual(['2027-02-10'])
+  })
+
+  it('counts a days lead back from 28 February for 29 February in a common year', () => {
+    const days = [day({ id: 'leap', month: 2, day: 29, lead: 'days', lead_days: 10 })]
+
+    expect(tileDates(days, '2027-02-17', { from: '2027-02-28', to: '2027-02-28' })).toEqual([])
+    expect(tileDates(days, '2027-02-18', { from: '2027-02-28', to: '2027-02-28' })).toEqual(['2027-02-28'])
   })
 
   it('lets a week lead cross a month boundary', () => {
@@ -393,14 +422,27 @@ describe('the input schema', () => {
     return `${issue.path.join('.')} ${issue.message}`
   }
 
-  it('accepts a yearly day and fills in the year and greeting as null', () => {
-    expect(specialDayInputSchema.parse(valid)).toEqual({ ...valid, year: null, greeting: null })
+  it('accepts a yearly day and fills in the year, lead days and greeting as null', () => {
+    expect(specialDayInputSchema.parse(valid)).toEqual({ ...valid, year: null, lead_days: null, greeting: null })
+  })
+
+  it('accepts a days lead with its count, from 1 to 365', () => {
+    expect(specialDayInputSchema.parse({ ...valid, lead: 'days', lead_days: 10 })).toMatchObject({ lead: 'days', lead_days: 10 })
+    expect(specialDayInputSchema.safeParse({ ...valid, lead: 'days', lead_days: 1 }).success).toBe(true)
+    expect(specialDayInputSchema.safeParse({ ...valid, lead: 'days', lead_days: 365 }).success).toBe(true)
+  })
+
+  it('needs lead days for a days lead, and only for one', () => {
+    expect(failure({ ...valid, lead: 'days' })).toBe('lead_days is required when lead is days')
+    expect(failure({ ...valid, lead: 'days', lead_days: null })).toBe('lead_days is required when lead is days')
+    expect(failure({ ...valid, lead: 'week', lead_days: 7 })).toBe('lead_days must be left out unless lead is days')
+    expect(specialDayInputSchema.parse({ ...valid, lead: 'week', lead_days: null }).lead_days).toBeNull()
   })
 
   it('accepts a one-off day with a year and a greeting', () => {
     const input = { ...valid, name: 'Moving day', month: 3, day: 14, year: 2027, repeat: 'once', greeting: 'New home!' }
 
-    expect(specialDayInputSchema.parse(input)).toEqual(input)
+    expect(specialDayInputSchema.parse(input)).toEqual({ ...input, lead_days: null })
   })
 
   it('accepts a null year on a yearly day', () => {
@@ -438,8 +480,14 @@ describe('the input schema', () => {
     ['year', 1999],
     ['year', 2101],
     ['year', 2027.5],
+    ['lead_days', 0],
+    ['lead_days', 366],
+    ['lead_days', 2.5],
+    ['lead_days', '10'],
   ])('rejects %s %j', (field, value) => {
-    const input = field === 'year' ? { ...valid, repeat: 'once', year: value } : { ...valid, [field]: value }
+    const input = field === 'year'
+      ? { ...valid, repeat: 'once', year: value }
+      : field === 'lead_days' ? { ...valid, lead: 'days', lead_days: value } : { ...valid, [field]: value }
 
     expect(failure(input)).toMatch(new RegExp(`^${field} `))
   })

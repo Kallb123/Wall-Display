@@ -13,7 +13,8 @@ import { MONTH_RANGE } from './display'
 export const SPECIAL_DAY_REPEATS = ['yearly', 'once'] as const
 export type SpecialDayRepeat = (typeof SPECIAL_DAY_REPEATS)[number]
 
-export const SPECIAL_DAY_LEADS = ['day', 'week', 'month'] as const
+/** `days` is a custom lead: `lead_days` days before. */
+export const SPECIAL_DAY_LEADS = ['day', 'week', 'month', 'days'] as const
 export type SpecialDayLead = (typeof SPECIAL_DAY_LEADS)[number]
 
 export const SPECIAL_DAY_PALETTES = ['warm', 'night', 'frost', 'sage'] as const
@@ -25,6 +26,8 @@ export const MAX_SPECIAL_DAY_GREETING = 80
 /** The years a one-off day can be set in. */
 export const MIN_SPECIAL_DAY_YEAR = 2000
 export const MAX_SPECIAL_DAY_YEAR = 2100
+/** The most days ahead a custom lead (`lead: days`) can start. */
+export const MAX_SPECIAL_DAY_LEAD_DAYS = 365
 
 // Months are 1-based, so `month` here is also the next month's 0-based index, and its day 0 is the last day of this one.
 const daysInMonth = (year: number, month: number): number => new Date(Date.UTC(year, month, 0)).getUTCDate()
@@ -52,6 +55,13 @@ export const specialDayInputSchema = z.strictObject({
     .default(null),
   repeat: z.enum(SPECIAL_DAY_REPEATS, `must be one of ${SPECIAL_DAY_REPEATS.join(', ')}`),
   lead: z.enum(SPECIAL_DAY_LEADS, `must be one of ${SPECIAL_DAY_LEADS.join(', ')}`),
+  /** Required when `lead` is `days`, and null (or left out) otherwise. Comes out as `number | null`. */
+  lead_days: z.number()
+    .int('must be a whole number')
+    .min(1, `must be from 1 to ${MAX_SPECIAL_DAY_LEAD_DAYS}`)
+    .max(MAX_SPECIAL_DAY_LEAD_DAYS, `must be from 1 to ${MAX_SPECIAL_DAY_LEAD_DAYS}`)
+    .nullable()
+    .default(null),
   takeover: z.boolean('must be true or false'),
   /** Blank is stored as null. */
   greeting: z.string()
@@ -61,6 +71,8 @@ export const specialDayInputSchema = z.strictObject({
     .transform(value => value || null),
   palette: z.enum(SPECIAL_DAY_PALETTES, `must be one of ${SPECIAL_DAY_PALETTES.join(', ')}`),
 }).superRefine((input, context) => {
+  if (input.lead === 'days' && input.lead_days === null) context.addIssue({ code: 'custom', path: ['lead_days'], message: 'is required when lead is days' })
+  if (input.lead !== 'days' && input.lead_days !== null) context.addIssue({ code: 'custom', path: ['lead_days'], message: 'must be left out unless lead is days' })
   if (input.repeat === 'yearly') {
     if (input.year !== null) context.addIssue({ code: 'custom', path: ['year'], message: 'must be left out for a yearly day' })
     // 29 February is allowed: it falls on 28 February in years that are not leap years.
@@ -82,6 +94,8 @@ export const specialDaySchema = z.object({
   year: z.number().int().nullable(),
   repeat: z.enum(SPECIAL_DAY_REPEATS),
   lead: z.enum(SPECIAL_DAY_LEADS),
+  /** How many days before the day a `days` lead starts, or null for the other leads. */
+  lead_days: z.number().int().min(1).max(MAX_SPECIAL_DAY_LEAD_DAYS).nullable(),
   /** File name in `/data/special-days/`, or null. */
   tile_art: z.string().nullable(),
   takeover: z.boolean(),
@@ -156,7 +170,7 @@ export interface ResolveOptions {
  * - A 29 February `yearly` day falls on 28 February in years that are not leap years.
  * - A day's tile is decorated once its lead window has started by `today`:
  *   `day` from the day itself, `week` from 7 days before, `month` from the 1st
- *   of its month. It stays decorated after the day has passed (the view dims past days).
+ *   of its month, `days` from `lead_days` days before. It stays decorated after the day has passed (the view dims past days).
  * - Several special days on one date are all listed, in precedence order.
  */
 export function resolveSpecialDays(days: readonly SpecialDay[], options: ResolveOptions): SpecialDaysResolution {
@@ -214,6 +228,7 @@ function occurrenceIn(day: SpecialDay, year: number): string | null {
 function leadStart(day: SpecialDay, date: string): string {
   if (day.lead === 'day') return date
   if (day.lead === 'week') return addDays(date, -7)
+  if (day.lead === 'days') return addDays(date, -(day.lead_days ?? 0))
   return `${date.slice(0, 7)}-01`
 }
 

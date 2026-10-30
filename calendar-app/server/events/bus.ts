@@ -6,6 +6,7 @@
 // `useEventBus()` in server/utils/.
 
 import type { DisplayState } from '../../shared/display'
+import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
 /** The events on the bus, by name, with their payloads. */
@@ -20,6 +21,8 @@ export interface BusEvents {
   'sync.succeeded': { calendarId: string }
   /** The weather changed, or the displays' copy is due a refresh. `weather` is the whole new snapshot. */
   'weather.updated': { weather: WeatherSnapshot }
+  /** The special days service re-resolved and the answer changed (an edit, or a new day at midnight). `specialDays` is the whole new resolution. */
+  'special_days.updated': { specialDays: SpecialDaysResolution }
 }
 
 export type BusHandler<Name extends keyof BusEvents> = (payload: BusEvents[Name]) => void

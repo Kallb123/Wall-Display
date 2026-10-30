@@ -3,9 +3,11 @@ import { formatWeekday } from '~/utils/format'
 import { todayIn } from '~/utils/eventRanges'
 import { fitPanelDay } from '~/utils/monthPanel'
 import { personFill } from '~/utils/themes'
+import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
 import { monthLayout } from '../../../shared/month-layout'
 import type { DayCell, ItemPeople } from '../../../shared/month-layout'
+import { currentWeather, weatherOn } from '../../../shared/weather'
 
 // The month in the Soft style (mocks 1c and 1d, architecture §4.4): the month
 // title above a sage panel for today and the next three days on the left, and
@@ -18,6 +20,11 @@ import type { DayCell, ItemPeople } from '../../../shared/month-layout'
 // Three slots are left for a special day (architecture §6.2, PR S.3), each drawn
 // only when filled: `tile-art` in a tile's top-right corner (given its `cell`),
 // `greeting` at the top of the panel and `panel-art` at the bottom of it.
+//
+// The weather (PR 2.7) is drawn in the panel only: the current conditions under
+// the weekday, and each day's icon and high / low at the right of its heading.
+// Any part that is not known is left out, and with no weather at all nothing
+// is drawn, so the panel is exactly as it was.
 const props = defineProps<ViewProps>()
 
 const today = computed(() => todayIn(props.now, props.timezone))
@@ -30,8 +37,18 @@ const layout = computed(() => monthLayout({
   events: props.events,
 }))
 
-/** The panel's days, each trimmed to the rows that fit. Only the first is today, so only it has events that are over. */
-const panelDays = computed(() => layout.value.panel.map((day, index) => fitPanelDay(day, props.now, index === 0)))
+/** A panel day's icon and `14° / 8°`, either of which can be missing; null when the forecast has neither. */
+function dayWeather(date: string) {
+  const day = weatherOn(props.weather, date)
+  if (!day) return null
+  return { icon: weatherIcon(day.condition), text: formatHighLow(day) }
+}
+
+/** The panel's days, each trimmed to the rows that fit, with its forecast. Only the first is today, so only it has events that are over. */
+const panelDays = computed(() => layout.value.panel.map((day, index) => ({
+  ...fitPanelDay(day, props.now, index === 0),
+  weather: dayWeather(day.date),
+})))
 
 /** `October`, from the month itself: the shown month is not always the one `now` is in. */
 const monthName = computed(() => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'long' }).format(new Date(`${props.month}-01T00:00:00Z`)))
@@ -39,6 +56,13 @@ const year = computed(() => props.month.slice(0, 4))
 
 const dayNumber = computed(() => Number(today.value.slice(8, 10)))
 const weekday = computed(() => formatWeekday(props.now, props.timezone))
+
+/** The current conditions as an icon and words, or null for none (or if they are too old to say what it is like now). */
+const nowWeather = computed(() => {
+  const current = currentWeather(props.weather, props.now)
+  const text = current && formatCurrent(current)
+  return current && text ? { icon: weatherIcon(current.condition), text } : null
+})
 
 /** A tile's background: today's own, the month's, or the neighbouring months'. */
 function tileBackground(cell: DayCell): string {
@@ -92,7 +116,10 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
           </div>
           <div class="weekday">
             {{ weekday }}
-            <!-- PR 2.7: the current conditions go here, an icon and "12° · Light showers", under the weekday. -->
+            <div v-if="nowWeather" class="weather-now" data-testid="weather-now">
+              <AppIcon v-if="nowWeather.icon" :icon="nowWeather.icon" :size="44" />
+              <span class="weather-text">{{ nowWeather.text }}</span>
+            </div>
           </div>
         </div>
 
@@ -102,7 +129,10 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
               <h2 class="day-label">
                 {{ day.label }}
               </h2>
-              <!-- PR 2.7: the day's weather icon and high / low go at the right of the heading. -->
+              <div v-if="day.weather" class="day-weather" data-testid="day-weather">
+                <AppIcon v-if="day.weather.icon" :icon="day.weather.icon" :size="34" />
+                <span v-if="day.weather.text">{{ day.weather.text }}</span>
+              </div>
             </header>
 
             <p v-if="!day.rows.length && !day.more" class="nothing">
@@ -308,9 +338,35 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
 }
 
 .weekday {
+  /* So a long condition is cut with an ellipsis instead of widening the column. */
+  min-width: 0;
   font-family: var(--font-display);
   font-size: 44px;
   line-height: 1;
+}
+
+/* Quiet: the panel's muted colour and the body face, smaller than the weekday it sits under. */
+.weather-now {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--panel-muted);
+  font-family: var(--font-body);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.weather-now svg,
+.day-weather svg {
+  flex: none;
+}
+
+.weather-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .days {
@@ -338,6 +394,20 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   font-size: 36px;
   font-weight: 400;
   line-height: 1.1;
+}
+
+/* At the right of the heading, where it doesn't compete with the events below. */
+.day-weather {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  color: var(--panel-muted);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* A day's rows share their columns (a subgrid), so the times line up even when an event has several badges or "Until 11:30" is wider than "09:00". */

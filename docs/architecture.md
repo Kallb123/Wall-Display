@@ -464,7 +464,7 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | Panel power | `binary_sensor` (actual state, if detectable) |
 | CPU temperature, uptime | diagnostic sensors |
 
-The app also reads HA's REST API, but only for `homeassistant` calendar sources. It also reads a `weather` entity for the weather shown in the month view's side panel, the agenda and the photo frame pill. Without one, those views leave the weather out.
+The app also reads HA's REST API, but only for `homeassistant` calendar sources. It also reads a `weather` entity for the weather shown in the month view's side panel, the agenda and the photo frame pill. The server polls it, keeps the last good snapshot and sends changes as `weather.updated`. Without one, those views leave the weather out.
 
 **Who handles the button?** This is set per gesture in the config:
 

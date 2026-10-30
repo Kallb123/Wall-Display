@@ -97,6 +97,49 @@ describe('validation errors name the field', () => {
     expect(message).toContain('calendars[1].source.entity_id')
   })
 
+  it('weather without a homeassistant block', async () => {
+    const message = await messageFor((c) => { c.weather = { entity_id: 'weather.home' } })
+
+    expect(message).toContain('weather: reads a Home Assistant weather entity')
+    expect(message).toContain('"homeassistant" block')
+  })
+
+  it('accepts weather with the homeassistant block', async () => {
+    const config = minimalConfig()
+    config.weather = { entity_id: 'weather.home' }
+    config.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+    const { config: loaded } = await load({ config })
+
+    expect(loaded.weather).toEqual({ entity_id: 'weather.home', poll_seconds: 600 })
+  })
+
+  it.each(['sensor.home', 'weather.', 'weather', 'weather.home assistant', 'calendar.bins'])('bad weather entity id %j', async (entityId) => {
+    const message = await messageFor((c) => {
+      c.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+      c.weather = { entity_id: entityId }
+    })
+
+    expect(message).toContain('weather.entity_id: must be a weather entity id like "weather.home"')
+  })
+
+  it('weather polled more often than every minute', async () => {
+    const message = await messageFor((c) => {
+      c.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+      c.weather = { entity_id: 'weather.home', poll_seconds: 30 }
+    })
+
+    expect(message).toContain('weather.poll_seconds')
+  })
+
+  it('weather with an unknown key', async () => {
+    const message = await messageFor((c) => {
+      c.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+      c.weather = { entity_id: 'weather.home', units: 'metric' }
+    })
+
+    expect(message).toContain('weather.units: unknown setting')
+  })
+
   it('bad timezone', async () => {
     const message = await messageFor((c) => { c.timezone = 'Mars/Olympus' })
 

@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import { playServer, settle } from './helpers'
+import weather from './fixtures/weather.json' with { type: 'json' }
 
 // The month view at the frozen clock (Wed 28 Oct 2026, 09:41 in London), drawn
 // from the ICS fixtures. Today has Half term all day, then Nursery at 08:45
-// (over), 1:1 with Priya at 14:00 and "+2 more" in the side panel.
+// (over), 1:1 with Priya at 14:00 and "+2 more" in the side panel. The weather
+// is the fixture's: 12° and rain now, and a forecast for each day of the panel.
 
 const events = fixtureEvents({ configFile: 'test/visual/config.visual.yaml' })
 
@@ -32,6 +34,27 @@ test('October 2026, dark theme', async ({ page }) => {
   await expect(page.getByTestId('panel-day').first()).toHaveAttribute('data-date', '2026-10-28')
   await expect(page.getByTestId('veil').first()).toBeAttached()
   await expect(page).toHaveScreenshot('october-dark.png')
+})
+
+test('October 2026 with the weather, light theme', async ({ page }) => {
+  await playServer(page, { view: 'month' }, events, weather)
+  await page.goto('/display?id=hallway')
+  await settle(page)
+
+  await expect(page.getByTestId('weather-now')).toHaveText('12° · Rain')
+  await expect(page.getByTestId('day-weather')).toHaveText(['14° / 8°', '13° / 6°', '12° / 4°', '11° / 7°'])
+  await expect(page).toHaveScreenshot('october-weather-light.png')
+})
+
+test('October 2026 with the weather, dark theme', async ({ page }) => {
+  await playServer(page, { view: 'month' }, events, weather)
+  await page.goto('/display?id=kitchen')
+  await settle(page)
+
+  await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'dark')
+  await expect(page.getByTestId('weather-now')).toHaveText('12° · Rain')
+  await expect(page.getByTestId('day-weather')).toHaveCount(4)
+  await expect(page).toHaveScreenshot('october-weather-dark.png')
 })
 
 test('a pinned month follows the title and grid, while the panel stays on today', async ({ page }) => {

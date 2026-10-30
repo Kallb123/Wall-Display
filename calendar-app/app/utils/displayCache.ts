@@ -1,6 +1,8 @@
 import { displayStateSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState } from '../../shared/display'
 import type { CalendarEvent } from '../../shared/types/events'
+import { weatherSnapshotSchema } from '../../shared/weather'
+import type { WeatherSnapshot } from '../../shared/weather'
 
 // What the display keeps in `localStorage` so a reload while the server is
 // unreachable still shows the last-known wall (architecture §4.2). Storage can
@@ -12,6 +14,8 @@ export interface DisplayCache {
   settings: DisplaySettings
   state: DisplayState
   events: CalendarEvent[]
+  /** The last weather the server sent, or null for none. An entry from before PR 2.7 has none. */
+  weather: WeatherSnapshot | null
   /** When it was saved, as an ISO 8601 instant. */
   saved_at: string
 }
@@ -32,7 +36,15 @@ export function loadCache(storage: Storage | null | undefined, displayId: string
     // The state is parsed, so a document from an older version gets its defaults.
     const state = displayStateSchema.safeParse(data.state)
     if (!state.success) return null
-    return { settings: data.settings as unknown as DisplaySettings, state: state.data, events: data.events as CalendarEvent[], saved_at: data.saved_at }
+    // Weather the same way: anything wrong with it costs the weather, not the wall.
+    const weather = weatherSnapshotSchema.safeParse(data.weather)
+    return {
+      settings: data.settings as unknown as DisplaySettings,
+      state: state.data,
+      events: data.events as CalendarEvent[],
+      weather: weather.success ? weather.data : null,
+      saved_at: data.saved_at,
+    }
   } catch {
     return null
   }

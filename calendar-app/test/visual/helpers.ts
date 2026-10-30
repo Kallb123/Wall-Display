@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { displayStateSchema } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
 import type { CalendarEvent } from '../../shared/types/events'
+import type { WeatherSnapshot } from '../../shared/weather'
 import events from './fixtures/events.json' with { type: 'json' }
 
 // What the visual specs share: the frozen clock, a stand-in for the server, and
@@ -16,12 +17,13 @@ const stateWith = (changes: Partial<DisplayState> = {}): DisplayState => display
 
 /**
  * Plays the server for a page: it answers /api/events from `served` (the
- * default fixture unless given others) and the WebSocket with a state, and
- * `send` pushes a new state to every open socket. /api/displays is the real
+ * default fixture unless given others) and the WebSocket with a state and then
+ * the weather (null unless given, which is what the real server sends when it
+ * has none), and `send` pushes a new state to every open socket. /api/displays is the real
  * server's, so the config is exercised too. The clock is frozen before the
  * page loads.
  */
-export async function playServer(page: Page, initial: Partial<DisplayState> = {}, served: CalendarEvent[] = events) {
+export async function playServer(page: Page, initial: Partial<DisplayState> = {}, served: CalendarEvent[] = events, weather: WeatherSnapshot | null = null) {
   const sockets: { displayId: string, send: (message: string) => void }[] = []
   const message = (displayId: string, state: DisplayState) => JSON.stringify({ type: 'state.updated', display_id: displayId, state })
   let current = stateWith(initial)
@@ -35,6 +37,7 @@ export async function playServer(page: Page, initial: Partial<DisplayState> = {}
     const displayId = new URL(socket.url()).searchParams.get('display') ?? ''
     sockets.push({ displayId, send: text => socket.send(text) })
     socket.send(message(displayId, current))
+    socket.send(JSON.stringify({ type: 'weather.updated', weather }))
   })
 
   return {

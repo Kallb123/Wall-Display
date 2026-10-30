@@ -7,7 +7,7 @@ You need:
 - An MQTT broker that both the app and HA connect to (see Broker setup below).
 - An `mqtt` block in `config/config.yaml`.
 
-Optional: a `homeassistant` block with a long-lived access token lets the app read calendars from HA (`homeassistant` calendar sources). That uses HA's REST API and has nothing to do with MQTT. It is described in the README and in [`config.example.yaml`](../config.example.yaml).
+Optional: a `homeassistant` block with a long-lived access token lets the app read calendars from HA (`homeassistant` calendar sources) and a weather entity ([Weather](#weather) below). That uses HA's REST API and has nothing to do with MQTT. It is described in the README and in [`config.example.yaml`](../config.example.yaml).
 
 ## Broker setup
 
@@ -134,6 +134,27 @@ Not there yet:
 - The `/settings` Displays tab has a "Republish discovery" button for the same job. It sends `POST /api/settings/discovery`, which needs the PIN if one is set.
 - If HA's MQTT integration uses a different discovery prefix, set `mqtt.discovery_prefix`. `discovery: false` turns discovery off.
 - The topics are `homeassistant/<component>/wallcal_<display id>/<object id>/config`.
+
+## Weather
+
+The wall can show the weather from one of HA's `weather` entities: the current conditions under today's date in the month view, the forecast for each day in the side panel, and a line for today and tomorrow in the agenda. Leave the `weather` block out and none of that is drawn.
+
+```yaml
+homeassistant:
+  url: http://homeassistant.local:8123
+  token: !secret ha_token
+
+weather:
+  entity_id: weather.home
+  poll_seconds: 600   # default 600; at least 60
+```
+
+- **Which entity.** Any `weather.*` entity from a weather integration, such as Met Office, Met.no, OpenWeatherMap or Pirate Weather. Settings → Devices & services → Entities lists them. The `homeassistant` block must be there too, with a long-lived access token (profile → Security), or the config is refused at start-up.
+- **It needs daily forecasts.** The app asks the entity for its daily forecast with the `weather.get_forecasts` action, which HA 2023.12 and later has. An entity that only offers hourly or twice-daily forecasts is refused by HA (HTTP 400), and the app logs `Home Assistant could not give a daily forecast for "weather.home" (HTTP 400)`. Try the action under Developer tools → Actions to see what your entity gives.
+- **How often.** Every `poll_seconds`, 10 minutes by default; the first poll comes a few seconds after the app starts. A failing HA is retried after twice the interval, then four times, up to an hour, and the last good weather is kept meanwhile. A failure is logged once, not at every poll, and never contains the URL or the token. The **Refresh calendars** button, the `refresh` command and `POST /api/refresh` fetch the weather again too.
+- **What shows when.** The current temperature and condition are hidden once they are three hours old, so a wall that has lost the app doesn't claim it is sunny. Forecast days are hidden when HA gave none for that date. A condition the app has no name for (anything outside HA's list) shows no icon.
+- **Dates and temperatures.** A forecast day is placed on the date it falls on in the config's `timezone`, not UTC. Temperatures are rounded to whole degrees and shown with `°` only: the unit is whatever the entity reports, which follows HA's unit system.
+- **To look at it.** `GET /api/weather` answers `{ "weather": … }` with what the displays hold, or `{ "weather": null }` before the first poll or with no `weather` block.
 
 ## Example automations
 
@@ -350,6 +371,7 @@ If `remote.pin` is set, the remote asks for it once and keeps it in that browser
 | A command does nothing | The display id in a topic must match the config exactly. A retained message on a `…/set` topic is ignored, so check `retain` is off. A payload that doesn't fit the topic is ignored and logged. The PIN does not apply to MQTT. |
 | A device from an old display id is still there | Renaming a display id leaves the old device behind. Delete it in HA, and clear its retained configs: `mosquitto_pub -r -n -t homeassistant/<component>/wallcal_<id>/<object>/config` for each entity. |
 | "Month shown" goes back by itself | A month picked on the remote or from HA reverts to the current month after `month_return_minutes` (15 by default, set per display). |
+| No weather on the wall | The config has a `weather` block (and a `homeassistant` block). `GET /api/weather` is not `null`; if it is, `docker compose logs calendar-app` has a `[weather]` line with the reason. HA refusing the token, no such entity, or an entity with no daily forecast are the usual ones. |
 | The Webpage card is blank | See the caveats above: HTTPS, or you are away from home. |
 
 To remove the device on purpose, delete it in HA and set `discovery: false`, or the app will bring it back at its next start. Or clear each retained config as in the table.

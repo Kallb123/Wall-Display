@@ -3,6 +3,7 @@ import { displayStateSchema } from '../../../shared/display'
 import type { DisplaySettings } from '../../../shared/display'
 import { loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '../../../app/utils/displayCache'
 import type { DisplayCache } from '../../../app/utils/displayCache'
+import type { WeatherSnapshot } from '../../../shared/weather'
 
 /** The parts of Storage the cache uses, backed by a map. */
 class FakeStorage {
@@ -29,10 +30,17 @@ const broken = asStorage({
 })
 
 const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' }
+const weather: WeatherSnapshot = {
+  current: { condition: 'rainy', temperature: 12 },
+  daily: [{ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 }],
+  temperature_unit: '°C',
+  updated_at: '2026-10-28T09:00:00.000Z',
+}
 const entry: DisplayCache = {
   settings,
   state: displayStateSchema.parse({ view: 'agenda', brightness: 40 }),
   events: [],
+  weather: null,
   saved_at: '2026-10-28T09:41:00.000Z',
 }
 
@@ -68,6 +76,28 @@ describe('the display cache', () => {
     storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, state: { view: 'week' } }))
 
     expect(loadCache(asStorage(storage), 'hallway')?.state).toEqual(displayStateSchema.parse({ view: 'week' }))
+  })
+
+  it('keeps the weather that was saved', () => {
+    const storage = new FakeStorage()
+    saveCache(asStorage(storage), 'hallway', { ...entry, weather })
+
+    expect(loadCache(asStorage(storage), 'hallway')?.weather).toEqual(weather)
+  })
+
+  it('loads an entry saved before there was weather, with none', () => {
+    const storage = new FakeStorage()
+    const { weather: _none, ...older } = entry
+    storage.setItem('wallcal:display:hallway', JSON.stringify(older))
+
+    expect(loadCache(asStorage(storage), 'hallway')).toEqual(entry)
+  })
+
+  it('drops weather that is the wrong shape and keeps the rest', () => {
+    const storage = new FakeStorage()
+    storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, weather: { current: 'sunny' } }))
+
+    expect(loadCache(asStorage(storage), 'hallway')).toEqual(entry)
   })
 
   it('survives storage that is missing or throws', () => {

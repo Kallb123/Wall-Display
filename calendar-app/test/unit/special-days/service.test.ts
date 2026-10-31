@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SpecialDay, SpecialDaysResolution } from '../../../shared/special-days'
+import type { SpecialDay, SpecialDayScene, SpecialDaysResolution } from '../../../shared/special-days'
 import { createSpecialDaysService } from '../../../server/special-days/service'
 
 // The service under fake timers, with the clock frozen at a chosen instant, a
@@ -18,6 +18,9 @@ function specialDay(overrides: Partial<SpecialDay> = {}): SpecialDay {
     day: 25,
     year: null,
     repeat: 'yearly',
+    scene_id: null,
+    who: null,
+    since_year: null,
     lead: 'day',
     lead_days: null,
     tile_art: null,
@@ -25,17 +28,34 @@ function specialDay(overrides: Partial<SpecialDay> = {}): SpecialDay {
     full_art: null,
     greeting: 'Merry Christmas',
     palette: 'warm',
+    extra_art: null,
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides,
   }
 }
 
-function setup(days: SpecialDay[], startAt: string, timeZone = LONDON) {
+function scene(overrides: Partial<SpecialDayScene> = {}): SpecialDayScene {
+  return {
+    id: 'birthday',
+    name: 'Birthday',
+    lead: 'week',
+    lead_days: null,
+    tile_art: null,
+    takeover: true,
+    full_art: null,
+    greeting: 'Happy birthday',
+    palette: 'sage',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function setup(days: SpecialDay[], startAt: string, timeZone = LONDON, scenes: SpecialDayScene[] = []) {
   vi.setSystemTime(new Date(startAt))
-  const state = { days, failure: undefined as Error | undefined }
+  const state = { days, scenes, failure: undefined as Error | undefined }
   const load = vi.fn(() => {
     if (state.failure) throw state.failure
-    return state.days
+    return { days: state.days, scenes: state.scenes }
   })
   const onChange = vi.fn<(resolution: SpecialDaysResolution) => void>()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -238,6 +258,20 @@ describe('refresh', () => {
     service.refresh()
 
     expect(onChange).toHaveBeenCalledTimes(1)
+    service.stop()
+  })
+
+  it('resolves a day through its scene, and tells the app when the scene is edited', () => {
+    const birthday = specialDay({ id: 'isla', name: 'Isla', month: 6, day: 15, scene_id: 'birthday', lead: null, takeover: null, greeting: null, palette: null })
+    const { service, state, onChange, last } = setup([birthday], '2026-06-15T09:00:00Z', LONDON, [scene()])
+    service.start()
+    expect(last()).toMatchObject({ takeover: { id: 'isla', greeting: 'Happy birthday', palette: 'sage' } })
+
+    state.scenes = [scene({ palette: 'frost' })]
+    service.refresh()
+
+    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(last()).toMatchObject({ takeover: { id: 'isla', palette: 'frost' } })
     service.stop()
   })
 

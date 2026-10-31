@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { SpecialDayInput } from '../../../shared/special-days'
 import { specialDays } from '../../../server/db/schema'
-import { createSpecialDay, deleteSpecialDay, getSpecialDay, listSpecialDays, slugFor, updateSpecialDay } from '../../../server/special-days/store'
+import { createScene } from '../../../server/special-days/scenes'
+import { createSpecialDay, deleteSpecialDay, duplicateSpecialDay, getSpecialDay, listSpecialDays, slugFor, updateSpecialDay } from '../../../server/special-days/store'
 import { migratedMemoryDb } from '../db/helpers'
 
 // The store against a migrated in-memory database. The input is what the
@@ -11,7 +12,12 @@ const NOW = new Date('2026-10-28T12:00:00Z')
 const LATER = new Date('2026-10-29T08:30:00Z')
 
 function input(overrides: Partial<SpecialDayInput> = {}): SpecialDayInput {
-  return { name: 'Christmas', month: 12, day: 25, year: null, repeat: 'yearly', lead: 'month', lead_days: null, takeover: true, greeting: 'Merry Christmas', palette: 'warm', ...overrides }
+  return { name: 'Christmas', month: 12, day: 25, year: null, repeat: 'yearly', scene_id: null, who: null, since_year: null, lead: 'month', lead_days: null, takeover: true, greeting: 'Merry Christmas', palette: 'warm', ...overrides }
+}
+
+/** A scene to point days at. */
+function makeScene(db: Parameters<typeof createScene>[0]) {
+  return createScene(db, { name: 'Birthday', lead: 'week', lead_days: null, takeover: true, greeting: 'Happy {nth} birthday, {who}!', palette: 'sage' }, NOW)
 }
 
 describe('createSpecialDay and getSpecialDay', () => {
@@ -39,6 +45,9 @@ describe('createSpecialDay and getSpecialDay', () => {
       day: 25,
       year: null,
       repeat: 'yearly',
+      scene_id: null,
+      who: null,
+      since_year: null,
       lead: 'month',
       lead_days: null,
       tile_art: null,
@@ -46,6 +55,7 @@ describe('createSpecialDay and getSpecialDay', () => {
       full_art: null,
       greeting: 'Merry Christmas',
       palette: 'warm',
+      extra_art: null,
       updated_at: '2026-10-28T12:00:00.000Z',
     })
     expect(getSpecialDay(db, 'christmas')).toEqual(created)
@@ -57,6 +67,36 @@ describe('createSpecialDay and getSpecialDay', () => {
     const created = createSpecialDay(db, input({ name: 'Leaving party', month: 3, day: 14, year: 2027, repeat: 'once', takeover: false, greeting: null }), NOW)
 
     expect(created).toMatchObject({ year: 2027, repeat: 'once', takeover: false, greeting: null })
+  })
+
+  it('stores the scene, who and since_year, and a look that is all null to use the scene\'s', () => {
+    const { db } = migratedMemoryDb()
+    makeScene(db)
+
+    const created = createSpecialDay(db, input({ name: 'Isla\'s birthday', scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: null, takeover: null, greeting: null, palette: null }), NOW)
+
+    expect(created).toMatchObject({ scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: null, lead_days: null, takeover: null, greeting: null, palette: null, extra_art: null })
+    expect(getSpecialDay(db, created.id)).toEqual(created)
+  })
+
+  it('stores a since_year only for a yearly day', () => {
+    const { db } = migratedMemoryDb()
+
+    const once = createSpecialDay(db, input({ name: 'Party', year: 2027, repeat: 'once', since_year: 2019 }), NOW)
+
+    expect(once.since_year).toBeNull()
+  })
+
+  it('stores no lead days when the lead is left to the scene', () => {
+    const { db } = migratedMemoryDb()
+
+    expect(createSpecialDay(db, input({ lead: null, lead_days: 10 }), NOW)).toMatchObject({ lead: null, lead_days: null })
+  })
+
+  it('refuses a scene that is not there, as the table does', () => {
+    const { db } = migratedMemoryDb()
+
+    expect(() => createSpecialDay(db, input({ scene_id: 'nothing' }), NOW)).toThrow()
   })
 
   it('gives a second day with the same name the next free id', () => {
@@ -108,14 +148,25 @@ describe('updateSpecialDay', () => {
     expect(getSpecialDay(db, 'christmas')).toEqual(updated)
   })
 
-  it('keeps the art, which only the upload routes set', () => {
+  it('keeps all the art, extra art included, which only the upload routes set', () => {
     const { db } = migratedMemoryDb()
     createSpecialDay(db, input(), NOW)
-    db.update(specialDays).set({ tileArt: 'christmas-tile.webp', fullArt: 'christmas-full.webp' }).run()
+    db.update(specialDays).set({ tileArt: 'christmas-tile.webp', fullArt: 'christmas-full.webp', extraArt: 'christmas-extra.webp' }).run()
 
     const updated = updateSpecialDay(db, 'christmas', input({ name: 'Xmas' }), LATER)
 
-    expect(updated).toMatchObject({ name: 'Xmas', tile_art: 'christmas-tile.webp', full_art: 'christmas-full.webp' })
+    expect(updated).toMatchObject({ name: 'Xmas', tile_art: 'christmas-tile.webp', full_art: 'christmas-full.webp', extra_art: 'christmas-extra.webp' })
+  })
+
+  it('moves a day onto a scene and back, and drops since_year when it becomes a one-off', () => {
+    const { db } = migratedMemoryDb()
+    makeScene(db)
+    createSpecialDay(db, input({ name: 'Isla', who: 'Isla', since_year: 2019 }), NOW)
+
+    expect(updateSpecialDay(db, 'isla', input({ name: 'Isla', who: 'Isla', since_year: 2019, scene_id: 'birthday', lead: null, takeover: null, greeting: null, palette: null }), LATER))
+      .toMatchObject({ scene_id: 'birthday', lead: null, takeover: null, palette: null, since_year: 2019 })
+    expect(updateSpecialDay(db, 'isla', input({ name: 'Isla', who: null, year: 2027, repeat: 'once' }), LATER))
+      .toMatchObject({ scene_id: null, who: null, since_year: null, year: 2027 })
   })
 
   it('can turn a one-off day into a yearly one, and back', () => {
@@ -154,6 +205,49 @@ describe('deleteSpecialDay', () => {
   })
 })
 
+describe('duplicateSpecialDay', () => {
+  it('copies every column as Copy of …, under a new id and with new timestamps', () => {
+    const { db } = migratedMemoryDb()
+    makeScene(db)
+    createSpecialDay(db, input({ name: 'Isla\'s birthday', month: 3, day: 14, scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: 'days', lead_days: 10, takeover: null, greeting: null, palette: 'night' }), NOW)
+    db.update(specialDays).set({ tileArt: 'tile.webp', fullArt: 'full.webp', extraArt: 'seven.webp', updatedAt: NOW }).run()
+
+    const copy = duplicateSpecialDay(db, 'isla-s-birthday', LATER)!
+
+    expect(copy).toEqual({
+      ...getSpecialDay(db, 'isla-s-birthday'),
+      id: 'copy-of-isla-s-birthday',
+      name: 'Copy of Isla\'s birthday',
+      updated_at: '2026-10-29T08:30:00.000Z',
+    })
+    expect(copy).toMatchObject({ scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: 'days', lead_days: 10, takeover: null, palette: 'night', tile_art: 'tile.webp', full_art: 'full.webp', extra_art: 'seven.webp' })
+    expect(db.select().from(specialDays).all().find(row => row.id === copy.id)!.createdAt).toEqual(LATER)
+    expect(listSpecialDays(db)).toHaveLength(2)
+  })
+
+  it('copies a copy under the next free id, and cuts a long name to 60 characters', () => {
+    const { db } = migratedMemoryDb()
+    createSpecialDay(db, input({ name: 'x'.repeat(60) }), NOW)
+    createSpecialDay(db, input({ name: 'Xmas' }), NOW)
+
+    const first = duplicateSpecialDay(db, 'xmas', LATER)!
+    const second = duplicateSpecialDay(db, 'xmas', LATER)!
+    const long = duplicateSpecialDay(db, 'x'.repeat(40), LATER)!
+
+    expect([first.id, second.id]).toEqual(['copy-of-xmas', 'copy-of-xmas-2'])
+    expect(first.name).toBe('Copy of Xmas')
+    expect(long.name).toHaveLength(60)
+    expect(long.name).toBe(`Copy of ${'x'.repeat(52)}`)
+  })
+
+  it('is null for an id nobody has, and stores nothing', () => {
+    const { db } = migratedMemoryDb()
+
+    expect(duplicateSpecialDay(db, 'nothing', NOW)).toBeNull()
+    expect(listSpecialDays(db)).toEqual([])
+  })
+})
+
 describe('slugFor', () => {
   const none = new Set<string>()
 
@@ -169,6 +263,12 @@ describe('slugFor', () => {
   it('falls back to "day" when nothing is left', () => {
     expect(slugFor('!!!', none)).toBe('day')
     expect(slugFor('誕生日', none)).toBe('day')
+  })
+
+  it('falls back to the name it is given, such as "scene"', () => {
+    expect(slugFor('!!!', none, 'scene')).toBe('scene')
+    expect(slugFor('!!!', new Set(['scene']), 'scene')).toBe('scene-2')
+    expect(slugFor('Birthday', none, 'scene')).toBe('birthday')
   })
 
   it('cuts at 40 characters without leaving a dash on the end', () => {

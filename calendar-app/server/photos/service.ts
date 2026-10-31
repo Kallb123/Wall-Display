@@ -240,6 +240,9 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
         throw error
       }
       if (stopped) throw new Error('stopped')
+      // A listing may have taken it out of the pool while it was being fetched (a random pick from
+      // Immich replaces the pool at every listing). It is not stored: nothing would refer to the file.
+      if (!getAsset(db, id)) throw LEFT_THE_POOL
       cache.store(id, rendered)
       return getAsset(db, id)!
     })().finally(() => {

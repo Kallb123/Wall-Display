@@ -62,9 +62,32 @@ export function updateSpecialDay(db: Db, id: string, input: SpecialDayInput, now
   return row ? toSpecialDay(row) : null
 }
 
-/** True if there was a special day to delete. */
-export function deleteSpecialDay(db: Db, id: string): boolean {
-  return db.delete(specialDays).where(eq(specialDays.id, id)).returning({ id: specialDays.id }).all().length > 0
+/**
+ * Deletes a special day and returns the art files it held (tile, full and
+ * extra, without duplicates), so the caller can remove those nothing else
+ * refers to. Null if there was no such day.
+ */
+export function deleteSpecialDay(db: Db, id: string): string[] | null {
+  const row = db.delete(specialDays).where(eq(specialDays.id, id)).returning().get()
+  if (!row) return null
+  return [...new Set([row.tileArt, row.fullArt, row.extraArt].filter((name): name is string => name !== null))]
+}
+
+/**
+ * Points one art slot of a special day at a stored file, or at nothing (null,
+ * so the day falls back to its scene's art). Bumps `updated_at`, because this
+ * is an edit of the day. Returns the day and the file the slot held before, so
+ * the caller can remove it if nothing else refers to it. Null if there is no
+ * such day.
+ */
+export function setSpecialDayArt(db: Db, id: string, slot: 'tile' | 'full' | 'extra', name: string | null, now: Date): { day: SpecialDay, previous: string | null } | null {
+  const column = { tile: 'tileArt', full: 'fullArt', extra: 'extraArt' } as const
+  return db.transaction((tx) => {
+    const before = tx.select().from(specialDays).where(eq(specialDays.id, id)).get()
+    if (!before) return null
+    const row = tx.update(specialDays).set({ [column[slot]]: name, updatedAt: now }).where(eq(specialDays.id, id)).returning().get()
+    return { day: toSpecialDay(row), previous: before[column[slot]] }
+  })
 }
 
 /**

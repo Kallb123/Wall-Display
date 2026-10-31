@@ -6,7 +6,7 @@ import { deleteScene } from '../../special-days/scenes'
 export default defineEventHandler((event): null => {
   const id = getRouterParam(event, 'id') ?? ''
   const detach = getQuery(event).detach === 'true'
-  if (!answeringSpecialDayErrors(() => deleteScene(useDb(), id, { detach }))) throw createError({ statusCode: 404, statusMessage: 'Not Found', message: `Unknown scene "${id}"` })
+  if (answeringSpecialDayErrors(() => deleteScene(useDb(), id, { detach })) === null) throw createError({ statusCode: 404, statusMessage: 'Not Found', message: `Unknown scene "${id}"` })
   useSpecialDays()?.refresh()
   setResponseStatus(event, 204)
   return null

@@ -73,6 +73,11 @@ function apply(state: DisplayState, command: Command, ctx: ControlContext): Disp
       const until = overlay.ttl === undefined ? null : new Date(ctx.now.getTime() + overlay.ttl * 1000).toISOString()
       return { ...state, overlay: { text: overlay.text, icon: overlay.icon ?? null, until } }
     }
+    case 'preview_special_day': {
+      const until = new Date(ctx.now.getTime() + command.seconds * 1000).toISOString()
+      // The schema makes sure exactly one of the two is there. A new preview replaces the one running.
+      return { ...state, preview: command.id !== undefined ? { special_day: command.id, until } : { scene: command.scene!, until } }
+    }
     case 'photo_next':
     case 'refresh':
       return state
@@ -90,7 +95,8 @@ function monthReturnsAt(state: DisplayState, ctx: ControlContext): Date | null {
  * - a pinned month goes when the view is not `month`, after `month_return_minutes`,
  *   when it has become the current month (the calendar rolled over) and when it
  *   has fallen out of the 12-month range;
- * - an overlay goes at its `until`.
+ * - an overlay goes at its `until`;
+ * - a special day preview goes at its `until`.
  *
  * Returns the same object when nothing changed, so a caller can skip a write.
  */
@@ -115,6 +121,10 @@ export function expireState(state: DisplayState, ctx: ControlContext): DisplaySt
     next = { ...next, overlay: null }
   }
 
+  if (state.preview !== null && ctx.now.getTime() >= Date.parse(state.preview.until)) {
+    next = { ...next, preview: null }
+  }
+
   return next
 }
 
@@ -128,5 +138,6 @@ export function nextExpiry(state: DisplayState, ctx: ControlContext): Date | nul
   const returnsAt = monthReturnsAt(state, ctx)
   if (returnsAt !== null) times.push(returnsAt.getTime())
   if (state.overlay?.until != null) times.push(Date.parse(state.overlay.until))
+  if (state.preview !== null) times.push(Date.parse(state.preview.until))
   return times.length === 0 ? null : new Date(Math.min(...times))
 }

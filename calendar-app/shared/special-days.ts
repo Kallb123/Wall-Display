@@ -348,7 +348,40 @@ export interface SpecialDaysResolution {
   current: { id: string, name: string } | null
   /** The special day on today's date with `takeover` on that comes first by precedence, or null. Only one takes over. */
   takeover: Takeover | null
+  /**
+   * The art files the wall will need tomorrow that it may not have loaded yet:
+   * tomorrow's takeover's `full_art` and `extra_art`, and the `tile_art` of every
+   * tile that is decorated tomorrow in the range. Each once, no order promised.
+   * The display preloads them in the evening (architecture §6.5).
+   */
+  tomorrow_art: string[]
 }
+
+const paletteSchema = z.enum(SPECIAL_DAY_PALETTES)
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+/** A `SpecialDaysResolution` as the display reads it off the socket, the preview route and its cache. Anything else is ignored. */
+export const specialDaysResolutionSchema: z.ZodType<SpecialDaysResolution> = z.object({
+  today: isoDay,
+  from: isoDay,
+  to: isoDay,
+  tiles: z.array(z.object({
+    date: isoDay,
+    days: z.array(z.object({ id: z.string(), name: z.string(), palette: paletteSchema, tile_art: z.string().nullable() })),
+  })),
+  current: z.object({ id: z.string(), name: z.string() }).nullable(),
+  takeover: z.object({
+    id: z.string(),
+    name: z.string(),
+    date: isoDay,
+    greeting: z.string().nullable(),
+    palette: paletteSchema,
+    full_art: z.string().nullable(),
+    extra_art: z.string().nullable(),
+  }).nullable(),
+  // An answer from before PR S.3 has none.
+  tomorrow_art: z.array(z.string()).default([]),
+})
 
 export interface ResolveOptions {
   /** The first date to cover, `YYYY-MM-DD`. */
@@ -383,8 +416,22 @@ interface ResolvedDay {
  * - Several special days on one date are all listed, in precedence order. That
  *   uses the day's own `updated_at` only, so editing a scene never reorders them.
  * - The takeover's greeting is filled in for today's year.
+ * - `tomorrow_art` is the art tomorrow's answer needs: the same rules with
+ *   tomorrow as today (a lead window that starts tomorrow decorates its tile
+ *   then), so the wall can have it loaded before midnight.
  */
 export function resolveSpecialDays(days: readonly SpecialDay[], scenes: readonly SpecialDayScene[], options: ResolveOptions): SpecialDaysResolution {
+  const tomorrow = resolveOn(days, scenes, { ...options, today: addDays(options.today, 1) })
+  const art = [
+    tomorrow.takeover?.full_art,
+    tomorrow.takeover?.extra_art,
+    ...tomorrow.tiles.flatMap(({ days: onDate }) => onDate.map(({ tile_art }) => tile_art)),
+  ]
+  return { ...resolveOn(days, scenes, options), tomorrow_art: [...new Set(art.filter((name): name is string => typeof name === 'string'))] }
+}
+
+/** `resolveSpecialDays` for one `today`, without the art for tomorrow, which is what asks it again for tomorrow. */
+function resolveOn(days: readonly SpecialDay[], scenes: readonly SpecialDayScene[], options: ResolveOptions): SpecialDaysResolution {
   const { from, to, today } = options
   // Dates are `YYYY-MM-DD`, so comparing them as strings compares them as dates.
   const fromYear = Number(from.slice(0, 4))
@@ -432,6 +479,7 @@ export function resolveSpecialDays(days: readonly SpecialDay[], scenes: readonly
           extra_art: taking.day.extra_art,
         }
       : null,
+    tomorrow_art: [],
   }
 }
 
@@ -482,6 +530,86 @@ export function resolutionRange(today: string): { from: string, to: string } {
     from: addDays(isoDate(year, month - MONTH_RANGE, 1), -14),
     // Day 0 of the month after is the last day of the month.
     to: addDays(isoDate(year, month + MONTH_RANGE + 1, 0), 14),
+  }
+}
+
+/** What a preview shows: a special day by its id, or a scene by its id (shown through the first day that uses it). */
+export type PreviewTarget = { special_day: string } | { scene: string }
+
+/**
+ * The first date on or after `today` that `day` falls on. A `once` day is on its
+ * own date, even if that has passed. A day that never falls on a date (one that
+ * does not exist) is shown on `today`.
+ */
+function previewDate(day: SpecialDay, today: string): string {
+  if (day.repeat === 'once') return (day.year === null ? null : occurrenceIn(day, day.year)) ?? today
+  // A `since_year` in the future skips the years before it; after that the next occurrence is this year's or next year's.
+  const first = Math.max(Number(today.slice(0, 4)), (day.since_year ?? 0) + 1)
+  for (const year of [first, first + 1]) {
+    const date = occurrenceIn(day, year)
+    if (date !== null && date >= today) return date
+  }
+  return today
+}
+
+/**
+ * What the wall shows while a special day or scene is being previewed
+ * (architecture §6.5): the answer for the date it next falls on, as if that
+ * were today. Null if there is no such day or scene.
+ *
+ * A scene is shown through the first of `days` that uses it (so pass them in the
+ * order the store lists them). If no day does, it is shown as a one-off day on
+ * `today` with no `who` or `since_year`, so a greeting's placeholders stay as typed.
+ *
+ * The answer covers the month grid of that date, with every day resolved as
+ * usual, so the other tiles on it are there. `current` and `takeover` are the
+ * target's own: another day on the same date can't take the preview.
+ */
+export function resolvePreview(days: readonly SpecialDay[], scenes: readonly SpecialDayScene[], target: PreviewTarget, today: string): SpecialDaysResolution | null {
+  let shown: SpecialDay | undefined
+  let all = days
+  if ('special_day' in target) {
+    shown = days.find(day => day.id === target.special_day)
+  } else {
+    const scene = scenes.find(candidate => candidate.id === target.scene)
+    if (!scene) return null
+    shown = days.find(day => day.scene_id === scene.id)
+    if (!shown) {
+      shown = {
+        id: `scene:${scene.id}`,
+        name: scene.name,
+        month: Number(today.slice(5, 7)),
+        day: Number(today.slice(8, 10)),
+        year: Number(today.slice(0, 4)),
+        repeat: 'once',
+        scene_id: scene.id,
+        who: null,
+        since_year: null,
+        lead: null,
+        lead_days: null,
+        tile_art: null,
+        takeover: null,
+        full_art: null,
+        greeting: null,
+        palette: null,
+        extra_art: null,
+        updated_at: scene.updated_at,
+      }
+      all = [...days, shown]
+    }
+  }
+  if (!shown) return null
+
+  const date = previewDate(shown, today)
+  const first = `${date.slice(0, 7)}-01`
+  // Day 0 of the month after is the last day of this one.
+  const last = isoDate(Number(date.slice(0, 4)), Number(date.slice(5, 7)) + 1, 0)
+  const options = { from: addDays(first, -14), to: addDays(last, 14), today: date }
+  return {
+    ...resolveOn(all, scenes, options),
+    current: { id: shown.id, name: shown.name },
+    takeover: resolveOn([shown], scenes, options).takeover,
+    tomorrow_art: [],
   }
 }
 

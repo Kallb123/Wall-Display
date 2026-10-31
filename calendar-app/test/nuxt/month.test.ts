@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { DOMWrapper } from '@vue/test-utils'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
+import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
+import type { Takeover, TileDecoration } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
 // The Soft month view on the fixture family and the day the mocks are set on,
@@ -25,7 +28,7 @@ const weather: WeatherSnapshot = {
 }
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'month', events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, ...overrides,
+  view: 'month', events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
 })
 
 describe('MonthSoftView', () => {
@@ -113,29 +116,100 @@ describe('MonthSoftView', () => {
     expect(wrapper.findAll('[data-testid="event"]')).toHaveLength(0)
   })
 
-  it('draws nothing for the special-day slots unless they are filled', async () => {
-    const wrapper = await mountSuspended(MonthSoftView, { props: props() })
+  describe('special days', () => {
+    const pumpkin: TileDecoration = { id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }
+    const birthday: TileDecoration = { id: 'isla', name: 'Isla\'s birthday', palette: 'warm', tile_art: 'cake.webp' }
+    const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-28', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null }
 
-    expect(wrapper.find('.tile-art').exists()).toBe(false)
-    expect(wrapper.find('.greeting').exists()).toBe(false)
-    expect(wrapper.find('.panel-art').exists()).toBe(false)
-  })
+    const tile = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, date: string) => wrapper.find(`[data-testid="day-tile"][data-date="${date}"]`)
 
-  it('draws the filled slots: art in every tile, a greeting and art in the panel', async () => {
-    const wrapper = await mountSuspended(MonthSoftView, {
-      props: props(),
-      slots: {
-        'tile-art': `<template #tile-art="{ cell }"><i class="art" :data-day="cell.date" /></template>`,
-        'greeting': 'Happy Halloween',
-        'panel-art': '<svg class="scene" />',
-      },
+    it('draws nothing special with nothing to draw', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props() })
+
+      expect(wrapper.find('[data-testid="tile-art"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="greeting"]').exists()).toBe(false)
+      expect(wrapper.find('[data-special]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="panel"]').classes()).not.toContain('takeover')
+      // The tiles are what they were: no tint in any of them.
+      expect(wrapper.findAll('[data-testid="day-tile"]').every(day => !day.attributes('style')?.includes('color-mix'))).toBe(true)
     })
 
-    const art = wrapper.findAll('.tile-art .art')
-    expect(art).toHaveLength(35)
-    expect(art[0]!.attributes('data-day')).toBe('2026-09-28')
-    expect(wrapper.find('.greeting').text()).toBe('Happy Halloween')
-    expect(wrapper.find('.panel-art .scene').exists()).toBe(true)
+    it('marks a decorated tile with its first day, and draws the art of every day on it, in order', async () => {
+      const specialDays = { tiles: [{ date: '2026-10-31', days: [pumpkin, birthday] }, { date: '2026-10-30', days: [{ ...pumpkin, tile_art: null }] }], takeover: null }
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ specialDays }) })
+
+      expect(wrapper.findAll('[data-special]').map(day => [day.attributes('data-date'), day.attributes('data-special')])).toEqual([['2026-10-30', 'halloween'], ['2026-10-31', 'halloween']])
+      const art = wrapper.findAll('[data-testid="tile-art"]')
+      expect(art.map(image => image.attributes('src'))).toEqual(['/special-days/pumpkin.svg', '/special-days/cake.webp'])
+      expect(art.every(image => image.attributes('alt') === '')).toBe(true)
+      // Beside the date it belongs to: the art is in a box of its own in the same week row, in that column.
+      expect(art[0]!.element.parentElement!.classList).toContain('tile-art')
+    })
+
+    // The test DOM drops a `background` it can't parse (color-mix), so the tint is read from the ring of the timed events on the tile, which is the tile's own background and kept as a custom property.
+    const ringsOn = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, week: number, column: number) => {
+      const styles = wrapper.findAll('.week')[week]!.findAll('[data-kind="timed"]').map((row: DOMWrapper<Element>) => row.attributes('style')!)
+      return [...new Set(styles.filter((style: string) => style.includes(`grid-column: ${column};`)).map((style: string) => /--ring: ([^;]+);/.exec(style)![1]))]
+    }
+
+    it('tints the tile with the first day\'s palette accent at 26%, mixed into what the tile would have been', async () => {
+      const specialDays = {
+        tiles: [
+          // A birthday first: the warm accent is the display's own. Today's cell, one outside the month and one in it each keep their own base.
+          { date: '2026-10-28', days: [birthday, pumpkin] },
+          { date: '2026-10-31', days: [pumpkin, birthday] },
+          { date: '2026-09-30', days: [pumpkin] },
+        ],
+        takeover: null,
+      }
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ specialDays }) })
+
+      // Wed 30 Sep is in the first week and Wed 28 Oct in the last, both in the third column; Sat 31 Oct is in the sixth.
+      expect(ringsOn(wrapper, 0, 3)).toEqual(['color-mix(in oklab, var(--color-accent-400) 26%, var(--tile-out))'])
+      expect(ringsOn(wrapper, 4, 3)).toEqual(['color-mix(in oklab, var(--accent) 26%, var(--today-cell))'])
+      expect(ringsOn(wrapper, 4, 6)).toEqual(['color-mix(in oklab, var(--color-accent-400) 26%, var(--tile))'])
+      // The days either side are not decorated.
+      expect(ringsOn(wrapper, 4, 4)).toEqual(['var(--tile)'])
+    })
+
+    it('draws only the tint for a day with no art', async () => {
+      const specialDays = { tiles: [{ date: '2026-10-30', days: [{ ...pumpkin, tile_art: null }] }], takeover: null }
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ specialDays }) })
+
+      expect(tile(wrapper, '2026-10-30').attributes('data-special')).toBe('halloween')
+      expect(wrapper.find('[data-testid="tile-art"]').exists()).toBe(false)
+    })
+
+    it('ignores a date that has no decorations, and one outside the grid', async () => {
+      const specialDays = { tiles: [{ date: '2026-10-29', days: [] }, { date: '2027-03-01', days: [pumpkin] }], takeover: null }
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ specialDays }) })
+
+      expect(wrapper.find('[data-special]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="tile-art"]').exists()).toBe(false)
+    })
+
+    it('puts the greeting at the top of the panel and lets the panel shrink to its content', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ specialDays: { tiles: [], takeover } }) })
+
+      const panel = wrapper.find('[data-testid="panel"]')
+      expect(panel.classes()).toContain('takeover')
+      expect(panel.element.firstElementChild).toBe(wrapper.find('[data-testid="greeting"]').element)
+      expect(wrapper.find('[data-testid="greeting"]').text()).toBe('Happy Halloween')
+    })
+
+    it('sets a long greeting smaller, so it still fits the panel', async () => {
+      const long = 'Happy birthday to the best and bravest seven year old in the whole wide world, Isla!'
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ specialDays: { tiles: [], takeover: { ...takeover, greeting: long } } }) })
+
+      expect(wrapper.find('[data-testid="greeting"]').attributes('style')).toContain('font-size: 38px')
+    })
+
+    it('shrinks the panel for a takeover with no greeting, and draws no greeting', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ specialDays: { tiles: [], takeover: { ...takeover, greeting: null } } }) })
+
+      expect(wrapper.find('[data-testid="greeting"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="panel"]').classes()).toContain('takeover')
+    })
   })
 
   describe('weather', () => {

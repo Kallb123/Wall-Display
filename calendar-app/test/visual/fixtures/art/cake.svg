@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
+  <rect x="4" y="46" width="52" height="10" rx="5" fill="#b8896a"/>
+  <rect x="8" y="30" width="44" height="18" rx="5" fill="#f4a8c0"/>
+  <path d="M8 36 Q13 44 18 36 Q23 44 28 36 Q33 44 38 36 Q43 44 48 36 L52 36 L52 31 Q52 30 51 30 L9 30 Q8 30 8 31 Z" fill="#fff6f0"/>
+  <rect x="15" y="17" width="30" height="14" rx="4" fill="#ffd9a8"/>
+  <path d="M15 22 Q20 29 25 22 Q30 29 35 22 Q40 29 45 22 L45 20 L15 20 Z" fill="#fff6f0"/>
+  <rect x="21" y="8" width="4" height="10" rx="2" fill="#5f94c4"/>
+  <rect x="28" y="8" width="4" height="10" rx="2" fill="#d27fa0"/>
+  <rect x="35" y="8" width="4" height="10" rx="2" fill="#9a7bc4"/>
+  <path d="M23 7 Q21 3 23 1 Q26 4 23 7 Z M30 7 Q28 3 30 1 Q33 4 30 7 Z M37 7 Q35 3 37 1 Q40 4 37 7 Z" fill="#f6b73c"/>
+</svg>

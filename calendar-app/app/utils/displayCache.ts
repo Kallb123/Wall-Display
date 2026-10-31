@@ -1,6 +1,8 @@
 import { displayStateSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState } from '../../shared/display'
 import type { CalendarEvent } from '../../shared/types/events'
+import { specialDaysResolutionSchema } from '../../shared/special-days'
+import type { SpecialDaysResolution } from '../../shared/special-days'
 import { weatherSnapshotSchema } from '../../shared/weather'
 import type { WeatherSnapshot } from '../../shared/weather'
 
@@ -16,6 +18,8 @@ export interface DisplayCache {
   events: CalendarEvent[]
   /** The last weather the server sent, or null for none. An entry from before PR 2.7 has none. */
   weather: WeatherSnapshot | null
+  /** The last special days the server sent (never a preview's), or null for none. An entry from before PR S.3 has none. */
+  special_days: SpecialDaysResolution | null
   /** When it was saved, as an ISO 8601 instant. */
   saved_at: string
 }
@@ -36,13 +40,15 @@ export function loadCache(storage: Storage | null | undefined, displayId: string
     // The state is parsed, so a document from an older version gets its defaults.
     const state = displayStateSchema.safeParse(data.state)
     if (!state.success) return null
-    // Weather the same way: anything wrong with it costs the weather, not the wall.
+    // Weather and special days the same way: anything wrong with one costs it, not the wall.
     const weather = weatherSnapshotSchema.safeParse(data.weather)
+    const specialDays = specialDaysResolutionSchema.safeParse(data.special_days)
     return {
       settings: data.settings as unknown as DisplaySettings,
       state: state.data,
       events: data.events as CalendarEvent[],
       weather: weather.success ? weather.data : null,
+      special_days: specialDays.success ? specialDays.data : null,
       saved_at: data.saved_at,
     }
   } catch {

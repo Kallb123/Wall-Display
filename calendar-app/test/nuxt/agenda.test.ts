@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import AgendaView from '~/components/views/AgendaView.vue'
+import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
+import type { Takeover } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
 // The agenda view's weather lines, for Wed 28 Oct 2026. The events and the
@@ -20,7 +22,7 @@ const weather: WeatherSnapshot = {
 }
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'agenda', events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, ...overrides,
+  view: 'agenda', events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
 })
 
 const line = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, day: 'day-today' | 'day-tomorrow') =>
@@ -66,5 +68,33 @@ describe('AgendaView weather', () => {
     await wrapper.setProps({ weather: null })
 
     expect(wrapper.find('[data-testid="agenda-weather"]').exists()).toBe(false)
+  })
+})
+
+describe('AgendaView special days', () => {
+  const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-28', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null }
+
+  it('draws no greeting without a takeover', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props() })
+
+    expect(wrapper.find('[data-testid="greeting"]').exists()).toBe(false)
+  })
+
+  it('puts the greeting in today\'s card, between the heading and the list', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ specialDays: { tiles: [], takeover } }) })
+
+    const greetings = wrapper.findAll('[data-testid="greeting"]')
+    expect(greetings).toHaveLength(1)
+    expect(greetings[0]!.text()).toBe('Happy Halloween')
+    const today = wrapper.find('[data-testid="day-today"]')
+    expect(today.element.contains(greetings[0]!.element)).toBe(true)
+    expect(today.element.children[0]!.tagName).toBe('HEADER')
+    expect(today.element.children[1]).toBe(greetings[0]!.element)
+  })
+
+  it('draws no greeting for a takeover without one', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ specialDays: { tiles: [], takeover: { ...takeover, greeting: null } } }) })
+
+    expect(wrapper.find('[data-testid="greeting"]').exists()).toBe(false)
   })
 })

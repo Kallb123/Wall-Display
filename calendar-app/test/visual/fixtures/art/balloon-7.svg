@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440">
+  <!-- A transparent layer: one "7" balloon over the clear space at the bottom left (below a short side panel, from about y 1130), drawn as shapes so it needs no font. -->
+  <defs>
+    <radialGradient id="shine" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#f58aa4"/>
+      <stop offset="1" stop-color="#d2415f"/>
+    </radialGradient>
+  </defs>
+  <path d="M545 1370 C535 1380 555 1392 545 1405" fill="none" stroke="#6b5a4a" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="545" cy="1245" rx="92" ry="112" fill="url(#shine)"/>
+  <path d="M537 1355 L553 1355 L545 1371 Z" fill="#d2415f"/>
+  <path d="M505 1205 H585 L538 1295" fill="none" stroke="#fff6f0" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <ellipse cx="505" cy="1190" rx="18" ry="30" fill="#ffffff" fill-opacity="0.35" transform="rotate(25 505 1190)"/>
+</svg>

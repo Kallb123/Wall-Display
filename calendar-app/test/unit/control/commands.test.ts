@@ -289,6 +289,56 @@ describe('the overlay', () => {
   })
 })
 
+describe('preview_special_day', () => {
+  const previewDay = (id: string, seconds = 60): Command => ({ type: 'preview_special_day', id, seconds })
+  const previewScene = (scene: string, seconds = 60): Command => ({ type: 'preview_special_day', scene, seconds })
+
+  it('previews a special day for the seconds asked', () => {
+    expect(reduceCommand(state(), previewDay('christmas', 90), ctx()).preview).toEqual({ special_day: 'christmas', until: '2026-10-28T12:01:30.000Z' })
+  })
+
+  it('previews a scene for the seconds asked', () => {
+    expect(reduceCommand(state(), previewScene('birthday', 5), ctx()).preview).toEqual({ scene: 'birthday', until: '2026-10-28T12:00:05.000Z' })
+  })
+
+  it('has nothing running to begin with', () => {
+    expect(defaultDisplayState().preview).toBeNull()
+  })
+
+  it('replaces a preview that is running, whichever kind it was', () => {
+    const first = reduceCommand(state(), previewDay('christmas', 600), ctx())
+    const second = reduceCommand(first, previewScene('birthday', 30), ctx())
+
+    expect(second.preview).toEqual({ scene: 'birthday', until: '2026-10-28T12:00:30.000Z' })
+    expect(reduceCommand(second, previewDay('easter'), ctx()).preview).toEqual({ special_day: 'easter', until: '2026-10-28T12:01:00.000Z' })
+  })
+
+  it('changes nothing else about the state', () => {
+    const start = pinned('2026-12', NOW, { view: 'month', brightness: 40, overlay: { text: 'Hi', icon: null, until: null } })
+
+    expect(reduceCommand(start, previewDay('christmas'), ctx())).toEqual({ ...start, preview: { special_day: 'christmas', until: '2026-10-28T12:01:00.000Z' } })
+  })
+
+  it('goes at its until, not before', () => {
+    const next = reduceCommand(state(), previewDay('christmas'), ctx())
+
+    expect(expireState(next, ctx('2026-10-28T12:00:59.999Z')).preview).not.toBeNull()
+    expect(expireState(next, ctx('2026-10-28T12:01:00Z')).preview).toBeNull()
+  })
+
+  it('goes with an expired one on any other command, and the command still applies', () => {
+    const next = reduceCommand(state(), previewScene('birthday', 5), ctx())
+
+    expect(reduceCommand(next, { type: 'set_view', view: 'agenda' }, ctx('2026-10-28T12:00:10Z'))).toMatchObject({ view: 'agenda', preview: null })
+  })
+
+  it('is not stopped by other commands while it runs', () => {
+    const next = reduceCommand(state(), previewDay('christmas'), ctx())
+
+    expect(reduceCommand(next, { type: 'set_view', view: 'week' }, ctx('2026-10-28T12:00:30Z')).preview).toEqual(next.preview)
+  })
+})
+
 describe('expireState', () => {
   it('returns the same object when nothing has changed', () => {
     const start = pinned('2026-12')
@@ -306,6 +356,13 @@ describe('expireState', () => {
 
     expect(next).not.toBe(start)
     expect(start.month).toBe('2026-12')
+  })
+
+  it('clears an ended preview and leaves a running one', () => {
+    const start = state({ preview: { special_day: 'christmas', until: '2026-10-28T12:05:00.000Z' } })
+
+    expect(expireState(start, ctx('2026-10-28T12:04:59Z'))).toBe(start)
+    expect(expireState(start, ctx('2026-10-28T12:05:00Z')).preview).toBeNull()
   })
 
   it('expires the month and the overlay together', () => {
@@ -327,6 +384,18 @@ describe('nextExpiry', () => {
 
   it('is when the overlay ends', () => {
     expect(nextExpiry(state({ overlay: { text: 'Hi', icon: null, until: '2026-10-28T12:10:00.000Z' } }), ctx())).toEqual(new Date('2026-10-28T12:10:00Z'))
+  })
+
+  it('is when the preview ends', () => {
+    expect(nextExpiry(state({ preview: { scene: 'birthday', until: '2026-10-28T12:01:00.000Z' } }), ctx())).toEqual(new Date('2026-10-28T12:01:00Z'))
+  })
+
+  it('is the earliest of the month, the overlay and the preview', () => {
+    const preview = { special_day: 'christmas', until: '2026-10-28T12:01:00.000Z' }
+    const overlay = { text: 'Hi', icon: null, until: '2026-10-28T12:05:00.000Z' }
+
+    expect(nextExpiry(pinned('2026-12', NOW, { overlay, preview }), ctx())).toEqual(new Date('2026-10-28T12:01:00Z'))
+    expect(nextExpiry(pinned('2026-12', NOW, { overlay, preview: { ...preview, until: '2026-10-28T12:09:00.000Z' } }), ctx())).toEqual(new Date('2026-10-28T12:05:00Z'))
   })
 
   it('is the earliest of the two', () => {

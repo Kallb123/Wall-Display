@@ -4,6 +4,7 @@ import ClockWidget from '~/components/ClockWidget.vue'
 import OfflineBadge from '~/components/OfflineBadge.vue'
 import OverlayBanner from '~/components/OverlayBanner.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
+import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { CalendarEvent } from '../../shared/types/events'
 
 // Light component tests. The page itself (sockets, caching, scaling) is covered
@@ -136,7 +137,7 @@ describe('PlaceholderView', () => {
       event(2, { all_day: true, start_date: '2026-10-28', end_date: '2026-10-29', display_title: 'All day thing' }),
       event(3, { display_title: 'School run' }),
     ]
-    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'agenda', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null } })
+    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'agenda', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS } })
 
     expect(wrapper.find('h1').text()).toBe('Agenda')
     const rows = wrapper.findAll('[data-testid="event"]').map(row => row.text())
@@ -149,7 +150,7 @@ describe('PlaceholderView', () => {
 
   it('shows at most eight events', async () => {
     const events = Array.from({ length: 12 }, (_, i) => event(i + 1, {}))
-    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'month', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null } })
+    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'month', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS } })
 
     expect(wrapper.findAll('[data-testid="event"]')).toHaveLength(8)
   })

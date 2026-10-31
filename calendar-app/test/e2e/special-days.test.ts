@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
 import { todayIn } from '../../shared/dates'
-import type { ServerMessage } from '../../shared/display'
+import type { DisplayState, ServerMessage } from '../../shared/display'
 import { PIN_HEADER } from '../../shared/remote'
 import type { SpecialDay, SpecialDaysResponse } from '../../shared/special-days'
 
@@ -207,6 +207,109 @@ describe('special days', async () => {
     expect(pushed).toMatchObject({ special_days: { today, current: { id: 'pushed' }, takeover: null } })
     socket.close()
     await remove('pushed')
+  })
+
+  describe('previewing on the wall', () => {
+    // A one-off day in 2030, so the date it is shown on does not depend on when the test runs.
+    const halloween = { name: 'Halloween', month: 10, day: 31, year: 2030, repeat: 'once', lead: 'day', takeover: true, greeting: 'Boo!', palette: 'night' }
+    const birthday = { name: 'Birthday', lead: 'week', takeover: true, greeting: 'Happy {nth} birthday, {who}!', palette: 'sage' }
+    const command = (id: string, body: unknown, headers: Record<string, string> = right) => $fetch<DisplayState>(`/api/displays/${id}/commands`, { method: 'POST', body: body as Record<string, unknown>, headers })
+    const preview = (query: string) => $fetch<SpecialDaysResponse>(`/api/special-days/preview${query}`)
+    const createScene = (body: unknown) => $fetch('/api/special-day-scenes', { method: 'POST', body: body as Record<string, unknown>, headers: right })
+
+    it('GET /api/special-days/preview?special_day= answers as if the day were today, from its own route', async () => {
+      await create(halloween)
+
+      const { special_days } = await preview('?special_day=halloween')
+
+      expect(special_days).toMatchObject({
+        today: '2030-10-31',
+        from: '2030-09-17',
+        to: '2030-11-14',
+        tiles: [{ date: '2030-10-31', days: [{ id: 'halloween', name: 'Halloween', palette: 'night', tile_art: null }] }],
+        current: { id: 'halloween', name: 'Halloween' },
+        takeover: { id: 'halloween', date: '2030-10-31', greeting: 'Boo!', palette: 'night' },
+        tomorrow_art: [],
+      })
+      // The day is not going to be the live resolution, which is for the real today.
+      expect((await $fetch<SpecialDaysResponse>('/api/special-days/resolved')).special_days?.current?.id).not.toBe('halloween')
+      await remove('halloween')
+    })
+
+    it('GET /api/special-days/preview?scene= shows a scene nobody uses today, with its placeholders as typed', async () => {
+      await createScene(birthday)
+
+      const { special_days } = await preview('?scene=birthday')
+
+      expect(special_days).toMatchObject({
+        today: todayIn(new Date(), 'Europe/London'),
+        current: { id: 'scene:birthday', name: 'Birthday' },
+        takeover: { id: 'scene:birthday', greeting: 'Happy {nth} birthday, {who}!', palette: 'sage' },
+      })
+    })
+
+    it('GET /api/special-days/preview shows a scene through the first day that uses it', async () => {
+      await create({ name: 'Isla', month: 3, day: 14, repeat: 'yearly', scene_id: 'birthday', who: 'Isla', since_year: 2019 })
+
+      const { special_days } = await preview('?scene=birthday')
+
+      expect(special_days?.current).toEqual({ id: 'isla', name: 'Isla' })
+      expect(special_days?.takeover?.greeting).toMatch(/^Happy \d+(st|nd|rd|th) birthday, Isla!$/)
+      await remove('isla')
+    })
+
+    it('GET /api/special-days/preview answers 400 unless it is given exactly one of special_day and scene, and 404 for an unknown one', async () => {
+      await expect(preview('')).rejects.toMatchObject(reason(400, 'exactly one of special_day and scene'))
+      await expect(preview('?special_day=halloween&scene=birthday')).rejects.toMatchObject(reason(400, 'exactly one of special_day and scene'))
+      await expect(preview('?special_day=')).rejects.toMatchObject(reason(400, 'exactly one'))
+      await expect(preview('?scene=a&scene=b')).rejects.toMatchObject(reason(400, 'exactly one'))
+      await expect(preview('?special_day=nothing')).rejects.toMatchObject(reason(404, 'Unknown special day "nothing"'))
+      await expect(preview('?scene=nothing')).rejects.toMatchObject(reason(404, 'Unknown scene "nothing"'))
+    })
+
+    it('POST /api/displays/:id/commands starts a preview of a day or a scene, and answers with the state', async () => {
+      await create(halloween)
+
+      const day = await command('hallway', { type: 'preview_special_day', id: 'halloween', seconds: 120 })
+      expect(day.preview).toEqual({ special_day: 'halloween', until: expect.stringMatching(/Z$/) })
+      expect(Date.parse(day.preview!.until) - Date.now()).toBeGreaterThan(110_000)
+      expect((await $fetch<DisplayState>('/api/displays/hallway/state')).preview).toEqual(day.preview)
+
+      const scene = await command('hallway', { type: 'preview_special_day', scene: 'birthday' })
+      expect(scene.preview).toEqual({ scene: 'birthday', until: expect.any(String) })
+      // Left out, it runs for a minute.
+      expect(Date.parse(scene.preview!.until) - Date.now()).toBeLessThanOrEqual(60_000)
+      expect(Date.parse(scene.preview!.until) - Date.now()).toBeGreaterThan(50_000)
+      await remove('halloween')
+      await fetch('/api/special-day-scenes/birthday', { method: 'DELETE', headers: right })
+    })
+
+    it('POST /api/displays/:id/commands answers a bad preview with a 400 and an unknown day or scene with a 404', async () => {
+      await expect(command('hallway', { type: 'preview_special_day' })).rejects.toMatchObject(reason(400, 'needs exactly one of id and scene'))
+      await expect(command('hallway', { type: 'preview_special_day', id: 'a', scene: 'b' })).rejects.toMatchObject(reason(400, 'needs exactly one of id and scene'))
+      await expect(command('hallway', { type: 'preview_special_day', id: 'christmas', seconds: 4 })).rejects.toMatchObject(reason(400, 'seconds must be from 5 to 600'))
+      await expect(command('hallway', { type: 'preview_special_day', id: 'christmas', seconds: 601 })).rejects.toMatchObject(reason(400, 'seconds must be from 5 to 600'))
+      await expect(command('hallway', { type: 'preview_special_day', id: 'nothing' })).rejects.toMatchObject(reason(404, 'Unknown special day "nothing"'))
+      await expect(command('hallway', { type: 'preview_special_day', scene: 'nothing' })).rejects.toMatchObject(reason(404, 'Unknown scene "nothing"'))
+      await expect(command('garage', { type: 'preview_special_day', id: 'christmas' })).rejects.toMatchObject(reason(404, 'Unknown display "garage"'))
+      // And it needs the PIN, like every command.
+      await expect(command('hallway', { type: 'preview_special_day', id: 'christmas' }, {})).rejects.toMatchObject(reason(401, 'PIN required'))
+    })
+
+    it('clears the preview by itself when its time is up, and tells the socket', async () => {
+      const { socket, messages, opened, next } = connect('display=hallway&role=display')
+      await opened
+      await next(message => message.type === 'state.updated')
+
+      const seen = messages.length
+      await command('hallway', { type: 'preview_special_day', id: 'christmas', seconds: 5 })
+      await next(message => message.type === 'state.updated' && message.state.preview?.special_day === 'christmas', seen)
+      const cleared = await next(message => message.type === 'state.updated' && message.state.preview === null, seen)
+
+      expect(cleared).toMatchObject({ display_id: 'hallway', state: { preview: null } })
+      expect((await $fetch<DisplayState>('/api/displays/hallway/state')).preview).toBeNull()
+      socket.close()
+    })
   })
 
   it('guards the writes with the PIN, and leaves the reads open', async () => {

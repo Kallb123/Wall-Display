@@ -13,7 +13,8 @@ import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather
 // the all-day events first, then the timed ones, and a "now" marker in today's.
 // There is no mock for it yet, so it borrows the Soft month's side panel: a
 // sage panel for today, a plain tile for tomorrow, and the same initial badges.
-// A special day's greeting (architecture §6) goes above today's list.
+// A special day's greeting (architecture §6.3) goes above today's list; the
+// takeover's palette and art are the stage's, not this view's.
 //
 // The weather (PR 2.7) is a line under each long date: today's has the current
 // conditions as well as the forecast, tomorrow's only the forecast. A day with
@@ -91,6 +92,10 @@ function barColour(event: CalendarEvent): string {
           {{ time }}
         </div>
       </header>
+
+      <p v-if="index === 0 && specialDays.takeover?.greeting" class="greeting" data-testid="greeting">
+        {{ specialDays.takeover.greeting }}
+      </p>
 
       <div v-if="isEmpty(day)" class="empty" data-testid="empty-day">
         <AppIcon :icon="Leaf" :size="120" />
@@ -230,6 +235,17 @@ span + .range {
   font-size: 120px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+/* Between the heading and the list, in the display face like the date above it. */
+.greeting {
+  flex: none;
+  margin: -8px 0 32px;
+  font-family: var(--font-display);
+  font-size: 64px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .rows {

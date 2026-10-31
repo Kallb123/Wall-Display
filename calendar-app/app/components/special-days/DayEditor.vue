@@ -519,33 +519,36 @@ const running = (action: string) => props.busy === action
     </SettingsNotice>
 
     <div class="actions" role="group" aria-label="Actions">
-      <SettingsPillButton v-if="saved" class="compact danger" :disabled="busy !== null" data-testid="day-delete" @click="emit('delete')">
-        <AppIcon :icon="Trash2" :size="20" />
-        {{ running('delete') ? 'Deleting…' : 'Delete' }}
-      </SettingsPillButton>
-      <p v-if="dirty" class="unsaved" data-testid="unsaved">
-        <span class="unsaved-dot" aria-hidden="true" />
-        Unsaved changes
-      </p>
-      <span class="spacer" />
-      <template v-if="saved">
-        <SettingsPillButton class="compact" :disabled="busy !== null || dirty" :title="dirty ? 'Save first to copy this day' : undefined" data-testid="day-duplicate" @click="emit('duplicate')">
-          <AppIcon :icon="Copy" :size="20" />
-          {{ running('duplicate') ? 'Copying…' : 'Duplicate' }}
+      <div class="side">
+        <SettingsPillButton v-if="saved" class="compact danger" :disabled="busy !== null" data-testid="day-delete" @click="emit('delete')">
+          <AppIcon :icon="Trash2" :size="20" />
+          {{ running('delete') ? 'Deleting…' : 'Delete' }}
         </SettingsPillButton>
-        <SettingsPillButton class="compact" :disabled="busy !== null || dirty" :title="dirty ? 'Save first to make a scene from this day' : undefined" data-testid="day-save-as-scene" @click="emit('save-as-scene')">
-          <AppIcon :icon="Layers" :size="20" />
-          {{ running('save-as-scene') ? 'Saving…' : 'Save as scene' }}
+        <p v-if="dirty" class="unsaved" data-testid="unsaved">
+          <span class="unsaved-dot" aria-hidden="true" />
+          Unsaved changes
+        </p>
+      </div>
+      <div class="side end">
+        <template v-if="saved">
+          <SettingsPillButton class="compact" :disabled="busy !== null || dirty" :title="dirty ? 'Save first to copy this day' : undefined" data-testid="day-duplicate" @click="emit('duplicate')">
+            <AppIcon :icon="Copy" :size="20" />
+            {{ running('duplicate') ? 'Copying…' : 'Duplicate' }}
+          </SettingsPillButton>
+          <SettingsPillButton class="compact" :disabled="busy !== null || dirty" :title="dirty ? 'Save first to make a scene from this day' : undefined" data-testid="day-save-as-scene" @click="emit('save-as-scene')">
+            <AppIcon :icon="Layers" :size="20" />
+            {{ running('save-as-scene') ? 'Saving…' : 'Save as scene' }}
+          </SettingsPillButton>
+          <SettingsPillButton class="compact" :disabled="busy !== null || dirty" :title="dirty ? 'Save first to preview' : undefined" data-testid="day-preview" @click="emit('preview')">
+            <AppIcon :icon="Eye" :size="20" />
+            {{ running('preview') ? 'Sending…' : 'Preview on wall' }}
+          </SettingsPillButton>
+        </template>
+        <SettingsPillButton class="compact" type="submit" variant="primary" :disabled="busy !== null || (!dirty && saved !== null)" data-testid="day-save">
+          <AppIcon :icon="Check" :size="20" />
+          {{ running('save') ? 'Saving…' : 'Save' }}
         </SettingsPillButton>
-        <SettingsPillButton class="compact" :disabled="busy !== null || dirty" :title="dirty ? 'Save first to preview' : undefined" data-testid="day-preview" @click="emit('preview')">
-          <AppIcon :icon="Eye" :size="20" />
-          {{ running('preview') ? 'Sending…' : 'Preview on wall' }}
-        </SettingsPillButton>
-      </template>
-      <SettingsPillButton class="compact" type="submit" variant="primary" :disabled="busy !== null || (!dirty && saved !== null)" data-testid="day-save">
-        <AppIcon :icon="Check" :size="20" />
-        {{ running('save') ? 'Saving…' : 'Save' }}
-      </SettingsPillButton>
+      </div>
     </div>
   </form>
 </template>
@@ -641,20 +644,31 @@ const running = (action: string) => props.busy === action
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 14px 20px;
+  justify-content: space-between;
+  gap: 10px 12px;
+  padding: 12px 16px;
   border-radius: 32px;
   background: var(--surface);
   box-shadow: var(--shadow-lift);
 }
 
-.spacer {
-  flex: 1;
+/* Delete and the unsaved flag on the left, the rest on the right with Save last. At 1280px it all fits on one line; when it can't, the right group drops under the left, still on the right. */
+.side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
+.side.end {
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+/* A little tighter than the page's buttons, so the five of a day fit. */
 .actions .compact {
-  padding: 0 16px;
-  gap: 8px;
+  padding: 0 12px;
+  gap: 6px;
 }
 
 .actions .danger {
@@ -678,6 +692,23 @@ const running = (action: string) => props.busy === action
   height: 10px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+@media (max-width: 600px) {
+  .actions {
+    padding: 12px;
+    border-radius: 28px;
+  }
+
+  .side,
+  .side.end {
+    flex: 1 1 100%;
+  }
+
+  .side.end > * {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

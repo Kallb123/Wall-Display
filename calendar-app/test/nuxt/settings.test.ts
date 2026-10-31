@@ -87,6 +87,7 @@ async function server(url: string, options: Options = {}) {
     if (url === '/api/settings/calendars') return structuredClone(calendars)
     if (url === '/api/settings/displays') return structuredClone(displays)
     if (url === '/api/settings/connections') return structuredClone(status)
+    if (url === '/api/special-days' || url === '/api/special-day-scenes') return []
     if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' }]
     throw refusal(404, `Not found: ${url}`)
   }
@@ -164,7 +165,9 @@ describe('the settings shell', () => {
     expect(photos.find('[data-testid="photos-placeholder"]').text()).toContain('Photos arrive with photo frame mode')
 
     const days = await mountAt(App, '/settings/special-days')
-    expect(days.find('[data-testid="special-days-placeholder"]').text()).toContain('Special days arrive')
+    expect(days.find('[data-testid="special-days-page"]').exists()).toBe(true)
+    expect(days.find('[data-testid="special-days-list"]').exists()).toBe(true)
+    expect(days.find('[data-testid="list-empty"]').text()).toBe('No special days yet.')
 
     const calendarsTab = await mountAt(App, '/settings/calendars')
     expect(calendarsTab.findAll('[data-testid="calendar-card"]')).toHaveLength(1)

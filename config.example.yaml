@@ -140,10 +140,20 @@ photos:
   interval_seconds: 60 # at least 5; how long each photo stays while a display is on the photo view
   landscape_only: false # true leaves portrait photos out of the rotation
   cache_max_mb: 2048 # size cap of the rendered photos; the ones shown longest ago go first
-  immich: # not built yet: accepted, but ignored
-    url: http://immich.local:2283
-    api_key: !secret immich_api_key
-    album_ids: [] # empty means the whole library
+  immich: # photos from Immich. Previews only (thumbnail?size=preview), never the originals
+    url: http://immich.local:2283 # may have a path if Immich is behind a reverse proxy; no user name or password in it
+    api_key: !secret immich_api_key # Immich -> Account Settings -> API Keys; sent as the x-api-key header
+    # Which photos: albums (every photo in album_ids), random (a random pick from the
+    # whole library, a new one every 10 minutes) or memories (today's "on this day",
+    # or a random pick on a day with none). Left out, it is albums when album_ids has
+    # something in it, and random when it is empty.
+    # mode: albums
+    album_ids: [] # album ids, from the album's address in Immich
+    # random: # for mode random, and for memories on a day with none; all optional
+    #   count: 200 # photos in each pick (1 to 1000)
+    #   person_ids: ["5c7e9a1b-3d5f-4b7a-9c2e-4f6a8b0c2d03"] # only photos of these people (Immich -> People)
+    #   taken_after: "2022-01-01" # quote dates; a day starts at midnight UTC
+    #   taken_before: "2024-12-31" # and this one includes the whole day
   google: # not built yet: accepted, but ignored
     client_id: example.apps.googleusercontent.com
     client_secret: !secret google_client_secret

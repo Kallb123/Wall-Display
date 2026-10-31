@@ -1,4 +1,5 @@
 import { getDisplayControl } from '../control/state'
+import { createImmichProvider } from '../photos/immich'
 import { createLocalProvider } from '../photos/local'
 import { startPhotoRotation } from '../photos/rotation'
 import { createPhotoService } from '../photos/service'
@@ -25,11 +26,13 @@ export default defineNitroPlugin((nitroApp) => {
   }
 
   const providers: PhotoProvider[] = []
-  if (photos.local) providers.push(createLocalProvider({ path: photos.local.path }))
-  // Not built yet: PRs 4.3 and 4.4.
-  for (const id of ['immich', 'google'] as const) {
-    if (photos[id]) console.warn(`[photos] ${id} is set up in the config, but is not supported yet and is ignored`)
+  if (photos.immich) {
+    providers.push(createImmichProvider(photos.immich))
+    console.info(`[photos] immich: mode ${photos.immich.mode}`)
   }
+  if (photos.local) providers.push(createLocalProvider({ path: photos.local.path }))
+  // Not built yet: PR 4.4 was skipped.
+  if (photos.google) console.warn('[photos] google is set up in the config, but is not supported yet and is ignored')
   if (providers.length === 0) console.warn('[photos] no photo source is available, so the photo frame has nothing to show')
 
   const service = createPhotoService({

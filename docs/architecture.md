@@ -275,7 +275,10 @@ Provider (Immich / Google Photos / local folder)
   - `POST /api/search/random`: random assets, with filters
   - `GET /api/memories`: "on this day"
   - `GET /api/assets/{id}/thumbnail?size=preview`: a display-sized image, so the server doesn't download originals
-- Source modes: one or more albums, memories, or random from the whole library (optionally filtered by person or date).
+- Source modes (`photos.immich.mode`): `albums` (every image in `album_ids`, read with `POST /api/search/metadata` a page of 1000 at a time, following `nextPage`; the default when there are album ids), `random` (`POST /api/search/random`, `random.count` images, optionally narrowed by `person_ids` and `taken_after` / `taken_before`; the default when there are none) and `memories` (`GET /api/memories?for=<now>`, flattened). With no memories today, `memories` uses the `random` pick, so the frame is never empty.
+- Only images are used. Videos, photos in the bin and archived photos are left out, and so is any asset whose id is not a UUID. The size comes from the EXIF (swapped for orientations 5 to 8, since the preview is upright) and the date from `dateTimeOriginal`, then `localDateTime`, then `fileCreatedAt`.
+- A random pick is a new batch at every listing, so the pool changes under the playlist. The service copes: a listing that drops a photo doesn't touch the file a display is showing, and a photo that leaves the pool while it is being downloaded is not stored. The provider also keeps the last 100 photos it has downloaded in the pool, so they stay in the cache and give the frame something to rotate if Immich goes down.
+- Requests have a 30 second timeout, redirects are not followed (the key would go with them), and a 401 or 403 is reported as "Immich refused the API key". No message holds the address, a query or the key.
 - Immich is local, fast and fully under your control, so it's the best fit for a wallpaper that rotates all day.
 
 ### 5.3 Google Photos (with limits)

@@ -54,3 +54,9 @@ photos:
   interval_seconds: 15
   local:
     path: ./test/fixtures/photos
+  # To try Immich, add (with a key from Account Settings, API Keys). `mode` is albums,
+  # random or memories; see config.example.yaml for the random filters.
+  # immich:
+  #   url: http://immich.local:2283
+  #   api_key: your-key-here
+  #   mode: random

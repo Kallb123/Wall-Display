@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NIGHT_TEXTS } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -118,6 +119,10 @@ const display = z.strictObject({
   month_style: z.enum(['soft', 'classic']).default('soft'),
   month_return_minutes: z.number().int().min(1).max(1440).default(15),
   week_start: z.enum(['monday', 'sunday']).default('monday'),
+  /** Shift the content in a slow orbit and move the photo frame's pill between corners, against burn-in (PR 5.3). */
+  burn_in: z.boolean().default(true),
+  /** What the night view shows under its clock (PR 5.2). `next_alarm` needs the top-level `alarm` block. */
+  night_text: z.enum(NIGHT_TEXTS).default('none'),
 })
 
 /** What a gesture of the button can be set to (`button.single`, `double`, `long`). server/control/button.ts says what each does. */
@@ -186,6 +191,15 @@ const sync = z.strictObject({
 const weather = z.strictObject({
   entity_id: z.string().regex(/^weather\.\w+$/, 'must be a weather entity id like "weather.home"'),
   poll_seconds: z.number().int().min(60).default(600),
+})
+
+// The Home Assistant entity that holds the next alarm (PR 5.2), for a display
+// whose night view has `night_text: next_alarm`: a timestamp sensor (such as
+// the companion app's `sensor.<phone>_next_alarm`) or an `input_datetime` with
+// a date. Read through the `homeassistant` block, like the weather.
+const alarm = z.strictObject({
+  entity_id: z.string().regex(/^(sensor|input_datetime)\.\w+$/, 'must be a sensor or input_datetime entity id like "sensor.phone_next_alarm"'),
+  poll_seconds: z.number().int().min(30).default(300),
 })
 
 // Immich (architecture §5.2). `mode` says which photos make the pool: the
@@ -321,6 +335,7 @@ export function createConfigSchema(baseDir: string) {
     sync: sync.prefault({}),
     mqtt: mqtt.optional(),
     weather: weather.optional(),
+    alarm: alarm.optional(),
     photos: photos(baseDir).optional(),
   }).superRefine(crossChecks)
 }
@@ -328,9 +343,10 @@ export function createConfigSchema(baseDir: string) {
 type RawConfig = {
   people: { id: string, name: string, aliases: string[] }[]
   calendars: { id: string, person: string, rules: { people: string[] }[], source: { type: string } }[]
-  displays: { id: string }[]
+  displays: { id: string, night_text: string }[]
   homeassistant?: unknown
   weather?: unknown
+  alarm?: unknown
 }
 
 // Checks that look across the whole file: unique ids, references that must
@@ -387,6 +403,14 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
   if (config.weather && !config.homeassistant) {
     issue(['weather'], 'reads a Home Assistant weather entity, but there is no "homeassistant" block (it needs a url and token)')
   }
+  if (config.alarm && !config.homeassistant) {
+    issue(['alarm'], 'reads a Home Assistant alarm entity, but there is no "homeassistant" block (it needs a url and token)')
+  }
+  config.displays.forEach((display, index) => {
+    if (display.night_text === 'next_alarm' && !config.alarm) {
+      issue(['displays', index, 'night_text'], 'is next_alarm, but there is no "alarm" block (it needs the entity_id of the Home Assistant entity that holds the next alarm)')
+    }
+  })
 }
 
 export type AppConfig = z.output<ReturnType<typeof createConfigSchema>>
@@ -401,6 +425,7 @@ export type PoliciesConfig = AppConfig['policies']
 export type SyncConfig = AppConfig['sync']
 export type MqttConfig = NonNullable<AppConfig['mqtt']>
 export type WeatherConfig = NonNullable<AppConfig['weather']>
+export type AlarmConfig = NonNullable<AppConfig['alarm']>
 export type PhotosConfig = NonNullable<AppConfig['photos']>
 export type ImmichConfig = NonNullable<PhotosConfig['immich']>
 export type HomeAssistantConfig = NonNullable<AppConfig['homeassistant']>

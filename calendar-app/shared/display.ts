@@ -31,6 +31,18 @@ export type ScreenState = (typeof SCREEN_STATES)[number]
 export const THEMES = ['light', 'dark'] as const
 export type Theme = (typeof THEMES)[number]
 
+/**
+ * What the night view shows under its clock (PR 5.2), set per display in
+ * config: nothing, the first timed event still to come in the next 24 hours,
+ * or the next alarm from a Home Assistant entity (the top-level `alarm` block).
+ */
+export const NIGHT_TEXTS = ['none', 'first_event', 'next_alarm'] as const
+export type NightText = (typeof NIGHT_TEXTS)[number]
+
+/** The next alarm the server knows of, as an ISO 8601 instant, or null for none. What `alarm.updated` carries. */
+export const nextAlarmSchema = z.iso.datetime({ offset: true }).nullable()
+export type NextAlarm = z.output<typeof nextAlarmSchema>
+
 export const SOCKET_ROLES = ['display', 'remote'] as const
 export type SocketRole = (typeof SOCKET_ROLES)[number]
 
@@ -147,6 +159,10 @@ export interface DisplaySettings {
   month_style: 'soft' | 'classic'
   week_start: 'monday' | 'sunday'
   timezone: string
+  /** Whether the wall shifts its content in a slow orbit and moves the photo frame's pill between corners, against burn-in (PR 5.3). */
+  burn_in: boolean
+  /** What the night view shows under its clock. */
+  night_text: NightText
   /**
    * The photo sources the server has set up, in the order a display falls back
    * to them (Immich, Google, folder). Empty with no `photos` block. The remote
@@ -164,6 +180,8 @@ export type ServerMessage =
   | { type: 'weather.updated', weather: WeatherSnapshot | null }
   /** To every socket when the special days change or the date does, and to a new socket on connect. Null only before the special days service has started. */
   | { type: 'special_days.updated', special_days: SpecialDaysResolution | null }
+  /** To every socket when the next alarm changes, and to a new socket on connect. Null when there is none (no `alarm` block, no alarm set, or no successful fetch yet). */
+  | { type: 'alarm.updated', alarm: NextAlarm }
 
 // Months, as `YYYY-MM` keys. Done with `Intl` and arithmetic, never the
 // process's time zone. A month's index is year * 12 + (month - 1).

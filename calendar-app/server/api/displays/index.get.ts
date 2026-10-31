@@ -16,6 +16,8 @@ export default defineEventHandler((): DisplaySettings[] => {
     month_style: display.month_style,
     week_start: display.week_start,
     timezone: config.timezone,
+    burn_in: display.burn_in,
+    night_text: display.night_text,
     photo_sources: photoSources,
   }))
 })

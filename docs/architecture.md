@@ -602,6 +602,8 @@ On the right, a selected day has:
 - **Full-screen takeover**: an on/off toggle. When it's on, there's a 16:9 drop zone for the 2560×1440 art, a second one for the **Extra layer**, a **Greeting** field and **Palette** swatches (Warm, Night, Frost, Sage). When it's off, these fade out.
 - **Delete**, **Duplicate**, **Save as scene**, **Preview on wall** and **Save**
 
+A new day or scene has no id to attach art to, so its drop zones wait until it has been saved once. **Duplicate**, **Save as scene** and **Preview on wall** act on what is saved, so they ask you to save first while there are unsaved changes. **Preview on wall** is sent to every display, not just one.
+
 On a day with a scene, each field shows the scene's value, marked "From Birthday". Changing it makes it the day's own, marked "Changed" with a **Reset** link that goes back to the scene's. The greeting field shows the filled-in text for the next occurrence beneath it ("Happy 7th birthday, Isla!").
 
 A selected scene has the same art, lead, takeover, greeting and palette fields, without a date, plus the list of days that use it, each a link to that day. It has **Delete** (or **Copy into days and delete** when it is in use), **Duplicate**, **Preview on wall** and **Save**. Saving a scene says how many days it changes.

@@ -149,7 +149,7 @@ docker compose up -d
 
 Check <http://localhost:8080/api/health> (use the server's address from another machine). It should return `{"status":"ok", ...,"db":"ok"}`. `docker compose ps` also shows `healthy` once the app is up. Logs are in `docker compose logs -f calendar-app`. After a config change, run `docker compose restart calendar-app`.
 
-- `./config` is mounted read-only at `/config`. `./data` is mounted at `/data` and holds the database and, later, photos and special day art.
+- `./config` is mounted read-only at `/config`. `./data` is mounted at `/data` and holds the database and the special day art and, later, photos.
 - `docker compose --profile mqtt up -d` also starts a Mosquitto broker on port 1883, with its settings in `mosquitto/config/mosquitto.conf`. It allows anonymous connections, so keep it on your home network (the file explains how to add a password). Leave the profile off if you use the Home Assistant Mosquitto add-on.
 - To update, `docker compose pull` then `docker compose up -d`. `git pull` first if `docker-compose.yml` or the examples changed. To hold a version, change `:latest` in `docker-compose.yml` to a release or `sha-` tag.
 - GHCR makes a new package private. Either make it public (the package's settings on GitHub, under "Danger Zone") or run `docker login ghcr.io` on the server with a personal access token that has `read:packages`.

@@ -208,7 +208,9 @@ test('opens /settings on the Calendars tab, and the tabs move between pages', as
   await page.getByTestId('tab-photos').click()
   await expect(page.getByTestId('photos-placeholder')).toBeVisible()
   await page.getByTestId('tab-special-days').click()
-  await expect(page.getByTestId('special-days-placeholder')).toBeVisible()
+  // The real server answers the special days (none in the visual config's data folder, or some: either way the page and its list are there).
+  await expect(page.getByTestId('special-days-page')).toBeVisible()
+  await expect(page.getByTestId('special-days-list')).toBeVisible()
 })
 
 test('Refresh now asks for the PIN, then refreshes with it', async ({ page }) => {

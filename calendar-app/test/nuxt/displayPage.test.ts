@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import DisplayPage from '~/pages/display.vue'
+import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { PALETTES, THEMES } from '~/utils/themes'
 import { displayStateSchema } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
+import type { CalendarEvent } from '../../shared/types/events'
 
 // The wall page and what it does with special days (architecture §6): the
 // takeover's palette, art and greeting, a takeover that is out of date, the
@@ -77,11 +79,15 @@ const state = (changes: Partial<DisplayState> = {}): DisplayState => displayStat
 let requests: { url: string, query: Record<string, string> | undefined }[]
 /** What `GET /api/special-days/preview` answers, or null to fail. */
 let previewAnswer: (query: Record<string, string>) => SpecialDaysResolution | null
+/** What the display's settings say beyond the usual: `burn_in` and `night_text`, for the tests of those. */
+let settingsExtra: Record<string, unknown>
+/** What `GET /api/events` answers. */
+let eventsAnswer: CalendarEvent[]
 
 function server(url: string, options?: { query?: Record<string, string> }) {
   requests.push({ url, query: options?.query })
-  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' }]
-  if (url === '/api/events') return { events: [] }
+  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', ...settingsExtra }]
+  if (url === '/api/events') return { events: eventsAnswer }
   if (url === '/api/special-days/preview') {
     const answer = previewAnswer(options?.query ?? {})
     if (!answer) throw new Error('Unknown special day')
@@ -106,9 +112,10 @@ async function openWall(initial: { state?: DisplayState, specialDays?: SpecialDa
   return {
     wrapper,
     stage: () => wrapper.find('[data-testid="stage"]'),
-    // Which of the stage's children holds `element`: later is painted over earlier. (Transitions are stubs in tests, but are children too.)
-    positionInStage: (element: Element) => [...wrapper.find('[data-testid="stage"]').element.children].findIndex(child => child.contains(element)),
+    // Where `element` is in the stage in document order: later is painted over earlier (nothing in the stage has a z-index), whether it sits in the shifting layer or after it like the dimmer.
+    positionInStage: (element: Element) => [...wrapper.find('[data-testid="stage"]').element.querySelectorAll('*')].indexOf(element),
     setState: (changes: Partial<DisplayState>) => send({ type: 'state.updated', display_id: 'hallway', state: state(changes) }),
+    setAlarm: (next: string | null) => send({ type: 'alarm.updated', alarm: next }),
     setSpecialDays: (next: SpecialDaysResolution | null) => send({ type: 'special_days.updated', special_days: next }),
     // The page ticks on setInterval, which is faked.
     tick: async (ms: number) => {
@@ -127,6 +134,8 @@ beforeEach(() => {
   vi.stubGlobal('WebSocket', FakeSocket)
   vi.stubGlobal('Image', FakeImage)
   requests = []
+  settingsExtra = {}
+  eventsAnswer = []
   previewAnswer = () => christmas
   localStorage.clear()
 })
@@ -440,6 +449,145 @@ describe('a preview', () => {
     const dimmer = wall.positionInStage(wall.wrapper.find('[data-testid="dimmer"]').element)
     expect(badge).toBeLessThan(overlay)
     expect(overlay).toBeLessThan(dimmer)
+  })
+})
+
+/** A timed event, for the night view's line. */
+const swimming: CalendarEvent = {
+  id: 1, calendar_id: 'family', title: 'Swimming', display_title: 'Swimming', location: null,
+  start: '2026-11-01T08:30:00Z', end: '2026-11-01T09:30:00Z', all_day: false, start_date: null, end_date: null, people: [],
+}
+
+describe('burn-in shifting', () => {
+  const shift = (wall: Awaited<ReturnType<typeof openWall>>) => wall.wrapper.find('[data-testid="shift"]')
+
+  it('moves the view, the badges and the banner together by the orbit, and leaves the dimmer where it is', async () => {
+    const wall = await openWall({ state: state({ overlay: { text: 'Bins out tonight', icon: null, until: null } }) })
+    const { x, y } = burnInOffset(NOW)
+    expect({ x, y }).not.toEqual({ x: 0, y: 0 })
+
+    expect(shift(wall).attributes('style')).toContain(`transform: translate(${x}px, ${y}px)`)
+    expect(shift(wall).find('[data-testid="month-view"]').exists()).toBe(true)
+    expect(shift(wall).find('[data-testid="overlay-banner"]').exists()).toBe(true)
+    expect(shift(wall).find('[data-testid="dimmer"]').exists()).toBe(false)
+    expect(wall.stage().find('[data-testid="dimmer"]').exists()).toBe(true)
+  })
+
+  it('moves on to the next place after three minutes', async () => {
+    const wall = await openWall()
+    const before = shift(wall).attributes('style')
+
+    await wall.tick(3 * 60_000)
+
+    const { x, y } = burnInOffset(new Date(NOW.getTime() + 3 * 60_000))
+    expect(shift(wall).attributes('style')).toContain(`translate(${x}px, ${y}px)`)
+    expect(shift(wall).attributes('style')).not.toBe(before)
+  })
+
+  it('stays still when the display turns burn_in off', async () => {
+    settingsExtra = { burn_in: false }
+    const wall = await openWall({ state: state({ view: 'photo' }) })
+
+    expect(shift(wall).attributes('style')).toContain('transform: none')
+    await wall.tick(15 * 60_000)
+    expect(shift(wall).attributes('style')).toContain('transform: none')
+    expect(wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')).toBe('top-left')
+  })
+
+  it('shifts a display whose cached settings predate the switch', async () => {
+    localStorage.setItem('wallcal:display:hallway', JSON.stringify({
+      settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
+      state: state(),
+      events: [],
+      saved_at: NOW.toISOString(),
+    }))
+    const wrapper = await mountSuspended(DisplayPage, { route: '/display?id=hallway' })
+    mounted.push(wrapper)
+
+    expect(wrapper.find('[data-testid="shift"]').attributes('style')).toContain('translate(')
+  })
+
+  it('walks the photo frame\'s pill round the corners, a quarter of an hour at a time', async () => {
+    const wall = await openWall({ state: state({ view: 'photo' }) })
+    const corner = () => wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')
+    expect(corner()).toBe(pillCorner(NOW, { overlay: false }))
+
+    await wall.tick(15 * 60_000)
+
+    expect(corner()).toBe(pillCorner(new Date(NOW.getTime() + 15 * 60_000), { overlay: false }))
+    expect(corner()).not.toBe(pillCorner(NOW, { overlay: false }))
+  })
+
+  it('takes the pill out of a bottom corner while a banner shows, and gives the offline badge the other side when the pill has top right', async () => {
+    const wall = await openWall({ state: state({ view: 'photo' }) })
+    const corner = () => wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')
+    const side = () => wall.wrapper.findComponent({ name: 'OfflineBadge' }).props('side')
+    expect(side()).toBe('right')
+
+    // Quarter of an hour on, the pill is top right.
+    await wall.tick(15 * 60_000)
+    expect(corner()).toBe('top-right')
+    expect(side()).toBe('left')
+
+    // Half an hour on it would be bottom right, where the banner is, so it stays up.
+    await wall.tick(15 * 60_000)
+    expect(corner()).toBe('bottom-right')
+    expect(side()).toBe('right')
+    await wall.setState({ view: 'photo', overlay: { text: 'Bins out tonight', icon: null, until: null } })
+    expect(corner()).toBe('top-right')
+    expect(side()).toBe('left')
+  })
+
+  it('does not move the offline badge for a view that has no pill', async () => {
+    const wall = await openWall()
+    await wall.tick(15 * 60_000)
+
+    expect(wall.wrapper.findComponent({ name: 'OfflineBadge' }).props('side')).toBe('right')
+  })
+})
+
+describe('the night view', () => {
+  it('is the night view, not a placeholder, and shows the clock', async () => {
+    const wall = await openWall({ state: state({ view: 'night' }) })
+
+    expect(wall.wrapper.find('[data-testid="night-view"]').exists()).toBe(true)
+    expect(wall.wrapper.find('[data-testid="night-clock"]').text()).toBe('10:00')
+    expect(wall.wrapper.find('[data-testid="night-text"]').exists()).toBe(false)
+  })
+
+  it('shows the first event of the next 24 hours when the display asks for it', async () => {
+    settingsExtra = { night_text: 'first_event' }
+    eventsAnswer = [swimming]
+    const wall = await openWall({ state: state({ view: 'night' }) })
+
+    expect(wall.wrapper.find('[data-testid="night-text"]').text()).toBe('Tomorrow 08:30 \u00B7 Swimming')
+  })
+
+  it('shows the next alarm the server sends, and drops it when it goes', async () => {
+    settingsExtra = { night_text: 'next_alarm' }
+    const wall = await openWall({ state: state({ view: 'night' }) })
+    expect(wall.wrapper.find('[data-testid="night-text"]').exists()).toBe(false)
+
+    await wall.setAlarm('2026-11-01T06:45:00.000Z')
+    expect(wall.wrapper.find('[data-testid="night-text"]').text()).toBe('Tomorrow 06:45')
+
+    await wall.setAlarm(null)
+    expect(wall.wrapper.find('[data-testid="night-text"]').exists()).toBe(false)
+  })
+
+  it('keeps the alarm in the cache for the next load', async () => {
+    const wall = await openWall({ state: state({ view: 'night' }) })
+
+    await wall.setAlarm('2026-11-01T06:45:00.000Z')
+
+    expect(JSON.parse(localStorage.getItem('wallcal:display:hallway')!).alarm).toBe('2026-11-01T06:45:00.000Z')
+  })
+
+  it('is not taken over by a special day', async () => {
+    const wall = await openWall({ state: state({ view: 'night' }), specialDays: resolution() })
+
+    expect(wall.stage().attributes('data-palette')).toBeUndefined()
+    expect(wall.wrapper.find('[data-testid="takeover-full"]').exists()).toBe(false)
   })
 })
 

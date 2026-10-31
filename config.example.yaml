@@ -70,6 +70,14 @@ weather:
   entity_id: weather.home # a weather entity; it must be able to give a daily forecast
   poll_seconds: 600 # default 600; at least 60
 
+# The next alarm, for a display whose night view has night_text: next_alarm
+# (see displays below). It reads one Home Assistant entity through the
+# homeassistant block above: the companion app's next alarm sensor, or an
+# input_datetime that has a date. Leave this out and no alarm is read.
+# alarm:
+#   entity_id: sensor.pixel_8_next_alarm # a sensor or input_datetime entity
+#   poll_seconds: 300 # default 300; at least 30
+
 # One entry per screen. Open /display?id=hallway on it.
 displays:
   - id: hallway
@@ -78,6 +86,8 @@ displays:
     month_style: soft # soft | classic
     month_return_minutes: 15 # a month picked on the remote reverts to this month after this long (1-1440)
     week_start: monday # monday | sunday
+    burn_in: true # default true; slowly shift the content and move the photo frame's clock between corners, against burn-in
+    night_text: first_event # none (default) | first_event | next_alarm; the line under the night view's clock. next_alarm needs the alarm block above
 
 # What the physical button does. Each gesture is one of:
 #   next_view      the next calendar view (month, agenda, week)

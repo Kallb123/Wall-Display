@@ -30,7 +30,7 @@ const broken = asStorage({
   },
 })
 
-const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', photo_sources: [] }
+const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', photo_sources: [] }
 const weather: WeatherSnapshot = {
   current: { condition: 'rainy', temperature: 12 },
   daily: [{ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 }],
@@ -52,6 +52,7 @@ const entry: DisplayCache = {
   events: [],
   weather: null,
   special_days: null,
+  alarm: null,
   saved_at: '2026-10-28T09:41:00.000Z',
 }
 
@@ -107,6 +108,28 @@ describe('the display cache', () => {
   it('drops weather that is the wrong shape and keeps the rest', () => {
     const storage = new FakeStorage()
     storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, weather: { current: 'sunny' } }))
+
+    expect(loadCache(asStorage(storage), 'hallway')).toEqual(entry)
+  })
+
+  it('keeps the alarm that was saved', () => {
+    const storage = new FakeStorage()
+    saveCache(asStorage(storage), 'hallway', { ...entry, alarm: '2026-10-29T06:45:00.000Z' })
+
+    expect(loadCache(asStorage(storage), 'hallway')?.alarm).toBe('2026-10-29T06:45:00.000Z')
+  })
+
+  it('loads an entry saved before there was an alarm, with none', () => {
+    const storage = new FakeStorage()
+    const { alarm: _none, ...older } = entry
+    storage.setItem('wallcal:display:hallway', JSON.stringify(older))
+
+    expect(loadCache(asStorage(storage), 'hallway')).toEqual(entry)
+  })
+
+  it('drops an alarm that is not a time and keeps the rest', () => {
+    const storage = new FakeStorage()
+    storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, alarm: 'half past six' }))
 
     expect(loadCache(asStorage(storage), 'hallway')).toEqual(entry)
   })

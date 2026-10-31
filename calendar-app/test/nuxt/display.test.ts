@@ -46,6 +46,18 @@ describe('OfflineBadge', () => {
     expect(badge().text()).toBe('Offline')
   })
 
+  it('is on the right unless told to take the left', async () => {
+    vi.useFakeTimers()
+    const wrapper = await mountSuspended(OfflineBadge, { props: { status: 'closed' } })
+    await vi.advanceTimersByTimeAsync(3100)
+    expect(wrapper.find('[data-testid="offline-badge"]').classes()).toContain('side-right')
+
+    await wrapper.setProps({ side: 'left' })
+
+    expect(wrapper.find('[data-testid="offline-badge"]').classes()).toContain('side-left')
+    expect(wrapper.find('[data-testid="offline-badge"]').classes()).not.toContain('side-right')
+  })
+
   it('does not start again when the status flips between connecting and closed', async () => {
     vi.useFakeTimers()
     const wrapper = await mountSuspended(OfflineBadge, { props: { status: 'connecting' } })

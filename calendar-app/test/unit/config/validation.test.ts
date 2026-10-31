@@ -140,6 +140,80 @@ describe('validation errors name the field', () => {
     expect(message).toContain('weather.units: unknown setting')
   })
 
+  it('alarm without a homeassistant block', async () => {
+    const message = await messageFor((c) => { c.alarm = { entity_id: 'sensor.phone_next_alarm' } })
+
+    expect(message).toContain('alarm: reads a Home Assistant alarm entity')
+    expect(message).toContain('"homeassistant" block')
+  })
+
+  it.each(['sensor.phone_next_alarm', 'input_datetime.alarm'])('accepts alarm entity id %j with the homeassistant block', async (entityId) => {
+    const config = minimalConfig()
+    config.alarm = { entity_id: entityId }
+    config.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+    const { config: loaded } = await load({ config })
+
+    expect(loaded.alarm).toEqual({ entity_id: entityId, poll_seconds: 300 })
+  })
+
+  it.each(['weather.home', 'sensor.', 'sensor', 'sensor.next alarm', 'input_datetime.', 'binary_sensor.alarm'])('bad alarm entity id %j', async (entityId) => {
+    const message = await messageFor((c) => {
+      c.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+      c.alarm = { entity_id: entityId }
+    })
+
+    expect(message).toContain('alarm.entity_id: must be a sensor or input_datetime entity id')
+  })
+
+  it('alarm polled more often than every 30 seconds', async () => {
+    const message = await messageFor((c) => {
+      c.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+      c.alarm = { entity_id: 'sensor.phone_next_alarm', poll_seconds: 29 }
+    })
+
+    expect(message).toContain('alarm.poll_seconds')
+  })
+
+  it('alarm with an unknown key', async () => {
+    const message = await messageFor((c) => {
+      c.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+      c.alarm = { entity_id: 'sensor.phone_next_alarm', units: 'metric' }
+    })
+
+    expect(message).toContain('alarm.units: unknown setting')
+  })
+
+  it('night_text next_alarm without an alarm block', async () => {
+    const message = await messageFor((c) => { c.displays[0].night_text = 'next_alarm' })
+
+    expect(message).toContain('displays[0].night_text: is next_alarm, but there is no "alarm" block')
+  })
+
+  it('names the display whose night_text needs an alarm block', async () => {
+    const message = await messageFor((c) => {
+      c.displays.push({ id: 'kitchen', name: 'Kitchen', night_text: 'next_alarm' })
+    })
+
+    expect(message).toContain('displays[1].night_text')
+    expect(message).not.toContain('displays[0].night_text')
+  })
+
+  it('accepts night_text next_alarm with an alarm block', async () => {
+    const config = minimalConfig()
+    config.displays[0].night_text = 'next_alarm'
+    config.homeassistant = { url: 'http://ha.local:8123', token: 'abc' }
+    config.alarm = { entity_id: 'sensor.phone_next_alarm' }
+    const { config: loaded } = await load({ config })
+
+    expect(loaded.displays[0]!.night_text).toBe('next_alarm')
+  })
+
+  it('an unknown night_text', async () => {
+    const message = await messageFor((c) => { c.displays[0].night_text = 'weather' })
+
+    expect(message).toContain('displays[0].night_text')
+  })
+
   it('bad timezone', async () => {
     const message = await messageFor((c) => { c.timezone = 'Mars/Olympus' })
 

@@ -9,8 +9,7 @@ import { weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
 
 // The photo frame (architecture §4.1, §5): one photo fullscreen at a time, and
-// a small pill in the top-left corner with the clock, the weather and the next
-// event. The server owns the rotation: it sends `photo.next` (counted by the
+// a small pill in a corner with the clock, the weather and the next event. The server owns the rotation: it sends `photo.next` (counted by the
 // socket and handed down as `photoNext`) when it is time, and this view then
 // asks `GET /api/photos/next` for the photo to show. The image is already
 // rendered to 2560×1440 on the server, so it is only drawn with `cover`.
@@ -23,8 +22,11 @@ import type { ViewProps } from '../../utils/views'
 // is on show alone; with nothing on show there is a calm message and the view
 // tries again now and then. A photo is shown whatever the special days say, and
 // the pill has its own dark glass colours, so it reads on any photo and takes
-// nothing from the theme or a palette. The overlay banner is at the bottom
-// centre, well clear of the corner.
+// nothing from the theme or a palette. The pill starts top left and, unless the
+// display has turned burn-in shifting off, the page walks it round the four
+// corners (`photoCorner`, PR 5.3) so no corner is lit for ever. It takes a top
+// corner while the overlay banner, at the bottom centre, is showing, so the two
+// never meet.
 const props = defineProps<ViewProps>()
 
 /** The length of the crossfade. */
@@ -150,6 +152,8 @@ const weatherNow = computed(() => {
 })
 
 const upcoming = computed(() => nextEvent(props.events, props.now, props.timezone))
+
+const corner = computed(() => props.photoCorner ?? 'top-left')
 </script>
 
 <template>
@@ -172,21 +176,24 @@ const upcoming = computed(() => nextEvent(props.events, props.now, props.timezon
       </p>
     </div>
 
-    <div class="pill" data-testid="photo-pill">
-      <div class="line">
-        <span class="clock" data-testid="photo-clock">{{ time }}</span>
-        <span v-if="weatherNow" class="weather" :title="weatherNow.label ?? undefined" data-testid="photo-weather">
-          <AppIcon v-if="weatherNow.icon" :icon="weatherNow.icon" :size="64" />
-          <span v-if="weatherNow.temperature">{{ weatherNow.temperature }}</span>
-        </span>
-      </div>
+    <!-- Keyed by the corner, so a move fades the pill out where it was and in where it goes. -->
+    <Transition name="pill-move" mode="out-in">
+      <div :key="corner" class="pill" :class="`corner-${corner}`" :data-corner="corner" data-testid="photo-pill">
+        <div class="line">
+          <span class="clock" data-testid="photo-clock">{{ time }}</span>
+          <span v-if="weatherNow" class="weather" :title="weatherNow.label ?? undefined" data-testid="photo-weather">
+            <AppIcon v-if="weatherNow.icon" :icon="weatherNow.icon" :size="64" />
+            <span v-if="weatherNow.temperature">{{ weatherNow.temperature }}</span>
+          </span>
+        </div>
 
-      <div v-if="upcoming" class="next" data-testid="photo-next-event">
-        <span class="marker" :style="{ background: upcoming.event.people[0]?.colour ?? 'rgba(255, 255, 255, 0.6)' }" />
-        <span class="when" data-testid="photo-next-time">{{ upcoming.time }}</span>
-        <span class="what" data-testid="photo-next-title">{{ upcoming.event.display_title }}</span>
+        <div v-if="upcoming" class="next" data-testid="photo-next-event">
+          <span class="marker" :style="{ background: upcoming.event.people[0]?.colour ?? 'rgba(255, 255, 255, 0.6)' }" />
+          <span class="when" data-testid="photo-next-time">{{ upcoming.time }}</span>
+          <span class="what" data-testid="photo-next-title">{{ upcoming.event.display_title }}</span>
+        </div>
       </div>
-    </div>
+    </Transition>
   </section>
 </template>
 
@@ -239,12 +246,10 @@ const upcoming = computed(() => nextEvent(props.events, props.now, props.timezon
   font-size: 96px;
 }
 
-/* Dark glass in white, not the theme's colours: it has to read on a snowfield as well as a night sky. Top left, because the overlay banner is at the bottom and the preview badge at the top centre. */
+/* Dark glass in white, not the theme's colours: it has to read on a snowfield as well as a night sky. It sits in a corner, never the bottom centre where the overlay banner is or the top centre where the preview badge is. */
 .pill {
   position: absolute;
   z-index: 3;
-  top: 64px;
-  left: 64px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -258,6 +263,27 @@ const upcoming = computed(() => nextEvent(props.events, props.now, props.timezon
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
   color: #fff;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* Which corner the page has chosen for it (utils/burnIn.ts). */
+.corner-top-left {
+  top: 64px;
+  left: 64px;
+}
+
+.corner-top-right {
+  top: 64px;
+  right: 64px;
+}
+
+.corner-bottom-right {
+  right: 64px;
+  bottom: 64px;
+}
+
+.corner-bottom-left {
+  bottom: 64px;
+  left: 64px;
 }
 
 .line {
@@ -317,5 +343,17 @@ const upcoming = computed(() => nextEvent(props.events, props.now, props.timezon
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+</style>
+
+<style>
+.pill-move-enter-active,
+.pill-move-leave-active {
+  transition: opacity 0.8s ease;
+}
+
+.pill-move-enter-from,
+.pill-move-leave-to {
+  opacity: 0;
 }
 </style>

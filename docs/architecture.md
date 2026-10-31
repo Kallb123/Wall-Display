@@ -179,7 +179,7 @@ Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`) a
 | `week` | Calendar | 7-day columns with timed blocks |
 | `agenda` | Calendar | Today and tomorrow in large type. The default for mornings. |
 | `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
-| `night` | Ambient | Very dim clock only. Used when the room is dark but you want the screen on. |
+| `night` | Ambient | A very dim clock on pure black, whatever the theme. Used when the room is dark but you want the screen on. A line under the clock is set per display with `night_text`: nothing (`none`, the default), the first timed event in the next 24 hours (`first_event`), or the next alarm (`next_alarm`, read from Home Assistant, see §7.4). |
 
 Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show, and which month the month view shows. The page never decides for itself.
 
@@ -188,8 +188,8 @@ Views are plain front-end routes inside one page (`/display`). The server tells 
 - The layout is designed for a 16:9 screen at 2560×1440. On a 4K panel it renders at 1440p and is scaled up, which keeps Chromium responsive on the Pi. A Pi 5 can try native 4K.
 - Large type, high contrast, nothing interactive. Any UI on the display should read clearly from 3 m away.
 - Calendar views use a solid, themed background and never a photo. This keeps text contrast predictable. On a special day with a takeover the palette changes, but tiles and panels stay solid (see §6.3).
-- In photo frame mode, the clock, the current weather and the next-event chip sit on a small translucent, blurred pill in the top-left corner (the overlay banner is at the bottom centre, so they never meet), so they stay readable over any photo without covering it. The pill is dark glass with white text whatever the theme or special day palette. The chip shows the first timed event that is on now or starts today or tomorrow; all-day events are left out because they would sit there all day and hide the appointment that matters.
-- **Burn-in and wear:** clock and panel positions shift by a few pixels every few minutes.
+- In photo frame mode, the clock, the current weather and the next-event chip sit on a small translucent, blurred pill in a corner, the top left unless burn-in shifting moves it (the overlay banner is at the bottom centre, and the pill keeps to a top corner while one shows, so they never meet), so they stay readable over any photo without covering it. The pill is dark glass with white text whatever the theme or special day palette. The chip shows the first timed event that is on now or starts today or tomorrow; all-day events are left out because they would sit there all day and hide the appointment that matters.
+- **Burn-in and wear:** unless the display sets `burn_in: false`, everything on the stage except the dimming overlay (the view, any takeover art, the preview and offline badges and the overlay banner) moves together in a slow orbit: a circle of radius 8 px in 8 whole-pixel steps, one step every 3 minutes (24 minutes a lap), eased over a few seconds so the step is not seen. The photo frame's pill walks clockwise round the four corners, 15 minutes in each; while an overlay banner is showing, a bottom corner becomes the top corner on the same side so the pill never meets the banner, and the offline badge moves to the top left when the pill has the top right. The night view, the worst case (static glyphs on black), drifts much further: its clock block moves every 5 minutes through a fixed sequence of twelve spots within about ±240 px across and ±160 px up and down of the centre. All of it is worked out from the clock alone (`app/utils/burnIn.ts`, `app/utils/night.ts`), so it is the same after a reload. With `burn_in: false` nothing moves, the pill stays top left and the night clock is centred.
 - **Dimming:** the page can apply a dimming overlay (`brightness` 0–100). This lowers what you see but not the backlight. Changing the real backlight needs DDC/CI (see §8.3).
 - **Resilience:** the page reconnects its WebSocket with backoff. If the server can't be reached, it shows the last-known data with a small "offline" badge rather than a browser error page.
 
@@ -438,7 +438,7 @@ The app holds one state document per display (multiple displays are supported vi
 - `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
-- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`) and `month_return_minutes`, live in config (and later in the settings page), not in this state.
+- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), live in config (and later in the settings page), not in this state.
 
 Every input changes this state through the same command handler. Every change is broadcast to the display (WebSocket), to the remote page (WebSocket) and to HA (MQTT state topics). This keeps all inputs in sync.
 
@@ -518,6 +518,8 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | CPU temperature, uptime | diagnostic sensors |
 
 The app also reads HA's REST API, but only for `homeassistant` calendar sources. It also reads a `weather` entity for the weather shown in the month view's side panel, the agenda and the photo frame pill. The server polls it, keeps the last good snapshot and sends changes as `weather.updated`. Without one, those views leave the weather out.
+
+An `alarm` block names one more HA entity, for a display whose night view has `night_text: next_alarm`: a timestamp sensor such as the companion app's `sensor.<phone>_next_alarm`, or an `input_datetime` that has a date. The server polls it (every `poll_seconds`, 300 by default), keeps the last good answer and sends changes as `alarm.updated`, an ISO 8601 instant or `null` for none. The page ignores an alarm that has passed or is more than a day away. Like `weather`, it needs the `homeassistant` block, and the config is refused if a display asks for `next_alarm` with no `alarm` block.
 
 **Who handles the button?** This is set per gesture in the config:
 
@@ -731,6 +733,7 @@ wall-display/
 │   │   ├── photos/              # immich.ts, google-picker.ts, local.ts, cache.ts
 │   │   ├── special-days/        # resolve.ts, art.ts (uploads, sanitising), midnight.ts
 │   │   ├── weather/             # HA weather entity + forecast cache
+│   │   ├── alarm/               # HA next-alarm entity, polled
 │   │   ├── control/             # state.ts, commands.ts, policies.ts
 │   │   ├── mqtt/                # client.ts, discovery.ts
 │   │   └── db/                  # Drizzle schema + migrations

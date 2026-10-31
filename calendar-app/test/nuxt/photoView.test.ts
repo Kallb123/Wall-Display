@@ -394,6 +394,29 @@ describe('with nothing to show', () => {
 })
 
 describe('the pill', () => {
+  it('is in the top-left corner unless told otherwise', async () => {
+    answers = [gives(A)]
+    const view = await open()
+
+    const pill = view.wrapper.find('[data-testid="photo-pill"]')
+    expect(pill.attributes('data-corner')).toBe('top-left')
+    expect(pill.classes()).toContain('corner-top-left')
+  })
+
+  it('moves to the corner it is given, and keeps showing the clock there', async () => {
+    answers = [gives(A)]
+    const view = await open({ photoCorner: 'bottom-right' })
+    expect(view.wrapper.find('[data-testid="photo-pill"]').classes()).toContain('corner-bottom-right')
+
+    await view.update({ photoCorner: 'top-right' })
+
+    const pill = view.wrapper.find('[data-testid="photo-pill"]')
+    expect(pill.attributes('data-corner')).toBe('top-right')
+    expect(pill.classes()).toContain('corner-top-right')
+    expect(view.wrapper.findAll('[data-testid="photo-pill"]')).toHaveLength(1)
+    expect(pill.find('[data-testid="photo-clock"]').text()).toBe('09:41')
+  })
+
   it('shows the clock in the display\'s zone, in 24 hours', async () => {
     answers = [gives(A)]
     const view = await open({ now: new Date('2026-07-01T13:05:00Z') })

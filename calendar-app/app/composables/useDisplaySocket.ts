@@ -1,5 +1,5 @@
-import { displayStateSchema } from '../../shared/display'
-import type { DisplayState, SocketRole } from '../../shared/display'
+import { displayStateSchema, nextAlarmSchema } from '../../shared/display'
+import type { DisplayState, NextAlarm, SocketRole } from '../../shared/display'
 import { specialDaysResolutionSchema } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import { weatherSnapshotSchema } from '../../shared/weather'
@@ -23,7 +23,8 @@ export interface DisplaySocketOptions {
  * whenever it changes, so `state` is null only until the first message. The
  * weather follows the state, and is `undefined` until it has been heard (a
  * null is the server saying there is none), and so do the special days (the
- * tiles and takeover to draw, architecture §6.5). `photoNext` counts the
+ * tiles and takeover to draw, architecture §6.5) and the next alarm (a null
+ * being none, for the night view). `photoNext` counts the
  * `photo.next` messages for this display (the server's cue to show another
  * photo; a rise is the signal, the number means nothing) and `opens` counts
  * the times the socket has opened, a reconnect being one more. Both only ever
@@ -37,6 +38,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
   const state = ref<DisplayState | null>(null)
   const weather = ref<WeatherSnapshot | null | undefined>(undefined)
   const specialDays = ref<SpecialDaysResolution | null | undefined>(undefined)
+  const alarm = ref<NextAlarm | undefined>(undefined)
   const photoNext = ref(0)
   const opens = ref(0)
 
@@ -89,7 +91,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       return
     }
     if (typeof message !== 'object' || message === null) return
-    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays } = message as Record<string, unknown>
+    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays, alarm: nextAlarm } = message as Record<string, unknown>
 
     if (type === 'state.updated' && from === id) {
       const parsed = displayStateSchema.safeParse(next)
@@ -104,6 +106,10 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       // For every wall too, and ignored the same way when it is bad.
       const parsed = specialDaysResolutionSchema.nullable().safeParse(nextSpecialDays)
       if (parsed.success) specialDays.value = parsed.data
+    } else if (type === 'alarm.updated') {
+      // For every wall too. The schema also turns away a time that isn't an instant.
+      const parsed = nextAlarmSchema.safeParse(nextAlarm)
+      if (parsed.success) alarm.value = parsed.data
     } else if (type === 'photo.next' && from === id) {
       photoNext.value++
     }
@@ -115,11 +121,12 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
     state.value = null
     weather.value = undefined
     specialDays.value = undefined
+    alarm.value = undefined
     if (id) connect(id)
     else status.value = 'closed'
   }, { immediate: true })
 
   onScopeDispose(close)
 
-  return { status, state, weather, specialDays, photoNext, opens }
+  return { status, state, weather, specialDays, alarm, photoNext, opens }
 }

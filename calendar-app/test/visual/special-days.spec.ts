@@ -147,7 +147,7 @@ test.describe('what a takeover leaves alone', () => {
 
     server.send({ view: 'night' })
 
-    await expect(page.locator('h1')).toHaveText('Night')
+    await expect(page.getByTestId('night-view')).toBeVisible()
     await expect(stage(page)).not.toHaveAttribute('data-palette')
     await expect(page.getByTestId('takeover-full')).toHaveCount(0)
 

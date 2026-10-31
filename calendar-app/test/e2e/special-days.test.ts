@@ -81,6 +81,9 @@ describe('special days', async () => {
       day: 25,
       year: null,
       repeat: 'yearly',
+      scene_id: null,
+      who: null,
+      since_year: null,
       lead: 'month',
       lead_days: null,
       tile_art: null,
@@ -88,6 +91,7 @@ describe('special days', async () => {
       full_art: null,
       greeting: 'Merry Christmas',
       palette: 'warm',
+      extra_art: null,
       updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     })
   })
@@ -137,10 +141,16 @@ describe('special days', async () => {
     await expect(create({ ...christmas, year: 2027 })).rejects.toMatchObject(reason(400, 'year must'))
     await expect(create({ ...christmas, repeat: 'once', year: 2027, month: 2, day: 29 })).rejects.toMatchObject(reason(400, 'day must'))
     await expect(create({ ...christmas, palette: 'neon' })).rejects.toMatchObject(reason(400, 'palette must be one of'))
-    await expect(create({ ...christmas, lead: undefined })).rejects.toMatchObject(reason(400, 'lead'))
+    await expect(create({ ...christmas, lead: 'fortnight' })).rejects.toMatchObject(reason(400, 'lead must be one of'))
+    await expect(create({ ...christmas, lead: null, lead_days: 5 })).rejects.toMatchObject(reason(400, 'lead_days must be left out'))
     await expect(create({ ...christmas, lead: 'days' })).rejects.toMatchObject(reason(400, 'lead_days is required'))
     await expect(create({ ...christmas, lead: 'days', lead_days: 400 })).rejects.toMatchObject(reason(400, 'lead_days must'))
     await expect(create({ ...christmas, tile_art: 'x.webp' })).rejects.toMatchObject(reason(400, 'tile_art'))
+    await expect(create({ ...christmas, extra_art: 'x.webp' })).rejects.toMatchObject(reason(400, 'extra_art'))
+    await expect(create({ ...christmas, since_year: 1800 })).rejects.toMatchObject(reason(400, 'since_year must'))
+    await expect(create({ ...christmas, repeat: 'once', year: 2027, since_year: 2019 })).rejects.toMatchObject(reason(400, 'since_year must be left out'))
+    await expect(create({ ...christmas, who: 'x'.repeat(41) })).rejects.toMatchObject(reason(400, 'who must'))
+    await expect(create({ ...christmas, greeting: 'Hi {name}' })).rejects.toMatchObject(reason(400, 'greeting has an unknown placeholder'))
     await expect(create(null)).rejects.toMatchObject({ statusCode: 400 })
     await expect(update('christmas', { ...christmas, takeover: 'yes' })).rejects.toMatchObject(reason(400, 'takeover must'))
     expect(await $fetch<SpecialDay[]>('/api/special-days')).toHaveLength(1)

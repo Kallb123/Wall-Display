@@ -359,7 +359,7 @@ They are filled in for each occurrence, so the same birthday says "7th" this yea
 
 Art files are named by a hash of their content, so a copy shares the files rather than storing them twice. A file is deleted once no scene or day refers to it.
 
-A scene in use can't be deleted on its own. The editor offers **Copy into days and delete**, which first gives each of its days the scene's values as their own, so nothing changes on the wall.
+A scene in use can't be deleted on its own. The editor offers **Copy into days and delete**, which first gives each of its days the scene's values as their own, so nothing changes on the wall. Save as scene and this delete both leave the days' `updated_at` as it was: the wall looks the same afterwards, so which day wins a shared date (§6.3) mustn't move. Only an edit made to a day itself changes it.
 
 One day with several dates was considered instead of scenes. Each birthday needs its own name, greeting and age anyway, so that would need a set of changes per date, which is what a day on a scene already is.
 

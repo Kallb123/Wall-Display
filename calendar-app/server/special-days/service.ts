@@ -1,6 +1,6 @@
 import { addDays, todayIn } from '../../shared/dates'
 import { resolutionRange, resolveSpecialDays } from '../../shared/special-days'
-import type { SpecialDay, SpecialDaysResolution } from '../../shared/special-days'
+import type { SpecialDay, SpecialDayScene, SpecialDaysResolution } from '../../shared/special-days'
 import { zonedWallTimeToUtc } from '../sources/time'
 
 // Keeps the special days resolved for today, and resolves them again at local
@@ -9,9 +9,15 @@ import { zonedWallTimeToUtc } from '../sources/time'
 // reads is injected, so this file holds no database code and a test drives it
 // with fake timers and a frozen clock.
 
+/** Everything the resolution is worked out from. */
+export interface SpecialDaysData {
+  days: SpecialDay[]
+  scenes: SpecialDayScene[]
+}
+
 export interface SpecialDaysServiceOptions {
-  /** Reads every stored special day. May throw: the last good resolution is kept. */
-  load: () => SpecialDay[]
+  /** Reads every stored special day and scene. May throw: the last good resolution is kept. */
+  load: () => SpecialDaysData
   /** The display time zone, which decides when midnight is. */
   timeZone: string
   /** Called with the new resolution whenever it differs from the last one given. */
@@ -70,8 +76,8 @@ export function createSpecialDaysService(options: SpecialDaysServiceOptions): Sp
     if (stopped) return
     const today = todayIn(now(), timeZone)
     try {
-      const days = load()
-      const resolution = resolveSpecialDays(days, { ...resolutionRange(today), today })
+      const { days, scenes } = load()
+      const resolution = resolveSpecialDays(days, scenes, { ...resolutionRange(today), today })
       if (loggedError !== null) log.info('[special-days] working again')
       loggedError = null
       if (latest === null) log.info(`[special-days] ${days.length} special ${days.length === 1 ? 'day' : 'days'}`)

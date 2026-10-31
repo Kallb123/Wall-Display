@@ -1,8 +1,9 @@
 # Config for the Playwright visual tests (playwright.config.ts): the same
 # family and fixture calendars as config.dev.yaml, with a light and a dark
-# display. The tests answer /api/events and the WebSocket themselves, so the
-# calendars only have to load; /api/displays is the real thing. The photo frame
-# specs use the real photo pipeline on the fixture photos below.
+# display, and a third, the porch, that moves its content against burn-in. The
+# tests answer /api/events and the WebSocket themselves, so the calendars only
+# have to load; /api/displays is the real thing. The photo frame specs use the
+# real photo pipeline on the fixture photos below.
 # A relative file: URL is resolved from the folder holding this config file.
 
 timezone: Europe/London
@@ -32,13 +33,23 @@ calendars:
     person: dad
     source: { type: ics, url: "file:../fixtures/ics/dad-work.ics" }
 
+# The hallway and kitchen keep burn-in shifting off, so their pictures are of
+# the layout where it was drawn, whatever the time. The porch has it on, and its
+# night view shows the first event (specs night.spec.ts and burn-in.spec.ts).
 displays:
   - id: hallway
     name: Hallway
     theme: light
+    burn_in: false
   - id: kitchen
     name: Kitchen
     theme: dark
+    burn_in: false
+  - id: porch
+    name: Porch
+    theme: light
+    burn_in: true
+    night_text: first_event
 
 # The pictures are the small fixtures in test/fixtures/photos/, rendered by the
 # real server. A relative path is from the folder holding this config file.

@@ -2,17 +2,20 @@
 import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { currentMonth, displayStateSchema } from '../../shared/display'
-import type { DisplaySettings, DisplayState, View } from '../../shared/display'
+import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
 import { specialDayArtUrl } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
 import AgendaView from '~/components/views/AgendaView.vue'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
+import NightView from '~/components/views/NightView.vue'
 import PhotoView from '~/components/views/PhotoView.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
+import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
+import { isOverlayShowing } from '~/utils/overlay'
 import { STAGE_HEIGHT, STAGE_WIDTH } from '~/utils/stage'
 import { activePreview, isEvening, takeoverInForce } from '~/utils/specialDays'
 import { themeStyle, themeTokens } from '~/utils/themes'
@@ -29,6 +32,10 @@ import type { ViewProps } from '~/utils/views'
 // a takeover only on a calendar view and only on its own date (so it never
 // outlives its midnight, even from the cache), and a preview in place of the
 // real days while one runs.
+//
+// Against burn-in (PR 5.3, architecture §4.2), unless the display turns it off,
+// everything but the dimmer sits in one `.shift` layer that the page nudges in
+// a slow orbit, and the photo frame's pill is told which corner to be in.
 useHead({ title: 'Display' })
 
 // Each view. The placeholder stands in for the ones not built yet.
@@ -38,7 +45,7 @@ const viewComponents: Record<View, Component> = {
   week: PlaceholderView,
   agenda: AgendaView,
   photo: PhotoView,
-  night: PlaceholderView,
+  night: NightView,
 }
 const viewFor = (view: View): Component => viewComponents[view]
 
@@ -53,6 +60,8 @@ const settings = ref<DisplaySettings | null>(null)
 const state = ref<DisplayState>(displayStateSchema.parse({}))
 const events = ref<CalendarEvent[]>([])
 const weather = ref<WeatherSnapshot | null>(null)
+/** The next alarm the server last sent, or null for none (the night view's, if the display shows it). */
+const alarm = ref<NextAlarm>(null)
 /** The special days the server last sent for the real today (never a preview's), or null for none. */
 const specialDays = ref<SpecialDaysResolution | null>(null)
 /** The server answered and has no such display. */
@@ -66,6 +75,7 @@ function select(id: string) {
   state.value = cached?.state ?? displayStateSchema.parse({})
   events.value = cached?.events ?? []
   weather.value = cached?.weather ?? null
+  alarm.value = cached?.alarm ?? null
   specialDays.value = cached?.special_days ?? null
 }
 
@@ -119,6 +129,28 @@ const takeover = computed(() => takeoverInForce({
   previewing: previewing.value,
 }))
 
+// Burn-in shifting is on unless the display says otherwise. Settings cached before PR 5.3 have no word on it, and the default is on. Until there are settings at all nothing moves, so a display that has it off never starts out nudged and slides back.
+const burnIn = computed(() => settings.value !== null && settings.value.burn_in !== false)
+// The first offset is put in place at once; only the steps after it are slow. (The wait is for the browser to have drawn it: turning the transition on in the same frame would slide it in.)
+const shiftSlow = ref(false)
+let slowTimer: ReturnType<typeof setTimeout> | undefined
+watch(() => settings.value !== null, (known) => {
+  if (known && !shiftSlow.value) slowTimer = setTimeout(() => { shiftSlow.value = true }, 1000)
+}, { immediate: true })
+onScopeDispose(() => clearTimeout(slowTimer))
+const shift = computed(() => burnIn.value ? burnInOffset(now.value) : { x: 0, y: 0 })
+/** The banner is at the bottom centre and the pill must keep out of its way. */
+const overlayShowing = computed(() => isOverlayShowing(state.value.overlay, now.value))
+const photoCorner = computed(() => burnIn.value ? pillCorner(now.value, { overlay: overlayShowing.value }) : 'top-left')
+/** The offline badge is top right, which the pill may have, and then it takes the other side. */
+const offlineSide = computed(() => state.value.view === 'photo' && photoCorner.value === 'top-right' ? 'left' : 'right')
+/** The sliver the layer uncovers at an edge when it moves: black for the views that are black or a photo, and the stage's own ground otherwise. */
+const shiftStyle = computed(() => ({
+  transform: shift.value.x || shift.value.y ? `translate(${shift.value.x}px, ${shift.value.y}px)` : 'none',
+  transition: shiftSlow.value ? undefined : 'none',
+  '--shift-fill': state.value.view === 'photo' || state.value.view === 'night' ? '#000' : 'transparent',
+}))
+
 /** What each view is given, or null until the settings (and so the time zone and week start) have arrived. */
 const viewProps = computed<ViewProps | null>(() => {
   const display = settings.value
@@ -136,6 +168,10 @@ const viewProps = computed<ViewProps | null>(() => {
     displayId: displayId.value,
     photoNext: socket.photoNext.value,
     socketOpens: socket.opens.value,
+    photoCorner: photoCorner.value,
+    nightText: display.night_text,
+    alarm: alarm.value,
+    burnIn: burnIn.value,
   }
 })
 
@@ -171,6 +207,11 @@ watch(socket.weather, (next) => {
 // The settings arriving, the month changing and midnight passing each change what to ask for.
 watch([shownMonth, today], () => void loadEvents(), { immediate: true })
 
+// Likewise the next alarm (null for none).
+watch(socket.alarm, (next) => {
+  if (next !== undefined) alarm.value = next
+})
+
 // Like the weather, sent after the state on every connect and again when it changes.
 watch(socket.specialDays, (next) => {
   if (next !== undefined) specialDays.value = next
@@ -180,9 +221,9 @@ watch(socket.specialDays, (next) => {
 const evening = computed(() => timezone.value !== null && isEvening(now.value, timezone.value))
 useArtPreload(() => previewing.value ? [] : specialDays.value?.tomorrow_art ?? [], evening)
 
-watch([settings, state, events, weather, specialDays], () => {
+watch([settings, state, events, weather, specialDays, alarm], () => {
   if (!displayId.value || !settings.value) return
-  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, weather: weather.value, special_days: specialDays.value, saved_at: new Date().toISOString() })
+  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, weather: weather.value, special_days: specialDays.value, alarm: alarm.value, saved_at: new Date().toISOString() })
   saveLastDisplayId(storage, displayId.value)
 })
 
@@ -215,47 +256,50 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
       :data-preview="previewing || undefined"
       :style="stageStyle"
     >
-      <!-- Behind the view, which is solid where it has text, so the art shows in the margins and the gaps. -->
-      <img
-        v-if="takeover?.full_art"
-        class="takeover-art"
-        :src="specialDayArtUrl(takeover.full_art)"
-        alt=""
-        draggable="false"
-        data-testid="takeover-full"
-      >
-      <img
-        v-if="takeover?.extra_art"
-        class="takeover-art"
-        :src="specialDayArtUrl(takeover.extra_art)"
-        alt=""
-        draggable="false"
-        data-testid="takeover-extra"
-      >
+      <!-- Everything the burn-in shift moves. The dimmer is outside it, so it covers the whole stage whatever the offset. -->
+      <div class="shift" data-testid="shift" :style="shiftStyle">
+        <!-- Behind the view, which is solid where it has text, so the art shows in the margins and the gaps. -->
+        <img
+          v-if="takeover?.full_art"
+          class="takeover-art"
+          :src="specialDayArtUrl(takeover.full_art)"
+          alt=""
+          draggable="false"
+          data-testid="takeover-full"
+        >
+        <img
+          v-if="takeover?.extra_art"
+          class="takeover-art"
+          :src="specialDayArtUrl(takeover.extra_art)"
+          alt=""
+          draggable="false"
+          data-testid="takeover-extra"
+        >
 
-      <p v-if="unknown" class="message">
-        Unknown display
-      </p>
-      <p v-else-if="!viewProps" class="message">
-        Connecting&hellip;
-      </p>
-      <Transition v-else name="view-fade" mode="out-in">
-        <component
-          :is="viewFor(state.view)"
-          :key="state.view"
-          v-bind="viewProps"
-        />
-      </Transition>
+        <p v-if="unknown" class="message">
+          Unknown display
+        </p>
+        <p v-else-if="!viewProps" class="message">
+          Connecting&hellip;
+        </p>
+        <Transition v-else name="view-fade" mode="out-in">
+          <component
+            :is="viewFor(state.view)"
+            :key="state.view"
+            v-bind="viewProps"
+          />
+        </Transition>
 
-      <div v-if="previewing" class="preview-badge" data-testid="preview-badge">
-        <AppIcon :icon="Eye" :size="32" />
-        Preview
+        <div v-if="previewing" class="preview-badge" data-testid="preview-badge">
+          <AppIcon :icon="Eye" :size="32" />
+          Preview
+        </div>
+
+        <!-- Outside the view's transition, so a view change doesn't fade it out and back. Under the dimmer, so screen off blacks it out too. -->
+        <OverlayBanner v-if="!unknown" :overlay="state.overlay" :now="now" />
+
+        <OfflineBadge :status="socket.status.value" :side="offlineSide" />
       </div>
-
-      <!-- Outside the view's transition, so a view change doesn't fade it out and back. Under the dimmer, so screen off blacks it out too. -->
-      <OverlayBanner v-if="!unknown" :overlay="state.overlay" :now="now" />
-
-      <OfflineBadge :status="socket.status.value" />
 
       <div class="dimmer" data-testid="dimmer" :style="{ opacity: dimming }" />
     </div>
@@ -288,6 +332,14 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
   font-family: var(--font-display);
   font-size: 96px;
   text-align: center;
+}
+
+/* Fills the stage and moves as one (see the burn-in note above). The step is a few pixels every few minutes, so it takes several seconds to get there and nobody sees it go. The shadow paints the strip the move uncovers at an edge; it is outside the stage, and clipped, while the layer is still. */
+.shift {
+  position: absolute;
+  inset: 0;
+  box-shadow: 0 0 0 16px var(--shift-fill, transparent);
+  transition: transform 8s ease-in-out;
 }
 
 /* Both fill the stage and are cropped to it, 2560×1440 art being the same shape. They never take a click. */

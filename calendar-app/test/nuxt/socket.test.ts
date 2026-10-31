@@ -158,6 +158,67 @@ describe('useDisplaySocket special days', () => {
   })
 })
 
+describe('useDisplaySocket next alarm', () => {
+  beforeEach(() => {
+    FakeSocket.all = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('has not heard any until the server sends it', () => {
+    const { socket, scope } = open()
+
+    expect(socket.alarm.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it('keeps an alarm, and then a null as the server saying there is none', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'alarm.updated', alarm: '2026-10-29T06:45:00.000Z' })
+    expect(socket.alarm.value).toBe('2026-10-29T06:45:00.000Z')
+
+    fake.push({ type: 'alarm.updated', alarm: null })
+    expect(socket.alarm.value).toBeNull()
+    scope.stop()
+  })
+
+  it('takes a time with an offset', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'alarm.updated', alarm: '2026-10-29T07:45:00+01:00' })
+
+    expect(socket.alarm.value).toBe('2026-10-29T07:45:00+01:00')
+    scope.stop()
+  })
+
+  it('ignores a payload that is not a time, and keeps the last good one', () => {
+    const { socket, scope, fake } = open()
+    fake.push({ type: 'alarm.updated', alarm: '2026-10-29T06:45:00.000Z' })
+
+    fake.push({ type: 'alarm.updated', alarm: 'half past six' })
+    fake.push({ type: 'alarm.updated', alarm: 645 })
+    fake.push({ type: 'alarm.updated' })
+
+    expect(socket.alarm.value).toBe('2026-10-29T06:45:00.000Z')
+    scope.stop()
+  })
+
+  it('does not let it touch the state, the weather or the special days', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'alarm.updated', alarm: '2026-10-29T06:45:00.000Z' })
+
+    expect(socket.state.value).toBeNull()
+    expect(socket.weather.value).toBeUndefined()
+    expect(socket.specialDays.value).toBeUndefined()
+    scope.stop()
+  })
+})
+
 describe('useDisplaySocket photo.next and opens', () => {
   beforeEach(() => {
     FakeSocket.all = []

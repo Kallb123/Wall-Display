@@ -1,7 +1,8 @@
-import type { MonthKey, View } from '../../shared/display'
+import type { MonthKey, NextAlarm, NightText, View } from '../../shared/display'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
+import type { Corner } from './burnIn'
 
 // What every view component is given by pages/display.vue. They all declare
 // `defineProps<ViewProps>()`, even when they ignore some of it, so a prop a
@@ -49,6 +50,14 @@ export interface ViewProps {
   photoNext?: number
   /** The photo frame only: how many times the socket has opened. A rise with nothing on show means "try again". */
   socketOpens?: number
+  /** The photo frame only: the corner its pill is in, which the page moves round so no corner is lit for ever (PR 5.3). `top-left` when left out. */
+  photoCorner?: Corner
+  /** The night view only: what it says under the clock. `none` when left out. */
+  nightText?: NightText
+  /** The night view only: the next alarm the server knows of, or null for none. Not heard yet is the same as none. */
+  alarm?: NextAlarm
+  /** The night view only: whether the clock drifts about the screen (the display's `burn_in`). Centred when left out. */
+  burnIn?: boolean
 }
 
 /** For a view with nothing special on it: no decorated tiles and no takeover. */

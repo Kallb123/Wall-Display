@@ -1,5 +1,5 @@
-import { displayStateSchema } from '../../shared/display'
-import type { DisplaySettings, DisplayState } from '../../shared/display'
+import { displayStateSchema, nextAlarmSchema } from '../../shared/display'
+import type { DisplaySettings, DisplayState, NextAlarm } from '../../shared/display'
 import type { CalendarEvent } from '../../shared/types/events'
 import { specialDaysResolutionSchema } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
@@ -20,6 +20,8 @@ export interface DisplayCache {
   weather: WeatherSnapshot | null
   /** The last special days the server sent (never a preview's), or null for none. An entry from before PR S.3 has none. */
   special_days: SpecialDaysResolution | null
+  /** The last next alarm the server sent, or null for none. Optional: an entry from before PR 5.2 has none, and loads as null. */
+  alarm?: NextAlarm
   /** When it was saved, as an ISO 8601 instant. */
   saved_at: string
 }
@@ -40,15 +42,17 @@ export function loadCache(storage: Storage | null | undefined, displayId: string
     // The state is parsed, so a document from an older version gets its defaults.
     const state = displayStateSchema.safeParse(data.state)
     if (!state.success) return null
-    // Weather and special days the same way: anything wrong with one costs it, not the wall.
+    // Weather, special days and the alarm the same way: anything wrong with one costs it, not the wall.
     const weather = weatherSnapshotSchema.safeParse(data.weather)
     const specialDays = specialDaysResolutionSchema.safeParse(data.special_days)
+    const alarm = nextAlarmSchema.safeParse(data.alarm)
     return {
       settings: data.settings as unknown as DisplaySettings,
       state: state.data,
       events: data.events as CalendarEvent[],
       weather: weather.success ? weather.data : null,
       special_days: specialDays.success ? specialDays.data : null,
+      alarm: alarm.success ? alarm.data : null,
       saved_at: data.saved_at,
     }
   } catch {

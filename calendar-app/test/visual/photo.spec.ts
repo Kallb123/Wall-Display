@@ -149,3 +149,59 @@ test('moves on to the next photo when the server says so, and only then', async 
   await expect(page.locator('[data-testid="photo-layer-1"]')).toHaveClass(/top/)
   expect(asked).toHaveLength(2)
 })
+
+// The porch moves its pill round the corners against burn-in (PR 5.3), a quarter
+// of an hour at a time: 09:41 is a bottom-right slot, and the slot after it is
+// bottom-left. The hallway and kitchen never move it from the top left.
+test('the pill takes another corner on a display with burn-in shifting', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  await playServer(page, { view: 'photo' }, events, weather)
+  await page.goto('/display?id=porch')
+  await photoShown(page)
+
+  await expect(page.getByTestId('photo-pill')).toHaveAttribute('data-corner', 'bottom-right')
+  const stage = (await page.getByTestId('stage').boundingBox())!
+  const pill = (await page.getByTestId('photo-pill').boundingBox())!
+  expect(pill.x + pill.width).toBeGreaterThan(stage.x + stage.width / 2)
+  expect(pill.y + pill.height).toBeGreaterThan(stage.y + stage.height / 2)
+  await expect(page).toHaveScreenshot('pill-bottom-right.png')
+})
+
+test('the pill moves on to the next corner when the quarter hour changes', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  await playServer(page, { view: 'photo' }, events, weather, { now: new Date('2026-10-28T09:50:00Z') })
+  await page.goto('/display?id=porch')
+  await photoShown(page)
+
+  await expect(page.getByTestId('photo-pill')).toHaveAttribute('data-corner', 'bottom-left')
+  await expect(page.getByTestId('photo-clock')).toHaveText('09:50')
+})
+
+test('a bottom corner becomes the top one on the same side while the banner is up', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  const overlay = { text: 'Bins out tonight', icon: 'trash', until: null }
+  await playServer(page, { view: 'photo', overlay }, events, weather)
+  await page.goto('/display?id=porch')
+  await photoShown(page)
+
+  // Bottom right on its own, so top right with the banner.
+  await expect(page.getByTestId('photo-pill')).toHaveAttribute('data-corner', 'top-right')
+  const bannerBox = page.getByTestId('overlay-banner')
+  await expect.poll(() => bannerBox.evaluate(element => getComputedStyle(element.parentElement!).transform)).toBe('none')
+  const banner = (await bannerBox.boundingBox())!
+  const pill = (await page.getByTestId('photo-pill').boundingBox())!
+  expect(pill.y + pill.height).toBeLessThan(banner.y)
+})
+
+test('with burn-in off the pill stays top left', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  await playServer(page, { view: 'photo' }, events, weather)
+  await page.goto('/display?id=hallway')
+  await photoShown(page)
+
+  await expect(page.getByTestId('photo-pill')).toHaveAttribute('data-corner', 'top-left')
+})

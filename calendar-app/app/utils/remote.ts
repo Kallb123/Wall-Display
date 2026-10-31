@@ -1,5 +1,5 @@
-import { MONTH_RANGE, addMonths } from '../../shared/display'
-import type { MonthKey } from '../../shared/display'
+import { MONTH_RANGE, PHOTO_SOURCES, addMonths } from '../../shared/display'
+import type { MonthKey, PhotoSource } from '../../shared/display'
 
 // What the remote page works out from what it knows: the months the picker
 // offers, which `set_month` command a pick means, what the connection pill
@@ -33,6 +33,28 @@ export function monthOptions(current: MonthKey): MonthOption[] {
 export function monthCommandFor(target: MonthKey, current: MonthKey): MonthKey | 'current' {
   return target === current ? 'current' : target
 }
+
+/** The photo sources in the order the remote offers them, with the words on each segment. The folder is `local` on the wire. */
+export const PHOTO_SOURCE_CHOICES: { source: PhotoSource, label: string }[] = [
+  { source: 'immich', label: 'Immich' },
+  { source: 'google', label: 'Google' },
+  { source: 'local', label: 'Folder' },
+]
+
+/**
+ * The source a display really uses, which is what the segmented control should
+ * show selected. The server uses `chosen` if it is set up and otherwise the
+ * first that is (Immich, Google, then the folder), so a display left on the
+ * default `immich` with only a folder set up is showing the folder. Null when
+ * nothing is set up.
+ */
+export function effectivePhotoSource(chosen: PhotoSource, available: readonly PhotoSource[]): PhotoSource | null {
+  if (available.includes(chosen)) return chosen
+  return PHOTO_SOURCES.find(source => available.includes(source)) ?? null
+}
+
+/** How long "Skipped" stays on the Next photo button. */
+export const SKIPPED_MS = 2000
 
 /** How long the socket may be down before the pill gives up saying "Reconnecting". */
 export const OFFLINE_AFTER_MS = 10_000

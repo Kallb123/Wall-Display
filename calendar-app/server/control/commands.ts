@@ -54,13 +54,25 @@ function setMonth(state: DisplayState, month: Extract<Command, { type: 'set_mont
  * service carries them out.
  */
 export function reduceCommand(state: DisplayState, command: Command, ctx: ControlContext): DisplayState {
-  return expireState(apply(state, command, ctx), ctx)
+  return expireState(rememberView(state, apply(state, command, ctx)), ctx)
+}
+
+/**
+ * Keeps `last_calendar_view` as the view `toggle_photo` goes back to: whichever
+ * view that isn't the photo frame the display was last on. Done for every
+ * command, so it is right however the view changed (the remote, a button or
+ * Home Assistant), and for a state stored before the field existed.
+ */
+function rememberView(before: DisplayState, after: DisplayState): DisplayState {
+  const view = after.view !== 'photo' ? after.view : before.view !== 'photo' ? before.view : null
+  return view === null || view === after.last_calendar_view ? after : { ...after, last_calendar_view: view }
 }
 
 function apply(state: DisplayState, command: Command, ctx: ControlContext): DisplayState {
   switch (command.type) {
     case 'set_view': return { ...state, view: command.view }
     case 'next_view': return { ...state, view: viewAfter(state.view) }
+    case 'toggle_photo': return { ...state, view: state.view === 'photo' ? state.last_calendar_view : 'photo' }
     case 'set_month': return setMonth(state, command.month, ctx)
     case 'set_screen': return { ...state, screen: command.screen }
     case 'set_brightness': return { ...state, brightness: command.brightness }

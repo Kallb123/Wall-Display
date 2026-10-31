@@ -80,8 +80,14 @@ displays:
     week_start: monday # monday | sunday
 
 # What the physical button does. Each gesture is one of:
-#   next_view, toggle_photo, toggle_screen, next_month, prev_month, this_month,
-#   refresh, ha (the app does nothing; a Home Assistant automation decides), none
+#   next_view      the next calendar view (month, agenda, week)
+#   toggle_photo   the photo frame, or back to the view it replaced
+#   next_photo     the next photo (and the photo wait starts again)
+#   toggle_screen  the screen off, or on
+#   next_month, prev_month, this_month   change the month shown
+#   refresh        sync the calendars now
+#   ha             the app does nothing; a Home Assistant automation decides
+#   none           nothing at all
 button:
   single: next_view
   double: toggle_photo

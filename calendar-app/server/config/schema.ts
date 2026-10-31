@@ -120,9 +120,11 @@ const display = z.strictObject({
   week_start: z.enum(['monday', 'sunday']).default('monday'),
 })
 
-const buttonAction = z.enum([
+/** What a gesture of the button can be set to (`button.single`, `double`, `long`). server/control/button.ts says what each does. */
+export const BUTTON_ACTIONS = [
   'next_view',
   'toggle_photo',
+  'next_photo',
   'toggle_screen',
   'next_month',
   'prev_month',
@@ -130,7 +132,9 @@ const buttonAction = z.enum([
   'refresh',
   'ha', // the app ignores the gesture; Home Assistant decides
   'none',
-])
+] as const
+
+const buttonAction = z.enum(BUTTON_ACTIONS)
 
 const button = z.strictObject({
   single: buttonAction.default('next_view'),

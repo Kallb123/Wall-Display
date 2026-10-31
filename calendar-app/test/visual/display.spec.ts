@@ -187,7 +187,7 @@ test.describe('the overlay banner', () => {
     await playServer(page)
     const cached = {
       settings: { id: 'garage', name: 'Garage', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
-      state: { view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: bins },
+      state: { view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: bins },
       events: [],
       saved_at: '2026-10-28T09:00:00.000Z',
     }

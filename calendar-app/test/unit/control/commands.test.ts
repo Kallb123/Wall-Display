@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { displayStateSchema } from '../../../shared/display'
 import type { Command, DisplayState } from '../../../shared/display'
 import { defaultDisplayState, expireState, nextExpiry, reduceCommand } from '../../../server/control/commands'
 import type { ControlContext } from '../../../server/control/commands'
@@ -250,6 +251,73 @@ describe('the other commands', () => {
     reduceCommand(start, { type: 'set_view', view: 'agenda' }, ctx())
 
     expect(start).toEqual(copy)
+  })
+})
+
+describe('toggle_photo', () => {
+  const toggle: Command = { type: 'toggle_photo' }
+  const view = (start: DisplayState, ...commands: Command[]) => commands.reduce((current, command) => reduceCommand(current, command, ctx()), start)
+
+  it('defaults last_calendar_view to month', () => {
+    expect(defaultDisplayState().last_calendar_view).toBe('month')
+  })
+
+  it('goes to the photo frame, remembering the view it replaced', () => {
+    const next = reduceCommand(state({ view: 'week' }), toggle, ctx())
+
+    expect(next).toMatchObject({ view: 'photo', last_calendar_view: 'week' })
+  })
+
+  it('goes back to that view from the photo frame, and round again', () => {
+    const photo = view(state({ view: 'agenda' }), toggle)
+    const back = view(photo, toggle)
+
+    expect(back).toMatchObject({ view: 'agenda', last_calendar_view: 'agenda' })
+    expect(view(back, toggle)).toMatchObject({ view: 'photo', last_calendar_view: 'agenda' })
+  })
+
+  it('remembers a view picked by any command, such as next_view and set_view', () => {
+    const start = state({ view: 'month' })
+
+    expect(view(start, { type: 'next_view' }).last_calendar_view).toBe('agenda')
+    expect(view(start, { type: 'set_view', view: 'night' }).last_calendar_view).toBe('night')
+    expect(view(start, { type: 'set_view', view: 'night' }, toggle, toggle).view).toBe('night')
+  })
+
+  it('remembers the view when set_view photo replaces it, so the toggle goes back to it', () => {
+    const photo = view(state({ view: 'week' }), { type: 'set_view', view: 'photo' })
+
+    expect(photo).toMatchObject({ view: 'photo', last_calendar_view: 'week' })
+    expect(view(photo, toggle).view).toBe('week')
+  })
+
+  it('keeps the last view while the photo frame is on, whatever else changes', () => {
+    const photo = view(state({ view: 'week' }), toggle)
+
+    expect(view(photo, { type: 'set_brightness', brightness: 30 }, { type: 'set_photo_source', photo_source: 'local' }, { type: 'photo_next' }).last_calendar_view).toBe('week')
+  })
+
+  it('goes to month from the photo frame when nothing else was ever shown', () => {
+    expect(reduceCommand(state({ view: 'photo' }), toggle, ctx()).view).toBe('month')
+  })
+
+  it('takes a month pinned for the month view away with it, as any change of view does', () => {
+    const next = reduceCommand(pinned('2026-12'), toggle, ctx())
+
+    expect(next).toMatchObject({ view: 'photo', month: null, month_set_at: null, last_calendar_view: 'month' })
+  })
+
+  it('works for a state stored before last_calendar_view existed', () => {
+    // The schema fills the default in, as when a stored document is read; the view it was on is learned from the commands.
+    const stored = displayStateSchema.parse({ view: 'week', screen: 'on' })
+
+    expect(reduceCommand(stored, toggle, ctx())).toMatchObject({ view: 'photo', last_calendar_view: 'week' })
+  })
+
+  it('does not change the other fields', () => {
+    const start = state({ view: 'month', brightness: 40, photo_source: 'local' })
+
+    expect(reduceCommand(start, toggle, ctx())).toEqual({ ...start, view: 'photo' })
   })
 })
 

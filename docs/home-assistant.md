@@ -109,12 +109,12 @@ The entities use names relative to the device, so HA normally generates the IDs 
 | Month shown | `sensor.wall_calendar_month_shown` | The month the month view shows, as `YYYY-MM`. |
 | Previous month, Next month, This month | `button.wall_calendar_previous_month`, `button.wall_calendar_next_month`, `button.wall_calendar_this_month` | Change the month shown. |
 | Screen | `switch.wall_calendar_screen` | Screen on or off. |
-| Photo source | `select.wall_calendar_photo_source` | `immich`, `google` or `local`. Config category. Photo frame mode arrives in Milestone 4. |
+| Photo source | `select.wall_calendar_photo_source` | Which source the photo frame uses: `immich`, `google` or `local` (the local folder). Config category. A source that isn't set up in the config is still listed, because HA can't hide options; choosing one makes the wall use the first source that is set up instead (Immich, then the folder). `google` is accepted but not built yet, so it is never set up. |
 | Brightness | `number.wall_calendar_brightness` | A 0–100 % slider. It dims the page with an overlay. It is not the panel's backlight. |
 | Auto presence | `switch.wall_calendar_auto_presence` | Turns the built-in presence policy on or off. Config category. |
 | Auto brightness | `switch.wall_calendar_auto_brightness` | Turns the built-in brightness policy on or off. Config category. |
 | Message | `text.wall_calendar_message` | Shows a banner on the wall (up to 200 characters). Text only: no icon, and no time limit, so it stays until cleared. Clear the box to remove it. The box empties by itself when the message runs out or is cleared elsewhere. |
-| Next photo | `button.wall_calendar_next_photo` | Milestone 4. |
+| Next photo | `button.wall_calendar_next_photo` | Shows the next photo at once and starts the wait for the one after it again, so a skip is never followed straight away by a scheduled change. Does nothing visible unless the wall is on the `photo` view. |
 | Refresh calendars | `button.wall_calendar_refresh_calendars` | Syncs every calendar now. |
 | Last sync | `sensor.wall_calendar_last_sync` | When a sync last succeeded (a timestamp, diagnostic). Unknown until the first successful sync. |
 | Special day | `sensor.wall_calendar_special_day` | The name of today's special day, or empty when there is none. If two fall on one date, it is the one that comes first by precedence (a one-off before a yearly one, then the most recently edited). Unknown until the app has worked out today's special days. |
@@ -214,6 +214,47 @@ The entity IDs are the ones from the table above.
 ```
 
 The first automation sets the agenda at 06:30 and the second goes back to the month at 09:00. Adjust the times to suit.
+
+### Photo frame
+
+Setting the View select to `photo` puts the wall on the photo frame, and any other view takes it off. While the wall is on it, the app changes the photo every `photos.interval_seconds` (60 by default), whichever source it is using, and **Next photo** changes it at once and starts that wait again. The Photo source select picks where the photos come from. Both need a `photos` block in the app's config (see the README); without one the photo view just says it has no photos.
+
+For example, the photo frame in the evening, when nobody is cooking and the calendar isn't needed, and the month view back in the morning:
+
+```yaml
+- alias: Wall calendar – photo frame in the evening
+  triggers:
+    - trigger: time
+      at: "19:30:00"
+  conditions:
+    - condition: state
+      entity_id: switch.wall_calendar_screen
+      state: "on"
+  actions:
+    - action: select.select_option
+      target:
+        entity_id: select.wall_calendar_photo_source
+      data:
+        option: immich
+    - action: select.select_option
+      target:
+        entity_id: select.wall_calendar_view
+      data:
+        option: photo
+
+- alias: Wall calendar – calendar in the morning
+  triggers:
+    - trigger: time
+      at: "06:30:00"
+  actions:
+    - action: select.select_option
+      target:
+        entity_id: select.wall_calendar_view
+      data:
+        option: agenda
+```
+
+To skip a photo from a dashboard or a voice command, press `button.wall_calendar_next_photo` (`button.press`). The physical button can do the same, or switch between the photo frame and the last calendar view, with `button.single`, `button.double` or `button.long` set to `next_photo` or `toggle_photo` in the app's config. A gesture set to `ha` is left to an automation of your own, as in the long press example below.
 
 The bins reminder uses the `calendar.bin_collection` entity from your own HA. Change the entity to whichever calendar you use. The trigger fires six hours before the event starts.
 
@@ -321,6 +362,8 @@ title: Wall calendar
 entities:
   - entity: switch.wall_calendar_screen
   - entity: select.wall_calendar_view
+  - entity: select.wall_calendar_photo_source
+  - entity: button.wall_calendar_next_photo
   - entity: sensor.wall_calendar_month_shown
   - type: buttons
     entities:

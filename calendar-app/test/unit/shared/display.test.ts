@@ -9,6 +9,7 @@ describe('the display state schema', () => {
       month_set_at: null,
       screen: 'on',
       photo_source: 'immich',
+      last_calendar_view: 'month',
       brightness: 100,
       auto_presence: true,
       auto_brightness: true,
@@ -21,6 +22,15 @@ describe('the display state schema', () => {
     const state = displayStateSchema.parse({ view: 'week', month: null, screen: 'off', photo_source: 'local', brightness: 20, overlay: null })
 
     expect(state).toMatchObject({ auto_presence: true, auto_brightness: true })
+  })
+
+  it('remembers month as the view toggle_photo goes back to for a stored document that predates it, and keeps one it has', () => {
+    expect(displayStateSchema.parse({ view: 'photo' }).last_calendar_view).toBe('month')
+    expect(displayStateSchema.parse({ view: 'photo', last_calendar_view: 'week' }).last_calendar_view).toBe('week')
+  })
+
+  it('does not take photo as the view to go back to', () => {
+    expect(displayStateSchema.safeParse({ last_calendar_view: 'photo' }).success).toBe(false)
   })
 
   it('keeps an automatic policy that was switched off', () => {
@@ -98,6 +108,7 @@ describe('the command schema', () => {
     [{ type: 'set_overlay', overlay: { text: 'Bins out tonight', icon: 'trash', ttl: 3600 } }],
     [{ type: 'set_overlay', overlay: null }],
     [{ type: 'photo_next' }],
+    [{ type: 'toggle_photo' }],
     [{ type: 'refresh' }],
     [{ type: 'preview_special_day', id: 'christmas', seconds: 60 }],
     [{ type: 'preview_special_day', scene: 'birthday', seconds: 5 }],

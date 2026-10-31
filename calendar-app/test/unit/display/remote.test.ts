@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { MONTH_RANGE } from '../../../shared/display'
 import {
   OFFLINE_AFTER_MS,
+  PHOTO_SOURCE_CHOICES,
   clearPin,
   connectionState,
+  effectivePhotoSource,
   loadPin,
   monthCommandFor,
   monthLabel,
@@ -159,5 +161,31 @@ describe('requestFailure', () => {
     expect(requestFailure(new TypeError('Failed to fetch'))).toEqual({ status: null, message: null })
     expect(requestFailure('boom')).toEqual({ status: null, message: null })
     expect(requestFailure(null)).toEqual({ status: null, message: null })
+  })
+})
+
+describe('effectivePhotoSource', () => {
+  it('is the chosen source when it is set up', () => {
+    expect(effectivePhotoSource('local', ['immich', 'local'])).toBe('local')
+  })
+
+  it('is the first that is set up when the chosen one is not: Immich, then Google, then the folder', () => {
+    expect(effectivePhotoSource('immich', ['local'])).toBe('local')
+    expect(effectivePhotoSource('local', ['google', 'immich'])).toBe('immich')
+    expect(effectivePhotoSource('immich', ['local', 'google'])).toBe('google')
+  })
+
+  it('is null when nothing is set up', () => {
+    expect(effectivePhotoSource('immich', [])).toBeNull()
+  })
+})
+
+describe('PHOTO_SOURCE_CHOICES', () => {
+  it('offers Immich, Google and Folder, the folder being local on the wire', () => {
+    expect(PHOTO_SOURCE_CHOICES).toEqual([
+      { source: 'immich', label: 'Immich' },
+      { source: 'google', label: 'Google' },
+      { source: 'local', label: 'Folder' },
+    ])
   })
 })

@@ -14,6 +14,12 @@ export type View = (typeof VIEWS)[number]
 /** The calendar views `next_view` steps through. From any other view it goes to the first. */
 export const NEXT_VIEW_ORDER = ['month', 'agenda', 'week'] as const satisfies readonly View[]
 
+/**
+ * The views `toggle_photo` can go back to: every view but the photo frame.
+ * Night is one too: it is whatever was on the wall before the photos came on.
+ */
+export const RETURN_VIEWS = ['month', 'week', 'agenda', 'night'] as const satisfies readonly View[]
+
 // The same values as PHOTO_PROVIDERS in server/db/schema.ts, which shared code can't import.
 export const PHOTO_SOURCES = ['immich', 'google', 'local'] as const
 export type PhotoSource = (typeof PHOTO_SOURCES)[number]
@@ -72,6 +78,8 @@ export const displayStateSchema = z.object({
   month_set_at: z.iso.datetime().nullable().default(null),
   screen: z.enum(SCREEN_STATES).default('on'),
   photo_source: z.enum(PHOTO_SOURCES).default('immich'),
+  /** The last view that wasn't the photo frame: where `toggle_photo` goes back to. Kept by the command handler. */
+  last_calendar_view: z.enum(RETURN_VIEWS).default('month'),
   brightness: brightness.default(100),
   /** Whether the presence policy may switch the screen. Home Assistant can turn it off. */
   auto_presence: z.boolean().default(true),
@@ -108,6 +116,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     }).nullable(),
   }),
   z.strictObject({ type: z.literal('photo_next') }),
+  // The photo frame if it isn't on, otherwise the view it replaced (`last_calendar_view`). The button's double press, not an MQTT topic.
+  z.strictObject({ type: z.literal('toggle_photo') }),
   z.strictObject({ type: z.literal('refresh') }),
   // Shows a special day (`id`) or a scene (`scene`) on the wall for `seconds`, as if today were that day (architecture §6.5).
   z.strictObject({
@@ -120,7 +130,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       .max(MAX_PREVIEW_SECONDS, `must be from ${MIN_PREVIEW_SECONDS} to ${MAX_PREVIEW_SECONDS}`)
       .default(DEFAULT_PREVIEW_SECONDS),
   }).refine(command => (command.id === undefined) !== (command.scene === undefined), { message: 'needs exactly one of id and scene' }),
-], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_overlay, photo_next, refresh or preview_special_day' })
+], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
 
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']
@@ -137,6 +147,12 @@ export interface DisplaySettings {
   month_style: 'soft' | 'classic'
   week_start: 'monday' | 'sunday'
   timezone: string
+  /**
+   * The photo sources the server has set up, in the order a display falls back
+   * to them (Immich, Google, folder). Empty with no `photos` block. The remote
+   * disables the others. The same for every display.
+   */
+  photo_sources: PhotoSource[]
 }
 
 /** What the server sends down a socket. */

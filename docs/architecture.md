@@ -253,14 +253,18 @@ Not planned for the first release. If it's added, it should be opt-in per view a
 Provider (Immich / Google Photos / local folder)
    → select assets (album, memories, random)
    → download + resize to display size (e.g. 2560×1440 WebP) into /data/photos
-   → playlist (shuffled, no repeats until exhausted)
-   → display requests /photos/next  → served from local cache
+   → playlist (shuffled per display, no repeats until exhausted, kept in SQLite)
+   → display requests GET /api/photos/next?display=<id>
+   → the image is loaded from /photos/<sha256>.webp  → served from the local cache
 ```
 
 - Photos are only shown in the `photo` view (see §4.1). The display only ever loads images from the calendar app. API keys stay on the server, and photos still show if a provider is briefly down.
 - Portrait photos are shown centred over a blurred, enlarged copy of themselves. The server pre-renders this composite with `sharp`, so the Pi only draws one image. You can also filter to landscape only.
 - Options: rotation interval, transition (crossfade), and "photo of the day from memories".
-- The cache has a size cap with least-recently-used eviction.
+- The cache has a size cap (`photos.cache_max_mb`) with least-recently-used eviction. Files are named after a hash of what was rendered, so identical renders are stored once, and a photo that a display is showing, or the one prepared to follow it, is never evicted.
+- Each provider's pool is listed at start-up and every 10 minutes, and kept in the `photo_assets` table. A photo is fetched and rendered when it is first due, and the one after it in the playlist is prepared in the background. Photos that are no longer listed are dropped from the pool and the cache. If a provider can't be listed, the last pool is kept. If a photo can't be fetched, the next one already in the cache is shown instead, and with nothing cached there is no photo (`{ "photo": null }`) until the provider is back.
+- The playlist is per display and per provider (`photo_playlists`): a shuffled order of the pool and how far through it the display is. When the pool changes, photos that have gone are dropped and new ones are slotted in at random among those not yet shown. A new round never starts with the photo just shown.
+- A display uses the provider in its `photo_source` if that one is set up in the config, otherwise the first that is, in the order Immich, Google Photos, local folder.
 
 ### 5.2 Immich (recommended main source)
 
@@ -287,7 +291,7 @@ This is fine for a curated set. It **cannot** automatically follow a live album.
 
 ### 5.4 Local folder (fallback)
 
-A mounted directory of images, for testing or for anything else.
+A mounted directory of images, for testing or for anything else (`photos.local.path`). It is read recursively for JPEG, PNG, WebP, AVIF, GIF and TIFF files (HEIC only if the `sharp` build can read it, which the prebuilt one can't); hidden files and folders are left out. A photo's id is its path inside the folder, and the date it was taken is read from its EXIF when it has one. A folder that is missing is a warning in the log and an empty pool, and is read again at the next listing.
 
 ## 6. Special days
 

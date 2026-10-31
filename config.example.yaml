@@ -132,17 +132,24 @@ mqtt:
   discovery: true # default true; publish Home Assistant's discovery configs. false leaves them out
   discovery_prefix: homeassistant # default homeassistant; change only if Home Assistant's MQTT integration uses another
 
-# Photo frame mode. Leave out if you don't use it.
+# Photo frame mode. Leave out if you don't use it. The photos are rendered on
+# the server to one 2560x1440 WebP each (portraits and other shapes are fitted
+# over a blurred copy of themselves) and kept in photos/ in the data folder, so
+# the wall only decodes one image and keeps rotating if a source is down.
 photos:
   interval_seconds: 60 # at least 5
-  landscape_only: false
-  cache_max_mb: 2048
-  immich:
+  landscape_only: false # true leaves portrait photos out
+  cache_max_mb: 2048 # size cap of the rendered photos; the ones shown longest ago go first
+  immich: # not built yet: accepted, but ignored
     url: http://immich.local:2283
     api_key: !secret immich_api_key
     album_ids: [] # empty means the whole library
-  google:
+  google: # not built yet: accepted, but ignored
     client_id: example.apps.googleusercontent.com
     client_secret: !secret google_client_secret
   local:
+    # A folder of pictures (jpg, png, webp, avif, gif, tif), sub-folders included;
+    # hidden files and folders are left out. Absolute, or relative to the folder
+    # holding this file. In Docker, mount it, e.g. ./photos:/photos:ro. A folder
+    # that is not there is a warning in the log, not an error.
     path: /photos

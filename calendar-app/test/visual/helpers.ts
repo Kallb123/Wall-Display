@@ -38,7 +38,7 @@ export interface PlayOptions {
  * default fixture unless given others) and the WebSocket with a state and then
  * the weather (null unless given, which is what the real server sends when it
  * has none) and the special days if given, and `send` pushes a new state to
- * every open socket (`sendSpecialDays` the special days). /api/displays is the real
+ * every open socket (`sendSpecialDays` the special days, `sendPhotoNext` a `photo.next`). /api/displays is the real
  * server's, so the config is exercised too. The clock is frozen before the
  * page loads.
  *
@@ -84,6 +84,10 @@ export async function playServer(page: Page, initial: Partial<DisplayState> = {}
     sendSpecialDays(next: SpecialDaysResolution | null) {
       specialDays = next
       for (const socket of sockets) socket.send(specialDaysMessage(next))
+    },
+    /** Sends the server's cue to show the next photo to the display. */
+    sendPhotoNext() {
+      for (const socket of sockets) socket.send(JSON.stringify({ type: 'photo.next', display_id: socket.displayId }))
     },
     /** Sends a new state (the changes on top of the one before) to the display. */
     send(changes: Partial<DisplayState>) {

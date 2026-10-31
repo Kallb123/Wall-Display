@@ -1,7 +1,8 @@
 # Config for the Playwright visual tests (playwright.config.ts): the same
 # family and fixture calendars as config.dev.yaml, with a light and a dark
 # display. The tests answer /api/events and the WebSocket themselves, so the
-# calendars only have to load; /api/displays is the real thing.
+# calendars only have to load; /api/displays is the real thing. The photo frame
+# specs use the real photo pipeline on the fixture photos below.
 # A relative file: URL is resolved from the folder holding this config file.
 
 timezone: Europe/London
@@ -38,3 +39,9 @@ displays:
   - id: kitchen
     name: Kitchen
     theme: dark
+
+# The pictures are the small fixtures in test/fixtures/photos/, rendered by the
+# real server. A relative path is from the folder holding this config file.
+photos:
+  local:
+    path: ../fixtures/photos

@@ -1,17 +1,22 @@
+import { getDisplayControl } from '../control/state'
 import { createLocalProvider } from '../photos/local'
+import { startPhotoRotation } from '../photos/rotation'
 import { createPhotoService } from '../photos/service'
-import { getPhotos, setPhotos } from '../photos/state'
+import { getPhotoRotation, getPhotos, setPhotoRotation, setPhotos } from '../photos/state'
 import type { PhotoProvider } from '../photos/types'
 
 // Runs after the special days plugin (the 07 prefix). With a `photos` block in
 // the config it lists each provider's photos in the background, so a slow or
 // missing source never delays the boot, and keeps the cache of rendered photos
-// that `GET /api/photos/next` hands out. Without the block it does nothing and
-// the photo frame has nothing to show.
+// that `GET /api/photos/next` hands out, and runs the rotation: while a display
+// is on the photo view, a timer tells it to move on every `interval_seconds`.
+// Without the block it does nothing and the photo frame has nothing to show.
 export default defineNitroPlugin((nitroApp) => {
   // A hot reload runs this again in the same process, so stop the old service first.
   getPhotos()?.stop()
   setPhotos(undefined)
+  getPhotoRotation()?.stop()
+  setPhotoRotation(undefined)
 
   const { photos } = useConfig()
   if (!photos) {
@@ -39,8 +44,22 @@ export default defineNitroPlugin((nitroApp) => {
   setPhotos(service)
   service.start()
 
+  // The control plugin (03) has started by now. The timers read each display's view from it.
+  const control = getDisplayControl()
+  const rotation = control
+    ? startPhotoRotation({
+        bus: useEventBus(),
+        displayIds: useConfig().displays.map(display => display.id),
+        getState: displayId => control.getState(displayId),
+        intervalSeconds: photos.interval_seconds,
+      })
+    : undefined
+  setPhotoRotation(rotation)
+
   nitroApp.hooks.hook('close', () => {
     service.stop()
     if (getPhotos() === service) setPhotos(undefined)
+    rotation?.stop()
+    if (getPhotoRotation() === rotation) setPhotoRotation(undefined)
   })
 })

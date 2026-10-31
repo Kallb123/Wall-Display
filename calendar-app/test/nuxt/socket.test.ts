@@ -157,3 +157,40 @@ describe('useDisplaySocket special days', () => {
     scope.stop()
   })
 })
+
+describe('useDisplaySocket photo.next and opens', () => {
+  beforeEach(() => {
+    FakeSocket.all = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('counts a photo.next for its own display, and nothing else', () => {
+    const { socket, scope, fake } = open()
+    expect(socket.photoNext.value).toBe(0)
+
+    fake.push({ type: 'photo.next', display_id: 'hallway' })
+    fake.push({ type: 'photo.next', display_id: 'hallway' })
+    fake.push({ type: 'photo.next', display_id: 'kitchen' })
+    fake.push({ type: 'photo.next' })
+
+    expect(socket.photoNext.value).toBe(2)
+    expect(socket.state.value).toBeNull()
+    scope.stop()
+  })
+
+  it('counts each time the socket opens, a reconnect included', () => {
+    const { socket, scope, fake } = open()
+    expect(socket.opens.value).toBe(0)
+
+    fake.onopen?.()
+    expect(socket.opens.value).toBe(1)
+
+    fake.onopen?.()
+    expect(socket.opens.value).toBe(2)
+    scope.stop()
+  })
+})

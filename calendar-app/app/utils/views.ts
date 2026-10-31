@@ -43,6 +43,12 @@ export interface ViewProps {
     tiles: SpecialDaysResolution['tiles']
     takeover: Takeover | null
   }
+  /** The photo frame only: the display's id, to ask the server for its photos. Null until it is known. */
+  displayId?: string | null
+  /** The photo frame only: how many `photo.next` messages the socket has heard. A rise means "fetch the next photo". */
+  photoNext?: number
+  /** The photo frame only: how many times the socket has opened. A rise with nothing on show means "try again". */
+  socketOpens?: number
 }
 
 /** For a view with nothing special on it: no decorated tiles and no takeover. */

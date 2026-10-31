@@ -9,6 +9,7 @@ import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
 import AgendaView from '~/components/views/AgendaView.vue'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
+import PhotoView from '~/components/views/PhotoView.vue'
 import PlaceholderView from '~/components/views/PlaceholderView.vue'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
@@ -36,7 +37,7 @@ const viewComponents: Record<View, Component> = {
   month: MonthSoftView,
   week: PlaceholderView,
   agenda: AgendaView,
-  photo: PlaceholderView,
+  photo: PhotoView,
   night: PlaceholderView,
 }
 const viewFor = (view: View): Component => viewComponents[view]
@@ -132,6 +133,9 @@ const viewProps = computed<ViewProps | null>(() => {
     weekStart: display.week_start,
     weather: weather.value,
     specialDays: activeSpecialDays.value ? { tiles: activeSpecialDays.value.tiles, takeover: takeover.value } : NO_SPECIAL_DAYS,
+    displayId: displayId.value,
+    photoNext: socket.photoNext.value,
+    socketOpens: socket.opens.value,
   }
 })
 

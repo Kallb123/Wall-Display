@@ -134,7 +134,7 @@ test.describe('the overlay banner', () => {
     const server = await playServer(page, { view: 'photo', overlay: bins })
     await page.goto('/display?id=hallway')
 
-    await expect(page.locator('h1')).toHaveText('Photo')
+    await expect(page.getByTestId('photo-view')).toBeVisible()
     await expect(page.getByTestId('overlay-banner')).toBeVisible()
 
     server.send({ view: 'agenda' })

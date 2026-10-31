@@ -137,8 +137,8 @@ mqtt:
 # over a blurred copy of themselves) and kept in photos/ in the data folder, so
 # the wall only decodes one image and keeps rotating if a source is down.
 photos:
-  interval_seconds: 60 # at least 5
-  landscape_only: false # true leaves portrait photos out
+  interval_seconds: 60 # at least 5; how long each photo stays while a display is on the photo view
+  landscape_only: false # true leaves portrait photos out of the rotation
   cache_max_mb: 2048 # size cap of the rendered photos; the ones shown longest ago go first
   immich: # not built yet: accepted, but ignored
     url: http://immich.local:2283

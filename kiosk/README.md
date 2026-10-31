@@ -129,6 +129,17 @@ Delete that file and restart `getty@tty1` again to bring the kiosk back.
 
 It also installs the compositor, `wlr-randr`, `curl`, `fonts-noto-color-emoji` (Lite has no emoji font) and Chromium with `apt`, adds the user to the `video`, `render` and `input` groups, and sets the default boot target to `multi-user.target`.
 
+## Checking photo frame performance on the Pi
+
+The photo frame (`view: photo`) fades between two 2560×1440 images, which is the heaviest thing the display does. We can't measure it off the Pi, so check it on the real hardware and compare against the H.1 render baseline (`hw-probe render`, which uses the same Chromium flags and a crossfading photo pair).
+
+1. Put the display on the photo frame with a short `photos.interval_seconds` (5 is the least), for example with the `photo_next` command or `set_view` from the remote, and let it run for a few minutes so the first photos are cached.
+2. Watch for dropped frames during the crossfade. Start Chromium with `--show-fps-counter` added to `/etc/wallcal-kiosk/chromium-flags.local.conf` and look at the overlay as a fade runs, or record a trace with `chrome://tracing` (or the DevTools Performance panel over SSH port forwarding) covering a few fades and look for frames that miss their deadline or long main-thread tasks around the swap.
+3. Compare the same readings with the H.1 render page on the same Pi and mode: the fades should drop no more frames than its crossfade did. If they do, the first thing to try is a lower `--mode` (such as 1920x1080), which keeps the same page.
+4. Watch memory over a longer run, for example with `top` or `ps` on the Chromium processes (the renderer and GPU ones matter most), to check that it levels off and doesn't grow with each photo. Each fade holds two decoded 2560×1440 images at most, and the page lets go of the old one when the fade ends.
+
+Remove the extra flag afterwards.
+
 ## Troubleshooting
 
 **Black screen.** The server is probably not reachable from the Pi. The launcher waits for it before starting Chromium and logs the failure, so check `journalctl -t wallcal-kiosk`. Try `curl -I 'http://<server>:8080/display'` from an SSH session. Once the page has loaded, the display shows an "Offline" badge if the connection drops later and keeps the last state it had.

@@ -140,7 +140,7 @@ test.describe('what a takeover leaves alone', () => {
     const server = await playServer(page, { view: 'photo' }, events, null, { now: HALLOWEEN, specialDays: resolved(HALLOWEEN) })
     await page.goto('/display?id=hallway')
 
-    await expect(page.locator('h1')).toHaveText('Photo')
+    await expect(page.getByTestId('photo-view')).toBeVisible()
     await expect(stage(page)).toHaveAttribute('data-theme', 'light')
     await expect(stage(page)).not.toHaveAttribute('data-palette')
     await expect(page.getByTestId('takeover-full')).toHaveCount(0)

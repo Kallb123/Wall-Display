@@ -23,7 +23,11 @@ export interface DisplaySocketOptions {
  * whenever it changes, so `state` is null only until the first message. The
  * weather follows the state, and is `undefined` until it has been heard (a
  * null is the server saying there is none), and so do the special days (the
- * tiles and takeover to draw, architecture §6.5). If
+ * tiles and takeover to draw, architecture §6.5). `photoNext` counts the
+ * `photo.next` messages for this display (the server's cue to show another
+ * photo; a rise is the signal, the number means nothing) and `opens` counts
+ * the times the socket has opened, a reconnect being one more. Both only ever
+ * grow, even when the display changes. If
  * the socket closes or errors it is opened again after a growing wait (see
  * `reconnectDelay`), for as long as the scope lives. `displayId` may be null
  * (nothing to connect to yet) and may change.
@@ -33,6 +37,8 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
   const state = ref<DisplayState | null>(null)
   const weather = ref<WeatherSnapshot | null | undefined>(undefined)
   const specialDays = ref<SpecialDaysResolution | null | undefined>(undefined)
+  const photoNext = ref(0)
+  const opens = ref(0)
 
   let socket: WebSocket | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -58,6 +64,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
     current.onopen = () => {
       attempt = 0
       status.value = 'open'
+      opens.value++
       options.onOpen?.()
     }
 
@@ -97,8 +104,9 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       // For every wall too, and ignored the same way when it is bad.
       const parsed = specialDaysResolutionSchema.nullable().safeParse(nextSpecialDays)
       if (parsed.success) specialDays.value = parsed.data
+    } else if (type === 'photo.next' && from === id) {
+      photoNext.value++
     }
-    // Anything else (photo.next, for now) is not for this page yet.
   }
 
   watch(() => toValue(displayId), (id) => {
@@ -113,5 +121,5 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
 
   onScopeDispose(close)
 
-  return { status, state, weather, specialDays }
+  return { status, state, weather, specialDays, photoNext, opens }
 }

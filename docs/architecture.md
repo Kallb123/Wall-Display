@@ -179,7 +179,7 @@ Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`) a
 | `week` | Calendar | 7-day columns with timed blocks |
 | `agenda` | Calendar | Today and tomorrow in large type. The default for mornings. |
 | `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
-| `night` | Ambient | Very dim clock only. Used when the room is dark but you want the screen on. |
+| `night` | Ambient | A very dim clock on pure black, whatever the theme. Used when the room is dark but you want the screen on. A line under the clock is set per display with `night_text`: nothing (`none`, the default), the first timed event in the next 24 hours (`first_event`), or the next alarm (`next_alarm`, read from Home Assistant, see §7.4). |
 
 Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show, and which month the month view shows. The page never decides for itself.
 
@@ -438,7 +438,7 @@ The app holds one state document per display (multiple displays are supported vi
 - `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
-- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`) and `month_return_minutes`, live in config (and later in the settings page), not in this state.
+- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), live in config (and later in the settings page), not in this state.
 
 Every input changes this state through the same command handler. Every change is broadcast to the display (WebSocket), to the remote page (WebSocket) and to HA (MQTT state topics). This keeps all inputs in sync.
 
@@ -518,6 +518,8 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | CPU temperature, uptime | diagnostic sensors |
 
 The app also reads HA's REST API, but only for `homeassistant` calendar sources. It also reads a `weather` entity for the weather shown in the month view's side panel, the agenda and the photo frame pill. The server polls it, keeps the last good snapshot and sends changes as `weather.updated`. Without one, those views leave the weather out.
+
+An `alarm` block names one more HA entity, for a display whose night view has `night_text: next_alarm`: a timestamp sensor such as the companion app's `sensor.<phone>_next_alarm`, or an `input_datetime` that has a date. The server polls it (every `poll_seconds`, 300 by default), keeps the last good answer and sends changes as `alarm.updated`, an ISO 8601 instant or `null` for none. The page ignores an alarm that has passed or is more than a day away. Like `weather`, it needs the `homeassistant` block, and the config is refused if a display asks for `next_alarm` with no `alarm` block.
 
 **Who handles the button?** This is set per gesture in the config:
 
@@ -731,6 +733,7 @@ wall-display/
 │   │   ├── photos/              # immich.ts, google-picker.ts, local.ts, cache.ts
 │   │   ├── special-days/        # resolve.ts, art.ts (uploads, sanitising), midnight.ts
 │   │   ├── weather/             # HA weather entity + forecast cache
+│   │   ├── alarm/               # HA next-alarm entity, polled
 │   │   ├── control/             # state.ts, commands.ts, policies.ts
 │   │   ├── mqtt/                # client.ts, discovery.ts
 │   │   └── db/                  # Drizzle schema + migrations

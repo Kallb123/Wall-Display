@@ -7,7 +7,7 @@ You need:
 - An MQTT broker that both the app and HA connect to (see Broker setup below).
 - An `mqtt` block in `config/config.yaml`.
 
-Optional: a `homeassistant` block with a long-lived access token lets the app read calendars from HA (`homeassistant` calendar sources) and a weather entity ([Weather](#weather) below). That uses HA's REST API and has nothing to do with MQTT. It is described in the README and in [`config.example.yaml`](../config.example.yaml).
+Optional: a `homeassistant` block with a long-lived access token lets the app read calendars from HA (`homeassistant` calendar sources) a weather entity ([Weather](#weather) below) and the next alarm for the night view ([Next alarm](#next-alarm) below). That uses HA's REST API and has nothing to do with MQTT. It is described in the README and in [`config.example.yaml`](../config.example.yaml).
 
 ## Broker setup
 
@@ -155,6 +155,32 @@ weather:
 - **What shows when.** The current temperature and condition are hidden once they are three hours old, so a wall that has lost the app doesn't claim it is sunny. Forecast days are hidden when HA gave none for that date. A condition the app has no name for (anything outside HA's list) shows no icon.
 - **Dates and temperatures.** A forecast day is placed on the date it falls on in the config's `timezone`, not UTC. Temperatures are rounded to whole degrees and shown with `°` only: the unit is whatever the entity reports, which follows HA's unit system.
 - **To look at it.** `GET /api/weather` answers `{ "weather": … }` with what the displays hold, or `{ "weather": null }` before the first poll or with no `weather` block.
+
+## Next alarm
+
+The night view (the very dim clock) can show the time of your next alarm under the clock, so you can see from bed that it is set. It is a per-display choice, `night_text`, and it needs an `alarm` block that says which HA entity holds the alarm. Leave the block out, or leave `night_text` at `none` or `first_event`, and no alarm is read.
+
+```yaml
+homeassistant:
+  url: http://homeassistant.local:8123
+  token: !secret ha_token
+
+alarm:
+  entity_id: sensor.pixel_8_next_alarm
+  poll_seconds: 300   # default 300; at least 30
+
+displays:
+  - id: bedroom
+    name: Bedroom
+    night_text: next_alarm   # none (default) | first_event | next_alarm
+```
+
+- **Which entity.** Either of these:
+  - The phone's **next alarm sensor** from the HA companion app (Settings → Companion app → Manage sensors → Next alarm). It is a sensor called something like `sensor.pixel_8_next_alarm` whose state is the alarm's time, with a timestamp device class. On Android it is enabled in the app's sensor settings; the state is `unknown` or `unavailable` when no alarm is set.
+  - An **`input_datetime`** helper that has both a date and a time, such as `input_datetime.next_alarm`, if an automation of yours keeps it up to date. One with only a time has no day, so it counts as no alarm.
+- **Only these two kinds.** The entity id must start with `sensor.` or `input_datetime.`, and the `homeassistant` block must be there too, or the config is refused at start-up. So is a display with `night_text: next_alarm` and no `alarm` block.
+- **What shows.** The wall shows an alarm that is still to come and within the next 24 hours, with "Today" or "Tomorrow" in front of the time. An alarm that has passed, or is further away, is left out. With no alarm the line is left out.
+- **How often.** Every `poll_seconds`, 5 minutes by default, so an alarm you set on your phone appears on the wall within about that long. A failing HA is retried after twice the interval, then four times, up to an hour, and the last good answer is kept meanwhile. A failure is logged once, with a `[alarm]` prefix, and never contains the URL or the token. The **Refresh calendars** button, the `refresh` command and `POST /api/refresh` read the alarm again too.
 
 ## Example automations
 
@@ -415,6 +441,7 @@ If `remote.pin` is set, the remote asks for it once and keeps it in that browser
 | A device from an old display id is still there | Renaming a display id leaves the old device behind. Delete it in HA, and clear its retained configs: `mosquitto_pub -r -n -t homeassistant/<component>/wallcal_<id>/<object>/config` for each entity. |
 | "Month shown" goes back by itself | A month picked on the remote or from HA reverts to the current month after `month_return_minutes` (15 by default, set per display). |
 | No weather on the wall | The config has a `weather` block (and a `homeassistant` block). `GET /api/weather` is not `null`; if it is, `docker compose logs calendar-app` has a `[weather]` line with the reason. HA refusing the token, no such entity, or an entity with no daily forecast are the usual ones. |
+| No alarm on the night view | The display has `night_text: next_alarm`, and the config has an `alarm` block (and a `homeassistant` block). The entity's state in Developer tools → States is a time, not `unknown`; the time is within the next 24 hours. If it is, `docker compose logs calendar-app` has an `[alarm]` line with the reason, such as HA refusing the token or no such entity. |
 | The Webpage card is blank | See the caveats above: HTTPS, or you are away from home. |
 
 To remove the device on purpose, delete it in HA and set `discovery: false`, or the app will bring it back at its next start. Or clear each retained config as in the table.

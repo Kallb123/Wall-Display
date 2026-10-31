@@ -20,8 +20,8 @@ export default defineNitroPlugin((nitroApp) => {
     displays: config.displays,
     timeZone: config.timezone,
     bus,
-    // The weather service starts after this plugin, so it is looked up when the command arrives.
-    refresh: () => Promise.all([useSyncScheduler().refreshAll(), useWeather()?.refresh()]),
+    // The weather and alarm services start after this plugin, so they are looked up when the command arrives.
+    refresh: () => Promise.all([useSyncScheduler().refreshAll(), useWeather()?.refresh(), useAlarm()?.refresh()]),
   })
   setDisplayControl(control)
 

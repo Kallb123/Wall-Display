@@ -51,6 +51,8 @@ describe('defaults', () => {
       month_style: 'soft',
       month_return_minutes: 15,
       week_start: 'monday',
+      burn_in: true,
+      night_text: 'none',
     })
   })
 
@@ -66,6 +68,7 @@ describe('defaults', () => {
     expect(config.remote).toBeUndefined()
     expect(config.homeassistant).toBeUndefined()
     expect(config.weather).toBeUndefined()
+    expect(config.alarm).toBeUndefined()
   })
 
   it('polls the weather every ten minutes unless told otherwise', async () => {
@@ -75,6 +78,24 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.weather).toEqual({ entity_id: 'weather.home', poll_seconds: 600 })
+  })
+
+  it('polls the alarm every five minutes unless told otherwise', async () => {
+    const raw = minimalConfig()
+    raw.homeassistant = { url: 'http://ha.local', token: 't' }
+    raw.alarm = { entity_id: 'sensor.phone_next_alarm' }
+    const { config } = await load({ config: raw })
+
+    expect(config.alarm).toEqual({ entity_id: 'sensor.phone_next_alarm', poll_seconds: 300 })
+  })
+
+  it('keeps burn_in and night_text as set on a display', async () => {
+    const raw = minimalConfig()
+    raw.displays[0].burn_in = false
+    raw.displays[0].night_text = 'first_event'
+    const { config } = await load({ config: raw })
+
+    expect(config.displays[0]).toMatchObject({ burn_in: false, night_text: 'first_event' })
   })
 
   it('keeps a year of events either side of this month unless told otherwise', async () => {

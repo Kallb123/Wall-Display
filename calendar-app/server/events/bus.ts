@@ -5,7 +5,7 @@
 // Plain module state, so a unit test can import it; handlers get it through
 // `useEventBus()` in server/utils/.
 
-import type { DisplayState } from '../../shared/display'
+import type { DisplayState, NextAlarm } from '../../shared/display'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
@@ -23,6 +23,8 @@ export interface BusEvents {
   'weather.updated': { weather: WeatherSnapshot }
   /** The special days service re-resolved and the answer changed (an edit, or a new day at midnight). `specialDays` is the whole new resolution. */
   'special_days.updated': { specialDays: SpecialDaysResolution }
+  /** The next alarm changed (or was first read). `alarm` is an ISO 8601 instant, or null for none. */
+  'alarm.updated': { alarm: NextAlarm }
 }
 
 export type BusHandler<Name extends keyof BusEvents> = (payload: BusEvents[Name]) => void

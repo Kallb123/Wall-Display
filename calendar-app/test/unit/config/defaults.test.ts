@@ -112,7 +112,7 @@ describe('defaults', () => {
       interval_seconds: 60,
       landscape_only: false,
       cache_max_mb: 2048,
-      immich: { url: 'http://immich.local', api_key: 'k', album_ids: [] },
+      immich: { url: 'http://immich.local', api_key: 'k', mode: 'random', album_ids: [], random: { count: 200, person_ids: [] } },
     })
     expect(config.calendars[1]!.source).toEqual({ type: 'homeassistant', entity_id: 'calendar.bins', poll_seconds: 300 })
   })

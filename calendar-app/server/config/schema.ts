@@ -184,6 +184,57 @@ const weather = z.strictObject({
   poll_seconds: z.number().int().min(60).default(600),
 })
 
+// Immich (architecture §5.2). `mode` says which photos make the pool: the
+// albums in `album_ids`, a random pick from the whole library (narrowed by the
+// `random` filters), or today's memories. Left out, it is `albums` when there
+// are album ids and `random` when there are none, which is what a config from
+// before the modes meant. The URL may have a path (Immich behind a reverse
+// proxy) but not credentials: the API key is its own setting and must never
+// end up in an address that is logged.
+const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'must be an id like "2f1c5a0e-3b7d-4c1a-9e57-6a1d2b8c4f90"')
+
+// A day (2024-01-31) or a time (2024-01-31T09:30:00Z). Written out in full
+// for Immich: a bare day is the start of that day in UTC for `taken_after`, and
+// the end of it for `taken_before`, so "before 2024-12-31" includes the 31st.
+const isoDate = (edge: 'start' | 'end') => z.string().trim().transform((value, ctx) => {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(value)
+  const full = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(value)
+  const date = day ? new Date(`${value}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}Z`) : full ? new Date(value) : null
+  if (!date || Number.isNaN(date.getTime()) || (day && date.toISOString().slice(0, 10) !== value)) {
+    ctx.issues.push({ code: 'custom', message: 'must be a date like "2024-01-31" or a time like "2024-01-31T09:30:00Z" (quote it)', input: value })
+    return z.NEVER
+  }
+  return date.toISOString()
+})
+
+const immichRandom = z.strictObject({
+  count: z.number().int().min(1).max(1000).default(200),
+  person_ids: z.array(uuid).default([]),
+  taken_after: isoDate('start').optional(),
+  taken_before: isoDate('end').optional(),
+}).refine(value => value.taken_after === undefined || value.taken_before === undefined || value.taken_after < value.taken_before, {
+  message: 'taken_after must be earlier than taken_before',
+  path: ['taken_after'],
+})
+
+const immich = z.strictObject({
+  url: httpUrl.check((ctx) => {
+    if (!isHttpUrl(ctx.value)) return
+    const { username, password } = new URL(ctx.value)
+    if (username !== '' || password !== '') {
+      ctx.issues.push({ code: 'custom', message: 'must not contain a username or password (the API key is the api_key setting)', input: ctx.value, continue: true })
+    }
+  }),
+  api_key: text,
+  mode: z.enum(['albums', 'random', 'memories']).optional(),
+  album_ids: z.array(text).default([]),
+  random: immichRandom.prefault({}),
+}).superRefine((value, ctx) => {
+  if (value.mode === 'albums' && value.album_ids.length === 0) {
+    ctx.addIssue({ code: 'custom', message: 'mode "albums" needs at least one album id in album_ids', path: ['album_ids'] })
+  }
+}).transform(value => ({ ...value, mode: value.mode ?? (value.album_ids.length > 0 ? 'albums' as const : 'random' as const) }))
+
 // `local.path` is a folder: absolute, or relative to the config file's folder
 // like a `file:` URL for an ICS source. A folder that doesn't exist is not a
 // config error (a mount may come up later); the photo service logs it.
@@ -191,11 +242,7 @@ const photos = (baseDir: string) => z.strictObject({
   interval_seconds: z.number().int().min(5).default(60),
   landscape_only: z.boolean().default(false),
   cache_max_mb: z.number().int().min(1).default(2048),
-  immich: z.strictObject({
-    url: httpUrl,
-    api_key: text,
-    album_ids: z.array(text).default([]),
-  }).optional(),
+  immich: immich.optional(),
   google: z.strictObject({
     client_id: text,
     client_secret: text,
@@ -351,4 +398,5 @@ export type SyncConfig = AppConfig['sync']
 export type MqttConfig = NonNullable<AppConfig['mqtt']>
 export type WeatherConfig = NonNullable<AppConfig['weather']>
 export type PhotosConfig = NonNullable<AppConfig['photos']>
+export type ImmichConfig = NonNullable<PhotosConfig['immich']>
 export type HomeAssistantConfig = NonNullable<AppConfig['homeassistant']>

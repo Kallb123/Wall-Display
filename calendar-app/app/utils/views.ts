@@ -1,4 +1,5 @@
 import type { MonthKey, View } from '../../shared/display'
+import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
 
@@ -10,6 +11,11 @@ import type { WeatherSnapshot } from '../../shared/weather'
 // Import it by a relative path in a view. `defineProps` needs the compiler to
 // read the type itself, and it can only follow `~/` once Nuxt has written
 // .nuxt/tsconfig, which a clean build (the Docker image) may not have done yet.
+
+/** The views a special day's takeover changes. The photo frame and night views never do (architecture §6.3). */
+export const CALENDAR_VIEWS = ['month', 'week', 'agenda'] as const satisfies readonly View[]
+
+export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
 export interface ViewProps {
   /** The view being shown. */
@@ -26,4 +32,18 @@ export interface ViewProps {
   weather: WeatherSnapshot | null
   /** The day a week starts on, for the month grid. */
   weekStart: 'monday' | 'sunday'
+  /**
+   * What the page has decided about special days (architecture §6): the
+   * decorated tiles, and the takeover only while it is in force, which the page
+   * works out (it is for today, on a calendar view, or a preview). A view draws
+   * these and never decides anything. The colours of a takeover's palette are
+   * not here: the stage already applies them as the theme.
+   */
+  specialDays: {
+    tiles: SpecialDaysResolution['tiles']
+    takeover: Takeover | null
+  }
 }
+
+/** For a view with nothing special on it: no decorated tiles and no takeover. */
+export const NO_SPECIAL_DAYS: ViewProps['specialDays'] = Object.freeze({ tiles: [], takeover: null })

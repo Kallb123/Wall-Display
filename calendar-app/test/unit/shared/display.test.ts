@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMonths, commandSchema, currentMonth, displayStateSchema, monthDiff } from '../../../shared/display'
+import { addMonths, commandSchema, currentMonth, DEFAULT_PREVIEW_SECONDS, displayStateSchema, monthDiff } from '../../../shared/display'
 
 describe('the display state schema', () => {
   it('fills in every field from nothing', () => {
@@ -13,6 +13,7 @@ describe('the display state schema', () => {
       auto_presence: true,
       auto_brightness: true,
       overlay: null,
+      preview: null,
     })
   })
 
@@ -34,10 +35,26 @@ describe('the display state schema', () => {
   })
 
   it('drops keys it no longer knows, so an old document still loads', () => {
-    const state = displayStateSchema.parse({ view: 'week', preview: { special_day: 'christmas' } })
+    const state = displayStateSchema.parse({ view: 'week', zoom: 2 })
 
-    expect(state).not.toHaveProperty('preview')
+    expect(state).not.toHaveProperty('zoom')
     expect(state.view).toBe('week')
+  })
+
+  it('has no preview for a stored document that predates it, and keeps one that is running', () => {
+    expect(displayStateSchema.parse({ view: 'week' }).preview).toBeNull()
+    expect(displayStateSchema.parse({ preview: { special_day: 'christmas', until: '2026-10-28T12:01:00.000Z' } }).preview).toEqual({ special_day: 'christmas', until: '2026-10-28T12:01:00.000Z' })
+    expect(displayStateSchema.parse({ preview: { scene: 'birthday', until: '2026-10-28T12:01:00.000Z' } }).preview).toEqual({ scene: 'birthday', until: '2026-10-28T12:01:00.000Z' })
+  })
+
+  it.each([
+    ['both a day and a scene', { special_day: 'christmas', scene: 'birthday', until: '2026-10-28T12:01:00.000Z' }],
+    ['neither', { until: '2026-10-28T12:01:00.000Z' }],
+    ['no until', { special_day: 'christmas' }],
+    ['an until that is not an instant', { special_day: 'christmas', until: 'soon' }],
+    ['an empty id', { special_day: '', until: '2026-10-28T12:01:00.000Z' }],
+  ])('rejects a preview with %s', (_name, preview) => {
+    expect(displayStateSchema.safeParse({ preview }).success).toBe(false)
   })
 
   it('accepts a pinned month and an overlay', () => {
@@ -82,6 +99,9 @@ describe('the command schema', () => {
     [{ type: 'set_overlay', overlay: null }],
     [{ type: 'photo_next' }],
     [{ type: 'refresh' }],
+    [{ type: 'preview_special_day', id: 'christmas', seconds: 60 }],
+    [{ type: 'preview_special_day', scene: 'birthday', seconds: 5 }],
+    [{ type: 'preview_special_day', id: 'christmas', seconds: 600 }],
   ])('accepts %j', (command) => {
     expect(commandSchema.parse(command)).toEqual(command)
   })
@@ -115,8 +135,28 @@ describe('the command schema', () => {
     ['an empty overlay text', { type: 'set_overlay', overlay: { text: '' } }],
     ['an extra overlay key', { type: 'set_overlay', overlay: { text: 'Hi', until: null } }],
     ['a missing overlay', { type: 'set_overlay' }],
+    ['a preview of neither a day nor a scene', { type: 'preview_special_day' }],
+    ['a preview of both a day and a scene', { type: 'preview_special_day', id: 'christmas', scene: 'birthday' }],
+    ['a preview with an empty id', { type: 'preview_special_day', id: '  ' }],
+    ['a preview with an empty scene', { type: 'preview_special_day', scene: '' }],
+    ['a preview under 5 seconds', { type: 'preview_special_day', id: 'christmas', seconds: 4 }],
+    ['a preview over 600 seconds', { type: 'preview_special_day', id: 'christmas', seconds: 601 }],
+    ['a fractional preview length', { type: 'preview_special_day', id: 'christmas', seconds: 5.5 }],
+    ['a preview length as a string', { type: 'preview_special_day', id: 'christmas', seconds: '60' }],
+    ['a misspelt preview key', { type: 'preview_special_day', special_day: 'christmas' }],
   ])('rejects %s', (_name, command) => {
     expect(commandSchema.safeParse(command).success).toBe(false)
+  })
+
+  it('previews for a minute when it is not told how long, and trims the id', () => {
+    expect(commandSchema.parse({ type: 'preview_special_day', id: ' christmas ' })).toEqual({ type: 'preview_special_day', id: 'christmas', seconds: DEFAULT_PREVIEW_SECONDS })
+    expect(DEFAULT_PREVIEW_SECONDS).toBe(60)
+  })
+
+  it('says what is wrong with a preview that names neither or both', () => {
+    for (const command of [{ type: 'preview_special_day' }, { type: 'preview_special_day', id: 'a', scene: 'b' }]) {
+      expect(commandSchema.safeParse(command).error?.issues[0]?.message).toBe('needs exactly one of id and scene')
+    }
   })
 })
 

@@ -2,11 +2,13 @@
 import { formatWeekday } from '~/utils/format'
 import { todayIn } from '~/utils/eventRanges'
 import { fitPanelDay } from '~/utils/monthPanel'
-import { personFill } from '~/utils/themes'
+import { greetingSize, tileArt } from '~/utils/specialDays'
+import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
 import { monthLayout } from '../../../shared/month-layout'
 import type { DayCell, ItemPeople } from '../../../shared/month-layout'
+import { specialDayArtUrl } from '../../../shared/special-days'
 import { currentWeather, weatherOn } from '../../../shared/weather'
 
 // The month in the Soft style (mocks 1c and 1d, architecture §4.4): the month
@@ -17,9 +19,14 @@ import { currentWeather, weatherOn } from '../../../shared/weather'
 // room there is. The grid shows `month`, which the server can pin to another
 // month; the panel always starts at today.
 //
-// Three slots are left for a special day (architecture §6.2, PR S.3), each drawn
-// only when filled: `tile-art` in a tile's top-right corner (given its `cell`),
-// `greeting` at the top of the panel and `panel-art` at the bottom of it.
+// Special days (architecture §6, PR S.3) are drawn from `specialDays`, which the
+// page has already decided: a decorated tile is tinted with its first day's
+// palette accent and carries every day's art in its top-right corner, and a
+// takeover's greeting goes at the top of the panel. The takeover's colours are
+// the stage's theme and its art is a layer behind this view, so the one thing
+// the panel does about it is stop being full height: only as tall as its
+// content, it leaves the lower part of the column clear for the art to show.
+// With nothing special, none of this draws and the view is exactly as it was.
 //
 // The weather (PR 2.7) is drawn in the panel only: the current conditions under
 // the weekday, and each day's icon and high / low at the right of its heading.
@@ -64,9 +71,17 @@ const nowWeather = computed(() => {
   return current && text ? { icon: weatherIcon(current.condition), text } : null
 })
 
-/** A tile's background: today's own, the month's, or the neighbouring months'. */
+/** What a decorated date has: the first day's id and accent (they set the tint) and every day's art, side by side. */
+const decorated = computed(() => new Map(props.specialDays.tiles.flatMap(({ date, days }) => {
+  const first = days[0]
+  return first ? [[date, { id: first.id, accent: paletteAccent(first.palette), art: tileArt(days) }] as const] : []
+})))
+
+/** A tile's background: today's own, the month's, or the neighbouring months'; with a special day's tint mixed into it. */
 function tileBackground(cell: DayCell): string {
-  return cell.today ? 'var(--today-cell)' : cell.inMonth ? 'var(--tile)' : 'var(--tile-out)'
+  const base = cell.today ? 'var(--today-cell)' : cell.inMonth ? 'var(--tile)' : 'var(--tile-out)'
+  const special = decorated.value.get(cell.date)
+  return special ? tileTint(special.accent, base) : base
 }
 
 function numberColours(cell: DayCell): { background: string, color: string } {
@@ -105,9 +120,14 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
         <span class="month">{{ monthName }}</span>{{ ' ' }}<span class="year">{{ year }}</span>
       </h1>
 
-      <div class="panel" data-testid="panel">
-        <div v-if="$slots.greeting" class="greeting">
-          <slot name="greeting" />
+      <div class="panel" :class="{ takeover: specialDays.takeover }" data-testid="panel">
+        <div
+          v-if="specialDays.takeover?.greeting"
+          class="greeting"
+          data-testid="greeting"
+          :style="{ fontSize: `${greetingSize(specialDays.takeover.greeting)}px` }"
+        >
+          {{ specialDays.takeover.greeting }}
         </div>
 
         <div class="now">
@@ -166,10 +186,6 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
             </div>
           </section>
         </div>
-
-        <div v-if="$slots['panel-art']" class="panel-art">
-          <slot name="panel-art" />
-        </div>
       </div>
     </div>
 
@@ -189,9 +205,17 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
               data-testid="day-tile"
               :data-date="cell.date"
               :data-today="cell.today"
+              :data-special="decorated.get(cell.date)?.id"
             />
-            <div v-if="$slots['tile-art']" class="tile-art" :style="{ gridColumn: cell.column + 1 }">
-              <slot name="tile-art" :cell="cell" />
+            <div v-if="decorated.get(cell.date)?.art.length" class="tile-art" :style="{ gridColumn: cell.column + 1 }">
+              <img
+                v-for="(name, index) in decorated.get(cell.date)!.art"
+                :key="`${name}-${index}`"
+                :src="specialDayArtUrl(name)"
+                alt=""
+                draggable="false"
+                data-testid="tile-art"
+              >
             </div>
             <div class="date" :style="{ gridColumn: cell.column + 1 }">
               <span class="number" :style="numberColours(cell)" :data-testid="cell.today ? 'today-number' : undefined">{{ cell.day }}</span>
@@ -316,12 +340,18 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   color: var(--panel-text);
 }
 
-/* Pulled up a little: the display face's line box leaves a gap above the date. */
+/* During a takeover, only as tall as what is in it (and still shrinking to the column if that is too much), so the art shows below. */
+.panel.takeover {
+  flex: 0 1 auto;
+}
+
+/* Pulled up a little: the display face's line box leaves a gap above the date. The size is set from the length of the greeting. */
 .greeting {
   margin-bottom: -12px;
   font-family: var(--font-display);
-  font-size: 56px;
-  line-height: 1;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .now {
@@ -487,13 +517,6 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   line-height: 1.3;
 }
 
-/* Bleeds to the panel's edges, as the mock's does, so a scene can fill the bottom. */
-.panel-art {
-  flex: none;
-  margin: auto -48px -44px;
-  pointer-events: none;
-}
-
 .grid {
   display: flex;
   flex-direction: column;
@@ -542,13 +565,29 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   border-radius: 32px;
 }
 
-/* Over the top-right of a tile, for a special day's art. It never takes a click or pushes anything. */
+/*
+ * The top-right of a tile, beside the date number, for a special day's art. It
+ * sits in the date's row, which is 52 px, and the 60 px art runs a few px into
+ * the first lane: the bars and times come later in the grid so they paint over
+ * it, and nothing is pushed. Art from several days sits side by side.
+ */
 .tile-art {
-  grid-row: 1 / 3;
+  display: flex;
+  grid-row: 1;
+  align-items: flex-start;
   align-self: start;
   justify-self: end;
-  padding: 8px 14px 0 0;
+  gap: 6px;
+  padding: 0 14px 0 0;
   pointer-events: none;
+}
+
+.tile-art img {
+  display: block;
+  width: auto;
+  max-width: 96px;
+  height: 60px;
+  object-fit: contain;
 }
 
 .date {

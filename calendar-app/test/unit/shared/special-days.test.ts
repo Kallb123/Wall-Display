@@ -9,6 +9,7 @@ import {
   LOOK_FIELDS,
   ordinal,
   resolutionRange,
+  resolvePreview,
   resolveSpecialDays,
   SPECIAL_DAY_LEADS,
   SPECIAL_DAY_PALETTES,
@@ -272,6 +273,7 @@ describe('tiles', () => {
       tiles: [],
       current: null,
       takeover: null,
+      tomorrow_art: [],
     })
   })
 
@@ -1240,5 +1242,269 @@ describe('resolving with scenes', () => {
       expect(takeover?.extra_art).toBeNull()
       expect(tiles[0]!.days[0]).not.toHaveProperty('extra_art')
     })
+  })
+})
+
+describe('tomorrow_art', () => {
+  const resolve = (days: SpecialDay[], today: string, scenes: SpecialDayScene[] = []) => resolveSpecialDays(days, scenes, { from: '2026-10-01', to: '2026-11-30', today })
+
+  it('is empty when nothing is decorated tomorrow', () => {
+    expect(resolve([], '2026-10-30').tomorrow_art).toEqual([])
+    expect(resolve([day({ id: 'halloween', month: 10, day: 31, tile_art: 'pumpkin.svg', full_art: 'full.png', takeover: true })], '2026-10-29').tomorrow_art).toEqual([])
+  })
+
+  it('has tomorrow\'s takeover art, full and extra, the day before', () => {
+    const days = [day({ id: 'isla', month: 10, day: 31, takeover: true, full_art: 'party.webp', extra_art: 'seven.png', tile_art: 'cake.svg' })]
+
+    expect(resolve(days, '2026-10-30').tomorrow_art).toEqual(['party.webp', 'seven.png', 'cake.svg'])
+  })
+
+  it('has a tile whose lead window starts tomorrow, and not before then', () => {
+    const days = [day({ id: 'bonfire', month: 11, day: 5, lead: 'week', tile_art: 'rocket.svg' })]
+
+    // The week's lead starts on 29 October.
+    expect(resolve(days, '2026-10-27').tomorrow_art).toEqual([])
+    expect(resolve(days, '2026-10-28').tomorrow_art).toEqual(['rocket.svg'])
+    // Still decorated tomorrow, so the wall may as well hold it.
+    expect(resolve(days, '2026-10-30').tomorrow_art).toEqual(['rocket.svg'])
+  })
+
+  it('has the tile art of every tile in the range, not only the one tomorrow\'s takeover is for', () => {
+    const days = [
+      day({ id: 'halloween', month: 10, day: 31, tile_art: 'pumpkin.svg', takeover: true, full_art: 'full.png' }),
+      day({ id: 'bonfire', month: 11, day: 5, lead: 'week', tile_art: 'rocket.svg' }),
+    ]
+
+    expect(resolve(days, '2026-10-30').tomorrow_art).toEqual(['full.png', 'pumpkin.svg', 'rocket.svg'])
+  })
+
+  it('names each file once, however many tiles and layers use it', () => {
+    const days = [
+      day({ id: 'a', month: 10, day: 31, tile_art: 'shared.svg', takeover: true, full_art: 'shared.svg' }),
+      day({ id: 'b', month: 10, day: 31, tile_art: 'shared.svg' }),
+      day({ id: 'c', month: 11, day: 1, tile_art: 'shared.svg' }),
+    ]
+
+    expect(resolve(days, '2026-10-30').tomorrow_art).toEqual(['shared.svg'])
+  })
+
+  it('uses a scene\'s art for a day that takes its look from it', () => {
+    const birthday = scene({ id: 'birthday', tile_art: 'cake.svg', takeover: true, full_art: 'party.webp' })
+
+    expect(resolve([sceneDay({ id: 'isla', month: 10, day: 31 })], '2026-10-30', [birthday]).tomorrow_art).toEqual(['party.webp', 'cake.svg'])
+  })
+
+  it('crosses the end of the month and the year', () => {
+    const days = [day({ id: 'newyear', month: 1, day: 1, tile_art: 'fireworks.svg', takeover: true, full_art: 'sky.png' })]
+
+    expect(resolveSpecialDays(days, [], { from: '2026-12-01', to: '2027-01-31', today: '2026-12-31' }).tomorrow_art).toEqual(['sky.png', 'fireworks.svg'])
+  })
+
+  it('leaves everything else in the answer as it was', () => {
+    const days = [day({ id: 'halloween', month: 10, day: 31, tile_art: 'pumpkin.svg', takeover: true, full_art: 'full.png', greeting: 'Boo' })]
+    const today = resolve(days, '2026-10-31')
+
+    expect(today.tiles).toHaveLength(1)
+    expect(today.takeover).toMatchObject({ id: 'halloween', date: '2026-10-31' })
+    // Tomorrow the tile is still there, after the day.
+    expect(today.tomorrow_art).toEqual(['pumpkin.svg'])
+  })
+})
+
+describe('resolvePreview', () => {
+  const birthday = scene({ id: 'birthday', name: 'Birthday', tile_art: 'cake.svg', palette: 'sage', takeover: true, full_art: 'party.webp', greeting: 'Happy {nth} birthday, {who}!' })
+  const halloween = day({ id: 'halloween', name: 'Halloween', month: 10, day: 31, palette: 'night', tile_art: 'pumpkin.svg', takeover: true, full_art: 'full.png', greeting: 'Boo!' })
+  const preview = (days: SpecialDay[], target: Parameters<typeof resolvePreview>[2], today = '2026-03-02', scenes: SpecialDayScene[] = [birthday]) => resolvePreview(days, scenes, target, today)
+
+  it('is null for a day or scene that does not exist', () => {
+    expect(preview([halloween], { special_day: 'easter' })).toBeNull()
+    expect(preview([halloween], { scene: 'wedding' })).toBeNull()
+    expect(preview([], { special_day: 'halloween' })).toBeNull()
+  })
+
+  describe('a special day', () => {
+    it('is shown as if its date were today, with its takeover', () => {
+      const resolution = preview([halloween], { special_day: 'halloween' }, '2026-03-02')
+
+      expect(resolution).toEqual({
+        today: '2026-10-31',
+        // The month grid of October: the 1st less 14 days to the 31st plus 14 days.
+        from: '2026-09-17',
+        to: '2026-11-14',
+        tiles: [{ date: '2026-10-31', days: [{ id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }] }],
+        current: { id: 'halloween', name: 'Halloween' },
+        takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Boo!', palette: 'night', full_art: 'full.png', extra_art: null },
+        tomorrow_art: [],
+      })
+    })
+
+    it('uses today itself when that is its date', () => {
+      expect(preview([halloween], { special_day: 'halloween' }, '2026-10-31')?.today).toBe('2026-10-31')
+    })
+
+    it('uses next year\'s date when this year\'s has passed', () => {
+      const resolution = preview([halloween], { special_day: 'halloween' }, '2026-11-01')
+
+      expect(resolution).toMatchObject({ today: '2027-10-31', from: '2027-09-17', to: '2027-11-14', takeover: { date: '2027-10-31' } })
+    })
+
+    it('uses this year\'s date when it is still to come, including tomorrow', () => {
+      expect(preview([halloween], { special_day: 'halloween' }, '2026-10-30')?.today).toBe('2026-10-31')
+    })
+
+    it('fills the greeting for the year it is shown in', () => {
+      const isla = sceneDay({ id: 'isla', month: 3, day: 14, who: 'Isla', since_year: 2019 })
+
+      expect(preview([isla], { special_day: 'isla' }, '2026-03-15')?.takeover?.greeting).toBe('Happy 8th birthday, Isla!')
+      expect(preview([isla], { special_day: 'isla' }, '2026-03-02')?.takeover?.greeting).toBe('Happy 7th birthday, Isla!')
+    })
+
+    it('waits for the year after its since_year', () => {
+      const isla = sceneDay({ id: 'isla', month: 3, day: 14, who: 'Isla', since_year: 2030 })
+
+      expect(preview([isla], { special_day: 'isla' }, '2026-03-02')).toMatchObject({ today: '2031-03-14', takeover: { greeting: 'Happy 1st birthday, Isla!' } })
+    })
+
+    it('is not held back by a since_year that has passed', () => {
+      const isla = sceneDay({ id: 'isla', month: 3, day: 1, who: 'Isla', since_year: 2019 })
+
+      expect(preview([isla], { special_day: 'isla' }, '2026-03-02')?.today).toBe('2027-03-01')
+    })
+
+    it('shows a one-off day on its own date, even in the past or the future', () => {
+      const moving = day({ id: 'moving', repeat: 'once', year: 2025, month: 6, day: 14, takeover: true, greeting: 'Moving day' })
+      const wedding = day({ id: 'wedding', repeat: 'once', year: 2028, month: 9, day: 2 })
+
+      expect(preview([moving], { special_day: 'moving' }, '2026-03-02')).toMatchObject({ today: '2025-06-14', takeover: { id: 'moving', date: '2025-06-14' } })
+      expect(preview([wedding], { special_day: 'wedding' }, '2026-03-02')?.today).toBe('2028-09-02')
+    })
+
+    it('shows 29 February on the 29th in a leap year and the 28th otherwise', () => {
+      const leap = day({ id: 'leap', month: 2, day: 29, takeover: true })
+
+      expect(preview([leap], { special_day: 'leap' }, '2027-03-02')?.today).toBe('2028-02-29')
+      expect(preview([leap], { special_day: 'leap' }, '2026-03-02')?.today).toBe('2027-02-28')
+      expect(preview([leap], { special_day: 'leap' }, '2027-02-28')?.today).toBe('2027-02-28')
+      expect(preview([leap], { special_day: 'leap' }, '2028-02-29')?.today).toBe('2028-02-29')
+    })
+
+    it('falls back to today for a day that never falls on a date', () => {
+      const never = day({ id: 'never', month: 4, day: 31, takeover: true })
+
+      expect(preview([never], { special_day: 'never' }, '2026-03-02')).toMatchObject({ today: '2026-03-02', current: { id: 'never' }, takeover: null })
+    })
+
+    it('has no takeover when its look has takeover off, but is still the current day', () => {
+      const quiet = day({ id: 'quiet', month: 10, day: 31, takeover: false, tile_art: 'pumpkin.svg' })
+      const resolution = preview([quiet], { special_day: 'quiet' })
+
+      expect(resolution?.takeover).toBeNull()
+      expect(resolution?.current).toEqual({ id: 'quiet', name: 'quiet' })
+      expect(resolution?.tiles).toHaveLength(1)
+    })
+
+    it('keeps every other day\'s tile in the month, resolved as of the date', () => {
+      const days = [
+        halloween,
+        day({ id: 'bonfire', month: 11, day: 5, lead: 'week', tile_art: 'rocket.svg' }),
+        day({ id: 'birthday', month: 10, day: 12, tile_art: 'cake.svg' }),
+        day({ id: 'christmas', month: 12, day: 25, lead: 'month', tile_art: 'tree.svg' }),
+        day({ id: 'diwali', month: 11, day: 8, lead: 'month', tile_art: 'lamp.svg' }),
+      ]
+      const resolution = preview(days, { special_day: 'halloween' })
+
+      // Christmas is outside the grid; Diwali's month lead has not started by 31 October.
+      expect(resolution?.tiles.map(tile => [tile.date, tile.days.map(entry => entry.id)])).toEqual([
+        ['2026-10-12', ['birthday']],
+        ['2026-10-31', ['halloween']],
+        ['2026-11-05', ['bonfire']],
+      ])
+    })
+
+    it('is not taken by a day on the same date that comes first by precedence', () => {
+      const stronger = day({ id: 'stronger', month: 10, day: 31, repeat: 'once', year: 2026, takeover: true, full_art: 'other.png', greeting: 'Not me', updated_at: '2026-02-01T00:00:00.000Z' })
+      const days = [halloween, stronger]
+
+      const resolution = preview(days, { special_day: 'halloween' }, '2026-03-02')
+
+      expect(resolution?.current).toEqual({ id: 'halloween', name: 'Halloween' })
+      expect(resolution?.takeover).toMatchObject({ id: 'halloween', greeting: 'Boo!', full_art: 'full.png' })
+      // The ordinary answer for that date is the other day's.
+      expect(resolveSpecialDays(days, [], { from: '2026-10-01', to: '2026-10-31', today: '2026-10-31' }).takeover?.id).toBe('stronger')
+      // Both are still on the tile, in precedence order.
+      expect(resolution?.tiles.find(tile => tile.date === '2026-10-31')?.days.map(entry => entry.id)).toEqual(['stronger', 'halloween'])
+    })
+
+    it('carries the extra art of the day', () => {
+      const isla = sceneDay({ id: 'isla', month: 3, day: 14, extra_art: 'seven.png', who: 'Isla', since_year: 2019 })
+
+      expect(preview([isla], { special_day: 'isla' })?.takeover).toMatchObject({ full_art: 'party.webp', extra_art: 'seven.png' })
+    })
+  })
+
+  describe('a scene', () => {
+    it('is shown through the first day that uses it, in the order given', () => {
+      const days = [
+        sceneDay({ id: 'isla', month: 3, day: 14, who: 'Isla', since_year: 2019 }),
+        sceneDay({ id: 'theo', month: 9, day: 20, who: 'Theo', since_year: 2021 }),
+        halloween,
+      ]
+
+      expect(preview(days, { scene: 'birthday' })).toMatchObject({ today: '2026-03-14', current: { id: 'isla' }, takeover: { id: 'isla', greeting: 'Happy 7th birthday, Isla!', palette: 'sage' } })
+      expect(preview([...days].reverse(), { scene: 'birthday' })).toMatchObject({ today: '2026-09-20', current: { id: 'theo' }, takeover: { greeting: 'Happy 5th birthday, Theo!' } })
+    })
+
+    it('uses that day\'s next date, so a passed one goes to next year', () => {
+      const days = [sceneDay({ id: 'isla', month: 3, day: 1, who: 'Isla', since_year: 2019 })]
+
+      expect(preview(days, { scene: 'birthday' }, '2026-03-02')).toMatchObject({ today: '2027-03-01', takeover: { greeting: 'Happy 8th birthday, Isla!' } })
+    })
+
+    it('with no day using it is a one-off day today, with the placeholders left as typed', () => {
+      const resolution = preview([halloween], { scene: 'birthday' }, '2026-03-02')
+
+      expect(resolution).toEqual({
+        today: '2026-03-02',
+        from: '2026-02-15',
+        to: '2026-04-14',
+        tiles: [{ date: '2026-03-02', days: [{ id: 'scene:birthday', name: 'Birthday', palette: 'sage', tile_art: 'cake.svg' }] }],
+        current: { id: 'scene:birthday', name: 'Birthday' },
+        takeover: { id: 'scene:birthday', name: 'Birthday', date: '2026-03-02', greeting: 'Happy {nth} birthday, {who}!', palette: 'sage', full_art: 'party.webp', extra_art: null },
+        tomorrow_art: [],
+      })
+    })
+
+    it('has no takeover when the scene has takeover off', () => {
+      const quiet = scene({ id: 'quiet', name: 'Quiet', takeover: false, tile_art: 'dot.svg' })
+      const resolution = preview([], { scene: 'quiet' }, '2026-03-02', [quiet])
+
+      expect(resolution?.takeover).toBeNull()
+      expect(resolution?.current).toEqual({ id: 'scene:quiet', name: 'Quiet' })
+      expect(resolution?.tiles).toHaveLength(1)
+    })
+
+    it('shows the other days\' tiles around the one-off day too', () => {
+      const days = [day({ id: 'springday', month: 3, day: 20, lead: 'month', tile_art: 'daffodil.svg' })]
+
+      expect(preview(days, { scene: 'birthday' }, '2026-03-02')?.tiles.map(tile => tile.date)).toEqual(['2026-03-02', '2026-03-20'])
+    })
+
+    it('is not taken by a day on today\'s date', () => {
+      const days = [day({ id: 'today', month: 3, day: 2, takeover: true, greeting: 'Not me' })]
+      const resolution = preview(days, { scene: 'birthday' }, '2026-03-02')
+
+      expect(resolution?.takeover?.id).toBe('scene:birthday')
+      expect(resolution?.tiles[0]?.days.map(entry => entry.id)).toEqual(['scene:birthday', 'today'])
+    })
+  })
+
+  it('does not change the days or scenes it is given', () => {
+    const days = [halloween]
+    const before = JSON.stringify(days)
+
+    preview(days, { scene: 'birthday' })
+
+    expect(JSON.stringify(days)).toBe(before)
+    expect(days).toHaveLength(1)
   })
 })

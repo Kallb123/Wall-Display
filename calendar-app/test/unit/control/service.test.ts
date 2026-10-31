@@ -51,7 +51,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null,
+      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null,
     })
   })
 
@@ -293,6 +293,67 @@ describe('the pinned month timer', () => {
   })
 })
 
+describe('the preview timer', () => {
+  it('clears the preview when its time is up and announces it, so the display goes back by itself', () => {
+    const { control, stateUpdates } = setup()
+    control.applyCommand('hallway', { type: 'preview_special_day', id: 'christmas', seconds: 60 })
+    expect(control.getState('hallway').preview).toEqual({ special_day: 'christmas', until: '2026-10-28T12:01:00.000Z' })
+    expect(stateUpdates).toHaveBeenLastCalledWith({ displayId: 'hallway', state: expect.objectContaining({ preview: { special_day: 'christmas', until: '2026-10-28T12:01:00.000Z' } }) })
+    stateUpdates.mockClear()
+
+    vi.advanceTimersByTime(59_999)
+    expect(stateUpdates).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+
+    expect(stateUpdates).toHaveBeenCalledTimes(1)
+    expect(stateUpdates).toHaveBeenCalledWith({ displayId: 'hallway', state: expect.objectContaining({ preview: null }) })
+    expect(control.getState('hallway').preview).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('stores the preview, and the cleared state', () => {
+    const { control, handle } = setup()
+    control.applyCommand('hallway', { type: 'preview_special_day', scene: 'birthday', seconds: 30 })
+    expect(loadDisplayState(handle.db, 'hallway')?.preview).toEqual({ scene: 'birthday', until: '2026-10-28T12:00:30.000Z' })
+
+    vi.advanceTimersByTime(30_000)
+
+    expect(loadDisplayState(handle.db, 'hallway')?.preview).toBeNull()
+  })
+
+  it('restarts the timer when a new preview replaces the old one', () => {
+    const { control } = setup()
+    control.applyCommand('hallway', { type: 'preview_special_day', id: 'christmas', seconds: 30 })
+    vi.advanceTimersByTime(20_000)
+    control.applyCommand('hallway', { type: 'preview_special_day', scene: 'birthday', seconds: 30 })
+
+    vi.advanceTimersByTime(20_000)
+    expect(control.getState('hallway').preview).toEqual({ scene: 'birthday', until: '2026-10-28T12:00:50.000Z' })
+    vi.advanceTimersByTime(10_000)
+
+    expect(control.getState('hallway').preview).toBeNull()
+  })
+
+  it('only previews on the display it was sent to', () => {
+    const { control } = setup()
+    control.applyCommand('hallway', { type: 'preview_special_day', id: 'christmas', seconds: 60 })
+
+    expect(control.getState('kitchen').preview).toBeNull()
+  })
+
+  it('ends a preview whose time ran out while the app was down, straight away', () => {
+    const first = setup()
+    first.control.applyCommand('hallway', { type: 'preview_special_day', id: 'christmas', seconds: 60 })
+    first.control.stop()
+    vi.advanceTimersByTime(5 * MINUTE)
+
+    const second = setup(first.handle)
+
+    expect(second.control.getState('hallway').preview).toBeNull()
+    expect(loadDisplayState(second.handle.db, 'hallway')?.preview).toBeNull()
+  })
+})
+
 describe('the overlay timer', () => {
   it('clears the overlay when its time is up and announces it', () => {
     const { control, stateUpdates } = setup()
@@ -345,7 +406,7 @@ describe('stopping', () => {
 describe('the store', () => {
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 

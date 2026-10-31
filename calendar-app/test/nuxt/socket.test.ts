@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope } from 'vue'
 import { useDisplaySocket } from '~/composables/useDisplaySocket'
+import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
 // What the socket composable does with the weather messages. The state and
@@ -82,6 +83,77 @@ describe('useDisplaySocket weather', () => {
     fake.push({ type: 'weather.updated', weather })
 
     expect(socket.state.value).toBeNull()
+    scope.stop()
+  })
+})
+
+const specialDays: SpecialDaysResolution = {
+  today: '2026-10-31',
+  from: '2026-09-17',
+  to: '2026-11-14',
+  tiles: [{ date: '2026-10-31', days: [{ id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }] }],
+  current: { id: 'halloween', name: 'Halloween' },
+  takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null },
+  tomorrow_art: [],
+}
+
+describe('useDisplaySocket special days', () => {
+  beforeEach(() => {
+    FakeSocket.all = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('has not heard any until the server sends them', () => {
+    const { socket, scope } = open()
+
+    expect(socket.specialDays.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it('keeps a resolution, and then a null as the server saying there is none', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'special_days.updated', special_days: specialDays })
+    expect(socket.specialDays.value).toEqual(specialDays)
+
+    fake.push({ type: 'special_days.updated', special_days: null })
+    expect(socket.specialDays.value).toBeNull()
+    scope.stop()
+  })
+
+  it('fills in tomorrow\'s art for a server that does not send it', () => {
+    const { socket, scope, fake } = open()
+    const { tomorrow_art: _none, ...older } = specialDays
+
+    fake.push({ type: 'special_days.updated', special_days: older })
+
+    expect(socket.specialDays.value?.tomorrow_art).toEqual([])
+    scope.stop()
+  })
+
+  it('ignores a payload that is the wrong shape, and keeps the last good one', () => {
+    const { socket, scope, fake } = open()
+    fake.push({ type: 'special_days.updated', special_days: specialDays })
+
+    fake.push({ type: 'special_days.updated', special_days: { today: 'tomorrow' } })
+    fake.push({ type: 'special_days.updated' })
+    fake.push({ type: 'special_days.updated', special_days: { ...specialDays, takeover: { ...specialDays.takeover, palette: 'neon' } } })
+
+    expect(socket.specialDays.value).toEqual(specialDays)
+    scope.stop()
+  })
+
+  it('does not let them touch the state or the weather', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'special_days.updated', special_days: specialDays })
+
+    expect(socket.state.value).toBeNull()
+    expect(socket.weather.value).toBeUndefined()
     scope.stop()
   })
 })

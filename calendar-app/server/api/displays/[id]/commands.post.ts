@@ -1,5 +1,7 @@
 import { commandSchema } from '../../../../shared/display'
 import type { DisplayState } from '../../../../shared/display'
+import { getScene } from '../../../special-days/scenes'
+import { getSpecialDay } from '../../../special-days/store'
 
 // Applies one command to a display, such as `{ "type": "set_view", "view": "agenda" }`,
 // and answers with the new state. A bad command is a 400 with a short reason.
@@ -18,6 +20,11 @@ export default defineEventHandler(async (event): Promise<DisplayState> => {
     }
     return parsed.data
   })
+
+  if (command.type === 'preview_special_day') {
+    if (command.id !== undefined && !getSpecialDay(useDb(), command.id)) throw createError({ statusCode: 404, statusMessage: 'Not Found', message: `Unknown special day "${command.id}"` })
+    if (command.scene !== undefined && !getScene(useDb(), command.scene)) throw createError({ statusCode: 404, statusMessage: 'Not Found', message: `Unknown scene "${command.scene}"` })
+  }
 
   return control.applyCommand(id, command)
 })

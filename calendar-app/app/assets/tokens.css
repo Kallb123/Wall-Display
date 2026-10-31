@@ -51,6 +51,35 @@
   --color-accent-2-800: #3d472b;
   --color-accent-2-900: #272e1b;
 
+  /*
+   * The ramps for the special day palettes (architecture §6.4, app/utils/themes.ts).
+   * Unlike the ones above they are the app's own, not copied from the design
+   * project: `plum` for the night palette (the accent and neutral ramps supply
+   * its terracotta), and `frost` for the frost palette. They sit on the same
+   * lightness scale as the ramps above, so step 900 is as dark as the dark
+   * theme's ground, and the sage palette needs no ramp of its own: it is
+   * `--color-accent-2`.
+   */
+  --color-plum-100: #fff0fb;
+  --color-plum-200: #f8e0f1;
+  --color-plum-300: #ebc8e2;
+  --color-plum-400: #d2a9c8;
+  --color-plum-500: #b488aa;
+  --color-plum-600: #946b8a;
+  --color-plum-700: #74506c;
+  --color-plum-800: #55364e;
+  --color-plum-900: #3a2235;
+
+  --color-frost-100: #eef6fe;
+  --color-frost-200: #d7eaff;
+  --color-frost-300: #b5d8fd;
+  --color-frost-400: #92bce8;
+  --color-frost-500: #6f9ccb;
+  --color-frost-600: #537ea9;
+  --color-frost-700: #3a6088;
+  --color-frost-800: #224466;
+  --color-frost-900: #112d48;
+
   --font-display: 'Caprasimo', 'Georgia', serif;
   --font-body: 'Figtree', 'Helvetica Neue', Arial, sans-serif;
 

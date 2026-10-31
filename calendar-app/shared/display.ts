@@ -32,6 +32,11 @@ export type SocketRole = (typeof SOCKET_ROLES)[number]
 export const MONTH_RANGE = 12
 /** The longest an overlay may be set for: a week, in seconds. */
 export const MAX_OVERLAY_TTL_SECONDS = 7 * 24 * 60 * 60
+/** How long `preview_special_day` shows a special day for when it isn't told (architecture §6.5). */
+export const DEFAULT_PREVIEW_SECONDS = 60
+/** The shortest and longest a preview may run, in seconds. */
+export const MIN_PREVIEW_SECONDS = 5
+export const MAX_PREVIEW_SECONDS = 600
 
 /** A month as `YYYY-MM`. */
 export type MonthKey = string
@@ -49,6 +54,16 @@ export const overlaySchema = z.object({
   until: z.iso.datetime().nullable(),
 })
 
+/**
+ * A special day preview while it runs (architecture §7.1): a special day by
+ * its id, or a scene by its id (shown through the first day that uses it).
+ * `until` is an ISO 8601 instant; the server clears the preview then.
+ */
+export const previewSchema = z.union([
+  z.strictObject({ special_day: z.string().min(1), until: z.iso.datetime() }),
+  z.strictObject({ scene: z.string().min(1), until: z.iso.datetime() }),
+])
+
 export const displayStateSchema = z.object({
   view: z.enum(VIEWS).default('month'),
   /** The pinned month, or null to follow the current month. */
@@ -63,9 +78,12 @@ export const displayStateSchema = z.object({
   /** Whether the brightness policy may act on the light level. */
   auto_brightness: z.boolean().default(true),
   overlay: overlaySchema.nullable().default(null),
+  /** The special day or scene being previewed on the wall, or null. */
+  preview: previewSchema.nullable().default(null),
 })
 
 export type Overlay = z.output<typeof overlaySchema>
+export type Preview = z.output<typeof previewSchema>
 export type DisplayState = z.output<typeof displayStateSchema>
 
 // Strict objects, so a typo in a command is rejected instead of ignored.
@@ -91,7 +109,18 @@ export const commandSchema = z.discriminatedUnion('type', [
   }),
   z.strictObject({ type: z.literal('photo_next') }),
   z.strictObject({ type: z.literal('refresh') }),
-], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_overlay, photo_next or refresh' })
+  // Shows a special day (`id`) or a scene (`scene`) on the wall for `seconds`, as if today were that day (architecture §6.5).
+  z.strictObject({
+    type: z.literal('preview_special_day'),
+    id: z.string().trim().min(1, 'must not be empty').optional(),
+    scene: z.string().trim().min(1, 'must not be empty').optional(),
+    seconds: z.number()
+      .int('must be a whole number')
+      .min(MIN_PREVIEW_SECONDS, `must be from ${MIN_PREVIEW_SECONDS} to ${MAX_PREVIEW_SECONDS}`)
+      .max(MAX_PREVIEW_SECONDS, `must be from ${MIN_PREVIEW_SECONDS} to ${MAX_PREVIEW_SECONDS}`)
+      .default(DEFAULT_PREVIEW_SECONDS),
+  }).refine(command => (command.id === undefined) !== (command.scene === undefined), { message: 'needs exactly one of id and scene' }),
+], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_overlay, photo_next, refresh or preview_special_day' })
 
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']

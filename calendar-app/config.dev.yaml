@@ -43,3 +43,14 @@ displays:
 # `docker compose --profile mqtt up -d` from the repo root), remove the # signs:
 # mqtt:
 #   url: mqtt://localhost:1883
+
+# Photo frame mode (architecture §5). The pictures are the small fixtures in
+# test/fixtures/photos/ (made by scripts/make-photo-fixtures.mjs): a landscape,
+# a portrait, a square and a phone photo saved on its side. Like a file: URL, a
+# relative path is from the folder holding this config file. If the folder is
+# not there (the Docker CI job copies only this file into the container), the
+# photo frame has nothing to show and the server logs a warning, nothing worse.
+photos:
+  interval_seconds: 15
+  local:
+    path: ./test/fixtures/photos

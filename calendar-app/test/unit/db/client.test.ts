@@ -38,7 +38,7 @@ describe('openDatabase', () => {
 })
 
 describe('runMigrations', () => {
-  it('creates all seven tables on an empty database', () => {
+  it('creates all eight tables on an empty database', () => {
     const handle = track(openDatabase(':memory:'))
 
     const result = runMigrations(handle, MIGRATIONS_DIR)
@@ -47,7 +47,7 @@ describe('runMigrations', () => {
       .prepare(`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '\\_\\_%' escape '\\' order by name`)
       .all()
       .map(row => (row as { name: string }).name)
-    expect(tables).toEqual(['calendars', 'display_state', 'events', 'photo_assets', 'special_day_scenes', 'special_days', 'sync_status'])
+    expect(tables).toEqual(['calendars', 'display_state', 'events', 'photo_assets', 'photo_playlists', 'special_day_scenes', 'special_days', 'sync_status'])
     expect(result.applied).toBe(result.total)
     expect(result.applied).toBeGreaterThan(0)
   })

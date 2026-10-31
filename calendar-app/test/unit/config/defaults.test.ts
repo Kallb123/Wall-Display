@@ -191,3 +191,42 @@ describe('WALLCAL_TIMEZONE', () => {
     expect(error.message).toContain('WALLCAL_TIMEZONE')
   })
 })
+
+describe('photos.local.path', () => {
+  async function pathFor(path: string) {
+    const raw = minimalConfig()
+    raw.photos = { local: { path } }
+    const { dir, config } = await load({ config: raw })
+    return { dir, path: config.photos!.local!.path }
+  }
+
+  it('resolves from the config file\'s folder, like a relative file: URL', async () => {
+    const { dir, path } = await pathFor('./photos')
+
+    expect(path).toBe(join(dir, 'photos'))
+  })
+
+  it('handles .. and bare relative paths', async () => {
+    const up = await pathFor('../shared/pictures')
+    expect(up.path).toBe(join(up.dir, '../shared/pictures'))
+
+    const bare = await pathFor('pictures/family')
+    expect(bare.path).toBe(join(bare.dir, 'pictures/family'))
+  })
+
+  it('keeps an absolute path, tidied', async () => {
+    expect((await pathFor('/photos')).path).toBe('/photos')
+    expect((await pathFor('/srv//pictures/./2026/')).path).toBe('/srv/pictures/2026')
+  })
+
+  it('does not need the folder to exist', async () => {
+    expect((await pathFor('./not-there')).path).toContain('not-there')
+  })
+
+  it('is rejected when empty', async () => {
+    const raw = minimalConfig()
+    raw.photos = { local: { path: '  ' } }
+
+    expect((await loadError({ config: raw })).message).toContain('photos.local.path')
+  })
+})

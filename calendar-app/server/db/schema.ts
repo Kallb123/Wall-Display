@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // The database schema. After changing this file, run `pnpm db:generate` and
 // commit the new migration in `server/db/migrations/`. CI fails if they differ.
@@ -128,6 +128,23 @@ export const photoAssets = sqliteTable('photo_assets', {
 ])
 
 /**
+ * Where each display is in its shuffled photo playlist (architecture §5.1),
+ * per provider, so a restart carries on instead of starting a new round. The
+ * order is every asset id in the pool, and the first `position` of them have
+ * been shown this round.
+ */
+export const photoPlaylists = sqliteTable('photo_playlists', {
+  displayId: text('display_id').notNull(),
+  provider: text('provider', { enum: PHOTO_PROVIDERS }).notNull(),
+  /** Asset ids (`photo_assets.id`), as a JSON array. */
+  order: text('order', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  position: integer('position').notNull().default(0),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date()),
+}, table => [
+  primaryKey({ columns: [table.displayId, table.provider] }),
+])
+
+/**
  * Looks that several special days share (architecture §6.1). A day's own look
  * fields override its scene's, field by field, so on a scene they are all set.
  * Defined before `specialDays`, which points at it.
@@ -203,6 +220,8 @@ export type DisplayStateRow = typeof displayState.$inferSelect
 export type NewDisplayStateRow = typeof displayState.$inferInsert
 export type PhotoAssetRow = typeof photoAssets.$inferSelect
 export type NewPhotoAssetRow = typeof photoAssets.$inferInsert
+export type PhotoPlaylistRow = typeof photoPlaylists.$inferSelect
+export type NewPhotoPlaylistRow = typeof photoPlaylists.$inferInsert
 export type SpecialDaySceneRow = typeof specialDayScenes.$inferSelect
 export type NewSpecialDaySceneRow = typeof specialDayScenes.$inferInsert
 export type SpecialDayRow = typeof specialDays.$inferSelect

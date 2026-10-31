@@ -29,6 +29,13 @@
       "when": 1793433789825,
       "tag": "0003_special_day_scenes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793458563784,
+      "tag": "0004_photo_playlists",
+      "breakpoints": true
     }
   ]
 }

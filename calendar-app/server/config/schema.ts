@@ -184,7 +184,10 @@ const weather = z.strictObject({
   poll_seconds: z.number().int().min(60).default(600),
 })
 
-const photos = z.strictObject({
+// `local.path` is a folder: absolute, or relative to the config file's folder
+// like a `file:` URL for an ICS source. A folder that doesn't exist is not a
+// config error (a mount may come up later); the photo service logs it.
+const photos = (baseDir: string) => z.strictObject({
   interval_seconds: z.number().int().min(5).default(60),
   landscape_only: z.boolean().default(false),
   cache_max_mb: z.number().int().min(1).default(2048),
@@ -198,7 +201,7 @@ const photos = z.strictObject({
     client_secret: text,
   }).optional(),
   local: z.strictObject({
-    path: text,
+    path: text.transform(value => folderPath(value, baseDir)),
   }).optional(),
 })
 
@@ -232,6 +235,18 @@ function icsUrl(baseDir: string) {
   })
 }
 
+/** An absolute, tidied folder path: `value` as it is if it starts with `/`, otherwise from `baseDir`. */
+function folderPath(value: string, baseDir: string): string {
+  const absolute = value.startsWith('/') ? value : `${baseDir.replace(/\/+$/, '')}/${value}`
+  const parts: string[] = []
+  for (const part of absolute.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  return `/${parts.join('/')}`
+}
+
 function pathToFileUrl(path: string, baseDir: string): string {
   const absolute = path.startsWith('/') ? path : `${baseDir.replace(/\/+$/, '')}/${path}`
   // Let URL do the "." / ".." tidying and percent-encoding.
@@ -255,7 +270,7 @@ export function createConfigSchema(baseDir: string) {
     sync: sync.prefault({}),
     mqtt: mqtt.optional(),
     weather: weather.optional(),
-    photos: photos.optional(),
+    photos: photos(baseDir).optional(),
   }).superRefine(crossChecks)
 }
 

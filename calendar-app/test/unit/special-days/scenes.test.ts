@@ -202,8 +202,8 @@ describe('deleteScene', () => {
     const { db } = migratedMemoryDb()
     createScene(db, sceneInput(), NOW)
 
-    expect(deleteScene(db, 'birthday')).toBe(true)
-    expect(deleteScene(db, 'birthday')).toBe(false)
+    expect(deleteScene(db, 'birthday')).toEqual([])
+    expect(deleteScene(db, 'birthday')).toBeNull()
     expect(listScenes(db)).toEqual([])
   })
 
@@ -246,7 +246,7 @@ describe('deleteScene', () => {
       giveSceneArt(db, 'birthday')
       createSpecialDay(db, dayInput(), NOW)
 
-      expect(deleteScene(db, 'birthday', { detach: true })).toBe(true)
+      expect(deleteScene(db, 'birthday', { detach: true })).toEqual(['scene-tile.webp', 'scene-full.webp'])
 
       expect(getSpecialDay(db, 'isla-s-birthday')).toMatchObject({
         scene_id: null,
@@ -306,8 +306,8 @@ describe('deleteScene', () => {
       const { db } = migratedMemoryDb()
       createScene(db, sceneInput(), NOW)
 
-      expect(deleteScene(db, 'birthday', { detach: true })).toBe(true)
-      expect(deleteScene(db, 'birthday', { detach: true })).toBe(false)
+      expect(deleteScene(db, 'birthday', { detach: true })).toEqual([])
+      expect(deleteScene(db, 'birthday', { detach: true })).toBeNull()
     })
   })
 })

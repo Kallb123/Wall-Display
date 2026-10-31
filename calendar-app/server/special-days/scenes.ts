@@ -76,13 +76,15 @@ export function daysUsingScene(db: Pick<Db, 'select'>, id: string): DayRef[] {
  * unless `detach` is set: then each day first takes the scene's value for every
  * part of the look it left empty (`lead` with `lead_days`), and leaves the
  * scene, so the wall looks the same afterwards. A detached day's `updated_at`
- * is left alone for the same reason. All in one transaction. False if there was
- * no such scene.
+ * is left alone for the same reason. All in one transaction. Returns the art
+ * files the scene held (tile and full, without duplicates), so the caller can
+ * remove those nothing refers to; after a detach the days still refer to them,
+ * so they stay. Null if there was no such scene.
  */
-export function deleteScene(db: Db, id: string, { detach = false }: { detach?: boolean } = {}): boolean {
+export function deleteScene(db: Db, id: string, { detach = false }: { detach?: boolean } = {}): string[] | null {
   return db.transaction((tx) => {
     const scene = tx.select().from(specialDayScenes).where(eq(specialDayScenes.id, id)).get()
-    if (!scene) return false
+    if (!scene) return null
 
     const users = tx.select().from(specialDays).where(eq(specialDays.sceneId, id)).all()
     if (users.length > 0 && !detach) {
@@ -106,6 +108,23 @@ export function deleteScene(db: Db, id: string, { detach = false }: { detach?: b
       }).where(and(eq(specialDays.id, day.id), eq(specialDays.sceneId, id))).run()
     }
     tx.delete(specialDayScenes).where(eq(specialDayScenes.id, id)).run()
-    return true
+    return [...new Set([scene.tileArt, scene.fullArt].filter((name): name is string => name !== null))]
+  })
+}
+
+/**
+ * Points one art slot of a scene at a stored file, or at nothing (null).
+ * Bumps the scene's `updated_at` only: the days using it keep theirs, so which
+ * of two days on one date wins doesn't change. Returns the scene and the file
+ * the slot held before, so the caller can remove it if nothing else refers to
+ * it. Null if there is no such scene.
+ */
+export function setSceneArt(db: Db, id: string, slot: 'tile' | 'full', name: string | null, now: Date): { scene: SpecialDayScene, previous: string | null } | null {
+  const column = { tile: 'tileArt', full: 'fullArt' } as const
+  return db.transaction((tx) => {
+    const before = tx.select().from(specialDayScenes).where(eq(specialDayScenes.id, id)).get()
+    if (!before) return null
+    const row = tx.update(specialDayScenes).set({ [column[slot]]: name, updatedAt: now }).where(eq(specialDayScenes.id, id)).returning().get()
+    return { scene: toSpecialDayScene(row), previous: before[column[slot]] }
   })
 }

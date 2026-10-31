@@ -13,6 +13,7 @@ import {
   SPECIAL_DAY_LEADS,
   SPECIAL_DAY_PALETTES,
   SPECIAL_DAY_REPEATS,
+  specialDayArtUrl,
   specialDayInputSchema,
   specialDaySceneInputSchema,
   specialDaySceneSchema,
@@ -73,6 +74,13 @@ const everything = { from: '2020-01-01', to: '2040-12-31' }
 function tileDates(days: SpecialDay[], today: string, range: { from: string, to: string } = everything): string[] {
   return resolveWithoutScenes(days, { ...range, today }).tiles.map(tile => tile.date)
 }
+
+describe('specialDayArtUrl', () => {
+  it('is the path the server serves an art file from', () => {
+    const name = `${'ab'.repeat(32)}.webp`
+    expect(specialDayArtUrl(name)).toBe(`/special-days/${name}`)
+  })
+})
 
 describe('the shared constants', () => {
   it('match the ones the database schema uses', () => {

@@ -191,8 +191,8 @@ describe('deleteSpecialDay', () => {
     createSpecialDay(db, input(), NOW)
     createSpecialDay(db, input({ name: 'New Year', month: 1, day: 1 }), NOW)
 
-    expect(deleteSpecialDay(db, 'christmas')).toBe(true)
-    expect(deleteSpecialDay(db, 'christmas')).toBe(false)
+    expect(deleteSpecialDay(db, 'christmas')).toEqual([])
+    expect(deleteSpecialDay(db, 'christmas')).toBeNull()
     expect(listSpecialDays(db).map(day => day.id)).toEqual(['new-year'])
   })
 

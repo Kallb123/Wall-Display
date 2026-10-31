@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Everything here must be refused: see test/unit/special-days/art.test.ts. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" onload="alert('onload')">
+  <style>@import url(https://example.com/evil.css);</style>
+  <script>alert('script')</script>
+  <rect width="200" height="200" fill="#c0392b"/>
+  <image href="https://example.com/tracker.png" width="10" height="10"/>
+  <image xlink:href="file:///etc/passwd" width="10" height="10"/>
+  <foreignObject width="200" height="200">
+    <div xmlns="http://www.w3.org/1999/xhtml"><iframe src="https://example.com/"></iframe></div>
+  </foreignObject>
+</svg>

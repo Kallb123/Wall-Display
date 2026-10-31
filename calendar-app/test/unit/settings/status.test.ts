@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultDisplayState } from '../../../server/control/commands'
 import type { MqttBridgeStatus } from '../../../server/mqtt/client'
-import { calendarStatuses, connectionsStatus, discoveryProblem, displayStatuses } from '../../../server/settings/status'
+import { calendarStatuses, connectionsStatus, discoveryProblem, displayStatuses, photosStatus } from '../../../server/settings/status'
 import { ensureCalendarRow, recordSyncStatus, replaceCalendarEvents } from '../../../server/sources/store'
 import type { NormalisedEvent } from '../../../server/sources/types'
 import { migratedMemoryDb } from '../db/helpers'
@@ -183,5 +183,77 @@ describe('discoveryProblem', () => {
 
   it('says discovery is turned off when it is', () => {
     expect(discoveryProblem({ discovery: false })).toMatch(/discovery is turned off/)
+  })
+})
+
+describe('photosStatus', () => {
+  const API_KEY = 'immich-api-key-1234567890'
+  const config = {
+    interval_seconds: 45,
+    landscape_only: true,
+    cache_max_mb: 512,
+    immich: { url: `http://immich.local:2283/reverse/proxy?token=${API_KEY}`, api_key: API_KEY, mode: 'albums' as const, album_ids: ['a'], random: { count: 200, person_ids: [] } },
+    local: { path: '/photos' },
+  }
+  const running = {
+    providers: [
+      { id: 'immich' as const, photos: 120, cached: 40, last_success_at: '2026-10-28T11:55:00.000Z', last_error: null },
+      { id: 'local' as const, photos: 0, cached: 0, last_success_at: null, last_error: 'The folder does not exist' },
+    ],
+    cache_bytes: 300 * 1024 * 1024,
+  }
+
+  it('says there is nothing to show when the config has no photos block', () => {
+    expect(photosStatus({ config: undefined, status: undefined })).toEqual({ configured: false })
+  })
+
+  it('shows each source with its pool, cached count and last listing, and the cache against its cap', () => {
+    expect(photosStatus({ config, status: running })).toEqual({
+      configured: true,
+      interval_seconds: 45,
+      landscape_only: true,
+      cache_bytes: 300 * 1024 * 1024,
+      cache_max_bytes: 512 * 1024 * 1024,
+      google_ignored: false,
+      providers: [
+        { id: 'immich', mode: 'albums', where: 'immich.local:2283', photos: 120, cached: 40, last_success_at: '2026-10-28T11:55:00.000Z', last_error: null },
+        { id: 'local', mode: null, where: '/photos', photos: 0, cached: 0, last_success_at: null, last_error: 'The folder does not exist' },
+      ],
+    })
+  })
+
+  it('names Immich by its host and port alone: no scheme, path, query, credentials or API key', () => {
+    const status = photosStatus({
+      config: { ...config, immich: { ...config.immich, url: `https://user:${API_KEY}@immich.example.com/path?apikey=${API_KEY}` } },
+      status: running,
+    })
+
+    expect(JSON.stringify(status)).not.toContain(API_KEY)
+    expect(JSON.stringify(status)).not.toContain('user:')
+    expect(status).toMatchObject({ providers: [{ id: 'immich', where: 'immich.example.com' }, { id: 'local' }] })
+  })
+
+  it('lists only the sources that are set up, Immich first', () => {
+    const only = photosStatus({ config: { ...config, immich: undefined }, status: running })
+
+    expect(only).toMatchObject({ configured: true, providers: [{ id: 'local', where: '/photos' }] })
+  })
+
+  it('shows zeros before the service has listed anything, or when it is not running', () => {
+    const status = photosStatus({ config: { ...config, local: undefined }, status: undefined })
+
+    expect(status).toMatchObject({
+      cache_bytes: 0,
+      providers: [{ id: 'immich', photos: 0, cached: 0, last_success_at: null, last_error: null }],
+    })
+  })
+
+  it('notes a google block, which is accepted and ignored, without listing it as a source', () => {
+    const status = photosStatus({ config: { ...config, google: { client_id: 'id.apps.googleusercontent.com', client_secret: 'google-secret' } }, status: running })
+
+    expect(status).toMatchObject({ google_ignored: true })
+    expect((status as { providers: { id: string }[] }).providers.map(provider => provider.id)).toEqual(['immich', 'local'])
+    expect(JSON.stringify(status)).not.toContain('google-secret')
+    expect(JSON.stringify(status)).not.toContain('apps.googleusercontent.com')
   })
 })

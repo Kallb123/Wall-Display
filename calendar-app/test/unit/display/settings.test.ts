@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { ConnectionsStatus } from '../../../shared/settings'
 import {
+  bytesLabel,
+  cachePercent,
   detectionIsOff,
   detectionLabel,
   discoveryBlockedReason,
@@ -12,7 +14,10 @@ import {
   mqttChip,
   mqttLinkChip,
   occurrencesLabel,
+  photoCount,
   photoSourceLabel,
+  providerChip,
+  providerDetail,
   pollLabel,
   relativeTime,
   remotesChip,
@@ -281,5 +286,65 @@ describe('discoveryBlockedReason', () => {
 
   it('says when discovery is off', () => {
     expect(discoveryBlockedReason(connections({ discovery: false }))).toMatch(/^Discovery is off/)
+  })
+})
+
+describe('bytesLabel', () => {
+  it.each([
+    [0, '0 B'],
+    [900, '900 B'],
+    [1024, '1 KB'],
+    [1536, '1.5 KB'],
+    [5 * 1024 * 1024, '5 MB'],
+    [250 * 1024 * 1024, '250 MB'],
+    [Math.round(1.25 * 1024 ** 3), '1.3 GB'],
+    [2 * 1024 ** 3, '2 GB'],
+    [1.5 * 1024 ** 4, '1.5 TB'],
+    [-5, '0 B'],
+  ])('writes %d bytes as %s', (bytes, label) => {
+    expect(bytesLabel(bytes)).toBe(label)
+  })
+})
+
+describe('cachePercent', () => {
+  it('is how much of the cap is used, as a whole percentage', () => {
+    expect(cachePercent(0, 100)).toBe(0)
+    expect(cachePercent(1, 3)).toBe(33)
+    expect(cachePercent(50, 100)).toBe(50)
+  })
+
+  it('stays within the bar when the cache is over its cap, and a cap of nothing is full', () => {
+    expect(cachePercent(250, 100)).toBe(100)
+    expect(cachePercent(5, 0)).toBe(100)
+  })
+})
+
+describe('photoCount', () => {
+  it('counts photos', () => {
+    expect([photoCount(0), photoCount(1), photoCount(2), photoCount(1240)]).toEqual(['0 photos', '1 photo', '2 photos', '1,240 photos'])
+  })
+})
+
+describe('providerDetail', () => {
+  it('gives Immich\'s mode and host', () => {
+    expect(providerDetail({ id: 'immich', mode: 'albums', where: 'immich.local:2283' })).toBe('Albums · immich.local:2283')
+    expect(providerDetail({ id: 'immich', mode: 'random', where: 'immich.local' })).toBe('Random from the library · immich.local')
+    expect(providerDetail({ id: 'immich', mode: 'memories', where: null })).toBe('Memories (on this day)')
+  })
+
+  it('gives the folder\'s path', () => {
+    expect(providerDetail({ id: 'local', mode: null, where: '/photos' })).toBe('/photos')
+  })
+})
+
+describe('providerChip', () => {
+  it('says Working after a listing, Not listed yet before one, and Not working when it never worked', () => {
+    expect(providerChip({ last_success_at: '2026-10-28T09:00:00.000Z', last_error: null })).toMatchObject({ label: 'Working', tone: 'ok' })
+    expect(providerChip({ last_success_at: null, last_error: null })).toMatchObject({ label: 'Not listed yet', tone: 'warn' })
+    expect(providerChip({ last_success_at: null, last_error: 'Immich refused the API key (HTTP 401)' })).toMatchObject({ label: 'Not working', tone: 'bad' })
+  })
+
+  it('says Out of reach when it has worked and now fails: its cached photos still show', () => {
+    expect(providerChip({ last_success_at: '2026-10-28T09:00:00.000Z', last_error: 'Immich could not be reached (ECONNREFUSED)' })).toMatchObject({ label: 'Out of reach', tone: 'bad' })
   })
 })

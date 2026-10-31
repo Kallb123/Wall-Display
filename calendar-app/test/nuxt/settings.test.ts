@@ -4,10 +4,11 @@ import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import App from '~/app.vue'
 import CalendarsPage from '~/pages/settings/calendars.vue'
 import DisplaysPage from '~/pages/settings/displays.vue'
+import PhotosPage from '~/pages/settings/photos.vue'
 import { displayStateSchema } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
 import { PIN_ERRORS, PIN_HEADER } from '../../shared/remote'
-import type { CalendarStatus, ConnectionsStatus, DiscoveryResult, DisplayStatus } from '../../shared/settings'
+import type { CalendarStatus, ConnectionsStatus, DiscoveryResult, DisplayStatus, PhotoProviderSettings, PhotosSettingsStatus } from '../../shared/settings'
 
 // The settings pages against a pretend server: `$fetch` is replaced by one
 // that answers as the real routes do (architecture §7.6, shared/settings.ts),
@@ -51,6 +52,30 @@ const display = (changes: Partial<DisplayStatus> = {}): DisplayStatus => ({
   ...changes,
 })
 
+const MB = 1024 * 1024
+
+const provider = (changes: Partial<PhotoProviderSettings> = {}): PhotoProviderSettings => ({
+  id: 'immich',
+  mode: 'albums',
+  where: 'immich.local:2283',
+  photos: 120,
+  cached: 40,
+  last_success_at: '2026-10-28T09:36:00Z',
+  last_error: null,
+  ...changes,
+})
+
+const photosStatus = (changes: Partial<Extract<PhotosSettingsStatus, { configured: true }>> = {}): PhotosSettingsStatus => ({
+  configured: true,
+  interval_seconds: 60,
+  landscape_only: false,
+  cache_bytes: 512 * MB,
+  cache_max_bytes: 2048 * MB,
+  providers: [provider(), provider({ id: 'local', mode: null, where: '/photos', photos: 8, cached: 8 })],
+  google_ignored: false,
+  ...changes,
+})
+
 const connections = (changes: { mqtt?: Partial<ConnectionsStatus['mqtt']>, homeassistant?: Partial<ConnectionsStatus['homeassistant']> } = {}): ConnectionsStatus => ({
   mqtt: { configured: true, broker: 'mqtt://mosquitto:1883', discovery: true, connected: 2, total: 2, ...changes.mqtt },
   homeassistant: { configured: false, state: 'off', error: null, checked_at: null, ...changes.homeassistant },
@@ -60,12 +85,15 @@ const connections = (changes: { mqtt?: Partial<ConnectionsStatus['mqtt']>, homea
 let calendars: CalendarStatus[]
 let displays: DisplayStatus[]
 let status: ConnectionsStatus
+let photos: PhotosSettingsStatus
 let pin: string | null
 let lockedOut: boolean
 let unreachable: boolean
 let requests: { method: string, url: string, pin: string | null }[]
 let discovery: () => DiscoveryResult
 let refreshed: () => void
+/** Held, like `holdRefresh`, for the Photos tab's refresh. */
+let holdPhotosRefresh: Promise<void> | null
 /** Holds /api/refresh's answer until it is let go, for a test that looks at the page meanwhile. */
 let holdRefresh: Promise<void> | null
 
@@ -87,6 +115,7 @@ async function server(url: string, options: Options = {}) {
     if (url === '/api/settings/calendars') return structuredClone(calendars)
     if (url === '/api/settings/displays') return structuredClone(displays)
     if (url === '/api/settings/connections') return structuredClone(status)
+    if (url === '/api/settings/photos') return structuredClone(photos)
     if (url === '/api/special-days' || url === '/api/special-day-scenes') return []
     if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' }]
     throw refusal(404, `Not found: ${url}`)
@@ -105,6 +134,12 @@ async function server(url: string, options: Options = {}) {
     return { calendars: [] }
   }
   if (url === '/api/settings/discovery') return discovery()
+  if (url === '/api/settings/photos/refresh') {
+    if (!photos.configured) throw refusal(409, 'Photos are not set up: add a photos block to the config')
+    await holdPhotosRefresh
+    refreshed()
+    return structuredClone(photos)
+  }
   throw refusal(404, `Not found: ${url}`)
 }
 
@@ -128,6 +163,7 @@ beforeEach(() => {
   calendars = [calendar()]
   displays = [display()]
   status = connections()
+  photos = photosStatus()
   pin = null
   lockedOut = false
   unreachable = false
@@ -135,6 +171,7 @@ beforeEach(() => {
   discovery = () => ({ republished: ['hallway'] })
   refreshed = () => {}
   holdRefresh = null
+  holdPhotosRefresh = null
   localStorage.clear()
 })
 
@@ -162,7 +199,8 @@ describe('the settings shell', () => {
 
   it('shows the tab\'s page below the tabs', async () => {
     const photos = await mountAt(App, '/settings/photos')
-    expect(photos.find('[data-testid="photos-placeholder"]').text()).toContain('Photos arrive with photo frame mode')
+    expect(photos.find('[data-testid="cache-card"]').exists()).toBe(true)
+    expect(photos.findAll('[data-testid="provider-card"]')).toHaveLength(2)
 
     const days = await mountAt(App, '/settings/special-days')
     expect(days.find('[data-testid="special-days-page"]').exists()).toBe(true)
@@ -508,6 +546,206 @@ describe('the Displays tab', () => {
   })
 })
 
+describe('the Photos tab', () => {
+  const card = (wrapper: Awaited<ReturnType<typeof mountAt>>, id: string) => wrapper.find(`[data-provider="${id}"]`)
+  const text = (wrapper: Awaited<ReturnType<typeof mountAt>>, testid: string, id: string) => card(wrapper, id).find(`[data-testid="${testid}"]`).text()
+  const find = (wrapper: Awaited<ReturnType<typeof mountAt>>, testid: string) => wrapper.find(`[data-testid="${testid}"]`)
+
+  it('shows each source with its name, details, pool, cached count and last listing', async () => {
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(wrapper.findAll('[data-testid="provider-card"]')).toHaveLength(2)
+    expect(text(wrapper, 'provider-name', 'immich')).toBe('Immich')
+    expect(text(wrapper, 'provider-detail', 'immich')).toBe('Albums · immich.local:2283')
+    expect(text(wrapper, 'provider-photos', 'immich')).toBe('120 photos')
+    expect(text(wrapper, 'provider-cached', 'immich')).toBe('40')
+    expect(text(wrapper, 'provider-last-success', 'immich')).toBe('5 minutes ago')
+    expect(text(wrapper, 'provider-status', 'immich')).toBe('Working')
+    expect(text(wrapper, 'provider-name', 'local')).toBe('Local folder')
+    expect(text(wrapper, 'provider-detail', 'local')).toBe('/photos')
+    expect(find(wrapper, 'provider-error').exists()).toBe(false)
+  })
+
+  it('shows the cache size against its cap, with a bar', async () => {
+    photos = photosStatus({ cache_bytes: 1536 * MB, cache_max_bytes: 2048 * MB })
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(find(wrapper, 'cache-size').text()).toBe('1.5 GB of 2 GB')
+    const bar = find(wrapper, 'cache-bar')
+    expect(bar.attributes('role')).toBe('meter')
+    expect(bar.attributes('aria-valuenow')).toBe('75')
+    expect(bar.attributes('aria-valuetext')).toBe('75% of the cache is used')
+    expect(bar.find('.fill').attributes('style')).toContain('width: 75%')
+    expect(bar.attributes('data-full')).toBe('false')
+  })
+
+  it('marks a nearly full cache, and keeps the bar inside its track when it is over', async () => {
+    photos = photosStatus({ cache_bytes: 3000 * MB, cache_max_bytes: 2048 * MB })
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(find(wrapper, 'cache-bar').attributes('aria-valuenow')).toBe('100')
+    expect(find(wrapper, 'cache-bar').attributes('data-full')).toBe('true')
+  })
+
+  it('shows the interval and whether portrait photos are left out', async () => {
+    photos = photosStatus({ interval_seconds: 90, landscape_only: true })
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(find(wrapper, 'photo-interval').text()).toBe('Every 90 seconds')
+    expect(find(wrapper, 'photo-landscape').text()).toBe('Left out')
+    expect(find(wrapper, 'photo-cache-limit').text()).toBe('2 GB')
+  })
+
+  it('shows a source that never worked as an error, and one that has stopped as out of reach with its cache still showing', async () => {
+    photos = photosStatus({
+      providers: [
+        provider({ photos: 0, cached: 0, last_success_at: null, last_error: 'Immich refused the API key (HTTP 401)' }),
+        provider({ id: 'local', mode: null, where: '/photos', last_error: 'The folder is not there' }),
+      ],
+    })
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(text(wrapper, 'provider-status', 'immich')).toBe('Not working')
+    expect(text(wrapper, 'provider-error', 'immich')).toContain('Immich refused the API key (HTTP 401)')
+    expect(text(wrapper, 'provider-error', 'immich')).not.toContain('keep showing')
+    expect(text(wrapper, 'provider-last-success', 'immich')).toBe('Never')
+    expect(card(wrapper, 'immich').find('[data-testid="provider-error"]').attributes('role')).toBe('alert')
+    expect(text(wrapper, 'provider-status', 'local')).toBe('Out of reach')
+    expect(text(wrapper, 'provider-error', 'local')).toContain('Photos already in the cache keep showing meanwhile.')
+  })
+
+  it('says the photo frame is off, with no sources, when the config has no photos block', async () => {
+    photos = { configured: false }
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(find(wrapper, 'photos-off').text()).toContain('The config has no photos block')
+    expect(find(wrapper, 'cache-card').exists()).toBe(false)
+    expect(find(wrapper, 'provider-card').exists()).toBe(false)
+    expect(find(wrapper, 'refresh').attributes('disabled')).toBeDefined()
+  })
+
+  it('says so when no source is set up under the photos block', async () => {
+    photos = photosStatus({ providers: [] })
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(find(wrapper, 'no-providers').exists()).toBe(true)
+    expect(find(wrapper, 'cache-card').exists()).toBe(true)
+  })
+
+  it('notes that a google block is ignored', async () => {
+    photos = photosStatus({ google_ignored: true })
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(find(wrapper, 'google-ignored').text()).toContain('Google Photos isn\'t supported yet')
+    expect(wrapper.findAll('[data-testid="provider-card"]')).toHaveLength(2)
+  })
+
+  it('says it is loading before the first answer, and that the server cannot be reached when it never answers', async () => {
+    unreachable = true
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(find(wrapper, 'loading').exists()).toBe(false)
+    expect(find(wrapper, 'unreachable').text()).toBe('Couldn\'t reach the server')
+    expect(find(wrapper, 'provider-card').exists()).toBe(false)
+  })
+
+  it('shows nothing secret: the page only knows what the route sends', async () => {
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(wrapper.html()).not.toMatch(/api[_ -]?key/i)
+  })
+
+  describe('Refresh now', () => {
+    it('posts to /api/settings/photos/refresh, says it is working, then shows what it found', async () => {
+      const wrapper = await mountAt(PhotosPage, '/settings/photos')
+      expect(find(wrapper, 'refresh').text()).toBe('Refresh now')
+
+      let finish = () => {}
+      holdPhotosRefresh = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      refreshed = () => {
+        photos = photosStatus({ providers: [provider({ photos: 125 })] })
+      }
+
+      await find(wrapper, 'refresh').trigger('click')
+      await flushPromises()
+
+      expect(find(wrapper, 'refresh').text()).toBe('Refreshing…')
+      expect(find(wrapper, 'refresh').attributes('disabled')).toBeDefined()
+      expect(writes()).toEqual([{ method: 'POST', url: '/api/settings/photos/refresh', pin: null }])
+
+      finish()
+      await flushPromises()
+
+      expect(find(wrapper, 'refresh').text()).toBe('Refresh now')
+      expect(text(wrapper, 'provider-photos', 'immich')).toBe('125 photos')
+    })
+
+    it('asks for the PIN, and refreshes with it once it is right', async () => {
+      pin = '4821'
+      const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+      await find(wrapper, 'refresh').trigger('click')
+      await flushPromises()
+      expect(find(wrapper, 'pin-dialog').exists()).toBe(true)
+
+      await find(wrapper, 'pin-input').setValue('4821')
+      await find(wrapper, 'pin-dialog').find('form').trigger('submit')
+      await flushPromises()
+
+      expect(find(wrapper, 'pin-dialog').exists()).toBe(false)
+      expect(writes().map(request => [request.url, request.pin])).toEqual([
+        ['/api/settings/photos/refresh', null],
+        ['/api/settings/photos/refresh', '4821'],
+      ])
+    })
+
+    it('says so inline when the server cannot list the photos, and the button works again', async () => {
+      const wrapper = await mountAt(PhotosPage, '/settings/photos')
+      fetchMock.mockImplementation(async (url: string, options: Options) => {
+        if (url === '/api/settings/photos/refresh') throw refusal(500, 'boom')
+        return server(url, options)
+      })
+
+      await find(wrapper, 'refresh').trigger('click')
+      await flushPromises()
+
+      expect(find(wrapper, 'refresh-error').text()).toBe('The server couldn\'t list the photos')
+      expect(find(wrapper, 'refresh').attributes('disabled')).toBeUndefined()
+    })
+
+    it('shows the server\'s own words for a 409', async () => {
+      const wrapper = await mountAt(PhotosPage, '/settings/photos')
+      // The config lost its photos block since the page loaded.
+      photos = { configured: false }
+
+      await find(wrapper, 'refresh').trigger('click')
+      await flushPromises()
+
+      expect(find(wrapper, 'refresh-error').text()).toContain('Photos are not set up')
+    })
+
+    it('says the server cannot be reached, when it cannot', async () => {
+      const wrapper = await mountAt(PhotosPage, '/settings/photos')
+      unreachable = true
+
+      await find(wrapper, 'refresh').trigger('click')
+      await flushPromises()
+
+      expect(find(wrapper, 'refresh-error').text()).toBe('Couldn\'t reach the server')
+    })
+  })
+
+  it('is a tab in the shell, and no longer a placeholder', async () => {
+    const wrapper = await mountAt(App, '/settings/photos')
+
+    expect(wrapper.find('[data-testid="tab-photos"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.find('[data-testid="photos-placeholder"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="cache-card"]').exists()).toBe(true)
+  })
+})
+
 describe('the PIN', () => {
   const dialog = (wrapper: Awaited<ReturnType<typeof mountAt>>) => wrapper.find('[data-testid="pin-dialog"]')
 
@@ -680,6 +918,17 @@ describe('polling', () => {
 
     expect(gets('/api/settings/displays')).toHaveLength(2)
     expect(wrapper.find('[data-testid="display-wall"]').text()).toBe('Not connected')
+  })
+
+  it('asks the photos again every 15 seconds', async () => {
+    const wrapper = await mountPolled(PhotosPage, '/settings/photos')
+    expect(gets('/api/settings/photos')).toHaveLength(1)
+
+    photos = photosStatus({ providers: [provider({ photos: 7 })] })
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    expect(gets('/api/settings/photos')).toHaveLength(2)
+    expect(wrapper.find('[data-testid="provider-photos"]').text()).toBe('7 photos')
   })
 
   it('stops while the tab is hidden, and asks at once when it is back', async () => {

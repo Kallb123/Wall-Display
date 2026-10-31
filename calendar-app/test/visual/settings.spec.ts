@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { displayStateSchema } from '../../shared/display'
-import type { CalendarStatus, ConnectionsStatus, DisplayStatus } from '../../shared/settings'
+import type { CalendarStatus, ConnectionsStatus, DisplayStatus, PhotosSettingsStatus } from '../../shared/settings'
 import { NOW, fontsReady } from './helpers'
 
 // The settings pages (architecture §7.6) at a laptop's size, in both of the
@@ -102,12 +102,28 @@ const connections: ConnectionsStatus = {
   homeassistant: { configured: true, state: 'error', error: 'Home Assistant refused the token (401)', checked_at: minutesAgo(1) },
 }
 
+const MB = 1024 * 1024
+
+const photos: PhotosSettingsStatus = {
+  configured: true,
+  interval_seconds: 60,
+  landscape_only: true,
+  cache_bytes: 1536 * MB,
+  cache_max_bytes: 2048 * MB,
+  google_ignored: false,
+  providers: [
+    { id: 'immich', mode: 'albums', where: 'immich.local:2283', photos: 1240, cached: 312, last_success_at: minutesAgo(7), last_error: null },
+    { id: 'local', mode: null, where: '/photos', photos: 0, cached: 36, last_success_at: minutesAgo(190), last_error: 'The photo folder is not there' },
+  ],
+}
+
 /** Plays the settings API, with the clock frozen before the page loads. */
-async function playSettings(page: Page, status: ConnectionsStatus = connections, pinRequired = false) {
+async function playSettings(page: Page, status: ConnectionsStatus = connections, pinRequired = false, photosStatus: PhotosSettingsStatus = photos) {
   await page.clock.setFixedTime(NOW)
   await page.route('**/api/settings/calendars', route => route.fulfill({ json: calendars }))
   await page.route('**/api/settings/displays', route => route.fulfill({ json: displays }))
   await page.route('**/api/settings/connections', route => route.fulfill({ json: status }))
+  await page.route('**/api/settings/photos', route => route.fulfill({ json: photosStatus }))
   await page.route('**/api/remote', route => route.fulfill({ json: { pin_required: pinRequired } }))
 }
 
@@ -129,6 +145,15 @@ async function openDisplays(page: Page) {
   await fontsReady(page)
 }
 
+async function openPhotos(page: Page, photosStatus: PhotosSettingsStatus = photos) {
+  await playSettings(page, connections, false, photosStatus)
+  await page.goto('/settings/photos')
+  await expect(page.getByTestId('tab-photos')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('cache-card').or(page.getByTestId('photos-off'))).toBeVisible()
+  await expect(page.getByTestId('chip-mqtt')).toContainText('1 of 2 connected')
+  await fontsReady(page)
+}
+
 test.describe('light', () => {
   test('Calendars looks right', async ({ page }) => {
     await openCalendars(page)
@@ -140,6 +165,19 @@ test.describe('light', () => {
     await openDisplays(page)
 
     await expect(page).toHaveScreenshot('displays-light.png', { fullPage: true })
+  })
+
+  test('Photos looks right', async ({ page }) => {
+    await openPhotos(page)
+
+    await expect(page.getByTestId('provider-card')).toHaveCount(2)
+    await expect(page).toHaveScreenshot('photos-light.png', { fullPage: true })
+  })
+
+  test('Photos looks right with no photos block', async ({ page }) => {
+    await openPhotos(page, { configured: false })
+
+    await expect(page).toHaveScreenshot('photos-off-light.png', { fullPage: true })
   })
 
   test('paints the page with the theme background to the edges', async ({ page }) => {
@@ -164,6 +202,13 @@ test.describe('dark', () => {
     await openDisplays(page)
 
     await expect(page).toHaveScreenshot('displays-dark.png', { fullPage: true })
+  })
+
+  test('Photos looks right', async ({ page }) => {
+    await openPhotos(page)
+
+    await expect(page.getByTestId('provider-card')).toHaveCount(2)
+    await expect(page).toHaveScreenshot('photos-dark.png', { fullPage: true })
   })
 
   test('paints the page with the theme background to the edges', async ({ page }) => {
@@ -191,6 +236,31 @@ test.describe('on a tablet held upright', () => {
   })
 })
 
+test('Photos refresh asks for the PIN, then refreshes with it', async ({ page }) => {
+  await playSettings(page, connections, true)
+  const refreshes: (string | undefined)[] = []
+  await page.route('**/api/settings/photos/refresh', async (route) => {
+    const pin = route.request().headers()['x-wallcal-pin']
+    refreshes.push(pin)
+    if (pin === '4821') await route.fulfill({ json: photos })
+    else await route.fulfill({ status: 401, json: { statusCode: 401, message: 'PIN required' } })
+  })
+  await page.route('**/api/remote/pin', route => route.fulfill(route.request().headers()['x-wallcal-pin'] === '4821'
+    ? { status: 200, body: '' }
+    : { status: 401, json: { statusCode: 401, message: 'Wrong PIN' } }))
+  await page.goto('/settings/photos')
+  await expect(page.getByTestId('provider-card')).toHaveCount(2)
+  await fontsReady(page)
+
+  await page.getByTestId('refresh').click()
+  await expect(page.getByTestId('pin-dialog')).toBeVisible()
+  await page.getByTestId('pin-input').fill('4821')
+  await page.getByTestId('pin-submit').click()
+
+  await expect(page.getByTestId('pin-dialog')).toHaveCount(0)
+  await expect.poll(() => refreshes).toEqual([undefined, '4821'])
+})
+
 test('opens /settings on the Calendars tab, and the tabs move between pages', async ({ page }) => {
   await playSettings(page)
   await page.goto('/settings')
@@ -206,7 +276,7 @@ test('opens /settings on the Calendars tab, and the tabs move between pages', as
   await expect(page.getByTestId('display-card')).toHaveCount(2)
 
   await page.getByTestId('tab-photos').click()
-  await expect(page.getByTestId('photos-placeholder')).toBeVisible()
+  await expect(page.getByTestId('cache-card')).toBeVisible()
   await page.getByTestId('tab-special-days').click()
   // The real server answers the special days (none in the visual config's data folder, or some: either way the page and its list are there).
   await expect(page.getByTestId('special-days-page')).toBeVisible()

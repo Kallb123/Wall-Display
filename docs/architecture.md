@@ -8,7 +8,7 @@ A self-hosted smart wall calendar. The UI runs on a Samsung Smart Monitor M8 (M8
 
 - **Calendar first.** It should show month, week and today views of the family's calendars, with changes appearing within minutes. Each event belongs to a person (Mum, Dad, each child, Household), shown by a colour and an initial. People can each have their own calendar, or share one family calendar, with the person worked out from the event's description or title.
 - **Look ahead and back.** From the phone you can move the month view up to 12 months either side of today. It goes back to the current month on its own.
-- **Special days.** Birthdays, Halloween, Christmas and similar days can have their own art. Ahead of time the day's tile shows a small drawing. On the day itself the whole wall can switch to that day's palette, greeting and full-screen art. Special days are set up in the browser, not in YAML.
+- **Special days.** Birthdays, Halloween, Christmas and similar days can have their own art. Ahead of time the day's tile shows a small drawing. On the day itself the whole wall can switch to that day's palette, greeting and full-screen art. A look can be kept as a **scene** and used on many dates, such as every birthday in the family, with small changes for each one. Special days are set up in the browser, not in YAML.
 - **No touch needed.** Control comes from Home Assistant, a phone remote page, a physical button and automations.
 - **Thin display client.** The Pi only renders a web page and handles local hardware. It holds no configuration and no secrets, and you can reflash it in minutes.
 - **First-class Home Assistant citizen.** The calendar auto-discovers into HA as entities, so it can be controlled, displayed and automated like any other device.
@@ -297,18 +297,34 @@ A special day is a date with its own art: a birthday, Halloween, Christmas, movi
 
 Special days are edited in the browser (§7.6) and stored in SQLite, not in `config.yaml`. Their art lives in `/data/special-days/`.
 
+A special day has two parts, so one look can be used on many dates:
+
+- A **scene** is a look with no date: tile art, full-screen art, palette, greeting, lead window, and whether it takes over. "Birthday", "Halloween" and "Christmas" are scenes.
+- A **special day** is one date on the calendar, such as "Isla's birthday" on 14 March. It can use a scene and change any part of that look for itself. Whatever it doesn't change comes from the scene, so editing the Birthday scene updates every birthday at once, apart from the parts a birthday has its own version of.
+
 ```text
-SpecialDay {
-  id, name,
-  month, day, year,        // year is set only when repeat = once
-  repeat: yearly | once,
+Scene {
+  id, name,                // e.g. "Birthday"
   lead: day | week | month | days,
   lead_days,               // 1–365, set only when lead = days
   tile_art,                // file name, or null
   takeover: bool,
   full_art,                // file name, or null
-  greeting,                // e.g. "Happy Halloween"
+  greeting,                // e.g. "Happy {nth} birthday, {who}!"
   palette: warm | night | frost | sage,
+  updated_at
+}
+
+SpecialDay {
+  id, name,                // e.g. "Isla's birthday"
+  month, day, year,        // year is set only when repeat = once
+  repeat: yearly | once,
+  scene_id,                // the scene it uses, or null
+  who,                     // e.g. "Isla", or null; fills {who}
+  since_year,              // e.g. 2019, or null; fills {years} and {nth}. Yearly days only
+  // Its own version of the scene's look. Each is null to use the scene's.
+  lead, lead_days, tile_art, takeover, full_art, greeting, palette,
+  extra_art,               // a layer drawn over the full art, or null
   updated_at
 }
 ```
@@ -320,10 +336,36 @@ SpecialDay {
 | `tile_art` | A square drawing, transparent PNG or SVG, for the day's tile. |
 | `takeover` | Whether the day takes over the whole wall when it arrives. |
 | `full_art`, `greeting`, `palette` | Used by the takeover only. |
+| `extra_art` | A transparent layer drawn on top of the full art, for the one thing that differs on this day: a "7" balloon, a name banner. The scene's picture is shared and only the extra is drawn per day. Takeover only. |
+| `who`, `since_year` | Fill the greeting's placeholders (below). |
+
+**The look a day uses** is worked out one field at a time: the day's own value if it has one, otherwise its scene's, otherwise a default (no art, no greeting, `warm`, lead `day`, no takeover). `lead` and `lead_days` count as one field. A day with no scene simply has all of its own values. This is how S.1 stored every day, so those days carry on unchanged. A scene can't be based on another scene: one level (day over scene) covers "nearly the same, with an extra thing", and a chain would make it hard to see where a value comes from. Copying (below) covers a scene that is mostly like another.
+
+**Greeting placeholders.** A greeting, on a scene or a day, can use:
+
+| Placeholder | Becomes | Example |
+|---|---|---|
+| `{who}` | the day's `who` | Isla |
+| `{years}` | the year of this occurrence minus `since_year` | 7 |
+| `{nth}` | the same, as an ordinal | 7th |
+
+They are filled in for each occurrence, so the same birthday says "7th" this year and "8th" next year. Any other `{…}` is rejected. A save is refused if it would leave some day with a greeting it can't fill, for example a scene greeting that uses `{nth}` while one of its days has no `since_year`, and the error names those days. A day with a `since_year` doesn't show in that year or before it.
+
+**Copying.** Three actions make something new from something that exists. All of them copy rather than link:
+
+- **Duplicate a day.** The copy keeps the scene, `who`, `since_year` and its own values, and is named "Copy of …" for you to change along with the date. Theo's birthday starts as a copy of Isla's.
+- **Duplicate a scene.** An independent copy, for a look that is mostly like another: "Birthday" becomes "Birthday (garden party)", and you change what differs.
+- **Save as scene.** Makes a new scene from a day's look and moves the day onto it, clearing its own values. For when the first birthday was set up by hand and now a second is coming.
+
+Art files are named by a hash of their content, so a copy shares the files rather than storing them twice. A file is deleted once no scene or day refers to it.
+
+A scene in use can't be deleted on its own. The editor offers **Copy into days and delete**, which first gives each of its days the scene's values as their own, so nothing changes on the wall.
+
+One day with several dates was considered instead of scenes. Each birthday needs its own name, greeting and age anyway, so that would need a set of changes per date, which is what a day on a scene already is.
 
 ### 6.2 Before the day: tile art
 
-While the lead period is running, the day's tile in the month view (both styles) gets:
+Here and in §6.3, a day's lead, art, palette and greeting are the ones it uses after its scene is applied (§6.1). While the lead period is running, the day's tile in the month view (both styles) gets:
 
 - a **tint** taken from the special day's palette accent, mixed into the tile at about 26%
 - the **tile art**, drawn about 60 px tall in the tile's top-right corner, beside the date number and clear of the event lanes
@@ -335,10 +377,10 @@ Events on that day draw as normal. If a special day has no tile art, only the ti
 From midnight to midnight (`Europe/London`) on a special day with `takeover` on, every calendar view changes:
 
 - **Palette.** The display swaps its theme tokens for the special day's palette (§6.4). This covers the page background, tiles, panel, text and accents.
-- **Greeting.** The greeting appears in large heading type at the top of the today panel (Soft month), above the weather card (Classic month), and above today's list in the agenda view.
-- **Art.** The full-screen art (2560×1440) is a layer behind the view. Tiles and panels stay solid, so text contrast doesn't depend on the art. The art shows in the margins, the gaps between tiles and the empty lower part of the side panel, where the mock puts its scene. Artists should keep the busy parts of the picture out from behind text.
+- **Greeting.** The greeting, with its placeholders filled in (§6.1), appears in large heading type at the top of the today panel (Soft month), above the weather card (Classic month), and above today's list in the agenda view.
+- **Art.** The full-screen art (2560×1440) is a layer behind the view, with the day's extra art, if it has any, drawn on top of it. Tiles and panels stay solid, so text contrast doesn't depend on the art. The art shows in the margins, the gaps between tiles and the empty lower part of the side panel, where the mock puts its scene. Artists should keep the busy parts of the picture out from behind text.
 
-The photo frame and night views don't change. Overlay banners (§7.1) still show on top. If two special days fall on the same date, a `once` day wins over a `yearly` one, and then the most recently edited wins. Only one takes over. Every matching day's tile art is drawn side by side.
+The photo frame and night views don't change. Overlay banners (§7.1) still show on top. If two special days fall on the same date, a `once` day wins over a `yearly` one, and then the most recently edited day wins. Editing a scene doesn't count as editing its days. Only one takes over. Every matching day's tile art is drawn side by side.
 
 ### 6.4 Palettes
 
@@ -355,10 +397,10 @@ More palettes can be added in code. They aren't user-editable, so every palette 
 
 ### 6.5 Timing, preview and art
 
-- **Resolution on the server.** The server works out the special days for any date range (yearly dates, one-off dates, lead windows, the precedence rule above). A 29 February special day shows on 28 February in non-leap years. The display gets the tile decorations for the month it shows, plus today's takeover if there is one. It never works out dates itself.
+- **Resolution on the server.** The server works out the special days for any date range (each day's look from its scene, yearly dates, one-off dates, lead windows, greeting placeholders, the precedence rule above). A 29 February special day shows on 28 February in non-leap years. The display gets the tile decorations for the month it shows, plus today's takeover if there is one. It never works out dates itself.
 - **Midnight.** A timer in the app fires at local midnight, and on DST change days too. It re-resolves and broadcasts, so a takeover starts and ends at midnight without a page reload. The display preloads (`img.decode()`) the next day's art in the evening, so the switch is instant.
-- **Preview on wall.** The admin page's "Preview on wall" button sends a `preview_special_day` command. The display shows that day's takeover and tile art for 60 seconds, as if today were that day, with a small "Preview" badge. Then it goes back to normal.
-- **Uploads.** Tile art is PNG, WebP or SVG, up to 2 MB. Raster images are resized to fit 512×512. SVGs are sanitised on upload (no scripts, event handlers or external references) and served with a locked-down `Content-Security-Policy` and `X-Content-Type-Options: nosniff`. Full-screen art can be any image `sharp` reads, up to 20 MB. It is cropped to fill 2560×1440 and saved as WebP. Files are named by a hash of their content, so they can be cached for good.
+- **Preview on wall.** The admin page's "Preview on wall" button sends a `preview_special_day` command. The display shows that day's takeover and tile art for 60 seconds, as if today were that day, with a small "Preview" badge. Then it goes back to normal. A scene can be previewed too (`preview_special_day { scene }`): it is shown through the first day that uses it, so the placeholders are filled in, or with them as typed if no day uses it yet.
+- **Uploads.** Tile art is PNG, WebP or SVG, up to 2 MB. Raster images are resized to fit 512×512. SVGs are sanitised on upload (no scripts, event handlers or external references) and served with a locked-down `Content-Security-Policy` and `X-Content-Type-Options: nosniff`. Full-screen art can be any image `sharp` reads, up to 20 MB. It is cropped to fill 2560×1440 and saved as WebP. Extra art is the same, but must have transparency (PNG, WebP or SVG), keeps it, and is cropped the same way so it lines up with the full art. Scenes and days both take uploads. Files are named by a hash of their content, so they can be cached for good.
 - **Home Assistant.** The app publishes today's special day name (or empty) as a sensor, so automations can react to it, for example with themed lights.
 
 ## 7. Control
@@ -385,7 +427,7 @@ The app holds one state document per display (multiple displays are supported vi
 - `month` is `null` when the month view follows the current month, which is the normal case. Otherwise it is a pinned month such as `"2026-12"`, limited to 12 months either side of today. A pinned month goes back to `null` when the view changes away from `month`, when someone picks the current month, and after `month_return_minutes` with no month change (default 15, set per display). So the wall never stays stuck on another month.
 - `month_set_at` is the time (an ISO 8601 instant) the pinned month was last set. `month_return_minutes` counts from it, and it is `null` whenever `month` is. Every `set_month` that pins a month restarts the count, even for the month already shown. `set_month` also switches the view to `month`, since a month only means something there.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
-- `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`) and clears itself when it ends (§6.5).
+- `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
 - Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`) and `month_return_minutes`, live in config (and later in the settings page), not in this state.
 
 Every input changes this state through the same command handler. Every change is broadcast to the display (WebSocket), to the remote page (WebSocket) and to HA (MQTT state topics). This keeps all inputs in sync.
@@ -547,14 +589,24 @@ It talks to the same command handler as MQTT, so it works even if HA is down. It
 | Special days | The special days editor (below). |
 | Displays | Each display's live state, connection and per-display preferences. "Republish discovery". |
 
-**Special days editor.** On the left is a list of special days, each with a date chip (day and month), its name and a summary such as "Every year · tile art · full screen", plus an **Add** button. On the right, the selected day has:
+**Special days editor.** The left column has a **Days** / **Scenes** switch above its list.
+
+- **Days** lists the special days, each with a date chip (day and month), its name and a summary such as "Birthday scene · 2 changes" or "Every year · tile art · full screen", plus an **Add** button.
+- **Scenes** lists the scenes, each with its tile art, its name and how many days use it ("Used by 4 days"), plus an **Add** button.
+
+On the right, a selected day has:
 
 - name, date, and **Repeats** (Every year or Once)
+- **Scene**: a picker (or None), with **Who** and **Since** (a year) next to it for the greeting's placeholders
 - **Day tile art**: a square drop zone for the drawing, and **Show on the calendar from** (On the day, A week before, All month, or a number of days before)
-- **Full-screen takeover**: an on/off toggle. When it's on, there's a 16:9 drop zone for the 2560×1440 art, a **Greeting** field and **Palette** swatches (Warm, Night, Frost, Sage). When it's off, these fade out.
-- **Delete**, **Preview on wall** and **Save**
+- **Full-screen takeover**: an on/off toggle. When it's on, there's a 16:9 drop zone for the 2560×1440 art, a second one for the **Extra layer**, a **Greeting** field and **Palette** swatches (Warm, Night, Frost, Sage). When it's off, these fade out.
+- **Delete**, **Duplicate**, **Save as scene**, **Preview on wall** and **Save**
 
-Sources and secrets stay in YAML. Special days, and later the display preferences, are stored in SQLite and edited here. The PIN that protects the remote also protects every write route under `/api` used by the settings pages, uploads included (§7.5: one middleware guards every non-GET request there).
+On a day with a scene, each field shows the scene's value, marked "From Birthday". Changing it makes it the day's own, marked "Changed" with a **Reset** link that goes back to the scene's. The greeting field shows the filled-in text for the next occurrence beneath it ("Happy 7th birthday, Isla!").
+
+A selected scene has the same art, lead, takeover, greeting and palette fields, without a date, plus the list of days that use it, each a link to that day. It has **Delete** (or **Copy into days and delete** when it is in use), **Duplicate**, **Preview on wall** and **Save**. Saving a scene says how many days it changes.
+
+Sources and secrets stay in YAML. Special days and scenes, and later the display preferences, are stored in SQLite and edited here. The PIN that protects the remote also protects every write route under `/api` used by the settings pages, uploads included (§7.5: one middleware guards every non-GET request there).
 
 **Settings API.** The pages read three open routes, none of which carries a secret (no feed URL, Home Assistant URL or token, MQTT username or password, or PIN), and use one write. Their shapes are in `shared/settings.ts`:
 
@@ -721,7 +773,7 @@ A **special days** track (model, art uploads, display takeover, admin page) can 
 - The home server runs Ubuntu 18.04, which is past standard support. This doesn't block anything, because containers bring their own userland. Plan an OS upgrade at some point anyway.
 - Month style: Soft is the default here because the special days work was designed on it. Do we still want Classic as an option, or can it be dropped?
 - Takeover art: is a full-wall layer behind solid tiles (§6.3) right, or should the art only fill the side panel's lower area, as in the mock?
-- Tile tint: the mock tints a birthday with the child's colour, but the admin page has no colour picker. This doc takes the tint from the palette. Should a special day be linkable to a person instead?
+- Tile tint: the mock tints a birthday with the child's colour, but the admin page has no colour picker. This doc takes the tint from the palette. Should a special day be linkable to a person instead? A day's `who` (§6.1) is free text for now, but matching it to a configured person's name or alias would be a natural way to do it.
 - Month picker: is 15 minutes the right time before the wall goes back to the current month?
-- Designs still to do: agenda, week, night and photo frame views, the brightness and refresh controls on the remote, and the other settings tabs.
+- Designs still to do: agenda, week, night and photo frame views, the scenes half of the special days editor (mock 3a only has days), the brightness and refresh controls on the remote, and the other settings tabs.
 - Google OAuth redirects to the app's existing local HTTPS hostname. This works as long as that hostname is under a public domain; Google rejects `.local`, `.lan` and bare IPs. Google never needs to reach the server, because the redirect happens in the browser.

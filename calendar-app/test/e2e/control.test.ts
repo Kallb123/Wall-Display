@@ -73,14 +73,15 @@ describe('display state, commands and the WebSocket', async () => {
     const displays = await $fetch<DisplaySettings[]>('/api/displays')
 
     expect(displays).toEqual([
-      { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
+      // The dev config has a local photo folder (not there from this temporary config, but set up), and no other source.
+      { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', photo_sources: ['local'] },
     ])
   })
 
   it('GET /api/displays/:id/state is the default state for a new display', async () => {
     const state = await $fetch<DisplayState>('/api/displays/hallway/state')
 
-    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null })
+    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null })
   })
 
   it('GET /api/displays/:id/state answers 404 for an unknown display', async () => {
@@ -92,6 +93,15 @@ describe('display state, commands and the WebSocket', async () => {
 
     expect(state.view).toBe('agenda')
     expect((await $fetch<DisplayState>('/api/displays/hallway/state')).view).toBe('agenda')
+    await command('hallway', { type: 'set_view', view: 'month' })
+  })
+
+  it('POST /api/displays/:id/commands toggle_photo goes to the photo frame and back to the view it replaced', async () => {
+    await command('hallway', { type: 'set_view', view: 'week' })
+
+    expect(await command('hallway', { type: 'toggle_photo' })).toMatchObject({ view: 'photo', last_calendar_view: 'week' })
+    expect(await command('hallway', { type: 'toggle_photo' })).toMatchObject({ view: 'week', last_calendar_view: 'week' })
+    await expect(command('hallway', { type: 'toggle_photo', extra: true })).rejects.toMatchObject(reason(400, 'command'))
     await command('hallway', { type: 'set_view', view: 'month' })
   })
 

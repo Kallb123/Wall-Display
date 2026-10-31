@@ -1,4 +1,4 @@
-import type { DisplayState, SocketRole, Theme } from './display'
+import type { DisplayState, PhotoSource, SocketRole, Theme } from './display'
 
 // What the settings pages (architecture §7.6) and the server agree on. Pure
 // types: no I/O, and no imports from server/, so the pages can use them too.
@@ -94,3 +94,47 @@ export interface ConnectionsStatus {
 export interface DiscoveryResult {
   republished: string[]
 }
+
+/** How an Immich source picks its photos (`photos.immich.mode`). */
+export type ImmichMode = 'albums' | 'random' | 'memories'
+
+/** One photo source that is set up and running, as the Photos tab shows it. */
+export interface PhotoProviderSettings {
+  id: PhotoSource
+  /** Immich only: how its photos are picked. Null for the others. */
+  mode: ImmichMode | null
+  /**
+   * Where it is: Immich's host and port (no scheme, path or credentials), or the
+   * local folder's path. The API key never appears.
+   */
+  where: string | null
+  /** Photos in the pool, as last listed. */
+  photos: number
+  /** How many of them are rendered and in the cache now. */
+  cached: number
+  last_success_at: string | null
+  /** The last failure's safe message (never a URL or a key), or null after a success. */
+  last_error: string | null
+}
+
+/**
+ * `GET /api/settings/photos` (and the answer to `POST …/refresh`): the photo
+ * sources, the cache against its cap and the rotation settings. `configured`
+ * is false when the config has no `photos` block, and then nothing else is
+ * there. Nothing here carries a secret.
+ */
+export type PhotosSettingsStatus =
+  | { configured: false }
+  | {
+      configured: true
+      /** How long each photo stays while a display is on the photo frame. */
+      interval_seconds: number
+      landscape_only: boolean
+      /** Bytes of rendered photos on disk, and the cap (`cache_max_mb`) they are kept under. */
+      cache_bytes: number
+      cache_max_bytes: number
+      /** In config order of preference: Immich, Google, then the folder. A source that is not built (Google) is not listed. */
+      providers: PhotoProviderSettings[]
+      /** The config has a `google` block, which is accepted and ignored for now. */
+      google_ignored: boolean
+    }

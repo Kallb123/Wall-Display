@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ListTodo, Lock, MessageCircle, Moon, Power, X } from 'lucide-vue-next'
+import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, Power, SkipForward, X } from 'lucide-vue-next'
 import { MONTH_RANGE, currentMonth, monthDiff } from '../../shared/display'
-import type { DisplaySettings, DisplayState, View } from '../../shared/display'
+import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
 import { reconnectDelay } from '~/utils/backoff'
 import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
-import { monthCommandFor, monthOptions } from '~/utils/remote'
+import { PHOTO_SOURCE_CHOICES, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions } from '~/utils/remote'
 import { THEMES, themeStyle } from '~/utils/themes'
 
 // The phone remote (architecture §7.5). Like the wall it never decides
@@ -27,6 +27,7 @@ const unknown = ref(false)
 
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
+let skippedTimer: ReturnType<typeof setTimeout> | undefined
 let attempt = 0
 
 async function loadSettings() {
@@ -63,6 +64,7 @@ onMounted(() => {
 onScopeDispose(() => {
   clearTimeout(retryTimer)
   clearTimeout(refreshTimer)
+  clearTimeout(skippedTimer)
 })
 
 const ready = computed(() => settings.value !== null && state.value !== null)
@@ -107,6 +109,33 @@ const TILES: { view: View, label: string, icon: Component }[] = [
 
 function setView(next: View) {
   void commands.send({ type: 'set_view', view: next })
+}
+
+// The photo frame (architecture §7.5). The server says which sources it has set
+// up; with none (no `photos` block) the wall has nothing to show, so the tile
+// and the "Photos from" section are left out, unless the wall is on the photo
+// view anyway (Home Assistant put it there), when the tile stays to show it.
+const photoSources = computed(() => settings.value?.photo_sources ?? [])
+const photosConfigured = computed(() => photoSources.value.length > 0)
+const showPhotoTile = computed(() => photosConfigured.value || view.value === 'photo')
+/** The source the wall really uses: the server falls back when the chosen one isn't set up. */
+const photoSource = computed(() => effectivePhotoSource(state.value?.photo_source ?? 'immich', photoSources.value))
+const photoViewOn = computed(() => view.value === 'photo')
+
+function setPhotoSource(source: PhotoSource) {
+  void commands.send({ type: 'set_photo_source', photo_source: source })
+}
+
+const skipped = ref(false)
+async function nextPhoto() {
+  const sent = await commands.send({ type: 'photo_next' })
+  if (!sent) return
+  // The wall changes by itself a moment later: say it was asked, then go back.
+  skipped.value = true
+  clearTimeout(skippedTimer)
+  skippedTimer = setTimeout(() => {
+    skipped.value = false
+  }, SKIPPED_MS)
 }
 
 function toggleScreen() {
@@ -263,8 +292,20 @@ function submitPin() {
               <AppIcon :icon="tile.icon" :size="32" />
               {{ tile.label }}
             </button>
+            <!-- The Photo frame tile sits under the 2x2 grid, full width. -->
+            <button
+              v-if="showPhotoTile"
+              type="button"
+              class="tile wide"
+              :class="{ active: photoViewOn }"
+              :aria-pressed="photoViewOn"
+              data-testid="tile-photo"
+              @click="setView('photo')"
+            >
+              <AppIcon :icon="Images" :size="32" />
+              Photo frame
+            </button>
           </div>
-          <!-- The full-width Photo frame tile goes here, and a "Photos from" section after it, in PR 4.5. -->
         </section>
 
         <section v-if="view === 'month'" aria-labelledby="month-title" data-testid="month-picker">
@@ -316,6 +357,45 @@ function submitPin() {
             >
               Back to this month
             </button>
+          </div>
+        </section>
+
+        <section v-if="photosConfigured" aria-labelledby="photos-title" data-testid="photos-from">
+          <h2 id="photos-title" class="label">
+            Photos from
+          </h2>
+          <div class="card photos">
+            <div class="segments" role="group" aria-labelledby="photos-title">
+              <button
+                v-for="choice in PHOTO_SOURCE_CHOICES"
+                :key="choice.source"
+                type="button"
+                class="segment"
+                :class="{ active: photoSource === choice.source }"
+                :aria-pressed="photoSource === choice.source"
+                :disabled="!photoSources.includes(choice.source)"
+                :data-testid="`photo-source-${choice.source}`"
+                @click="setPhotoSource(choice.source)"
+              >
+                {{ choice.label }}
+                <span v-if="!photoSources.includes(choice.source)" class="not-set-up">Not set up</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="button next-photo"
+              :disabled="!photoViewOn"
+              :aria-describedby="photoViewOn ? undefined : 'next-photo-reason'"
+              aria-live="polite"
+              data-testid="photo-next"
+              @click="nextPhoto"
+            >
+              <AppIcon :icon="SkipForward" :size="22" />
+              {{ skipped ? 'Skipped' : 'Next photo' }}
+            </button>
+            <p v-if="!photoViewOn" id="next-photo-reason" class="hint reason" data-testid="photo-next-reason">
+              Turn on the photo frame to skip photos.
+            </p>
           </div>
         </section>
 
@@ -708,6 +788,74 @@ button:disabled {
 .tile.active {
   background: var(--accent);
   color: var(--on-accent);
+}
+
+.tile.wide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  min-height: 72px;
+  padding: 0 22px;
+}
+
+.photos {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+
+/* One pill cut into three, the picked source filled in the accent like an active tile. */
+.segments {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.segment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.15;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.segment.active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.segment:disabled {
+  color: var(--muted);
+}
+
+.not-set-up {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.next-photo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.reason {
+  margin: -6px 0 0;
+  font-size: 14px;
+  text-align: center;
 }
 
 .picker {

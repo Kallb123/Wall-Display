@@ -51,7 +51,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null,
+      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null,
     })
   })
 
@@ -159,6 +159,15 @@ describe('applying commands', () => {
 
     expect(photoNext).toHaveBeenCalledWith({ displayId: 'kitchen' })
     expect(stateUpdates).not.toHaveBeenCalled()
+  })
+
+  it('toggle_photo flips between the photo frame and the view it replaced, announcing each change', () => {
+    const { control, stateUpdates } = setup()
+    control.applyCommand('hallway', { type: 'set_view', view: 'week' })
+
+    expect(control.applyCommand('hallway', { type: 'toggle_photo' })).toMatchObject({ view: 'photo', last_calendar_view: 'week' })
+    expect(control.applyCommand('hallway', { type: 'toggle_photo' })).toMatchObject({ view: 'week', last_calendar_view: 'week' })
+    expect(stateUpdates).toHaveBeenCalledTimes(3)
   })
 
   it('refresh starts a sync of the calendars without waiting for it', () => {
@@ -404,9 +413,17 @@ describe('stopping', () => {
 })
 
 describe('the store', () => {
+  it('loads a document stored before last_calendar_view existed, with month for it', () => {
+    const handle = migratedMemoryDb()
+    const old = { view: 'photo', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null }
+    handle.db.insert(displayState).values({ displayId: 'hallway', state: old as never, updatedAt: new Date() }).run()
+
+    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month' })
+  })
+
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 

@@ -99,6 +99,14 @@ describe('defaults', () => {
     expect(config.sync).toEqual({ months_back: 0, months_ahead: 60 })
   })
 
+  it('accepts next_photo for any gesture of the button', async () => {
+    const raw = minimalConfig()
+    raw.button = { single: 'next_photo', double: 'toggle_photo', long: 'next_photo' }
+    const { config } = await load({ config: raw })
+
+    expect(config.button).toEqual({ single: 'next_photo', double: 'toggle_photo', long: 'next_photo' })
+  })
+
   it('fills in partly given blocks', async () => {
     const raw = minimalConfig()
     raw.button = { long: 'toggle_screen' }

@@ -424,6 +424,7 @@ The app holds one state document per display (multiple displays are supported vi
   "month_set_at": null,
   "screen": "on",
   "photo_source": "immich",
+  "last_calendar_view": "month",
   "brightness": 80,
   "auto_presence": true,
   "auto_brightness": true,
@@ -434,6 +435,7 @@ The app holds one state document per display (multiple displays are supported vi
 
 - `month` is `null` when the month view follows the current month, which is the normal case. Otherwise it is a pinned month such as `"2026-12"`, limited to 12 months either side of today. A pinned month goes back to `null` when the view changes away from `month`, when someone picks the current month, and after `month_return_minutes` with no month change (default 15, set per display). So the wall never stays stuck on another month.
 - `month_set_at` is the time (an ISO 8601 instant) the pinned month was last set. `month_return_minutes` counts from it, and it is `null` whenever `month` is. Every `set_month` that pins a month restarts the count, even for the month already shown. `set_month` also switches the view to `month`, since a month only means something there.
+- `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
 - Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`) and `month_return_minutes`, live in config (and later in the settings page), not in this state.
@@ -526,6 +528,8 @@ button:
   long: ha               # ignored by the app; HA automation decides
 ```
 
+A gesture is one of `next_view`, `toggle_photo`, `next_photo`, `toggle_screen`, `next_month`, `prev_month`, `this_month`, `refresh`, `ha` and `none`. `buttonCommand(action, state)` in `server/control/button.ts` turns each into the command the control service applies (`next_photo` is `photo_next`, `toggle_screen` is `set_screen` to the opposite of the screen now, `ha` and `none` are no command at all), so the button handling only has to look the gesture up and apply what comes back.
+
 The HA `event` entity fires for every press either way, so HA can always react as well.
 
 **Example automations**
@@ -581,7 +585,7 @@ Working versions with the generated entity IDs, broker setup and a dashboard are
 - **Screen.** A card with a power icon, the state ("On" or "Off, panel in standby") and a toggle. While the screen is off, the controls below fade to half opacity but still work.
 - **On the wall.** Large tiles for Agenda, Month, Week and Night in a 2×2 grid, plus a full-width Photo frame tile. The active view is filled with the accent colour.
 - **Month shown.** Only while Month is the active view. It has back and forward arrows and a dropdown of months, covering 12 months either side of the current one. A "Back to this month" link appears when another month is shown. These send `set_month` (§7.1).
-- **Photos from.** A segmented control (Immich, Google, Folder) for `photo_source`, and a "Next photo" button that briefly reads "Skipped" to confirm.
+- **Photos from.** A segmented control (Immich, Google, Folder) for `photo_source`, and a "Next photo" button that briefly reads "Skipped" (two seconds) to confirm. The server says which sources are set up (`photo_sources` in `GET /api/displays`, names only): the others are disabled and marked "Not set up", and the control shows the source the wall really uses, which is the first one that is set up when the display's own choice isn't. "Next photo" is off while the wall isn't on the photo frame, with a line saying so. With no source set up (no `photos` block) the Photo frame tile and this section are left out, because the wall would have nothing to show; the tile stays, lit, if the wall is on the photo view anyway.
 - **More.** Brightness and Refresh calendars. These aren't in the mocks yet, so they sit in a plain section at the bottom until they are designed.
 
 It talks to the same command handler as MQTT, so it works even if HA is down. It's for the local network only. You can set an optional shared PIN (`remote.pin`, 4 to 12 digits, usually via `!secret`) in the config. The page learns from `GET /api/remote` whether one is needed, asks for it once and sends it as an `X-Wallcal-Pin` header on every write. The server checks it in one middleware (`server/middleware/pin.ts`) that covers every request under `/api/` except GET, HEAD and OPTIONS, so no write route can forget to, and it runs before the route, so an unauthenticated caller can't learn which displays exist. It answers 401 for a missing or wrong PIN, compares it in constant time, and answers 429 to an address that sends 10 wrong ones in 5 minutes (counted from the socket's address, not `X-Forwarded-For`, and reset by the right PIN or when the window ends). Reading state and the WebSocket (`/_ws`) stay open. Don't expose it to the internet. If you need remote access, use HA's existing remote access.
@@ -593,7 +597,7 @@ It talks to the same command handler as MQTT, so it works even if HA is down. It
 | Tab | Contents |
 |---|---|
 | Calendars | Each calendar with its default person, whether name detection is on, source type, last sync and last error. "Refresh now". A list of recent events that fell back to the default person, with their titles, so you can add a rule or an alias. |
-| Photos | Provider status, cache size, and the Google Photos picker flow (§5.3). |
+| Photos | Read-only: each photo source with its mode or folder, photo and cached counts, last listing and last error; the cache size against `cache_max_mb`; the interval and `landscape_only`. "Refresh now" lists the sources again. The Google Photos picker flow (§5.3) is not built yet. |
 | Special days | The special days editor (below). |
 | Displays | Each display's live state, connection and per-display preferences. "Republish discovery". |
 
@@ -618,11 +622,13 @@ A selected scene has the same art, lead, takeover, greeting and palette fields, 
 
 Sources and secrets stay in YAML. Special days and scenes, and later the display preferences, are stored in SQLite and edited here. The PIN that protects the remote also protects every write route under `/api` used by the settings pages, uploads included (§7.5: one middleware guards every non-GET request there).
 
-**Settings API.** The pages read three open routes, none of which carries a secret (no feed URL, Home Assistant URL or token, MQTT username or password, or PIN), and use one write. Their shapes are in `shared/settings.ts`:
+**Settings API.** The pages read four open routes, none of which carries a secret (no feed URL, Home Assistant URL or token, MQTT username or password, Immich API key or PIN), and use two writes. Their shapes are in `shared/settings.ts`:
 
 - `GET /api/settings/calendars` has each calendar's default person, detection setting, source type, last attempt, last success, last error and event count, from the config and `sync_status`. A calendar that hasn't been tried yet shows nulls. `fallbacks` lists the events that fell back to the default person. `matchedBy` (§3.3) isn't stored, so it is worked out on read: the server takes the calendar's events from 30 days back to 30 days ahead whose stored people are exactly the default person, runs detection on their title and description again, and keeps those that no name or rule matched. A recurring event's instances are grouped by `uid` into one entry with a count, and the 20 nearest to now are returned. It is empty when `detect_people` is `false`.
 - `GET /api/settings/displays` has each display's state, its open sockets by role (`display`, `remote`) and its MQTT link (`off` when there is no `mqtt` block).
 - `GET /api/settings/connections` has the broker as scheme, host and port, and how many displays are connected to it, and the result of asking Home Assistant `GET /api/` with the token. That answer is kept for a minute, failures too, so a page polling every few seconds doesn't call Home Assistant each time.
+- `GET /api/settings/photos` has `{ configured: false }` with no `photos` block, otherwise each running photo source (Immich's mode and host only, or the local folder's path, with its pool and cached counts, last successful listing and last error, from `PhotoService.status()`), the cache's bytes against its cap, `interval_seconds`, `landscape_only` and whether a `google` block is being ignored.
+- `POST /api/settings/photos/refresh` ("Refresh now" on the Photos tab) lists every source again, waits, and answers with the same shape. It answers 409 if there is no `photos` block.
 - `POST /api/settings/discovery` ("Republish discovery") publishes the discovery configs again on every connection that is up. It answers 409 if MQTT isn't set up or discovery is off.
 
 ### 7.7 Built-in policies (work without HA)

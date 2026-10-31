@@ -1,5 +1,5 @@
 import type { PhotoSource, ScreenState, View } from '../../shared/display'
-import type { CalendarStatus, ConnectionsStatus, FallbackEvent, MqttLinkState } from '../../shared/settings'
+import type { CalendarStatus, ConnectionsStatus, FallbackEvent, ImmichMode, MqttLinkState, PhotoProviderSettings } from '../../shared/settings'
 import { addDays, todayIn } from '../../shared/dates'
 import { monthLabel } from './remote'
 
@@ -221,4 +221,48 @@ export function discoveryBlockedReason(connections: ConnectionsStatus | null): s
   if (!connections.mqtt.configured) return 'MQTT is off: add an mqtt block to the config to use it.'
   if (!connections.mqtt.discovery) return 'Discovery is off: set discovery to true under mqtt in the config.'
   return null
+}
+
+/** `0 B`, `640 KB`, `1.2 GB`: a size in bytes in the largest unit it fills. Binary units, written as the usual short names. */
+export function bytesLabel(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = Math.max(0, bytes)
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  // Whole numbers below ten would be too coarse ("1 GB" for 1.4 GB), and a decimal on a big number is noise.
+  const text = unit === 0 || value >= 100 ? Math.round(value).toString() : value.toFixed(1).replace(/\.0$/, '')
+  return `${text} ${units[unit]}`
+}
+
+/** How full the cache is, as a whole percentage kept within 0 to 100 so a bar never overflows. A cap of 0 is full. */
+export function cachePercent(bytes: number, max: number): number {
+  if (max <= 0) return 100
+  return Math.min(100, Math.max(0, Math.round(bytes / max * 100)))
+}
+
+/** `3 photos`, `1 photo`, `1,240 photos`. */
+export function photoCount(count: number): string {
+  return `${count.toLocaleString('en-GB')} ${count === 1 ? 'photo' : 'photos'}`
+}
+
+const IMMICH_MODE_LABELS: Record<ImmichMode, string> = {
+  albums: 'Albums',
+  random: 'Random from the library',
+  memories: 'Memories (on this day)',
+}
+
+/** What a provider card says under its name: Immich's mode and host, or the folder. */
+export function providerDetail(provider: Pick<PhotoProviderSettings, 'id' | 'mode' | 'where'>): string {
+  const mode = provider.mode ? IMMICH_MODE_LABELS[provider.mode] : null
+  return [mode, provider.where].filter(Boolean).join(' · ')
+}
+
+/** A provider's listing as a chip: it has listed, it has not yet, or it is failing (and why). */
+export function providerChip(provider: Pick<PhotoProviderSettings, 'last_success_at' | 'last_error'>): ChipStatus {
+  if (provider.last_error) return { label: provider.last_success_at ? 'Out of reach' : 'Not working', tone: 'bad', detail: null }
+  if (provider.last_success_at) return { label: 'Working', tone: 'ok', detail: null }
+  return { label: 'Not listed yet', tone: 'warn', detail: null }
 }

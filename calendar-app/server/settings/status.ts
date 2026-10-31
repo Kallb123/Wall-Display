@@ -1,10 +1,12 @@
 import type { DisplayState, SocketRole } from '../../shared/display'
-import type { CalendarStatus, ConnectionsStatus, DisplayStatus, MqttLinkState, SettingsPerson } from '../../shared/settings'
-import type { AppConfig, CalendarConfig, DisplayConfig, MqttConfig } from '../config/schema'
+import { PHOTO_SOURCES } from '../../shared/display'
+import type { CalendarStatus, ConnectionsStatus, DisplayStatus, MqttLinkState, PhotoProviderSettings, PhotosSettingsStatus, SettingsPerson } from '../../shared/settings'
+import type { AppConfig, CalendarConfig, DisplayConfig, MqttConfig, PhotosConfig } from '../config/schema'
 import type { Db } from '../db/client'
 import { syncStatus } from '../db/schema'
 import type { MqttBridgeStatus } from '../mqtt/client'
 import { brokerName } from '../mqtt/client'
+import type { PhotoService } from '../photos/service'
 import { recentFallbacks } from '../sources/fallbacks'
 import type { HaStatus } from '../sources/homeassistant/status'
 
@@ -116,4 +118,60 @@ export function discoveryProblem(mqtt: Pick<MqttConfig, 'discovery'> | undefined
   if (!mqtt) return 'MQTT is not set up, so there is nothing to publish to'
   if (!mqtt.discovery) return 'Home Assistant discovery is turned off (discovery: false in the mqtt block)'
   return null
+}
+
+export interface PhotosStatusArgs {
+  /** The `photos` block, or undefined when the config has none. */
+  config: Pick<PhotosConfig, 'interval_seconds' | 'landscape_only' | 'cache_max_mb' | 'immich' | 'google' | 'local'> | undefined
+  /** The photo service's status, or undefined when it isn't running. */
+  status: ReturnType<PhotoService['status']> | undefined
+}
+
+/** `host:port` of an address, and nothing else: no scheme, path, query or credentials. Null for something that isn't an address. */
+function hostOf(address: string): string | null {
+  try {
+    return new URL(address).host || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The Photos tab: each running photo source with its pool, what is cached and
+ * how its last listing went, the cache against its cap, and the rotation
+ * settings. A source is described by the fields chosen here (Immich's mode and
+ * host, the folder's path), so the API key and any other part of the Immich
+ * address stay in the config. A source with no status yet (the service starts
+ * after the config is read) shows zeros.
+ */
+export function photosStatus({ config, status }: PhotosStatusArgs): PhotosSettingsStatus {
+  if (!config) return { configured: false }
+
+  const running = new Map((status?.providers ?? []).map(provider => [provider.id, provider]))
+  const providers: PhotoProviderSettings[] = []
+  for (const id of PHOTO_SOURCES) {
+    if (id === 'google') continue
+    const set = id === 'immich' ? config.immich : config.local
+    if (!set) continue
+    const live = running.get(id)
+    providers.push({
+      id,
+      mode: id === 'immich' ? config.immich?.mode ?? null : null,
+      where: id === 'immich' ? hostOf(config.immich!.url) : config.local!.path,
+      photos: live?.photos ?? 0,
+      cached: live?.cached ?? 0,
+      last_success_at: live?.last_success_at ?? null,
+      last_error: live?.last_error ?? null,
+    })
+  }
+
+  return {
+    configured: true,
+    interval_seconds: config.interval_seconds,
+    landscape_only: config.landscape_only,
+    cache_bytes: status?.cache_bytes ?? 0,
+    cache_max_bytes: config.cache_max_mb * 1024 * 1024,
+    providers,
+    google_ignored: config.google !== undefined,
+  }
 }

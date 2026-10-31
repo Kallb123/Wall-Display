@@ -98,6 +98,82 @@ test('shows this month in the picker, with no way back, when none is pinned', as
   await expect(page.getByTestId('month-current')).toHaveCount(0)
 })
 
+// The visual config has a local photo folder and no Immich, so the server says
+// only the folder is set up (`photo_sources: ['local']`): Immich and Google are
+// shown, but disabled with a hint.
+test.describe('the photo frame', () => {
+  test('looks right with the photo frame on and the folder as its source', async ({ page }) => {
+    await openRemote(page, { view: 'photo', photo_source: 'local', brightness: 80 })
+
+    await expect(page.getByTestId('tile-photo')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('photo-source-local')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page).toHaveScreenshot('photo-frame.png', { fullPage: true })
+  })
+
+  test('looks right with another view on: the tile is plain and Next photo is off', async ({ page }) => {
+    await openRemote(page, { view: 'month', brightness: 80 })
+
+    await expect(page.getByTestId('tile-photo')).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('photo-next')).toBeDisabled()
+    await expect(page).toHaveScreenshot('photo-frame-off.png', { fullPage: true })
+  })
+
+  test.describe('dark', () => {
+    test.use({ colorScheme: 'dark' })
+
+    test('looks right', async ({ page }) => {
+      await openRemote(page, { view: 'photo', photo_source: 'local', brightness: 80 })
+
+      await expect(page.getByTestId('tile-photo')).toHaveAttribute('aria-pressed', 'true')
+      await expect(page).toHaveScreenshot('photo-frame-dark.png', { fullPage: true })
+    })
+  })
+
+  test('falls back to the source the server uses: the default Immich is not set up, so the folder is shown', async ({ page }) => {
+    await openRemote(page, { view: 'photo' })
+
+    await expect(page.getByTestId('photo-source-local')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('photo-source-immich')).toBeDisabled()
+    await expect(page.getByTestId('photo-source-google')).toBeDisabled()
+    await expect(page.getByTestId('photo-source-immich')).toContainText('Not set up')
+  })
+
+  test('the tile sends set_view photo, and Next photo sends photo_next and says Skipped for a moment', async ({ page }) => {
+    await openRemote(page, { view: 'month' })
+    const commands = await recordCommands(page)
+
+    await page.getByTestId('tile-photo').click()
+    await expect.poll(() => commands).toEqual([{ type: 'set_view', view: 'photo' }])
+    await expect(page.getByTestId('tile-photo')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('photo-next')).toBeEnabled()
+
+    await page.getByTestId('photo-next').click()
+    await expect.poll(() => commands).toEqual([{ type: 'set_view', view: 'photo' }, { type: 'photo_next' }])
+    await expect(page.getByTestId('photo-next')).toHaveText('Skipped')
+    await expect(page.getByTestId('photo-next')).toHaveText('Next photo')
+  })
+
+  test('sends nothing for a source that is not set up', async ({ page }) => {
+    await openRemote(page, { view: 'photo' })
+    const commands = await recordCommands(page)
+
+    await page.getByTestId('photo-source-google').click({ force: true })
+    await page.getByTestId('photo-source-local').click()
+
+    await expect.poll(() => commands).toEqual([{ type: 'set_photo_source', photo_source: 'local' }])
+  })
+
+  test('has tap targets of at least 44 pixels', async ({ page }) => {
+    await openRemote(page, { view: 'photo' })
+
+    for (const testid of ['tile-photo', 'photo-source-immich', 'photo-source-google', 'photo-source-local', 'photo-next']) {
+      const box = (await page.getByTestId(testid).boundingBox())!
+      expect(box.height, testid).toBeGreaterThanOrEqual(44)
+      expect(box.width, testid).toBeGreaterThanOrEqual(44)
+    }
+  })
+})
+
 test.describe('the message', () => {
   const bins = { text: 'Bins out tonight', icon: 'trash', until: '2026-10-28T14:30:00.000Z' }
 
@@ -236,10 +312,11 @@ async function recordCommands(page: Page) {
   const sent: unknown[] = []
   let state = displayStateSchema.parse({})
   await page.route('**/api/displays/hallway/commands', async (route) => {
-    const command = route.request().postDataJSON() as { type: string, view?: DisplayState['view'], screen?: DisplayState['screen'], overlay?: { text: string, icon?: string, ttl?: number } | null }
+    const command = route.request().postDataJSON() as { type: string, view?: DisplayState['view'], screen?: DisplayState['screen'], photo_source?: DisplayState['photo_source'], overlay?: { text: string, icon?: string, ttl?: number } | null }
     sent.push(command)
     if (command.type === 'set_view') state = displayStateSchema.parse({ ...state, view: command.view })
     if (command.type === 'set_screen') state = displayStateSchema.parse({ ...state, screen: command.screen })
+    if (command.type === 'set_photo_source') state = displayStateSchema.parse({ ...state, photo_source: command.photo_source })
     if (command.type === 'set_overlay') state = displayStateSchema.parse({ ...state, overlay: command.overlay && { text: command.overlay.text, icon: command.overlay.icon ?? null, until: null } })
     await route.fulfill({ json: state })
   })

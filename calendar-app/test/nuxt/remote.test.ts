@@ -4,7 +4,7 @@ import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { defineComponent, h, ref } from 'vue'
 import RemotePage from '~/pages/remote.vue'
 import { displayStateSchema } from '../../shared/display'
-import type { Command, DisplaySettings, DisplayState } from '../../shared/display'
+import type { Command, DisplaySettings, DisplayState, PhotoSource } from '../../shared/display'
 import { PIN_ERRORS, PIN_HEADER } from '../../shared/remote'
 import type { SocketStatus } from '~/composables/useDisplaySocket'
 import { OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES } from '~/utils/overlay'
@@ -19,7 +19,7 @@ import { OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES } from '~/utils/overlay'
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
 mockNuxtImport('$fetch', () => fetchMock)
 
-const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' }
+const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', photo_sources: [] }
 const NOW = new Date('2026-10-28T09:41:00Z')
 
 class FakeSocket {
@@ -50,11 +50,14 @@ let state = stateWith()
 let commands: { command: Command, pin: string | null }[] = []
 let pinChecks: (string | null)[] = []
 let lockedOut = false
+// The photo sources the pretend server has set up.
+let photoSources: PhotoSource[] = []
 
 /** What each command does to the state, as far as these tests need. */
 function apply(command: Command): DisplayState {
   if (command.type === 'set_view') state = stateWith({ ...state, view: command.view })
   if (command.type === 'set_screen') state = stateWith({ ...state, screen: command.screen })
+  if (command.type === 'set_photo_source') state = stateWith({ ...state, photo_source: command.photo_source })
   if (command.type === 'set_month') state = stateWith({ ...state, view: 'month', month: command.month === 'current' ? null : command.month })
   if (command.type === 'set_brightness') state = stateWith({ ...state, brightness: command.brightness })
   if (command.type === 'set_overlay') {
@@ -79,7 +82,7 @@ interface Options { method?: string, body?: Command, headers?: Record<string, st
 /** The server: it answers each request as the real routes do (architecture §7.5). */
 async function server(url: string, options: Options = {}) {
   const sentPin = options.headers?.[PIN_HEADER] ?? null
-  if (url === '/api/displays') return [settings]
+  if (url === '/api/displays') return [{ ...settings, photo_sources: photoSources }]
   if (url === '/api/remote') return { pin_required: pin !== null }
   if (url === '/api/remote/pin') {
     pinChecks.push(sentPin)
@@ -121,6 +124,7 @@ describe('the remote page', () => {
     commands = []
     pinChecks = []
     lockedOut = false
+    photoSources = []
     localStorage.clear()
   })
 
@@ -203,11 +207,140 @@ describe('the remote page', () => {
     expect(wrapper.find('[data-testid="tile-month"]').attributes('aria-pressed')).toBe('false')
   })
 
-  it('has no photo frame tile yet', async () => {
-    const { wrapper } = await mountRemote()
+  describe('the photo frame', () => {
+    const photoTile = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.find('[data-testid="tile-photo"]')
+    const segment = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper'], source: string) => wrapper.find<HTMLButtonElement>(`[data-testid="photo-source-${source}"]`)
+    const nextButton = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.find<HTMLButtonElement>('[data-testid="photo-next"]')
 
-    expect(wrapper.text()).not.toContain('Photo frame')
-    expect(wrapper.text()).not.toContain('Photos from')
+    it('is left out when the server has no photo source: no tile, no "Photos from"', async () => {
+      const { wrapper } = await mountRemote()
+
+      expect(photoTile(wrapper).exists()).toBe(false)
+      expect(wrapper.find('[data-testid="photos-from"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Photo frame')
+    })
+
+    it('keeps the tile, active, when the wall is on the photo view anyway, but not the section', async () => {
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      expect(photoTile(wrapper).attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-testid="photos-from"]').exists()).toBe(false)
+    })
+
+    it('has a full-width Photo frame tile after the four views, which sends set_view photo', async () => {
+      photoSources = ['local']
+      const { wrapper } = await mountRemote({ view: 'month' })
+
+      expect(wrapper.findAll('.tile').map(tile => tile.text())).toEqual(['Agenda', 'Month', 'Week', 'Night', 'Photo frame'])
+      expect(photoTile(wrapper).classes()).toContain('wide')
+      expect(photoTile(wrapper).attributes('aria-pressed')).toBe('false')
+
+      await photoTile(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_view', view: 'photo' }])
+      expect(photoTile(wrapper).attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-testid="tile-month"]').attributes('aria-pressed')).toBe('false')
+    })
+
+    it('marks the source in use, and sends set_photo_source for another that is set up', async () => {
+      photoSources = ['immich', 'local']
+      const { wrapper } = await mountRemote({ view: 'photo', photo_source: 'immich' })
+
+      expect(wrapper.findAll('[data-testid^="photo-source-"]').map(button => button.text().split('\n')[0])).toEqual(['Immich', 'Google Not set up', 'Folder'])
+      expect(segment(wrapper, 'immich').attributes('aria-pressed')).toBe('true')
+      expect(segment(wrapper, 'local').attributes('aria-pressed')).toBe('false')
+
+      await segment(wrapper, 'local').trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_photo_source', photo_source: 'local' }])
+      expect(segment(wrapper, 'local').attributes('aria-pressed')).toBe('true')
+      expect(segment(wrapper, 'immich').attributes('aria-pressed')).toBe('false')
+    })
+
+    it('disables a source the server has not set up, with a hint, and sends nothing for it', async () => {
+      photoSources = ['local']
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      for (const source of ['immich', 'google']) {
+        expect(segment(wrapper, source).attributes('disabled')).toBeDefined()
+        expect(segment(wrapper, source).text()).toContain('Not set up')
+      }
+      expect(segment(wrapper, 'local').attributes('disabled')).toBeUndefined()
+      expect(segment(wrapper, 'local').text()).not.toContain('Not set up')
+
+      await segment(wrapper, 'google').trigger('click')
+      await flushPromises()
+      expect(sent()).toEqual([])
+    })
+
+    it('shows the source the server falls back to when the chosen one is not set up', async () => {
+      // The default is Immich, but only the folder is set up, so the folder is what the wall shows.
+      photoSources = ['local']
+      const { wrapper } = await mountRemote({ view: 'photo', photo_source: 'immich' })
+
+      expect(segment(wrapper, 'local').attributes('aria-pressed')).toBe('true')
+      expect(segment(wrapper, 'immich').attributes('aria-pressed')).toBe('false')
+    })
+
+    it('groups the segments under the "Photos from" heading', async () => {
+      photoSources = ['immich']
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      const group = wrapper.find('[data-testid="photos-from"] [role="group"]')
+      expect(group.attributes('aria-labelledby')).toBe('photos-title')
+      expect(wrapper.find('#photos-title').text()).toBe('Photos from')
+    })
+
+    it('sends photo_next from Next photo, which reads Skipped for two seconds', async () => {
+      photoSources = ['local']
+      const { wrapper } = await mountRemote({ view: 'photo' })
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: NOW })
+      expect(nextButton(wrapper).text()).toBe('Next photo')
+
+      await nextButton(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'photo_next' }])
+      expect(nextButton(wrapper).text()).toBe('Skipped')
+
+      await vi.advanceTimersByTimeAsync(1900)
+      expect(nextButton(wrapper).text()).toBe('Skipped')
+      await vi.advanceTimersByTimeAsync(200)
+      expect(nextButton(wrapper).text()).toBe('Next photo')
+    })
+
+    it('does not say Skipped when the wall could not be asked', async () => {
+      photoSources = ['local']
+      const { wrapper } = await mountRemote({ view: 'photo' })
+      fetchMock.mockImplementationOnce(async () => {
+        throw Object.assign(new Error('offline'), { statusCode: undefined })
+      })
+
+      await nextButton(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(nextButton(wrapper).text()).toBe('Next photo')
+      expect(wrapper.find('[data-testid="error"]').exists()).toBe(true)
+    })
+
+    it('has Next photo off, with the reason, while the wall is not on the photo frame', async () => {
+      photoSources = ['local']
+      const { wrapper, socket } = await mountRemote({ view: 'month' })
+
+      expect(nextButton(wrapper).attributes('disabled')).toBeDefined()
+      expect(nextButton(wrapper).attributes('aria-describedby')).toBe('next-photo-reason')
+      expect(wrapper.find('[data-testid="photo-next-reason"]').text()).toBe('Turn on the photo frame to skip photos.')
+      // The source can be picked ahead of switching.
+      expect(segment(wrapper, 'local').attributes('disabled')).toBeUndefined()
+
+      socket!.push(stateWith({ view: 'photo' }))
+      await flushPromises()
+
+      expect(nextButton(wrapper).attributes('disabled')).toBeUndefined()
+      expect(wrapper.find('[data-testid="photo-next-reason"]').exists()).toBe(false)
+    })
   })
 
   describe('the month picker', () => {

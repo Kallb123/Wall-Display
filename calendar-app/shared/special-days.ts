@@ -64,6 +64,11 @@ function isPlaceholder(name: string): name is GreetingPlaceholder {
   return (GREETING_PLACEHOLDERS as readonly string[]).includes(name)
 }
 
+/** Where an art file (a name from a day's or scene's art fields) is served from. */
+export function specialDayArtUrl(name: string): string {
+  return `/special-days/${name}`
+}
+
 /** 1 becomes "1st", 2 "2nd", 3 "3rd", 4 "4th", and 11, 12 and 13 "11th", "12th" and "13th". For whole numbers from 1. */
 export function ordinal(n: number): string {
   const lastTwo = n % 100

@@ -2,7 +2,12 @@ import createDOMPurify from 'dompurify'
 import type { DOMPurify } from 'dompurify'
 import { JSDOM } from 'jsdom'
 import sharp from 'sharp'
+import { ART_LIMITS, ArtError } from './art-errors'
+import type { ArtSlot } from './art-errors'
 import { joinList } from './errors'
+
+export { ART_LIMITS, ArtError } from './art-errors'
+export type { ArtSlot } from './art-errors'
 
 // Turns an uploaded image into what is stored (architecture §6.5). Free of h3,
 // so it can be tested alone: `server/utils/specialDayArt.ts` turns an
@@ -12,13 +17,7 @@ import { joinList } from './errors'
 // name. Every SVG goes through the sanitiser before anything else reads it,
 // including sharp when it rasterises it for the full-screen slots.
 
-/** Where an upload goes: a tile (days and scenes), full-screen art (both) or the extra layer (days only). */
-export type ArtSlot = 'tile' | 'full' | 'extra'
-
 const MB = 1024 * 1024
-
-/** The most bytes an upload for each slot may have. */
-export const ART_LIMITS: Record<ArtSlot, number> = { tile: 2 * MB, full: 20 * MB, extra: 20 * MB }
 
 /** The size every full-screen and extra image is cropped to, so the two line up. */
 const FULL = { width: 2560, height: 1440 } as const
@@ -30,17 +29,6 @@ const TILE_BOX = 512
 const MAX_DENSITY = 2400
 
 const SLOT_LABEL: Record<ArtSlot, string> = { tile: 'Tile art', full: 'Full-screen art', extra: 'Extra art' }
-
-/** What can't be stored: too large (413), the wrong kind of file (415) or a file that can't be used (400). */
-export class ArtError extends Error {
-  readonly statusCode: 400 | 413 | 415
-
-  constructor(statusCode: 400 | 413 | 415, message: string) {
-    super(message)
-    this.name = 'ArtError'
-    this.statusCode = statusCode
-  }
-}
 
 /** The bytes to store, and the extension to name and serve them by. */
 export interface ProcessedArt {

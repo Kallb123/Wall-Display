@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import { calendars, displayState, events, photoAssets, specialDays, syncStatus } from '../../../server/db/schema'
-import type { NewEventRow, NewSpecialDayRow } from '../../../server/db/schema'
+import { calendars, displayState, events, photoAssets, specialDays, specialDayScenes, syncStatus } from '../../../server/db/schema'
+import type { NewEventRow, NewSpecialDayRow, NewSpecialDaySceneRow } from '../../../server/db/schema'
 import { insertCalendar, migratedMemoryDb } from './helpers'
 
 function newEvent(overrides: Partial<NewEventRow> = {}): NewEventRow {
@@ -18,6 +18,10 @@ function newEvent(overrides: Partial<NewEventRow> = {}): NewEventRow {
 
 function newSpecialDay(overrides: Partial<NewSpecialDayRow> = {}): NewSpecialDayRow {
   return { id: 'halloween', name: 'Halloween', month: 10, day: 31, repeat: 'yearly', lead: 'week', ...overrides }
+}
+
+function newScene(overrides: Partial<NewSpecialDaySceneRow> = {}): NewSpecialDaySceneRow {
+  return { id: 'birthday', name: 'Birthday', lead: 'week', ...overrides }
 }
 
 describe('events', () => {
@@ -161,13 +165,13 @@ describe('photo_assets', () => {
 })
 
 describe('special_days', () => {
-  it('round-trips a yearly day and applies defaults', () => {
+  it('round-trips a yearly day and leaves unset look fields empty', () => {
     const { db } = migratedMemoryDb()
 
     db.insert(specialDays).values(newSpecialDay()).run()
 
     const row = db.select().from(specialDays).get()
-    expect(row).toMatchObject({ month: 10, day: 31, year: null, repeat: 'yearly', lead: 'week', takeover: false, palette: 'warm', tileArt: null })
+    expect(row).toMatchObject({ month: 10, day: 31, year: null, repeat: 'yearly', lead: 'week', takeover: null, palette: null, tileArt: null })
     expect(row?.createdAt).toBeInstanceOf(Date)
   })
 
@@ -198,9 +202,84 @@ describe('special_days', () => {
     ['a week lead with a count', { leadDays: 7 }],
     ['a days lead of 0', { lead: 'days' as const, leadDays: 0 }],
     ['a days lead of 366', { lead: 'days' as const, leadDays: 366 }],
+    ['a count with no lead', { lead: null, leadDays: 7 }],
+    ['a since year on a one-off day', { repeat: 'once' as const, year: 2027, sinceYear: 2020 }],
+    ['a since year of 1899', { sinceYear: 1899 }],
+    ['a since year of 2101', { sinceYear: 2101 }],
   ])('rejects %s', (_name, overrides) => {
     const { db } = migratedMemoryDb()
 
     expect(() => db.insert(specialDays).values(newSpecialDay(overrides)).run()).toThrow(/CHECK/)
+  })
+})
+
+describe('special_days looks and scenes', () => {
+  it('leaves every look field empty when the day does not set one', () => {
+    const { db } = migratedMemoryDb()
+
+    db.insert(specialDays).values({ id: 'plain', name: 'Plain', month: 1, day: 1, repeat: 'yearly' }).run()
+
+    expect(db.select().from(specialDays).get()).toMatchObject({
+      sceneId: null,
+      who: null,
+      sinceYear: null,
+      lead: null,
+      leadDays: null,
+      tileArt: null,
+      takeover: null,
+      fullArt: null,
+      extraArt: null,
+      greeting: null,
+      palette: null,
+    })
+  })
+
+  it('round-trips a yearly day with a since year, who and extra art', () => {
+    const { db } = migratedMemoryDb()
+
+    db.insert(specialDays).values(newSpecialDay({ who: 'Isla', sinceYear: 2019, extraArt: 'isla-extra.png' })).run()
+
+    expect(db.select().from(specialDays).get()).toMatchObject({ who: 'Isla', sinceYear: 2019, extraArt: 'isla-extra.png' })
+  })
+
+  it('round-trips a scene and applies defaults', () => {
+    const { db } = migratedMemoryDb()
+
+    db.insert(specialDayScenes).values(newScene()).run()
+
+    const row = db.select().from(specialDayScenes).get()
+    expect(row).toMatchObject({ id: 'birthday', lead: 'week', leadDays: null, takeover: false, palette: 'warm', tileArt: null, fullArt: null, greeting: null })
+    expect(row?.createdAt).toBeInstanceOf(Date)
+    expect(row?.updatedAt).toBeInstanceOf(Date)
+  })
+
+  it.each([
+    ['a days lead without a count', { lead: 'days' as const }],
+    ['a week lead with a count', { leadDays: 7 }],
+    ['a days lead of 0', { lead: 'days' as const, leadDays: 0 }],
+    ['a days lead of 366', { lead: 'days' as const, leadDays: 366 }],
+  ])('rejects a scene with %s', (_name, overrides) => {
+    const { db } = migratedMemoryDb()
+
+    expect(() => db.insert(specialDayScenes).values(newScene(overrides)).run()).toThrow(/CHECK/)
+  })
+
+  it('rejects a day on a scene that does not exist', () => {
+    const { db } = migratedMemoryDb()
+
+    expect(() => db.insert(specialDays).values(newSpecialDay({ sceneId: 'nope' })).run()).toThrow(/FOREIGN KEY/)
+  })
+
+  it('refuses to delete a scene a day uses, and allows it once the day has moved off', () => {
+    const { db } = migratedMemoryDb()
+    db.insert(specialDayScenes).values(newScene()).run()
+    db.insert(specialDays).values(newSpecialDay({ sceneId: 'birthday', lead: null })).run()
+
+    expect(() => db.delete(specialDayScenes).where(eq(specialDayScenes.id, 'birthday')).run()).toThrow(/FOREIGN KEY/)
+
+    db.update(specialDays).set({ sceneId: null }).run()
+    db.delete(specialDayScenes).where(eq(specialDayScenes.id, 'birthday')).run()
+
+    expect(db.select().from(specialDayScenes).all()).toEqual([])
   })
 })

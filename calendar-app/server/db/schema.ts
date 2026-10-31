@@ -127,15 +127,14 @@ export const photoAssets = sqliteTable('photo_assets', {
   index('photo_assets_last_shown_at_idx').on(table.lastShownAt),
 ])
 
-/** Dates with their own art (architecture §6.1). */
-export const specialDays = sqliteTable('special_days', {
+/**
+ * Looks that several special days share (architecture §6.1). A day's own look
+ * fields override its scene's, field by field, so on a scene they are all set.
+ * Defined before `specialDays`, which points at it.
+ */
+export const specialDayScenes = sqliteTable('special_day_scenes', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  month: integer('month').notNull(),
-  day: integer('day').notNull(),
-  /** Set only when `repeat` is `once`. */
-  year: integer('year'),
-  repeat: text('repeat', { enum: SPECIAL_DAY_REPEATS }).notNull(),
   lead: text('lead', { enum: SPECIAL_DAY_LEADS }).notNull(),
   /** Days before the day the tile art starts to show. Set only when `lead` is `days`. */
   leadDays: integer('lead_days'),
@@ -148,10 +147,50 @@ export const specialDays = sqliteTable('special_days', {
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
   updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date()),
 }, table => [
+  // Each branch says "is not null" outright, because a CHECK passes when it
+  // comes out NULL, which is what a bare comparison with a NULL gives.
+  check('special_day_scenes_lead_days_check', sql`(${table.lead} = 'days' and ${table.leadDays} is not null and ${table.leadDays} between 1 and 365) or (${table.lead} <> 'days' and ${table.leadDays} is null)`),
+])
+
+/** Dates with their own art (architecture §6.1). */
+export const specialDays = sqliteTable('special_days', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  month: integer('month').notNull(),
+  day: integer('day').notNull(),
+  /** Set only when `repeat` is `once`. */
+  year: integer('year'),
+  repeat: text('repeat', { enum: SPECIAL_DAY_REPEATS }).notNull(),
+  /** The scene this day takes its look from. Null fields below fall back to it. */
+  sceneId: text('scene_id').references(() => specialDayScenes.id, { onDelete: 'restrict' }),
+  /** Who the day is about, for `{who}` in the greeting. */
+  who: text('who'),
+  /** The year it first happened, for `{years}` and `{nth}`. Only for a day that repeats. */
+  sinceYear: integer('since_year'),
+  /** The look fields are null when the day leaves them to its scene (or the default). */
+  lead: text('lead', { enum: SPECIAL_DAY_LEADS }),
+  /** Days before the day the tile art starts to show. Set only when `lead` is `days`. */
+  leadDays: integer('lead_days'),
+  /** File names in `/data/special-days/`. */
+  tileArt: text('tile_art'),
+  takeover: integer('takeover', { mode: 'boolean' }),
+  fullArt: text('full_art'),
+  /** Extra art for this day alone, shown over its look. Scenes have none. */
+  extraArt: text('extra_art'),
+  greeting: text('greeting'),
+  palette: text('palette', { enum: SPECIAL_DAY_PALETTES }),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date()),
+}, table => [
   check('special_days_month_check', sql`${table.month} between 1 and 12`),
   check('special_days_day_check', sql`${table.day} between 1 and 31`),
   check('special_days_year_check', sql`(${table.repeat} = 'once') = (${table.year} is not null)`),
-  check('special_days_lead_days_check', sql`(${table.lead} = 'days') = (${table.leadDays} is not null) and (${table.leadDays} is null or ${table.leadDays} between 1 and 365)`),
+  // A null lead means "use the scene's", and then there is no count either.
+  // Each branch says "is not null" outright, because a CHECK passes when it
+  // comes out NULL, which is what a bare comparison with a NULL gives.
+  check('special_days_lead_days_check', sql`(${table.lead} is null and ${table.leadDays} is null) or (${table.lead} is not null and ${table.lead} = 'days' and ${table.leadDays} is not null and ${table.leadDays} between 1 and 365) or (${table.lead} is not null and ${table.lead} <> 'days' and ${table.leadDays} is null)`),
+  check('special_days_since_year_check', sql`${table.sinceYear} is null or (${table.repeat} = 'yearly' and ${table.sinceYear} between 1900 and 2100)`),
+  index('special_days_scene_id_idx').on(table.sceneId),
 ])
 
 export type CalendarRow = typeof calendars.$inferSelect
@@ -164,5 +203,7 @@ export type DisplayStateRow = typeof displayState.$inferSelect
 export type NewDisplayStateRow = typeof displayState.$inferInsert
 export type PhotoAssetRow = typeof photoAssets.$inferSelect
 export type NewPhotoAssetRow = typeof photoAssets.$inferInsert
+export type SpecialDaySceneRow = typeof specialDayScenes.$inferSelect
+export type NewSpecialDaySceneRow = typeof specialDayScenes.$inferInsert
 export type SpecialDayRow = typeof specialDays.$inferSelect
 export type NewSpecialDayRow = typeof specialDays.$inferInsert

@@ -20,9 +20,16 @@ SCREEN_SET = "pi/screen/set"
 SCREEN_STATE = "pi/screen/state"
 # A press of the physical button, already told apart as single, double or long.
 BUTTON = "pi/button"
+# Whether the mmWave sensor sees someone: a state, so it is retained and a late subscriber learns it at once.
+PRESENCE = "pi/presence"
 
 # What the button publishes, written out here as the contract has them. button.py's detector produces these.
 BUTTON_GESTURES = (SINGLE, DOUBLE, LONG)
+
+# What presence publishes, as the contract has them. Upper case, because that is what Home Assistant's binary sensor
+# expects by default.
+PRESENCE_ON = "ON"
+PRESENCE_OFF = "OFF"
 
 ONLINE = "online"
 OFFLINE = "offline"
@@ -30,13 +37,15 @@ OFFLINE = "offline"
 # Each topic the agent publishes, and whether it is retained. Availability is retained so a late subscriber learns
 # the state at once (and so the last will can replace it). The diagnostics are not: a stale reading is worse than none.
 # The panel state is retained because it only changes when someone asks, so it can be a long time between messages.
-# A button press is an event, not a state: replayed to a subscriber that connects later it would act twice.
+# A button press is an event, not a state: replayed to a subscriber that connects later it would act twice. Presence
+# is the other way round: a state, true until it changes, so the retained value is how the app learns it at connect.
 PUBLISHED: dict[str, bool] = {
     AVAILABILITY: True,
     CPU_TEMPERATURE: False,
     UPTIME: False,
     SCREEN_STATE: True,
     BUTTON: False,
+    PRESENCE: True,
 }
 
 # Each topic the agent listens to. The contract's `to_pi` topics are exactly these.
@@ -86,3 +95,8 @@ def button_payload(gesture: str) -> str:
     if gesture not in BUTTON_GESTURES:
         raise ValueError(f"not a button gesture: {gesture!r}")
     return gesture
+
+
+def presence_payload(present: bool) -> str:
+    """The payload for someone there or nobody: "ON" or "OFF"."""
+    return PRESENCE_ON if present else PRESENCE_OFF

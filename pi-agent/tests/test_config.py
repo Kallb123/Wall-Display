@@ -12,7 +12,9 @@ from wallcal_agent.config import (
     Config,
     ConfigError,
     OutputConfig,
+    PresenceConfig,
     ScreenConfig,
+    UartConfig,
     load_config,
     parse_config,
 )
@@ -59,6 +61,9 @@ def test_minimal_config_gets_the_defaults() -> None:
         poll_seconds=60,
     )
     assert config.button == ButtonConfig(pin=17, bounce_ms=30, double_press_ms=400, long_press_ms=1000)
+    assert config.presence == PresenceConfig(
+        source="gpio", pin=27, hold_ms=500, uart=UartConfig(device="/dev/serial0", baud=256000)
+    )
 
 
 def test_full_config() -> None:
@@ -76,7 +81,7 @@ def test_full_config() -> None:
                 "discovery_prefix": "ha/custom",
             },
             "diagnostics_interval_seconds": 5,
-            "sensors": {"button": True, "light": True},
+            "sensors": {"button": True, "presence": True, "light": True},
             "screen": {
                 "backend": "output",
                 "cec": {"device": 15},
@@ -84,7 +89,13 @@ def test_full_config() -> None:
                 "command_timeout_seconds": 60,
                 "poll_seconds": 5,
             },
-            "button": {"pin": 27, "bounce_ms": 0, "double_press_ms": 2000, "long_press_ms": 10000},
+            "button": {"pin": 26, "bounce_ms": 0, "double_press_ms": 2000, "long_press_ms": 10000},
+            "presence": {
+                "source": "uart",
+                "pin": 5,
+                "hold_ms": 10000,
+                "uart": {"device": "/dev/ttyUSB0", "baud": 115200},
+            },
         }
     )
 
@@ -94,7 +105,7 @@ def test_full_config() -> None:
     assert config.mqtt.discovery is False
     assert config.mqtt.discovery_prefix == "ha/custom"
     assert config.diagnostics_interval_seconds == 5
-    assert config.enabled_sensors() == ["button", "light"]
+    assert config.enabled_sensors() == ["button", "presence", "light"]
     assert config.screen == ScreenConfig(
         backend="output",
         cec=CecConfig(device=15),
@@ -102,7 +113,10 @@ def test_full_config() -> None:
         command_timeout_seconds=60,
         poll_seconds=5,
     )
-    assert config.button == ButtonConfig(pin=27, bounce_ms=0, double_press_ms=2000, long_press_ms=10000)
+    assert config.button == ButtonConfig(pin=26, bounce_ms=0, double_press_ms=2000, long_press_ms=10000)
+    assert config.presence == PresenceConfig(
+        source="uart", pin=5, hold_ms=10000, uart=UartConfig(device="/dev/ttyUSB0", baud=115200)
+    )
 
 
 def test_the_example_file_is_valid_as_it_stands() -> None:
@@ -126,12 +140,14 @@ def test_the_example_file_sets_every_key_to_its_default() -> None:
     del trimmed["sensors"]
     del trimmed["screen"]
     del trimmed["button"]
+    del trimmed["presence"]
 
     assert parse_config(trimmed).mqtt.port == parse_config(example).mqtt.port
     assert parse_config(trimmed).mqtt.client_id == parse_config(example).mqtt.client_id
     assert parse_config(trimmed).diagnostics_interval_seconds == parse_config(example).diagnostics_interval_seconds
     assert parse_config(trimmed).screen == parse_config(example).screen
     assert parse_config(trimmed).button == parse_config(example).button
+    assert parse_config(trimmed).presence == parse_config(example).presence
 
 
 def test_the_examples_screen_block_sets_every_screen_key_to_its_default() -> None:
@@ -179,6 +195,116 @@ def test_button_times_accept_both_ends_of_their_range(key: str, low: int, high: 
 @pytest.mark.parametrize("pin", [0, 27])
 def test_button_pin_accepts_both_ends_of_its_range(pin: int) -> None:
     assert parse_config(with_change(["button", "pin"], pin)).button.pin == pin
+
+
+def test_the_examples_presence_block_sets_every_presence_key_to_its_default() -> None:
+    presence = yaml.safe_load(EXAMPLE_PATH.read_text())["presence"]
+
+    assert set(presence) == {"source", "pin", "hold_ms", "uart"}
+    assert set(presence["uart"]) == {"device", "baud"}
+    assert parse_config({**minimal(), "presence": presence}).presence == PresenceConfig()
+
+
+def test_the_presence_block_is_optional_and_may_be_left_empty() -> None:
+    assert parse_config({**minimal(), "presence": None}).presence == PresenceConfig()
+    assert parse_config({**minimal(), "presence": {}}).presence == PresenceConfig()
+    assert parse_config({**minimal(), "presence": {"uart": None}}).presence == PresenceConfig()
+    assert parse_config({**minimal(), "presence": {"uart": {}}}).presence == PresenceConfig()
+
+
+def test_each_presence_setting_may_be_given_alone() -> None:
+    assert parse_config(with_change(["presence", "source"], "uart")).presence == PresenceConfig(source="uart")
+    assert parse_config(with_change(["presence", "pin"], 4)).presence == PresenceConfig(pin=4)
+    assert parse_config(with_change(["presence", "hold_ms"], 1500)).presence == PresenceConfig(hold_ms=1500)
+    assert parse_config(with_change(["presence", "uart", "device"], "/dev/ttyAMA0")).presence == PresenceConfig(
+        uart=UartConfig(device="/dev/ttyAMA0")
+    )
+    assert parse_config(with_change(["presence", "uart", "baud"], 9600)).presence == PresenceConfig(
+        uart=UartConfig(baud=9600)
+    )
+
+
+def test_the_presence_settings_are_checked_even_when_the_sensor_is_off() -> None:
+    data = with_change(["presence", "pin"], 99)
+    data["sensors"] = {"presence": False}
+
+    with pytest.raises(ConfigError, match=r"presence\.pin"):
+        parse_config(data)
+
+
+def test_the_uart_settings_are_checked_even_when_the_source_is_gpio() -> None:
+    data = with_change(["presence", "uart", "baud"], 1234)
+    data["presence"]["source"] = "gpio"
+
+    with pytest.raises(ConfigError, match=r"presence\.uart\.baud"):
+        parse_config(data)
+
+
+@pytest.mark.parametrize("pin", [0, 27])
+def test_presence_pin_accepts_both_ends_of_its_range(pin: int) -> None:
+    assert parse_config(with_change(["presence", "pin"], pin)).presence.pin == pin
+
+
+@pytest.mark.parametrize("hold_ms", [0, 10000])
+def test_presence_hold_accepts_both_ends_of_its_range(hold_ms: int) -> None:
+    assert parse_config(with_change(["presence", "hold_ms"], hold_ms)).presence.hold_ms == hold_ms
+
+
+@pytest.mark.parametrize("baud", [9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800])
+def test_every_baud_the_sensor_supports_is_accepted(baud: int) -> None:
+    assert parse_config(with_change(["presence", "uart", "baud"], baud)).presence.uart.baud == baud
+
+
+def _both_sensors(**presence: Any) -> dict[str, Any]:
+    data = minimal()
+    data["sensors"] = {"button": True, "presence": True}
+    data["presence"] = presence
+    return data
+
+
+def test_the_button_and_a_gpio_presence_sensor_may_not_share_a_pin() -> None:
+    data = _both_sensors(pin=17)
+
+    with pytest.raises(ConfigError) as error:
+        parse_config(data)
+
+    assert str(error.value).startswith("presence.pin: ")
+    assert "GPIO17" in str(error.value)
+    assert "button.pin" in str(error.value)
+
+
+def test_the_shared_pin_is_checked_against_a_changed_button_pin_too() -> None:
+    data = _both_sensors(pin=22)
+    data["button"] = {"pin": 22}
+
+    with pytest.raises(ConfigError, match=r"presence\.pin"):
+        parse_config(data)
+
+
+def test_a_shared_pin_is_fine_when_either_sensor_is_off_or_presence_is_not_on_gpio() -> None:
+    both = _both_sensors(pin=17)
+    no_button = {**both, "sensors": {"presence": True}}
+    no_presence = {**both, "sensors": {"button": True}}
+    neither = {**both, "sensors": {}}
+    uart = _both_sensors(pin=17, source="uart")
+
+    for data in (no_button, no_presence, neither, uart):
+        assert parse_config(data).presence.pin == 17
+
+
+def test_different_pins_are_fine_with_both_sensors_on() -> None:
+    config = parse_config(_both_sensors(pin=22))
+
+    assert (config.button.pin, config.presence.pin) == (17, 22)
+
+
+def test_the_default_presence_pin_does_not_clash_with_the_default_button_pin() -> None:
+    data = minimal()
+    data["sensors"] = {"button": True, "presence": True}
+
+    config = parse_config(data)
+
+    assert (config.button.pin, config.presence.pin) == (17, 27)
 
 
 @pytest.mark.parametrize("backend", ["black", "cec", "output"])
@@ -332,6 +458,70 @@ def test_sensors_may_be_left_empty() -> None:
         (with_change(["screen", "poll_seconds"], 7.5), "screen.poll_seconds: must be a whole number of seconds"),
         (with_change(["screen", "poll_seconds"], False), "screen.poll_seconds: must be a whole number of seconds"),
         (with_change(["button"], ["pin"]), "button: must be a mapping"),
+        (with_change(["presence"], ["gpio"]), "presence: must be a mapping"),
+        (with_change(["presence", "source"], "i2c"), "presence.source: must be one of gpio, uart"),
+        (with_change(["presence", "source"], "GPIO"), "presence.source: must be one of gpio, uart"),
+        (with_change(["presence", "source"], ""), "presence.source: must be one of gpio, uart"),
+        (with_change(["presence", "source"], 1), "presence.source: must be text"),
+        (with_change(["presence", "pin"], -1), "presence.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["presence", "pin"], 28), "presence.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["presence", "pin"], "27"), "presence.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["presence", "pin"], 27.5), "presence.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["presence", "pin"], True), "presence.pin: must be a BCM GPIO number, 0 to 27"),
+        (
+            with_change(["presence", "hold_ms"], -1),
+            "presence.hold_ms: must be a whole number of milliseconds, 0 to 10000",
+        ),
+        (
+            with_change(["presence", "hold_ms"], 10001),
+            "presence.hold_ms: must be a whole number of milliseconds, 0 to 10000",
+        ),
+        (
+            with_change(["presence", "hold_ms"], "500"),
+            "presence.hold_ms: must be a whole number of milliseconds, 0 to 10000",
+        ),
+        (
+            with_change(["presence", "hold_ms"], 0.5),
+            "presence.hold_ms: must be a whole number of milliseconds, 0 to 10000",
+        ),
+        (
+            with_change(["presence", "hold_ms"], False),
+            "presence.hold_ms: must be a whole number of milliseconds, 0 to 10000",
+        ),
+        (with_change(["presence", "uart"], "/dev/serial0"), "presence.uart: must be a mapping"),
+        (
+            with_change(["presence", "uart", "device"], "serial0"),
+            "presence.uart.device: must be the absolute path of the serial port",
+        ),
+        (
+            with_change(["presence", "uart", "device"], ""),
+            "presence.uart.device: must be the absolute path of the serial port",
+        ),
+        (
+            with_change(["presence", "uart", "device"], "/dev/"),
+            "presence.uart.device: must be the absolute path of the serial port",
+        ),
+        (
+            with_change(["presence", "uart", "device"], "/dev/tty\0"),
+            "presence.uart.device: must be the absolute path of the serial port",
+        ),
+        (with_change(["presence", "uart", "device"], 1), "presence.uart.device: must be text"),
+        (
+            with_change(["presence", "uart", "baud"], 1234),
+            "presence.uart.baud: must be one of 9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800",
+        ),
+        (
+            with_change(["presence", "uart", "baud"], "256000"),
+            "presence.uart.baud: must be one of 9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800",
+        ),
+        (
+            with_change(["presence", "uart", "baud"], 115200.0),
+            "presence.uart.baud: must be one of 9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800",
+        ),
+        (
+            with_change(["presence", "uart", "baud"], True),
+            "presence.uart.baud: must be one of 9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800",
+        ),
         (with_change(["button", "pin"], -1), "button.pin: must be a BCM GPIO number, 0 to 27"),
         (with_change(["button", "pin"], 28), "button.pin: must be a BCM GPIO number, 0 to 27"),
         (with_change(["button", "pin"], "17"), "button.pin: must be a BCM GPIO number, 0 to 27"),
@@ -396,6 +586,8 @@ def test_bad_config_names_the_key(data: Any, message: str) -> None:
         (with_change(["screen", "cec", "address"], 0), "screen.cec.address: unknown key"),
         (with_change(["screen", "output", "display"], "x"), "screen.output.display: unknown key"),
         (with_change(["button", "gpio"], 17), "button.gpio: unknown key"),
+        (with_change(["presence", "gpio"], 27), "presence.gpio: unknown key"),
+        (with_change(["presence", "uart", "port"], "/dev/serial0"), "presence.uart.port: unknown key"),
     ],
 )
 def test_unknown_keys_are_errors(data: Any, message: str) -> None:

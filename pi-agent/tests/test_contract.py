@@ -6,12 +6,15 @@ produce, and every message the agent publishes is one the contract describes.
 
 import json
 import re
+from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
 
 from wallcal_agent import topics
+from wallcal_agent.config import Config, SensorsConfig
 from wallcal_agent.discovery import discovery_messages
 
 from .conftest import AgentRig
@@ -19,7 +22,6 @@ from .conftest import AgentRig
 # Contract topics the agent does not handle yet, with the pull request that will. Listed so that a new pi/ topic in
 # the contract fails these tests until someone decides what the agent does with it.
 FROM_PI_LATER = {
-    "pi/presence": "3.4",
     "pi/illuminance": "3.5",
 }
 TO_PI_LATER: dict[str, str] = {}
@@ -51,6 +53,20 @@ def play_every_gesture(rig: AgentRig) -> None:
     rig.button.press()
     after(1.5)  # the long press comes while the button is down
     rig.button.release()
+    after(1.0)
+
+
+def play_presence(rig: AgentRig) -> None:
+    """Moves someone into view and out again, so that ON and then OFF are published, in that order."""
+    assert rig.presence is not None
+
+    def after(seconds: float) -> None:
+        rig.clock.advance(seconds)
+        rig.agent.run_presence_work()
+
+    rig.presence.set(True)
+    after(1.0)
+    rig.presence.set(False)
     after(1.0)
 
 
@@ -119,6 +135,16 @@ def test_the_button_topic_is_described(contract: dict[str, Any]) -> None:
     assert topic["payload"]["encoding"] == "text"
     assert topic["examples"] == list(topics.BUTTON_GESTURES)
     assert topics.PUBLISHED[topics.BUTTON] is False
+
+
+def test_the_presence_topic_is_described(contract: dict[str, Any]) -> None:
+    topic = contract["topics"][topics.PRESENCE]
+
+    assert topic["direction"] == "from_pi"
+    assert topic["retained"] is True
+    assert topic["payload"]["encoding"] == "text"
+    assert topic["examples"] == [topics.presence_payload(True), topics.presence_payload(False)]
+    assert topics.PUBLISHED[topics.PRESENCE] is True
 
 
 def test_the_agent_publishes_topics_that_are_from_pi_with_the_same_retain_flag(contract: dict[str, Any]) -> None:
@@ -229,6 +255,33 @@ def test_each_gesture_the_agent_publishes_passes_the_schema_and_is_not_retained(
         assert p.qos == 1
 
 
+def test_every_valid_presence_payload_in_the_contract_is_one_the_agent_can_make(contract: dict[str, Any]) -> None:
+    topic = contract["topics"][topics.PRESENCE]
+
+    assert {topics.presence_payload(present) for present in (True, False)} == set(topic["examples"])
+    for payload in topic["invalid_examples"]:
+        assert payload not in (topics.presence_payload(True), topics.presence_payload(False))
+        assert not accepts(contract, topics.PRESENCE, payload)
+
+
+def test_each_presence_the_agent_publishes_passes_the_schema_and_is_retained(
+    contract: dict[str, Any], presence_rig: AgentRig
+) -> None:
+    rig = presence_rig
+    rig.client.broker_accepts()
+    rig.client.clear()
+
+    play_presence(rig)
+
+    published = [p for p in rig.client.publishes if name_of(p.topic) == topics.PRESENCE]
+    assert [p.payload for p in published] == contract["topics"][topics.PRESENCE]["examples"]
+    for p in published:
+        assert p.payload is not None
+        assert accepts(contract, topics.PRESENCE, p.payload)
+        assert p.retain is contract["topics"][topics.PRESENCE]["retained"]
+        assert p.qos == 1
+
+
 def test_the_pi_topics_are_the_ones_under_pi(contract: dict[str, Any]) -> None:
     assert topics_where(contract, "from_pi") | topics_where(contract, "to_pi") == {
         name for name in contract["topics"] if name.startswith("pi/")
@@ -255,7 +308,7 @@ def test_online_and_offline_pass_the_availability_schema(contract: dict[str, Any
 
 
 def test_discovery_topics_are_contract_topics_for_this_display(contract: dict[str, Any]) -> None:
-    for message in discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True):
+    for message in discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True, presence=True):
         config = json.loads(message.payload)
         for key in ("state_topic", "availability_topic"):
             name = name_of(config[key])
@@ -267,8 +320,18 @@ def test_discovery_topics_are_contract_topics_for_this_display(contract: dict[st
         assert accepts(contract, name_of(config["availability_topic"]), config["payload_not_available"])
 
 
+def test_the_presence_entity_is_on_the_contracts_topic_with_the_contracts_payloads(contract: dict[str, Any]) -> None:
+    messages = discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=False, presence=True)
+    config = json.loads(next(m.payload for m in messages if "/presence/" in m.topic))
+
+    assert name_of(config["state_topic"]) == topics.PRESENCE
+    assert [config["payload_on"], config["payload_off"]] == contract["topics"][topics.PRESENCE]["examples"]
+    assert accepts(contract, topics.PRESENCE, config["payload_on"])
+    assert accepts(contract, topics.PRESENCE, config["payload_off"])
+
+
 def test_the_button_entity_offers_the_contracts_gestures_on_the_contracts_topic(contract: dict[str, Any]) -> None:
-    messages = discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True)
+    messages = discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True, presence=False)
     config = json.loads(next(m.payload for m in messages if "/event/" in m.topic))
 
     assert name_of(config["state_topic"]) == topics.BUTTON
@@ -278,12 +341,14 @@ def test_the_button_entity_offers_the_contracts_gestures_on_the_contracts_topic(
 
 
 def test_a_run_of_the_agent_only_publishes_what_the_contract_describes(
-    contract: dict[str, Any], button_rig: AgentRig
+    contract: dict[str, Any], config: Config, make_agent: Callable[[Config], AgentRig]
 ) -> None:
-    rig = button_rig
+    rig = make_agent(replace(config, sensors=SensorsConfig(button=True, presence=True)))
+    rig.agent.start()
     rig.client.broker_accepts()
     rig.agent.run_screen_work()
     play_every_gesture(rig)
+    play_presence(rig)
     for celsius in TEMPERATURES:
         rig.system.temperature = celsius
         rig.system.uptime = celsius + 100

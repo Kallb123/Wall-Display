@@ -117,9 +117,16 @@ remote:
 
 # Built-in policies. Each can also be switched off from Home Assistant.
 policies:
+  # Needs the Pi agent's presence sensor (sensors.presence in the agent's
+  # config), which publishes pi/presence. Presence turns the screen on; nobody
+  # there for off_after_minutes turns it off. The Auto presence switch in Home
+  # Assistant turns the policy off, for when an automation takes over.
   auto_presence:
     off_after_minutes: 10 # screen off after this long with nobody there
-    quiet_hours: { from: "22:30", to: "06:30" } # optional; the screen is left alone in this window
+    # Optional. In this window (the local time in `timezone`) the screen is left
+    # alone both ways: presence doesn't turn it on and nobody doesn't turn it
+    # off. from and to must differ; from later than to wraps past midnight.
+    quiet_hours: { from: "22:30", to: "06:30" }
   auto_brightness:
     night_below_lux: 3 # optional; below this the night action applies
     night_action: night_view # none | night_view | screen_off

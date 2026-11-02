@@ -450,7 +450,7 @@ Every input changes this state through the same command handler. Every change is
 | Phone remote page `/remote` | HTTP POST / WebSocket to the app |
 | HA companion app | The same HA entities. You can add the remote page as a Webpage card too. |
 | Physical button | `pi-agent` → MQTT event → app button mapping (see §7.4) |
-| mmWave presence | `pi-agent` → MQTT → app presence policy and/or HA automations |
+| mmWave presence | `pi-agent` → MQTT (`pi/presence`) → app presence policy (§7.7) and/or HA automations |
 | Ambient light | `pi-agent` → MQTT → app auto-brightness and/or HA automations |
 | Built-in schedule | App-side rules, for example "agenda 06:30–09:00". Optional. HA can do this too. |
 
@@ -477,7 +477,7 @@ The base is `wallcal/<display_id>/`.
 | `…/last_sync/state` | app → | ISO 8601 instant (UTC) of the last successful calendar sync, such as `2026-10-28T12:00:00.000Z` (retained). Not published until a calendar has synced. |
 | `…/special_day/state` | app → | today's special day name, or empty (retained) |
 | `…/pi/button` | pi → | `single` \| `double` \| `long` |
-| `…/pi/presence` | pi → | `ON` \| `OFF` (retained) |
+| `…/pi/presence` | pi → | `ON` \| `OFF` (retained): whether someone is there. Published on every change the agent confirms and again on every connect, so the app learns the current state at once. |
 | `…/pi/illuminance` | pi → | lux (float) |
 | `…/pi/cpu_temperature` | pi → | the Pi's CPU temperature in °C, to one decimal place, such as `48.3`. Published every minute (diagnostics interval); not published where it can't be read. |
 | `…/pi/uptime` | pi → | seconds since the Pi booted, a whole number. Published every diagnostics interval. |
@@ -641,7 +641,14 @@ Sources and secrets stay in YAML. Special days and scenes, and later the display
 
 These run in the app and each has an HA switch to turn it off:
 
-- **Auto presence.** Presence ON turns the screen on. When presence has been OFF for N minutes (default 10), the screen turns off. This is suppressed during configured quiet hours.
+- **Auto presence.** The app reads `…/pi/presence` and keeps, for each display, whether someone is there (`ON`), nobody is (`OFF`) or it doesn't know (nothing yet, or an empty retained message). The Pi publishes it retained, and the app accepts the retained value, which is how it learns the current state when it connects. The rules, which apply only while `auto_presence` is on:
+  - **Presence goes ON.** The wait for the screen to go off is cancelled. If the screen is `off` and it isn't quiet hours, the screen is turned on. A repeated `ON` does nothing.
+  - **Presence goes OFF.** The wait starts: after `off_after_minutes` (default 10) of `OFF`, the screen is turned off. If that time comes in quiet hours, the app checks again every minute, so the screen goes off once the quiet window ends if there is still nobody there.
+  - **Unknown.** The app forgets the presence and cancels the wait. Nothing changes the screen.
+  - **Switched on with nobody there.** While presence is `OFF`, turning `auto_presence` on, or turning the screen on (from the remote, HA or the button), starts the wait from that moment, so a screen that someone switches on with nobody in view still goes off after `off_after_minutes`. Turning `auto_presence` or the screen off cancels the wait.
+  - **Quiet hours** (`policies.auto_presence.quiet_hours`, `from` and `to` in the config's `timezone`, which must differ and may wrap midnight, such as 22:30 to 06:30) leave the screen alone in both directions: presence doesn't turn it on, and the wait doesn't turn it off.
+
+  The policy applies `set_screen` through the same command handler as every other input, so the change reaches the display, the remote, HA and the agent like any other. It is in `server/control/presence.ts`, and every switch it makes is logged. The HA "Auto presence" switch turns it off.
 - **Auto brightness.** Maps lux to the `brightness` overlay with a smoothing curve. Below a darkness threshold it can switch to the `night` view, or turn the screen off.
 
 More complex logic, such as "only when someone is home", "not during a film" or tying in with lights, belongs in HA automations. Turn the built-in policy off when HA takes over.
@@ -654,7 +661,7 @@ More complex logic, such as "only when someone is home", "not during a film" or 
 - Turn off the screen blanker and screensaver. The panel power is controlled by the agent.
 - `pi-agent` is a Python systemd service with `Restart=always`:
   - `gpiozero` for the button (debounce; single, double and long press detection)
-  - UART reader for the mmWave sensor
+  - the mmWave sensor: the LD2410's OUT pin read as a plain GPIO input by default (debounced, so a change counts once it has held for `presence.hold_ms`), or its UART frames as an option (`presence.source: uart`)
   - I²C reader for the light sensor (publishes on change or every 30 s)
   - screen control (see §8.3)
   - MQTT with last-will availability, plus HA discovery for its own entities
@@ -665,7 +672,7 @@ More complex logic, such as "only when someone is home", "not during a film" or 
 | Part | Suggested | Interface | Notes |
 |---|---|---|---|
 | Button | Any momentary push button (a nice panel-mount or arcade-style one) | GPIO17 to GND, internal pull-up | Single, double and long press |
-| mmWave presence | HLK-LD2410C (presence) or LD2450 (multi-target tracking) | UART (GPIO14/15), 5 V power, 3.3 V logic | Detects still people, unlike PIR. Tune range "gates" so it doesn't see through walls. Enable the UART and disable the serial console in `raspi-config`. Simplest option: wire the LD2410's OUT pin to a GPIO as a plain on/off signal. |
+| mmWave presence | HLK-LD2410C (presence) | OUT pin to GPIO27 (the default), 5 V power, 3.3 V logic. Optionally UART (GPIO14/15) | Detects still people, unlike PIR. Tune range "gates" so it doesn't see through walls. The OUT pin is a plain on/off signal and is the default, because it needs no setup on the Pi. With `presence.source: uart` the agent reads the LD2410's own frames instead; enable the serial port and disable the serial console in `raspi-config` for that. The LD2450 (multi-target tracking) isn't supported. |
 | Ambient light | VEML7700 (good low-light range) or BH1750 | I²C (GPIO2/3), 3.3 V | Mount it facing into the room, not at the screen, and away from the panel's own glow |
 
 **Alternative:** put the sensors and button on an ESP32 running ESPHome instead of the Pi. This is native in HA and the Pi stays purely a kiosk. The app then gets them via HA or MQTT just the same. Choose this if the sensor placement doesn't suit where the Pi sits.

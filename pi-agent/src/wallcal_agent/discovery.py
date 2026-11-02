@@ -5,8 +5,9 @@ the messages are retained so Home Assistant has them even if it starts after the
 unavailable with the agent (availability topic plus last will). The sensors also expire if the agent stops
 reporting; the panel power does not, because its state is retained and can stay the same for days. The button is
 an `event` entity, which is not a reading at all, so it neither expires nor counts as diagnostic: it is the one
-entity here a person would put on a dashboard. Pure: no I/O. agent.py publishes these on every connect, and again
-when Home Assistant says it has restarted.
+entity here a person would put on a dashboard. Presence is a `binary_sensor` that is not diagnostic either, and does
+not expire, because it is retained and can stay the same for days in an empty room. Pure: no I/O. agent.py publishes
+these on every connect, and again when Home Assistant says it has restarted.
 """
 
 import json
@@ -41,12 +42,13 @@ def birth_topic(prefix: str) -> str:
 
 
 def discovery_messages(
-    prefix: str, display_id: str, version: str, diagnostics_interval: int, button: bool
+    prefix: str, display_id: str, version: str, diagnostics_interval: int, button: bool, presence: bool
 ) -> list[DiscoveryMessage]:
     """Every discovery message for one Pi, in a fixed order, at `<prefix>/<kind>/wallcal_pi_<id>/<object>/config`.
 
-    The button is last. With `button` false its message is empty: Home Assistant takes an empty retained config to
-    mean "remove this entity", which cleans up after a button that has since been switched off in the agent's config.
+    The button and then presence come last. With either one false its message is empty: Home Assistant takes an
+    empty retained config to mean "remove this entity", which cleans up after a sensor that has since been switched
+    off in the agent's config.
     """
     node = f"wallcal_pi_{display_id}"
     device = {
@@ -58,8 +60,9 @@ def discovery_messages(
     }
     origin = {"name": ORIGIN_NAME, "sw_version": version, "url": ORIGIN_URL}
 
-    # (component, object id, name, whether it expires, whether it is diagnostic, what is particular to the entity)
-    entities: list[tuple[str, str, str, bool, bool, dict[str, Any]]] = [
+    # (component, object id, name, whether it expires, whether it is diagnostic, what is particular to the entity, or
+    # None for an entity that is switched off, which gets an empty message where its config would be)
+    entities: list[tuple[str, str, str, bool, bool, dict[str, Any] | None]] = [
         (
             "sensor",
             "cpu_temperature",
@@ -105,28 +108,49 @@ def discovery_messages(
     def config_topic(component: str, object_id: str) -> str:
         return f"{prefix}/{component}/{node}/{object_id}/config"
 
-    if button:
-        entities.append(
-            (
-                "event",
-                "button",
-                "Button",
-                False,
-                False,
-                {
-                    "state_topic": topics.topic_for(display_id, topics.BUTTON),
-                    "event_types": list(topics.BUTTON_GESTURES),
-                    # Home Assistant's MQTT event wants JSON with an `event_type`, and the contract's payload is
-                    # the bare word, so the template wraps it.
-                    "value_template": "{{ {'event_type': value} | tojson }}",
-                    "device_class": "button",
-                    "icon": "mdi:gesture-tap-button",
-                },
-            )
+    entities.append(
+        (
+            "event",
+            "button",
+            "Button",
+            False,
+            False,
+            {
+                "state_topic": topics.topic_for(display_id, topics.BUTTON),
+                "event_types": list(topics.BUTTON_GESTURES),
+                # Home Assistant's MQTT event wants JSON with an `event_type`, and the contract's payload is
+                # the bare word, so the template wraps it.
+                "value_template": "{{ {'event_type': value} | tojson }}",
+                "device_class": "button",
+                "icon": "mdi:gesture-tap-button",
+            }
+            if button
+            else None,
         )
+    )
+    entities.append(
+        (
+            "binary_sensor",
+            "presence",
+            "Presence",
+            False,
+            False,
+            {
+                "state_topic": topics.topic_for(display_id, topics.PRESENCE),
+                "device_class": "occupancy",
+                "payload_on": topics.presence_payload(True),
+                "payload_off": topics.presence_payload(False),
+            }
+            if presence
+            else None,
+        )
+    )
 
     messages: list[DiscoveryMessage] = []
     for component, object_id, name, expires, diagnostic, particular in entities:
+        if particular is None:
+            messages.append(DiscoveryMessage(topic=config_topic(component, object_id), payload=""))
+            continue
         config: dict[str, Any] = {
             "name": name,
             "unique_id": f"{node}_{object_id}",
@@ -143,6 +167,4 @@ def discovery_messages(
         messages.append(
             DiscoveryMessage(topic=config_topic(component, object_id), payload=json.dumps(config, ensure_ascii=False))
         )
-    if not button:
-        messages.append(DiscoveryMessage(topic=config_topic("event", "button"), payload=""))
     return messages

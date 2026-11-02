@@ -11,10 +11,10 @@ from paho.mqtt.enums import CallbackAPIVersion
 
 from wallcal_agent import __version__, topics
 from wallcal_agent.agent import Agent, default_client_factory
-from wallcal_agent.config import ButtonConfig, Config, ScreenConfig, SensorsConfig
+from wallcal_agent.config import ButtonConfig, Config, PresenceConfig, ScreenConfig, SensorsConfig, UartConfig
 from wallcal_agent.discovery import discovery_messages
 from wallcal_agent.hardware import Hardware
-from wallcal_agent.hardware.fake import FakeButton, FakeScreen, FakeSystemInfo
+from wallcal_agent.hardware.fake import FakeButton, FakePresence, FakeScreen, FakeSystemInfo
 
 from .conftest import PASSWORD, AgentRig, FakeMessageInfo, FakeMqttClient, Published
 
@@ -25,6 +25,8 @@ SCREEN_SET = "wallcal/hallway/pi/screen/set"
 SCREEN_STATE = "wallcal/hallway/pi/screen/state"
 BUTTON = "wallcal/hallway/pi/button"
 BUTTON_DISCOVERY = "homeassistant/event/wallcal_pi_hallway/button/config"
+PRESENCE = "wallcal/hallway/pi/presence"
+PRESENCE_DISCOVERY = "homeassistant/binary_sensor/wallcal_pi_hallway/presence/config"
 
 
 def by_topic(client: FakeMqttClient) -> dict[str, Published]:
@@ -67,7 +69,7 @@ def test_connecting_says_online_and_publishes_discovery_and_diagnostics(rig: Age
     published = by_topic(rig.client)
 
     assert published[AVAILABILITY] == Published(AVAILABILITY, "online", 1, True)
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False)
+    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False, presence=False)
     for message in expected:
         assert published[message.topic] == Published(message.topic, message.payload, 1, True)
     assert published[CPU] == Published(CPU, "48.3", 1, False)
@@ -119,7 +121,7 @@ def test_home_assistant_birth_republishes_discovery(rig: AgentRig) -> None:
 
     rig.client.message_arrives("homeassistant/status", "online")
 
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False)
+    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False, presence=False)
     assert rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
 
 
@@ -389,12 +391,17 @@ def test_default_client_factory_makes_a_paho_2_client() -> None:
     assert client._client_id == b"wallcal-pi-test"  # type: ignore[attr-defined]
 
 
-def test_topics_published_are_the_ones_declared(button_rig: AgentRig) -> None:
-    rig = button_rig
+def test_topics_published_are_the_ones_declared(config: Config, make_agent: Callable[[Config], AgentRig]) -> None:
+    rig = make_agent(replace(config, sensors=SensorsConfig(button=True, presence=True)))
+    rig.agent.start()
     rig.client.broker_accepts()
     rig.agent.run_screen_work()
     tap(rig)
     after(rig, 1.0)
+    assert rig.presence is not None
+    rig.presence.set(True)
+    rig.clock.advance(1.0)
+    rig.agent.run_presence_work()
 
     names = {p.topic.removeprefix("wallcal/hallway/") for p in rig.client.publishes if p.topic.startswith("wallcal/")}
     assert names == set(topics.PUBLISHED)
@@ -1414,7 +1421,7 @@ def test_discovery_after_home_assistant_restarts_follows_the_button_setting(butt
 
     button_rig.client.message_arrives("homeassistant/status", "online")
 
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=True)
+    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=True, presence=False)
     assert button_rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
 
 
@@ -1529,6 +1536,488 @@ def test_stop_does_not_wait_for_a_long_deadline(config: Config) -> None:
     rig.button.press()
     time.sleep(0.05)
     thread = rig.agent._button_thread
+    assert thread is not None
+
+    before = time.monotonic()
+    rig.agent.stop()
+
+    assert time.monotonic() - before < 1.5
+    assert not thread.is_alive()
+
+
+# Presence. As with the button, the rig has no worker thread: a test sets the fake sensor, moves the clock and calls
+# `run_presence_work()` when the worker would have woken. The hold time is the config's default, 500 ms.
+
+
+def presence_publishes(client: FakeMqttClient) -> list[Published]:
+    return [p for p in client.publishes if p.topic == PRESENCE]
+
+
+def fake_presence(rig: AgentRig) -> FakePresence:
+    assert rig.presence is not None
+    return rig.presence
+
+
+def presence_after(rig: AgentRig, seconds: float) -> list[str]:
+    """Lets time pass, lets the worker have its turn, and returns every presence payload published so far."""
+    rig.clock.advance(seconds)
+    rig.agent.run_presence_work()
+    return [p.payload or "" for p in presence_publishes(rig.client)]
+
+
+def test_start_opens_the_presence_sensor(presence_rig: AgentRig) -> None:
+    assert fake_presence(presence_rig).started is True
+    assert fake_presence(presence_rig).closed is False
+
+
+def test_start_logs_where_the_sensor_is(
+    presence_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    on_gpio = make_agent(replace(presence_config, presence=PresenceConfig(pin=22)))
+    on_uart = make_agent(
+        replace(presence_config, presence=PresenceConfig(source="uart", uart=UartConfig(device="/dev/ttyAMA0")))
+    )
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        on_gpio.agent.start()
+        on_uart.agent.start()
+
+    messages = [r.getMessage() for r in caplog.records if r.name == "wallcal_agent.agent"]
+    assert "Watching presence on GPIO22" in messages
+    assert "Watching presence on /dev/ttyAMA0 (UART)" in messages
+
+
+def test_without_a_presence_sensor_nothing_is_started_and_the_presence_work_does_nothing(rig: AgentRig) -> None:
+    assert rig.presence is None
+    rig.client.broker_accepts()
+    rig.client.clear()
+
+    rig.agent.run_presence_work()
+    rig.agent.run_presence_work(now=1e9)
+
+    assert rig.client.publishes == []
+    assert rig.agent._presence_thread is None
+
+
+def test_someone_arriving_is_published_once_it_has_held_and_is_retained_at_qos_1(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+    fake_presence(presence_rig).set(True)
+
+    assert presence_after(presence_rig, 0.25) == []
+    assert presence_after(presence_rig, 0.25) == ["ON"]
+    assert presence_after(presence_rig, 5.0) == ["ON"]
+    assert presence_publishes(presence_rig.client) == [Published(PRESENCE, "ON", 1, True)]
+
+
+def test_the_hold_is_counted_from_when_the_reading_first_changed_not_from_each_repeat(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+
+    # A serial sensor repeats the reading many times a second. The repeats do not start the hold again.
+    for _ in range(4):
+        fake_presence(presence_rig).set(True)
+        presence_rig.clock.advance(0.125)
+
+    assert presence_after(presence_rig, 0.0) == ["ON"]
+
+
+def test_someone_leaving_is_published_as_off(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+    fake_presence(presence_rig).set(True)
+    presence_after(presence_rig, 1.0)
+
+    fake_presence(presence_rig).set(False)
+
+    assert presence_after(presence_rig, 0.25) == ["ON"]
+    assert presence_after(presence_rig, 0.25) == ["ON", "OFF"]
+
+
+def test_the_first_reading_counts_even_when_nobody_is_there(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+
+    fake_presence(presence_rig).set(False)
+
+    assert presence_after(presence_rig, 1.0) == ["OFF"]
+
+
+def test_a_flicker_shorter_than_the_hold_is_not_published(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+    fake_presence(presence_rig).set(True)
+    presence_after(presence_rig, 1.0)
+
+    fake_presence(presence_rig).set(False)
+    presence_rig.clock.advance(0.25)
+    fake_presence(presence_rig).set(True)
+
+    assert presence_after(presence_rig, 10.0) == ["ON"]
+
+
+def test_the_reading_callback_only_notes_the_reading_and_publishes_nothing(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+
+    fake_presence(presence_rig).set(True)
+    presence_rig.clock.advance(10.0)
+
+    # Time has passed and nobody ran the worker: all that happened is that the reading was noted.
+    assert presence_rig.client.publishes == []
+
+
+def test_the_worker_is_only_woken_when_a_reading_changes_what_it_waits_for(presence_rig: AgentRig) -> None:
+    wakes = []
+    presence_rig.agent._presence_cond.notify_all = lambda: wakes.append(1)  # type: ignore[method-assign]
+
+    for _ in range(10):
+        fake_presence(presence_rig).set(True)
+        presence_rig.clock.advance(0.0625)
+
+    # Once, for the first reading that started the hold. The nine repeats change nothing it is waiting for.
+    assert wakes == [1]
+
+
+def test_the_hold_comes_from_the_config_in_milliseconds(
+    presence_config: Config, make_agent: Callable[[Config], AgentRig]
+) -> None:
+    quick = make_agent(replace(presence_config, presence=PresenceConfig(hold_ms=0)))
+    slow = make_agent(replace(presence_config, presence=PresenceConfig(hold_ms=3000)))
+    for rig in (quick, slow):
+        rig.agent.start()
+        connected(rig)
+        fake_presence(rig).set(True)
+
+    assert presence_after(quick, 0.0) == ["ON"]
+    assert presence_after(slow, 2.5) == []
+    assert presence_after(slow, 0.5) == ["ON"]
+
+
+def test_a_change_while_the_broker_is_away_is_remembered_and_published_when_it_is_back(
+    presence_rig: AgentRig,
+) -> None:
+    presence_rig.client.broker_accepts()
+    presence_rig.client.connection_drops()
+    presence_rig.client.clear()
+    fake_presence(presence_rig).set(True)
+
+    assert presence_after(presence_rig, 1.0) == []
+
+    presence_rig.client.broker_accepts()
+
+    assert presence_publishes(presence_rig.client) == [Published(PRESENCE, "ON", 1, True)]
+
+
+def test_only_the_latest_state_is_published_when_the_broker_comes_back(presence_rig: AgentRig) -> None:
+    presence_rig.client.broker_accepts()
+    presence_rig.client.connection_drops()
+    presence_rig.client.clear()
+    fake_presence(presence_rig).set(True)
+    presence_after(presence_rig, 1.0)
+    fake_presence(presence_rig).set(False)
+    presence_after(presence_rig, 1.0)
+
+    presence_rig.client.broker_accepts()
+
+    assert [p.payload for p in presence_publishes(presence_rig.client)] == ["OFF"]
+
+
+def test_every_connect_publishes_the_current_state_again(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+    fake_presence(presence_rig).set(True)
+    presence_after(presence_rig, 1.0)
+    presence_rig.client.clear()
+
+    presence_rig.client.connection_drops()
+    presence_rig.client.broker_accepts()
+
+    assert presence_publishes(presence_rig.client) == [Published(PRESENCE, "ON", 1, True)]
+
+
+def test_connecting_before_any_reading_has_held_publishes_nothing(presence_rig: AgentRig) -> None:
+    presence_rig.client.broker_accepts()
+    fake_presence(presence_rig).set(True)
+    presence_after(presence_rig, 0.25)
+    presence_rig.client.connection_drops()
+    presence_rig.client.broker_accepts()
+
+    assert presence_publishes(presence_rig.client) == []
+
+
+def test_presence_comes_after_availability_on_connect(presence_rig: AgentRig) -> None:
+    fake_presence(presence_rig).set(True)
+    presence_after(presence_rig, 1.0)
+
+    presence_rig.client.broker_accepts()
+
+    topics_in_order = [p.topic for p in presence_rig.client.publishes]
+    assert topics_in_order[0] == AVAILABILITY
+    assert topics_in_order.index(PRESENCE) > topics_in_order.index(UPTIME)
+
+
+def test_every_change_is_logged_at_info_even_while_the_broker_is_away(
+    presence_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        fake_presence(presence_rig).set(True)
+        presence_after(presence_rig, 1.0)
+        fake_presence(presence_rig).set(False)
+        presence_after(presence_rig, 1.0)
+
+    messages = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Presence")]
+    assert messages == ["Presence: someone is there", "Presence: nobody"]
+
+
+def test_a_publish_that_fails_is_logged_quietly_and_the_next_connect_publishes_the_state(
+    presence_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    connected(presence_rig)
+    original = presence_rig.client.publish
+
+    def refuse(topic: str, payload: str | None = None, qos: int = 0, retain: bool = False) -> None:
+        raise RuntimeError("not connected")
+
+    presence_rig.client.publish = refuse  # type: ignore[method-assign]
+    fake_presence(presence_rig).set(True)
+    with caplog.at_level(logging.DEBUG, logger="wallcal_agent.agent"):
+        presence_after(presence_rig, 1.0)
+    presence_rig.client.publish = original  # type: ignore[method-assign]
+    presence_rig.client.connection_drops()
+    presence_rig.client.broker_accepts()
+
+    assert "Could not publish presence" in caplog.text
+    assert [p.payload for p in presence_publishes(presence_rig.client)] == ["ON"]
+
+
+def test_a_sensor_that_cannot_be_opened_is_one_warning_and_the_agent_carries_on(
+    presence_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = make_agent(presence_config)
+    fake_presence(rig).start_error = "pin GPIO27 is already in use"
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        rig.agent.start()
+        rig.client.broker_accepts()
+        rig.agent.run_presence_work()
+        rig.agent.stop()
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == [
+        "Could not open the presence sensor on GPIO27: pin GPIO27 is already in use; carrying on without it"
+    ]
+    assert "Watching presence" not in caplog.text
+    assert rig.client.publishes[0].topic == AVAILABILITY
+    assert rig.client.publishes[-1] == Published(AVAILABILITY, "offline", 1, True)
+    assert presence_publishes(rig.client) == []
+    # The Home Assistant entity still follows the config.
+    assert by_topic(rig.client)[PRESENCE_DISCOVERY].payload != ""
+
+
+def test_a_uart_that_cannot_be_opened_names_the_device(
+    presence_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = make_agent(replace(presence_config, presence=PresenceConfig(source="uart")))
+    fake_presence(rig).start_error = "could not open port /dev/serial0: permission denied"
+
+    with caplog.at_level(logging.WARNING, logger="wallcal_agent.agent"):
+        rig.agent.start()
+
+    assert (
+        "Could not open the presence sensor on /dev/serial0 (UART): could not open port /dev/serial0: "
+        "permission denied; carrying on without it"
+    ) in caplog.text
+
+
+def test_a_sensor_that_could_not_be_opened_is_not_closed_and_gets_no_thread(
+    presence_config: Config, system: FakeSystemInfo
+) -> None:
+    sensor = FakePresence()
+    sensor.start_error = "no access"
+    agent = Agent(
+        presence_config,
+        Hardware(system=system, screen=FakeScreen(power=True), presence=sensor),
+        client_factory=lambda _: FakeMqttClient(),
+        screen_worker=False,
+    )
+
+    agent.start()
+    try:
+        assert agent._presence_thread is None
+    finally:
+        agent.stop()
+
+    assert sensor.closed is False
+
+
+def test_stop_closes_the_sensor_before_it_disconnects(presence_config: Config, system: FakeSystemInfo) -> None:
+    client = FakeMqttClient()
+
+    class Recording(FakePresence):
+        def close(self) -> None:
+            client.calls.append("presence closed")
+            super().close()
+
+    sensor = Recording()
+    agent = Agent(
+        presence_config,
+        Hardware(system=system, screen=FakeScreen(power=True), presence=sensor),
+        client_factory=lambda _: client,
+        screen_worker=False,
+    )
+    agent.start()
+    client.broker_accepts()
+    client.calls.clear()
+
+    agent.stop()
+
+    assert client.calls.index("presence closed") < client.calls.index(f"publish {AVAILABILITY}")
+    assert client.calls.index("presence closed") < client.calls.index("disconnect")
+    assert sensor.closed is True
+
+
+def test_a_clean_stop_leaves_the_retained_presence_alone(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+    fake_presence(presence_rig).set(True)
+    presence_after(presence_rig, 1.0)
+    presence_rig.client.clear()
+
+    presence_rig.agent.stop()
+
+    # Only the availability goes: clearing or flipping the state would tell the app something that is not known.
+    assert [p.topic for p in presence_rig.client.publishes] == [AVAILABILITY]
+
+
+def test_readings_after_stop_are_ignored(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+    sensor = fake_presence(presence_rig)
+    presence_rig.agent.stop()
+    presence_rig.client.clear()
+
+    # A late callback from the sensor's thread, as if it had not quite been closed yet.
+    presence_rig.agent._on_presence_reading(True)
+    presence_rig.clock.advance(5.0)
+    presence_rig.agent.run_presence_work()
+
+    assert sensor.closed is True
+    assert presence_publishes(presence_rig.client) == []
+
+
+def test_stopping_drops_a_change_that_has_not_been_published(presence_rig: AgentRig) -> None:
+    connected(presence_rig)
+    fake_presence(presence_rig).set(True)
+    presence_rig.clock.advance(5.0)
+
+    presence_rig.agent.stop()
+    presence_rig.agent.run_presence_work()
+
+    assert presence_publishes(presence_rig.client) == []
+
+
+def test_discovery_has_the_presence_entity_when_the_sensor_is_on(presence_rig: AgentRig) -> None:
+    presence_rig.client.broker_accepts()
+
+    published = by_topic(presence_rig.client)[PRESENCE_DISCOVERY]
+
+    assert published.retain is True
+    assert published.payload is not None
+    config = json.loads(published.payload)
+    assert config["state_topic"] == PRESENCE
+    assert config["device_class"] == "occupancy"
+
+
+def test_discovery_removes_the_presence_entity_when_the_sensor_is_off(rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+
+    assert by_topic(rig.client)[PRESENCE_DISCOVERY] == Published(PRESENCE_DISCOVERY, "", 1, True)
+
+
+def test_discovery_after_home_assistant_restarts_follows_the_presence_setting(presence_rig: AgentRig) -> None:
+    presence_rig.client.broker_accepts()
+    presence_rig.client.clear()
+
+    presence_rig.client.message_arrives("homeassistant/status", "online")
+
+    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False, presence=True)
+    assert presence_rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
+
+
+# With the real worker thread. The logic is covered above without threads; these check the threading itself. They use
+# the real clock, so the holds are short.
+
+
+class ThreadedPresence:
+    """An agent with its own presence worker, and a client that notes which thread published each state."""
+
+    def __init__(self, config: Config, hold_ms: int = 50) -> None:
+        self.threads: list[str] = []
+        outer = self
+
+        class Client(FakeMqttClient):
+            def publish(
+                self, topic: str, payload: str | None = None, qos: int = 0, retain: bool = False
+            ) -> FakeMessageInfo:
+                if topic == PRESENCE:
+                    outer.threads.append(threading.current_thread().name)
+                return super().publish(topic, payload, qos, retain)
+
+        self.client = Client()
+        self.sensor = FakePresence()
+        self.agent = Agent(
+            replace(config, sensors=SensorsConfig(presence=True), presence=PresenceConfig(hold_ms=hold_ms)),
+            Hardware(system=FakeSystemInfo(), screen=FakeScreen(power=True), presence=self.sensor),
+            client_factory=lambda _: self.client,
+            screen_worker=False,
+        )
+        self.agent.start()
+
+    def states(self) -> list[str]:
+        return [p.payload or "" for p in list(presence_publishes(self.client))]
+
+
+def test_the_worker_thread_publishes_a_state_after_the_hold(config: Config) -> None:
+    rig = ThreadedPresence(config)
+    try:
+        rig.client.broker_accepts()
+        rig.sensor.set(True)
+
+        assert wait_until(lambda: rig.states() == ["ON"])
+        rig.sensor.set(False)
+        assert wait_until(lambda: rig.states() == ["ON", "OFF"])
+    finally:
+        rig.agent.stop()
+
+    # Never on the thread that set the reading (the sensor's own, here the test's).
+    assert rig.threads == ["wallcal-presence", "wallcal-presence"]
+
+
+def test_the_worker_thread_drops_a_flicker(config: Config) -> None:
+    rig = ThreadedPresence(config, hold_ms=300)
+    try:
+        rig.client.broker_accepts()
+        rig.sensor.set(True)
+        assert wait_until(lambda: rig.states() == ["ON"], timeout=3)
+        rig.sensor.set(False)
+        rig.sensor.set(True)
+        time.sleep(0.5)
+    finally:
+        rig.agent.stop()
+
+    assert rig.states() == ["ON"]
+
+
+def test_the_presence_worker_thread_is_a_daemon_and_stop_ends_it(config: Config) -> None:
+    rig = ThreadedPresence(config)
+    thread = rig.agent._presence_thread
+    assert thread is not None and thread.is_alive() and thread.daemon
+    assert thread.name == "wallcal-presence"
+
+    rig.agent.stop()
+
+    assert not thread.is_alive()
+    assert rig.sensor.closed is True
+
+
+def test_stop_does_not_wait_for_a_long_presence_hold(config: Config) -> None:
+    rig = ThreadedPresence(config, hold_ms=10000)
+    rig.client.broker_accepts()
+    rig.sensor.set(True)
+    time.sleep(0.05)
+    thread = rig.agent._presence_thread
     assert thread is not None
 
     before = time.monotonic()

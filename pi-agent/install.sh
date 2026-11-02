@@ -14,8 +14,9 @@ VENV_DIR=/opt/wallcal-agent/venv
 CONFIG_DIR=/etc/wallcal-agent
 CONFIG_FILE=$CONFIG_DIR/config.yaml
 UNIT_FILE=/etc/systemd/system/wallcal-agent.service
-# Groups that give access to the hardware: the GPIO for the button (gpio) and the sensors still to come (gpio, i2c,
-# dialout), and /dev/cec* (video) for the cec screen back end. Only those that exist are used.
+# Groups that give access to the hardware: the GPIO for the button and the presence sensor's OUT pin (gpio), the
+# serial port for the presence sensor's uart source (dialout), /dev/cec* (video) for the cec screen back end, and I2C
+# (i2c) for the light sensor still to come. Only those that exist are used.
 DEVICE_GROUPS=(gpio i2c dialout video)
 
 TARGET=''

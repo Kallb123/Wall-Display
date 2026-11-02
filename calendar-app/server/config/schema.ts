@@ -153,7 +153,11 @@ export const DEFAULT_BUTTON = button.parse({})
 const policies = z.strictObject({
   auto_presence: z.strictObject({
     off_after_minutes: z.number().int().min(1).default(10),
-    quiet_hours: z.strictObject({ from: time, to: time }).optional(),
+    // A window from a time to the same time is either all day or never, and the two readings are opposite, so say which is meant by leaving the block out.
+    quiet_hours: z.strictObject({ from: time, to: time }).refine(value => value.from !== value.to, {
+      message: 'from and to must differ (leave quiet_hours out for no quiet hours)',
+      path: ['to'],
+    }).optional(),
   }).prefault({}),
   auto_brightness: z.strictObject({
     night_below_lux: z.number().min(0).optional(),

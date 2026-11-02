@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from . import ButtonError, ScreenError
+from . import ButtonError, PresenceError, ScreenError
 
 
 class FakeSystemInfo:
@@ -98,3 +98,36 @@ class FakeButton:
     def release(self) -> None:
         if self._on_change is not None:
             self._on_change(False)
+
+
+class FakePresence:
+    """A presence sensor you set from a test. `start` and `close` are recorded.
+
+    `set(present)` calls what `start` was given, as the real input does from its own thread. Before `start`, or after
+    `close`, nobody is listening and it does nothing, as with a real one. With `initial` the sensor reports that
+    reading once when it starts, as the real ones report the level they find: `--fake-hardware` uses `initial=False`,
+    a room with nobody in it.
+    """
+
+    def __init__(self, initial: bool | None = None) -> None:
+        self.started = False
+        self.closed = False
+        self.start_error: str | None = None
+        self._initial = initial
+        self._on_change: Callable[[bool], None] | None = None
+
+    def start(self, on_change: Callable[[bool], None]) -> None:
+        if self.start_error is not None:
+            raise PresenceError(self.start_error)
+        self.started = True
+        self._on_change = on_change
+        if self._initial is not None:
+            on_change(self._initial)
+
+    def close(self) -> None:
+        self.closed = True
+        self._on_change = None
+
+    def set(self, present: bool) -> None:
+        if self._on_change is not None:
+            self._on_change(present)

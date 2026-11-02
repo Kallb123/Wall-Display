@@ -1,5 +1,6 @@
 """The agent's MQTT side: stays connected, says whether the Pi is online, publishes discovery and diagnostics,
-turns the panel on and off when asked, and reports presses of the button.
+turns the panel on and off when asked, reports presses of the button and says whether anyone is in front of the
+mmWave sensor.
 
 Availability follows the usual pattern. The last will (retained "offline") is set before connecting, so the
 broker announces it if the Pi vanishes. On every connect the agent publishes retained "online", and on a clean
@@ -18,6 +19,12 @@ The button works the same way. The GPIO library calls back on its own thread for
 stamps the time and hands the edge to a gesture detector (button.py). A second worker thread sleeps until the
 detector's next deadline, then publishes whatever gestures are due (see `run_button_work`). A press while the broker
 is away is dropped, not saved: a "long press" arriving minutes late would do something nobody asked for.
+
+Presence has the same shape, with a third worker thread and a filter (presence.py) that only believes a reading once
+it has held for a moment. Where it differs is what happens while the broker is away. Presence is a state, not an
+event, so nothing is dropped: the latest confirmed state is remembered and published, retained, when the connection
+is back. The retained message is also how the app learns the current state when it starts. A clean stop leaves it
+alone, so the last known state stays on the broker (the sensor's availability is the agent's own `online`/`offline`).
 """
 
 import logging
@@ -34,7 +41,8 @@ from paho.mqtt.reasoncodes import ReasonCode
 from . import __version__, discovery, topics
 from .button import GestureDetector
 from .config import Config
-from .hardware import ButtonError, Hardware, ScreenError
+from .hardware import ButtonError, Hardware, PresenceError, ScreenError
+from .presence import PresenceFilter
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +51,8 @@ KEEPALIVE_SECONDS = 30
 OFFLINE_PUBLISH_TIMEOUT = 2.0
 # How long a clean stop waits for the button's thread. It only ever waits for a deadline, so it ends at once.
 BUTTON_STOP_TIMEOUT = 2.0
+# The same for the presence worker.
+PRESENCE_STOP_TIMEOUT = 2.0
 # How much of a bad payload is quoted in the log. It came from the network, so it isn't trusted to be short.
 MAX_LOGGED_PAYLOAD = 32
 
@@ -86,6 +96,7 @@ class Agent:
         clock: Callable[[], float] = time.monotonic,
         screen_worker: bool = True,
         button_worker: bool = True,
+        presence_worker: bool = True,
     ) -> None:
         self._config = config
         self._hardware = hardware
@@ -123,6 +134,21 @@ class Agent:
         # Only set while the button is open: it stays None when there is no button, or it could not be opened.
         self._detector: GestureDetector | None = None
 
+        # Presence. `_presence_cond` guards the filter, the stop flag and the confirmed state, and wakes the worker
+        # when a reading changes its deadline. Tests turn the worker off (`presence_worker`), set the fake sensor,
+        # move their clock and call `run_presence_work` themselves.
+        self._use_presence_worker = presence_worker
+        self._presence_thread: threading.Thread | None = None
+        self._presence_cond = threading.Condition()
+        self._presence_stop = False
+        # Only set while the sensor is open: it stays None when there is none, or it could not be opened.
+        self._presence_filter: PresenceFilter | None = None
+        # The latest confirmed state, kept for the next connect. None until a reading has held.
+        self._presence_state: bool | None = None
+        # Taken around reading `_presence_state` and publishing it, so an older state can never be published after
+        # a newer one when a connect and a change happen together.
+        self._presence_publish_lock = threading.Lock()
+
     def _topic(self, name: str) -> str:
         return topics.topic_for(self._config.display_id, name)
 
@@ -158,6 +184,7 @@ class Agent:
             self._screen_thread = threading.Thread(target=self._screen_loop, name="wallcal-screen", daemon=True)
             self._screen_thread.start()
         self._start_button()
+        self._start_presence()
 
     def run(self, stop: threading.Event) -> None:
         """Publishes the diagnostics every interval until `stop` is set."""
@@ -178,6 +205,7 @@ class Agent:
         # Before disconnecting, so the workers can't publish into a closed connection. The panel is never left
         # half-set: a command already running finishes (or times out), and nothing new is started.
         self._stop_button()
+        self._stop_presence()
         self._stop_screen_worker()
         if self._connected.is_set():
             # A clean disconnect doesn't send the will, so the offline state is published by hand.
@@ -221,6 +249,7 @@ class Agent:
             __version__,
             self._config.diagnostics_interval_seconds,
             button=self._config.sensors.button,
+            presence=self._config.sensors.presence,
         )
         for message in messages:
             client.publish(message.topic, message.payload, qos=1, retain=True)
@@ -249,6 +278,8 @@ class Agent:
         client.subscribe(self._topic(topics.SCREEN_SET), qos=1)
         self.publish_diagnostics()
         self._announce_on_connect()
+        # Last, so everything else is there when a subscriber sees the retained state.
+        self._publish_presence()
 
     def _on_connect_fail(self, client: MqttClient, userdata: Any) -> None:
         """paho couldn't reach the broker at all (nothing listening, no route). It keeps retrying."""
@@ -515,6 +546,109 @@ class Agent:
         button = self._hardware.button
         if button is not None and self._detector is not None:
             button.close()
+
+    def _start_presence(self) -> None:
+        """Opens the presence sensor, if there is one, and starts the thread that watches its deadlines.
+
+        A sensor that can't be opened (the pin is busy, no access to the GPIO or the serial port) is a warning and
+        not a reason to stop, for the reason the button's isn't.
+        """
+        sensor = self._hardware.presence
+        if sensor is None:
+            return
+        settings = self._config.presence
+        where = f"GPIO{settings.pin}" if settings.source == "gpio" else f"{settings.uart.device} (UART)"
+        self._presence_filter = PresenceFilter(hold=settings.hold_ms / 1000)
+        try:
+            sensor.start(self._on_presence_reading)
+        except PresenceError as error:
+            self._presence_filter = None
+            logger.warning("Could not open the presence sensor on %s: %s; carrying on without it", where, error)
+            return
+        logger.info("Watching presence on %s", where)
+        if self._use_presence_worker:
+            self._presence_thread = threading.Thread(target=self._presence_loop, name="wallcal-presence", daemon=True)
+            self._presence_thread.start()
+
+    def _on_presence_reading(self, present: bool) -> None:
+        """Runs on the sensor's thread (the GPIO library's, or the serial reader's), so it only passes the reading on.
+
+        The serial reader reports ten times a second, so the worker is only woken when the reading changes what it
+        is waiting for."""
+        with self._presence_cond:
+            presence_filter = self._presence_filter
+            if presence_filter is None or self._presence_stop:
+                return
+            before = presence_filter.next_deadline()
+            # Stamped under the lock so readings reach the filter in the order they happened.
+            presence_filter.update(present, self._clock())
+            if presence_filter.next_deadline() != before:
+                self._presence_cond.notify_all()
+
+    def run_presence_work(self, now: float | None = None) -> None:
+        """Publishes the presence change that is confirmed by `now` (by default, the clock's time now), if any.
+
+        The worker thread calls this when a deadline arrives or a reading changes one. Without the worker
+        (`presence_worker=False`) tests call it themselves, with the time they want.
+        """
+        with self._presence_cond:
+            presence_filter = self._presence_filter
+            if presence_filter is None or self._presence_stop:
+                return
+            changed = presence_filter.tick(self._clock() if now is None else now)
+            if changed is None:
+                return
+            self._presence_state = changed
+        logger.info("Presence: %s", "someone is there" if changed else "nobody")
+        self._publish_presence()
+
+    def _publish_presence(self) -> None:
+        """Publishes the latest confirmed state, retained, if there is one and the broker is there.
+
+        Called for each change and on every connect. A state that changed while the broker was away is not lost:
+        it is the state the next connect publishes.
+        """
+        client = self._client
+        with self._presence_publish_lock:
+            with self._presence_cond:
+                present = self._presence_state
+                stopping = self._presence_stop
+            if client is None or present is None or stopping or not self._connected.is_set():
+                return
+            try:
+                client.publish(self._topic(topics.PRESENCE), topics.presence_payload(present), qos=1, retain=True)
+            except (RuntimeError, ValueError) as error:
+                logger.debug("Could not publish presence: %s", error)
+
+    def _presence_loop(self) -> None:
+        """The worker thread: sleeps until the filter's next deadline or a new reading, and stops when asked."""
+        while True:
+            with self._presence_cond:
+                while not self._presence_stop:
+                    presence_filter = self._presence_filter
+                    deadline = presence_filter.next_deadline() if presence_filter is not None else None
+                    if deadline is None:
+                        self._presence_cond.wait()
+                        continue
+                    remaining = deadline - self._clock()
+                    if remaining <= 0:
+                        break
+                    self._presence_cond.wait(remaining)
+                if self._presence_stop:
+                    return
+            self.run_presence_work()
+
+    def _stop_presence(self) -> None:
+        """Stops the worker, then closes the sensor, so nothing more is heard from it."""
+        with self._presence_cond:
+            self._presence_stop = True
+            self._presence_cond.notify_all()
+        thread = self._presence_thread
+        if thread is not None:
+            thread.join(timeout=PRESENCE_STOP_TIMEOUT)
+        sensor = self._hardware.presence
+        if sensor is not None and self._presence_filter is not None:
+            sensor.close()
 
     def _note_failure(self, text: str) -> None:
         """Warns about the first failure of an outage, then stays quiet at debug level, as the app does."""

@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 # Sensors the agent now reads. The rest can be switched on in the config, but nothing looks at them yet.
-BUILT_SENSORS = ("button",)
+BUILT_SENSORS = ("button", "presence")
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wallcal-agent",
         description="The Wall Display agent for the Raspberry Pi: MQTT availability, Home Assistant discovery, "
-        "diagnostics, panel power and the button.",
+        "diagnostics, panel power, the button and the mmWave presence sensor.",
     )
     parser.add_argument(
         "--config",
@@ -35,8 +35,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fake-hardware",
         action="store_true",
-        help="use made-up sensor values, a pretend panel and a button that is never pressed, to try the agent "
-        "somewhere that isn't a Pi",
+        help="use made-up sensor values, a pretend panel, a button that is never pressed and a presence sensor that "
+        "always sees nobody, to try the agent somewhere that isn't a Pi",
     )
     parser.add_argument(
         "--log-level",

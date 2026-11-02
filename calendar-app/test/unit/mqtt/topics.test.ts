@@ -10,7 +10,10 @@ import {
   parseButtonPayload,
   parseCommandPayload,
   parseCommandTopic,
+  parsePresencePayload,
   PI_BUTTON_TOPIC,
+  PI_PRESENCE_TOPIC,
+  presencePayloadReason,
   statePayloads,
   topicFor,
 } from '../../../server/mqtt/topics'
@@ -56,6 +59,7 @@ describe('parseCommandTopic', () => {
       'wallcal/hallway/availability',
       'wallcal/hallway/pi/screen/set',
       'wallcal/hallway/pi/button',
+      'wallcal/hallway/pi/presence',
       'wallcal/hallway/view/set/extra',
       'wallcal/hallway/View/set',
       'wallcal/hallway',
@@ -96,6 +100,34 @@ describe('parseButtonPayload', () => {
     expect(buttonPayloadReason('triple')).toBe('pi/button: must be single, double or long (got "triple")')
     expect(buttonPayloadReason('a\nb')).toBe('pi/button: must be single, double or long (got "a\\nb")')
     expect(buttonPayloadReason('x'.repeat(61))).toBe(`pi/button: must be single, double or long (got "${'x'.repeat(60)}…")`)
+  })
+})
+
+describe('the presence topic', () => {
+  it('is under pi/, for the display, and is not a command topic', () => {
+    expect(PI_PRESENCE_TOPIC).toBe('pi/presence')
+    expect(topicFor('hallway', PI_PRESENCE_TOPIC)).toBe('wallcal/hallway/pi/presence')
+    expect((COMMAND_TOPICS as readonly string[]).includes(PI_PRESENCE_TOPIC)).toBe(false)
+    expect(parseCommandTopic(topicFor('hallway', PI_PRESENCE_TOPIC))).toBeNull()
+  })
+})
+
+describe('parsePresencePayload', () => {
+  it('reads ON as someone there and OFF as nobody', () => {
+    expect(parsePresencePayload('ON')).toBe(true)
+    expect(parsePresencePayload('OFF')).toBe(false)
+  })
+
+  it('takes nothing else: no other case, no spaces, no other word, no empty payload', () => {
+    for (const payload of ['on', 'Off', 'ON ', ' OFF', 'ON\n', 'true', 'false', '1', '0', 'present', '', ' ', 'toString', '__proto__']) {
+      expect(parsePresencePayload(payload), JSON.stringify(payload)).toBeNull()
+    }
+  })
+
+  it('has a reason that names the topic and quotes at most 60 characters of the payload', () => {
+    expect(presencePayloadReason('on')).toBe('pi/presence: must be ON or OFF (got "on")')
+    expect(presencePayloadReason('a\nb')).toBe('pi/presence: must be ON or OFF (got "a\\nb")')
+    expect(presencePayloadReason('x'.repeat(61))).toBe(`pi/presence: must be ON or OFF (got "${'x'.repeat(60)}…")`)
   })
 })
 

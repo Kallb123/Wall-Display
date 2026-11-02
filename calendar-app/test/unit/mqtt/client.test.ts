@@ -9,7 +9,7 @@ import type { EventBus } from '../../../server/events/bus'
 import { createMqttBridge, MAX_RECONNECT_MS, RECHECK_MS, reconnectDelayMs, STABLE_MS, STOP_WAIT_MS } from '../../../server/mqtt/client'
 import type { MqttBridge, MqttLink } from '../../../server/mqtt/client'
 import { discoveryMessages } from '../../../server/mqtt/discovery'
-import { COMMAND_TOPICS, lastSyncPayload, PI_BUTTON_TOPIC, PI_SCREEN_TOPIC, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
+import { COMMAND_TOPICS, lastSyncPayload, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
 
 // The bridge with a fake MQTT client and fake timers: no network. The fake
 // records what is published and subscribed, and the test plays the broker by
@@ -96,8 +96,8 @@ class FakeClient extends EventEmitter implements MqttLink {
   }
 }
 
-/** What a connection subscribes to besides Home Assistant's birth topic: the command topics and the Pi agent's button. */
-const OWN_TOPICS = [...COMMAND_TOPICS, PI_BUTTON_TOPIC].map(suffix => `wallcal/hallway/${suffix}`)
+/** What a connection subscribes to besides Home Assistant's birth topic: the command topics and the Pi agent's button and presence. */
+const OWN_TOPICS = [...COMMAND_TOPICS, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`)
 
 const bridges: MqttBridge[] = []
 
@@ -106,7 +106,7 @@ function emitSpecialDays(bus: EventBus): void {
   bus.emit('special_days.updated', { specialDays: { today: '2026-10-28', from: '2026-08-28', to: '2026-12-31', tiles: [], current: null, takeover: null } })
 }
 
-function setup(options: { displays?: string[], config?: MqttConfig, button?: ButtonConfig, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
+function setup(options: { displays?: string[], config?: MqttConfig, button?: ButtonConfig, presence?: { report: (displayId: string, present: boolean | null) => void }, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
   const displays = options.displays ?? ['hallway']
   const bus = createEventBus()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -141,6 +141,7 @@ function setup(options: { displays?: string[], config?: MqttConfig, button?: But
     specialDay: options.specialDay,
     timeZone: 'Europe/London',
     button: options.button,
+    presence: options.presence,
     control,
     bus,
     connect,
@@ -220,7 +221,7 @@ describe('connecting', () => {
     expect(bridge.status().map(({ displayId, state }) => `${displayId} ${state}`)).toEqual(['hallway connecting', 'kitchen connected'])
   })
 
-  it('says online first, then subscribes to every command topic and the button topic at QoS 1, then publishes all of the state and the Pi agent\'s screen request, retained at QoS 1', () => {
+  it('says online first, then subscribes to every command topic and the button and presence topics at QoS 1, then publishes all of the state and the Pi agent\'s screen request, retained at QoS 1', () => {
     const { client, log } = setup({ config: { ...CONFIG, discovery: false } })
 
     client().up()
@@ -625,6 +626,110 @@ describe('the Pi agent\'s button', () => {
   })
 })
 
+describe('the Pi agent\'s presence', () => {
+  const PRESENCE = 'wallcal/hallway/pi/presence'
+
+  it('subscribes to the display\'s presence topic, in the same call as the command topics', () => {
+    const { client } = setup({ config: { ...CONFIG, discovery: false } })
+
+    client().up()
+
+    expect(client().subscribed).toHaveLength(1)
+    expect(client().subscribed[0]!.topics).toContain(PRESENCE)
+    expect(client().subscribed[0]!.qos).toBe(1)
+  })
+
+  it('reports ON as someone there and OFF as nobody, for the display it came for', () => {
+    const report = vi.fn()
+    const { client, log } = setup({ presence: { report } })
+    client().up()
+
+    client().message(PRESENCE, 'ON')
+    client().message(PRESENCE, 'OFF')
+
+    expect(report.mock.calls).toEqual([['hallway', true], ['hallway', false]])
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('takes a retained message, which is how it learns the state at connect', () => {
+    const report = vi.fn()
+    const { client, log } = setup({ presence: { report } })
+    client().up()
+
+    client().message(PRESENCE, 'ON', true)
+
+    expect(report.mock.calls).toEqual([['hallway', true]])
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('reports an empty payload (the retained message cleared) as not known, without a warning', () => {
+    const report = vi.fn()
+    const { client, log } = setup({ presence: { report } })
+    client().up()
+
+    client().message(PRESENCE, '', true)
+
+    expect(report.mock.calls).toEqual([['hallway', null]])
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('warns about any other payload, quoting it, and reports nothing', () => {
+    const report = vi.fn()
+    const { client, log } = setup({ presence: { report } })
+    client().up()
+
+    client().message(PRESENCE, 'on')
+    client().message(PRESENCE, 'true')
+    client().message(PRESENCE, ' ')
+    client().message(PRESENCE, `ON${'x'.repeat(100)}\n`, true)
+
+    expect(report).not.toHaveBeenCalled()
+    expect(log.warn.mock.calls.map(call => call[0])).toEqual([
+      '[mqtt] hallway: ignored a message: pi/presence: must be ON or OFF (got "on")',
+      '[mqtt] hallway: ignored a message: pi/presence: must be ON or OFF (got "true")',
+      '[mqtt] hallway: ignored a message: pi/presence: must be ON or OFF (got " ")',
+      `[mqtt] hallway: ignored a message: pi/presence: must be ON or OFF (got "ON${'x'.repeat(58)}…")`,
+    ])
+  })
+
+  it('reports only its own display\'s presence', () => {
+    const report = vi.fn()
+    const { client, log } = setup({ displays: ['hallway', 'kitchen'], presence: { report } })
+    client('hallway').up()
+    client('kitchen').up()
+
+    client('hallway').message('wallcal/kitchen/pi/presence', 'ON')
+    client('hallway').message('wallcal/kitchen/pi/presence', 'nonsense')
+    client('kitchen').message('wallcal/kitchen/pi/presence', 'ON')
+
+    expect(report.mock.calls).toEqual([['kitchen', true]])
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('logs a report that fails, and carries on', () => {
+    const report = vi.fn()
+    const { client, log } = setup({ presence: { report } })
+    client().up()
+    report.mockImplementationOnce(() => { throw new Error('database is locked') })
+
+    expect(() => client().message(PRESENCE, 'ON')).not.toThrow()
+    client().message(PRESENCE, 'OFF')
+
+    expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not act on the presence: database is locked')
+    expect(report).toHaveBeenCalledTimes(2)
+  })
+
+  it('is read, and ignored, without a policy to tell', () => {
+    const { client, control, log } = setup()
+    client().up()
+
+    expect(() => client().message(PRESENCE, 'ON')).not.toThrow()
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+})
+
 describe('Home Assistant discovery', () => {
   const messagesFor = (id: string, name: string, displayCount = 1, prefix = 'homeassistant') => discoveryMessages({ prefix, display: { id, name }, displayCount })
   /** What was published that is a discovery config, not a `wallcal/` topic. */
@@ -691,7 +796,7 @@ describe('Home Assistant discovery', () => {
     expect(configsIn(client())).toHaveLength(messagesFor('hallway', 'Hallway').length)
   })
 
-  it('subscribes to Home Assistant\'s birth topic along with the command and button topics', () => {
+  it('subscribes to Home Assistant\'s birth topic along with the command, button and presence topics', () => {
     const { client } = setup()
 
     client().up()
@@ -1330,6 +1435,7 @@ describe('errors', () => {
     client().message('wallcal/hallway/screen/set', 'off')
     control.getState.mockImplementationOnce(() => { throw new Error(`no state for ${PASSWORD}`) })
     client().message('wallcal/hallway/pi/button', 'single')
+    client().message('wallcal/hallway/pi/presence', 'ON')
 
     expect(logged()).not.toContain(PASSWORD)
     expect(logged()).toContain('***')

@@ -104,6 +104,15 @@ def test_the_installer_adds_lgpio_for_the_button_and_lets_the_venv_see_it() -> N
     assert re.search(r'enable_system_site_packages "\$VENV_DIR/pyvenv.cfg"', script)
 
 
+def test_the_installer_adds_the_groups_the_presence_sensor_needs_and_the_package_depends_on_pyserial() -> None:
+    script = INSTALL.read_text()
+
+    # gpio for the OUT pin, dialout for /dev/serial0 and /dev/ttyUSB*. pyserial comes from the package's own
+    # dependencies, so the venv's pip install fetches it and there is nothing for apt to add.
+    assert re.search(r"^DEVICE_GROUPS=\(.*\bgpio\b.*\bdialout\b.*\)$", script, re.MULTILINE)
+    assert re.search(r'^\s*"pyserial>=3\.5,<4",$', (PI_AGENT / "pyproject.toml").read_text(), re.MULTILINE)
+
+
 def enable_system_site_packages(cfg: Path) -> None:
     """Runs install.sh's own function on a file, by sourcing the script (which does not run `main` then)."""
     result = subprocess.run(

@@ -127,7 +127,7 @@ Delete that file and restart `getty@tty1` again to bring the kiosk back.
 | `~/.profile`, or `~/.bash_profile` if it exists | A block between `# >>> wallcal-kiosk >>>` and `# <<< wallcal-kiosk <<<` that starts the kiosk on `tty1`. The rest of the file is left alone. |
 | `/boot/firmware/cmdline.txt` (or `/boot/cmdline.txt`) | Adds `consoleblank=0`, which turns off the console screen blanker. |
 
-It also installs the compositor, `wlr-randr`, `curl`, `fonts-noto-color-emoji` (Lite has no emoji font) and Chromium with `apt`, adds the user to the `video`, `render` and `input` groups, and sets the default boot target to `multi-user.target`.
+It also installs the compositor, `wlr-randr`, `acl`, `curl`, `fonts-noto-color-emoji` (Lite has no emoji font) and Chromium with `apt`, adds the user to the `video`, `render` and `input` groups, and sets the default boot target to `multi-user.target`.
 
 ## Checking photo frame performance on the Pi
 
@@ -140,6 +140,12 @@ The photo frame (`view: photo`) fades between two 2560×1440 images, which is th
 
 Remove the extra flag afterwards.
 
+## Screen power
+
+The Pi agent turns the panel on and off (`pi-agent/README.md` lists its back ends). Its `output` back end runs `wlopm` (or `wlr-randr`) against this kiosk's Wayland compositor, but the agent runs as its own user, `wallcal-agent`, and the kiosk user's runtime directory (`/run/user/<uid>`) is private. So when the launcher starts it checks for a `wallcal-agent` user and, if there is one, uses `setfacl` to give it search access to the runtime directory and read/write access to the Wayland socket. It logs one line when it does (`journalctl -t wallcal-kiosk`). That is why `setup.sh` installs `acl`.
+
+If the agent isn't installed there is nothing to do, and the launcher skips this without a message. If `setfacl` is missing or fails, the launcher logs a warning and carries on: the kiosk still runs, but the `output` back end can't reach the compositor. `setup.sh` doesn't install `wlopm`; the agent's installer does.
+
 ## Troubleshooting
 
 **Black screen.** The server is probably not reachable from the Pi. The launcher waits for it before starting Chromium and logs the failure, so check `journalctl -t wallcal-kiosk`. Try `curl -I 'http://<server>:8080/display'` from an SSH session. Once the page has loaded, the display shows an "Offline" badge if the connection drops later and keeps the last state it had.
@@ -148,7 +154,7 @@ Remove the extra flag afterwards.
 
 **A mouse cursor shows.** The display page hides the cursor. If you see one, it is the compositor's, and only while a mouse is plugged in.
 
-**Why `labwc`?** It is what Raspberry Pi OS itself uses, and `wlr-randr` works with it, which the launcher uses to set the mode and which later screen-off control will need. `cage` is a fallback. It may not let `wlr-randr` change the mode, in which case the monitor's preferred mode is used.
+**Why `labwc`?** It is what Raspberry Pi OS itself uses, and `wlr-randr` works with it, which the launcher uses to set the mode and which the Pi agent can use to turn the panel off (see Screen power). `cage` is a fallback. It may not let `wlr-randr` change the mode, in which case the monitor's preferred mode is used.
 
 **A desktop or panel appears behind Chromium.** `setup.sh` is meant for the Lite image. On a desktop image, `labwc` also runs the desktop's autostart files (`/etc/xdg/labwc/autostart`), so reflash with Lite.
 

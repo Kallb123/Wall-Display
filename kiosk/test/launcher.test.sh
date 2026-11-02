@@ -376,5 +376,88 @@ assert_contains "stop: mode failure was logged" "$(<"$tmp/term.err")" "could not
 assert_contains "log rotation: previous run's log kept as chromium.log.1" "$(<"$state/chromium.log.1")" "fake chromium output smoke"
 assert_contains "log rotation: this run's log is chromium.log" "$(<"$state/chromium.log")" "fake chromium output term"
 
+# --- 9. launcher: access for the Pi agent -----------------------------------
+
+# The agent's account is looked up with getent; the fake knows one user name only.
+write_fake getent <<'FAKE'
+#!/usr/bin/env bash
+[[ ${1:-} == passwd && ${2:-} == "${FAKE_GETENT_USER:-}" ]]
+FAKE
+# setfacl lives in its own directory, so PATHs can include it or leave it out.
+aclbin=$tmp/aclbin
+mkdir -p "$aclbin"
+cat >"$aclbin/setfacl" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FAKE_SETFACL_LOG"
+exit "${FAKE_SETFACL_RC:-0}"
+FAKE
+chmod 755 "$aclbin/setfacl"
+# A PATH with the fakes and the few real tools the launcher needs, but no setfacl.
+noacl=$tmp/noacl
+mkdir -p "$noacl"
+for t in "$fakebin"/*; do
+  ln -s "$t" "$noacl/${t##*/}"
+done
+for t in env bash sed mkdir mv sleep wc cat; do
+  ln -s "$(command -v "$t")" "$noacl/$t"
+done
+export FAKE_SETFACL_LOG=$tmp/setfacl.log
+run_dir=$tmp/run
+mkdir -p "$run_dir"
+
+# Start the launcher with a lingering Chromium, wait for Chromium to be running, stop it.
+# Output is in $tmp/acl.err and the setfacl calls in $FAKE_SETFACL_LOG.
+acl_case() { # PATH [env assignments...]
+  local path=$1
+  shift
+  rm -f "$FAKE_PID_FILE" "$FAKE_SETFACL_LOG"
+  env PATH="$path" WAYLAND_DISPLAY=wayland-test XDG_RUNTIME_DIR="$run_dir" FAKE_TAG=acl FAKE_LINGER=1 \
+    WALLCAL_KIOSK_WAIT_INTERVAL=0 "$@" "$BASH" "$launcher" 2>"$tmp/acl.err" &
+  pid=$!
+  bg_pids+=("$pid")
+  assert_true "  chromium started" wait_for_lines "$FAKE_PID_FILE" 1 10
+  stop_launcher "$pid"
+  assert_eq "  launcher exits 0 on TERM" 0 "$STOP_RC"
+  ACL_ERR=$(<"$tmp/acl.err")
+}
+
+acl_case "$aclbin:$fakebin:$PATH" FAKE_GETENT_USER=wallcal-agent
+assert_eq "agent access: x on the runtime dir, rw on the socket" "-m u:wallcal-agent:x $run_dir
+-m u:wallcal-agent:rw $run_dir/wayland-test" "$(<"$FAKE_SETFACL_LOG")"
+assert_contains "agent access: one log line says so" "$ACL_ERR" \
+  "gave wallcal-agent access to the Wayland socket $run_dir/wayland-test"
+assert_eq "agent access: logged once" 1 "$(grep -c 'gave wallcal-agent' <<<"$ACL_ERR")"
+
+acl_case "$aclbin:$fakebin:$PATH" FAKE_GETENT_USER=pi-agent WALLCAL_KIOSK_AGENT_USER=pi-agent \
+  WAYLAND_DISPLAY=/run/compositor/wl-0
+assert_eq "agent access: user name overridable, absolute socket path used as given" \
+  "-m u:pi-agent:x $run_dir
+-m u:pi-agent:rw /run/compositor/wl-0" "$(<"$FAKE_SETFACL_LOG")"
+
+acl_case "$aclbin:$fakebin:$PATH" FAKE_GETENT_USER=someone-else
+assert_false "no agent user: setfacl not run" test -e "$FAKE_SETFACL_LOG"
+assert_false "no agent user: nothing logged about it" grep -qiE 'wayland socket|setfacl|agent' <<<"$ACL_ERR"
+assert_contains "no agent user: kiosk still logs its start" "$ACL_ERR" "starting $fakebin/chromium"
+
+acl_case "$noacl" FAKE_GETENT_USER=wallcal-agent
+assert_contains "setfacl missing: warns" "$ACL_ERR" "warning: cannot give wallcal-agent access to the Wayland socket: setfacl is not installed"
+
+acl_case "$noacl" FAKE_GETENT_USER=someone-else
+assert_false "setfacl missing and no agent user: no warning" grep -qi 'warning' <<<"$ACL_ERR"
+
+acl_case "$aclbin:$fakebin:$PATH" FAKE_GETENT_USER=wallcal-agent FAKE_SETFACL_RC=1
+assert_contains "setfacl fails: warns" "$ACL_ERR" "warning: could not give wallcal-agent access"
+assert_false "setfacl fails: does not claim success" grep -q 'gave wallcal-agent' <<<"$ACL_ERR"
+
+acl_case "$aclbin:$fakebin:$PATH" FAKE_GETENT_USER=wallcal-agent WAYLAND_DISPLAY=
+assert_false "no socket name: setfacl not run" test -e "$FAKE_SETFACL_LOG"
+assert_contains "no socket name: warns" "$ACL_ERR" "XDG_RUNTIME_DIR or WAYLAND_DISPLAY is not set"
+
+rm -f "$FAKE_SETFACL_LOG"
+run env PATH="$aclbin:$fakebin:$PATH" WAYLAND_DISPLAY=wayland-test XDG_RUNTIME_DIR="$run_dir" \
+  FAKE_GETENT_USER=wallcal-agent "$BASH" "$launcher" --print-command
+assert_eq "print-command: exits 0 with the agent user present" 0 "$RC"
+assert_false "print-command: does not touch ACLs" test -e "$FAKE_SETFACL_LOG"
+
 printf '\n%d passed, %d failed\n' "$passed" "$failed"
 ((failed == 0))

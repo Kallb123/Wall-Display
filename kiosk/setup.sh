@@ -172,8 +172,9 @@ install_packages() {
   step "Installing packages"
   in_target && return 0
   apt-get update
+  # acl provides setfacl, which the launcher uses to let the Pi agent reach the Wayland socket.
   DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    "$COMPOSITOR" wlr-randr curl fonts-noto-color-emoji "$(chromium_package)"
+    "$COMPOSITOR" wlr-randr acl curl fonts-noto-color-emoji "$(chromium_package)"
 }
 
 add_user_to_groups() {

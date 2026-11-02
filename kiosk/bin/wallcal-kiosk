@@ -13,6 +13,10 @@ BACKOFF_MAX=${WALLCAL_KIOSK_BACKOFF_MAX:-60}
 STABLE_AFTER=${WALLCAL_KIOSK_STABLE_AFTER:-60}
 WAIT_INTERVAL=${WALLCAL_KIOSK_WAIT_INTERVAL:-5}
 
+# The Pi agent's system user. It turns the panel off by running wlopm against our
+# compositor, so it needs to reach the Wayland socket (see grant_agent_access).
+AGENT_USER=${WALLCAL_KIOSK_AGENT_USER:-wallcal-agent}
+
 print_only=0
 BG_PID=0
 FLAGS=()
@@ -32,6 +36,8 @@ Environment overrides (for tests and debugging):
   WALLCAL_KIOSK_FLAGS        Chromium flags (default /etc/wallcal-kiosk/chromium-flags.conf)
   WALLCAL_KIOSK_LOCAL_FLAGS  extra flags (default /etc/wallcal-kiosk/chromium-flags.local.conf)
   WALLCAL_CHROMIUM           path to the browser
+  WALLCAL_KIOSK_AGENT_USER   Pi agent account to give access to the Wayland socket
+                             (default wallcal-agent; nothing happens if it does not exist)
 USAGE
 }
 
@@ -124,6 +130,32 @@ set_mode() {
   fi
 }
 
+# $XDG_RUNTIME_DIR is mode 0700, so the Pi agent (another user) cannot reach our Wayland
+# socket. Give it an ACL entry: search on the directory, read and write on the socket.
+# Does nothing when the agent is not installed, and never stops the kiosk.
+grant_agent_access() {
+  local dir=${XDG_RUNTIME_DIR:-} sock=${WAYLAND_DISPLAY:-}
+  if ! getent passwd "$AGENT_USER" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -n $sock && $sock != /* ]]; then
+    sock=$dir/$sock
+  fi
+  if [[ -z $dir || -z $sock ]]; then
+    log "warning: cannot give $AGENT_USER access to the Wayland socket: XDG_RUNTIME_DIR or WAYLAND_DISPLAY is not set"
+    return 0
+  fi
+  if ! have setfacl; then
+    log "warning: cannot give $AGENT_USER access to the Wayland socket: setfacl is not installed (apt install acl)"
+    return 0
+  fi
+  if setfacl -m "u:$AGENT_USER:x" "$dir" && setfacl -m "u:$AGENT_USER:rw" "$sock"; then
+    log "gave $AGENT_USER access to the Wayland socket $sock"
+  else
+    log "warning: could not give $AGENT_USER access to the Wayland socket $sock; carrying on"
+  fi
+}
+
 # After a crash or power cut Chromium asks "Restore pages?" on the next start.
 # Marking the last exit as clean suppresses the prompt.
 clear_crash_flags() {
@@ -206,6 +238,7 @@ rotate_log "$CHROMIUM_LOG"
 trap stop TERM INT
 
 log "kiosk starting for $WALLCAL_URL"
+grant_agent_access
 set_mode
 
 backoff=$BACKOFF_START

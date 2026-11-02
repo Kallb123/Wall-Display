@@ -1,0 +1,21 @@
+[Unit]
+Description=Wall Calendar Pi agent
+Documentation=https://github.com/kallb123/wall-display/tree/main/pi-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wallcal-agent
+Group=wallcal-agent
+ExecStart=/opt/wallcal-agent/venv/bin/wallcal-agent --config /etc/wallcal-agent/config.yaml
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

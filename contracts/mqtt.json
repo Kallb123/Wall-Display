@@ -643,6 +643,55 @@
         ""
       ]
     },
+    "pi/cpu_temperature": {
+      "direction": "from_pi",
+      "retained": false,
+      "description": "The Pi's CPU temperature in °C, to one decimal place. Published every diagnostics interval, and not at all where the temperature can't be read.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]$"
+        }
+      },
+      "examples": [
+        "48.3",
+        "0.0",
+        "-5.5"
+      ],
+      "invalid_examples": [
+        "48",
+        "48,3",
+        "48.25",
+        "",
+        "abc",
+        "1e2",
+        " 48.3"
+      ]
+    },
+    "pi/uptime": {
+      "direction": "from_pi",
+      "retained": false,
+      "description": "Seconds since the Pi booted, a whole number. Published every diagnostics interval.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      },
+      "examples": [
+        "0",
+        "86400"
+      ],
+      "invalid_examples": [
+        "-1",
+        "12.5",
+        "",
+        "01",
+        "1e3"
+      ]
+    },
     "pi/availability": {
       "direction": "from_pi",
       "retained": true,

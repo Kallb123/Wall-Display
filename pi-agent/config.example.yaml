@@ -1,0 +1,22 @@
+# Which display this Pi belongs to: the id from the app's config (displays[].id).
+display_id: hallway
+
+mqtt:
+  host: homeserver.local     # required
+  port: 1883                 # default 1883
+  username: wallcal          # optional
+  password: CHANGE_ME        # optional, needs a username. The file is 0640 root:wallcal-agent.
+  tls: false                 # default false; true connects with TLS using the system CA store
+  client_id: wallcal-pi-hallway  # default wallcal-pi-<display_id>; 1-64 letters, digits, - and _
+  discovery: true            # default true; publish Home Assistant discovery configs
+  discovery_prefix: homeassistant  # default homeassistant
+
+# How often the diagnostic sensors (CPU temperature, uptime) are published.
+diagnostics_interval_seconds: 60   # default 60, at least 5
+
+# Sensors wired to this Pi. All off by default. They arrive in PRs 3.3-3.5; for now
+# they are validated and an enabled one is logged as "not built yet".
+sensors:
+  button: false
+  presence: false
+  light: false

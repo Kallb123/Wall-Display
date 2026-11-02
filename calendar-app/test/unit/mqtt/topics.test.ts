@@ -10,9 +10,12 @@ import {
   parseButtonPayload,
   parseCommandPayload,
   parseCommandTopic,
+  parseIlluminancePayload,
   parsePresencePayload,
   PI_BUTTON_TOPIC,
+  PI_ILLUMINANCE_TOPIC,
   PI_PRESENCE_TOPIC,
+  illuminancePayloadReason,
   presencePayloadReason,
   statePayloads,
   topicFor,
@@ -60,6 +63,7 @@ describe('parseCommandTopic', () => {
       'wallcal/hallway/pi/screen/set',
       'wallcal/hallway/pi/button',
       'wallcal/hallway/pi/presence',
+      'wallcal/hallway/pi/illuminance',
       'wallcal/hallway/view/set/extra',
       'wallcal/hallway/View/set',
       'wallcal/hallway',
@@ -128,6 +132,48 @@ describe('parsePresencePayload', () => {
     expect(presencePayloadReason('on')).toBe('pi/presence: must be ON or OFF (got "on")')
     expect(presencePayloadReason('a\nb')).toBe('pi/presence: must be ON or OFF (got "a\\nb")')
     expect(presencePayloadReason('x'.repeat(61))).toBe(`pi/presence: must be ON or OFF (got "${'x'.repeat(60)}…")`)
+  })
+})
+
+describe('the illuminance topic', () => {
+  it('is under pi/, for the display, and is not a command topic', () => {
+    expect(PI_ILLUMINANCE_TOPIC).toBe('pi/illuminance')
+    expect(topicFor('hallway', PI_ILLUMINANCE_TOPIC)).toBe('wallcal/hallway/pi/illuminance')
+    expect((COMMAND_TOPICS as readonly string[]).includes(PI_ILLUMINANCE_TOPIC)).toBe(false)
+    expect(parseCommandTopic(topicFor('hallway', PI_ILLUMINANCE_TOPIC))).toBeNull()
+  })
+})
+
+describe('parseIlluminancePayload', () => {
+  it('reads a whole number or a decimal of lux', () => {
+    expect(parseIlluminancePayload('0')).toBe(0)
+    expect(parseIlluminancePayload('0.25')).toBe(0.25)
+    expect(parseIlluminancePayload('12.5')).toBe(12.5)
+    expect(parseIlluminancePayload('430')).toBe(430)
+    expect(parseIlluminancePayload('100000')).toBe(100000)
+  })
+
+  it('takes more decimal places than the agent sends, as the contract does', () => {
+    expect(parseIlluminancePayload('12.500')).toBe(12.5)
+    expect(parseIlluminancePayload('0.001')).toBe(0.001)
+  })
+
+  it('takes nothing else: no sign, exponent, comma, leading zero, bare point, space or other word', () => {
+    for (const payload of ['', ' ', '-1', '-0', '+1', '1e3', '1E3', '12,5', '.5', '5.', '00', '012', '0x10', ' 5', '5 ', '5\n', '1 2', 'abc', 'NaN', 'Infinity', '-Infinity', 'toString', '__proto__', '٥']) {
+      expect(parseIlluminancePayload(payload), JSON.stringify(payload)).toBeNull()
+    }
+  })
+
+  it('takes no number too big to be a reading', () => {
+    expect(parseIlluminancePayload('9'.repeat(400))).toBeNull()
+  })
+})
+
+describe('illuminancePayloadReason', () => {
+  it('names the topic and quotes at most 60 characters of the payload', () => {
+    expect(illuminancePayloadReason('abc')).toBe('pi/illuminance: must be a number of lux such as 12.5 (got "abc")')
+    expect(illuminancePayloadReason('a\nb')).toBe('pi/illuminance: must be a number of lux such as 12.5 (got "a\\nb")')
+    expect(illuminancePayloadReason('x'.repeat(61))).toBe(`pi/illuminance: must be a number of lux such as 12.5 (got "${'x'.repeat(60)}…")`)
   })
 })
 

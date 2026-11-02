@@ -62,7 +62,12 @@ describe('defaults', () => {
     expect(config.button).toEqual({ single: 'next_view', double: 'toggle_photo', long: 'ha' })
     expect(config.policies).toEqual({
       auto_presence: { off_after_minutes: 10 },
-      auto_brightness: { night_action: 'none' },
+      auto_brightness: {
+        curve: [{ lux: 0, brightness: 30 }, { lux: 20, brightness: 60 }, { lux: 200, brightness: 100 }],
+        min_step: 5,
+        smoothing_seconds: 30,
+        night_action: 'none',
+      },
     })
     expect(config.photos).toBeUndefined()
     expect(config.remote).toBeUndefined()
@@ -77,6 +82,47 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.policies.auto_presence).toEqual({ off_after_minutes: 5, quiet_hours: { from: '22:00', to: '07:00' } })
+  })
+
+  it('takes an auto brightness curve and night settings as they are written, and fills in the rest', async () => {
+    const raw = minimalConfig()
+    raw.policies = {
+      auto_brightness: {
+        curve: [{ lux: 0, brightness: 10 }, { lux: 50, brightness: 100 }],
+        min_step: 2,
+        smoothing_seconds: 0,
+        night_below_lux: 3,
+        night_above_lux: 8,
+        night_action: 'screen_off',
+      },
+    }
+    const { config } = await load({ config: raw })
+
+    expect(config.policies.auto_brightness).toEqual({
+      curve: [{ lux: 0, brightness: 10 }, { lux: 50, brightness: 100 }],
+      min_step: 2,
+      smoothing_seconds: 0,
+      night_below_lux: 3,
+      night_above_lux: 8,
+      night_action: 'screen_off',
+    })
+  })
+
+  it('leaves night_above_lux out, for the policy to double night_below_lux', async () => {
+    const raw = minimalConfig()
+    raw.policies = { auto_brightness: { night_below_lux: 3, night_action: 'night_view' } }
+    const { config } = await load({ config: raw })
+
+    expect(config.policies.auto_brightness.night_below_lux).toBe(3)
+    expect(config.policies.auto_brightness.night_above_lux).toBeUndefined()
+  })
+
+  it('takes a night_below_lux with no night action, and a night action of none', async () => {
+    const raw = minimalConfig()
+    raw.policies = { auto_brightness: { night_below_lux: 3, night_above_lux: 5 } }
+    const { config } = await load({ config: raw })
+
+    expect(config.policies.auto_brightness).toMatchObject({ night_below_lux: 3, night_above_lux: 5, night_action: 'none' })
   })
 
   it('polls the weather every ten minutes unless told otherwise', async () => {

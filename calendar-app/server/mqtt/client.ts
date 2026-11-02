@@ -7,7 +7,7 @@ import { buttonCommand } from '../control/button'
 import type { DisplayControl } from '../control/service'
 import type { EventBus } from '../events/bus'
 import { BIRTH_ONLINE, birthTopic, discoveryMessages } from './discovery'
-import { AVAILABILITY_TOPIC, buttonPayloadReason, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseButtonPayload, parseCommandTopic, parsePresencePayload, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, piScreenPayload, presencePayloadReason, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
+import { AVAILABILITY_TOPIC, buttonPayloadReason, COMMAND_TOPICS, illuminancePayloadReason, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseButtonPayload, parseCommandTopic, parseIlluminancePayload, parsePresencePayload, PI_BUTTON_TOPIC, PI_ILLUMINANCE_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, piScreenPayload, presencePayloadReason, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
 import type { StateTopic } from './topics'
 
 // Keeps each display's state on an MQTT broker and takes commands from it
@@ -18,8 +18,10 @@ import type { StateTopic } from './topics'
 // says it has restarted. It also tells the Pi agent what the panel should be,
 // on `pi/screen/set`, whenever the screen setting changes, and listens for the
 // agent's button presses on `pi/button`, which the `button:` config turns into
-// commands, and for its mmWave sensor on `pi/presence`, which it hands on to
-// the auto presence policy (control/presence.ts). This file decides when to connect, retry and publish; the topics
+// commands, for its mmWave sensor on `pi/presence`, which it hands on to the
+// auto presence policy (control/presence.ts), and for its light sensor on
+// `pi/illuminance`, which it hands on to the auto brightness policy
+// (control/brightness.ts). This file decides when to connect, retry and publish; the topics
 // and payloads are in topics.ts and discovery.ts, and the MQTT client itself
 // is injected, so a test drives it with a fake and fake timers. A broker that
 // is missing or down never stops the app: nothing here throws or waits for it.
@@ -61,6 +63,8 @@ export interface MqttBridgeOptions {
   button?: ButtonConfig
   /** Told what the Pi agent's presence sensor says, per display: `true` for someone there, `false` for nobody, `null` once the retained value is cleared and it is not known. Normally the auto presence policy's `report`. Default: nobody listens. */
   presence?: { report: (displayId: string, present: boolean | null) => void }
+  /** Told what the Pi agent's light sensor reads, per display, in lux. Normally the auto brightness policy's `report`. Default: nobody listens. */
+  brightness?: { report: (displayId: string, lux: number) => void }
   control: Pick<DisplayControl, 'getState' | 'applyCommand'>
   bus: EventBus
   /** For tests. Default: `connect` from MQTT.js. */
@@ -137,7 +141,7 @@ interface Link {
 }
 
 export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
-  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, button = DEFAULT_BUTTON, presence, lastSync = () => null, specialDay = () => undefined } = options
+  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, button = DEFAULT_BUTTON, presence, brightness, lastSync = () => null, specialDay = () => undefined } = options
   const broker = brokerName(config.url)
   let stopped = false
   let stopping: Promise<void> | undefined
@@ -247,12 +251,12 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
     publish(link, AVAILABILITY_TOPIC, ONLINE)
     if (config.discovery) publishDiscovery(link)
-    const topics = [...COMMAND_TOPICS, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC].map(suffix => topicFor(link.displayId, suffix))
+    const topics = [...COMMAND_TOPICS, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_ILLUMINANCE_TOPIC].map(suffix => topicFor(link.displayId, suffix))
     // Home Assistant's birth message is how it asks for the configs again after a restart.
     if (config.discovery) topics.push(birthTopic(config.discovery_prefix))
     client.subscribe(topics, { qos: 1 }, (error, granted) => {
       if (error) {
-        if (!stopped) log.warn(`[mqtt] ${link.displayId}: could not subscribe to the command, button and presence topics: ${describe(error)}`)
+        if (!stopped) log.warn(`[mqtt] ${link.displayId}: could not subscribe to the command, button, presence and illuminance topics: ${describe(error)}`)
         return
       }
       // A broker that refuses a topic (its access rules) grants QoS 128 for it.
@@ -325,6 +329,25 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
   }
 
+  /** What the Pi agent's light sensor reads. A reading is a measurement and the agent never retains one, so a retained message is someone else's and old news, which must not be taken for the light now. It is ignored with a warning, as a retained press is. An empty message says nothing, and is ignored without a warning. */
+  function onIlluminance(link: Link, topic: string, payload: string, retained: boolean): void {
+    if (retained) {
+      log.warn(`[mqtt] ${link.displayId}: ignored the retained message on ${topic} (publish an empty retained message there to remove it)`)
+      return
+    }
+    if (payload === '') return
+    const lux = parseIlluminancePayload(payload)
+    if (lux === null) {
+      log.warn(`[mqtt] ${link.displayId}: ignored a message: ${illuminancePayloadReason(payload)}`)
+      return
+    }
+    try {
+      brightness?.report(link.displayId, lux)
+    } catch (error) {
+      log.error(`[mqtt] ${link.displayId}: could not act on the light reading: ${describe(error)}`)
+    }
+  }
+
   function onMessage(link: Link, topic: string, payload: Buffer, retained: boolean): void {
     if (config.discovery && topic === birthTopic(config.discovery_prefix)) {
       // A retained `online` is old news: the connect that subscribed has just published every config.
@@ -340,6 +363,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
     if (topic === topicFor(link.displayId, PI_PRESENCE_TOPIC)) {
       onPresence(link, payload.toString('utf8'))
+      return
+    }
+    if (topic === topicFor(link.displayId, PI_ILLUMINANCE_TOPIC)) {
+      onIlluminance(link, topic, payload.toString('utf8'), retained)
       return
     }
     const parsedTopic = parseCommandTopic(topic)

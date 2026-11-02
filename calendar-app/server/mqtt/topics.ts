@@ -52,6 +52,9 @@ export const PI_BUTTON_TOPIC = 'pi/button'
 export const BUTTON_GESTURES = ['single', 'double', 'long'] as const
 export type ButtonGesture = (typeof BUTTON_GESTURES)[number]
 
+/** Whether the Pi agent's mmWave sensor sees someone: `ON` or `OFF`. Under `pi/` like the button, and not a command topic: the `policies.auto_presence` rules decide what it does. Unlike a button press it is a state, so it is retained, and the retained value is how the app learns the current one when it connects. */
+export const PI_PRESENCE_TOPIC = 'pi/presence'
+
 /** `online` while connected. The broker publishes `offline` if the app dies (the last will). */
 export const AVAILABILITY_TOPIC = 'availability'
 export const ONLINE = 'online'
@@ -145,6 +148,11 @@ export function buttonPayloadReason(payload: string): string {
   return `${PI_BUTTON_TOPIC}: must be single, double or long (got ${quote(payload)})`
 }
 
+/** The warning reason for a `pi/presence` payload that is not `ON` or `OFF`: names the topic and quotes at most 60 characters of the payload, like the button's. */
+export function presencePayloadReason(payload: string): string {
+  return `${PI_PRESENCE_TOPIC}: must be ON or OFF (got ${quote(payload)})`
+}
+
 /** Turns a command topic's payload into a Command, validated with commandSchema. `reason` is safe to log: it names the topic and the fault, and quotes at most 60 characters of the payload. */
 export function parseCommandPayload(suffix: CommandTopic, payload: string): ParsedMessage {
   const candidate = candidateFor(suffix, payload)
@@ -163,6 +171,13 @@ export function parseCommandPayload(suffix: CommandTopic, payload: string): Pars
 /** The gesture a `pi/button` payload names, or null for anything else. An exact match, like the contract: `Single` and `single ` are not gestures. */
 export function parseButtonPayload(payload: string): ButtonGesture | null {
   return (BUTTON_GESTURES as readonly string[]).includes(payload) ? payload as ButtonGesture : null
+}
+
+/** Whether a `pi/presence` payload says someone is there (`ON`) or nobody is (`OFF`), or null for anything else. An exact match, like the contract: `on` and `OFF ` are not presences. */
+export function parsePresencePayload(payload: string): boolean | null {
+  if (payload === 'ON') return true
+  if (payload === 'OFF') return false
+  return null
 }
 
 /** `ON` or `OFF`, as the auto_presence and auto_brightness topics carry a setting. */

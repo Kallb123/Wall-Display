@@ -71,6 +71,14 @@ describe('defaults', () => {
     expect(config.alarm).toBeUndefined()
   })
 
+  it('takes quiet hours that run through midnight', async () => {
+    const raw = minimalConfig()
+    raw.policies = { auto_presence: { off_after_minutes: 5, quiet_hours: { from: '22:00', to: '07:00' } } }
+    const { config } = await load({ config: raw })
+
+    expect(config.policies.auto_presence).toEqual({ off_after_minutes: 5, quiet_hours: { from: '22:00', to: '07:00' } })
+  })
+
   it('polls the weather every ten minutes unless told otherwise', async () => {
     const raw = minimalConfig()
     raw.homeassistant = { url: 'http://ha.local', token: 't' }

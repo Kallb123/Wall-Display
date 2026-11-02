@@ -15,7 +15,9 @@ import {
   ONLINE,
   parseButtonPayload,
   parseCommandPayload,
+  parsePresencePayload,
   PI_BUTTON_TOPIC,
+  PI_PRESENCE_TOPIC,
   PI_SCREEN_TOPIC,
   piScreenPayload,
   SPECIAL_DAY_TOPIC,
@@ -227,6 +229,24 @@ describe('the pi agent\'s button', () => {
   it('is parsed for every example and not for any invalid example', () => {
     for (const payload of topic.examples) expect(parseButtonPayload(payload), `example ${JSON.stringify(payload)}`).not.toBeNull()
     for (const payload of topic.invalid_examples) expect(parseButtonPayload(payload), `invalid example ${JSON.stringify(payload)}`).toBeNull()
+  })
+})
+
+describe('the pi agent\'s presence', () => {
+  const topic = contract.topics[PI_PRESENCE_TOPIC]!
+
+  it('comes from the pi agent and is retained, so the app learns the current state when it connects', () => {
+    expect(topic.direction).toBe('from_pi')
+    expect(topic.retained).toBe(true)
+  })
+
+  it('has ON and OFF, and no others', () => {
+    expect((topic.payload.schema as { enum: string[] }).enum).toEqual(['ON', 'OFF'])
+  })
+
+  it('is parsed for every example and not for any invalid example', () => {
+    for (const payload of topic.examples) expect(parsePresencePayload(payload), `example ${JSON.stringify(payload)}`).not.toBeNull()
+    for (const payload of topic.invalid_examples) expect(parsePresencePayload(payload), `invalid example ${JSON.stringify(payload)}`).toBeNull()
   })
 })
 

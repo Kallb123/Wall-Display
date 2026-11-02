@@ -261,6 +261,7 @@ describe('validation errors name the field', () => {
     ['an unknown theme', (c: Raw) => { c.displays[0].theme = 'sepia' }, 'displays[0].theme'],
     ['an unknown button action', (c: Raw) => { c.button = { single: 'explode' } }, 'button.single'],
     ['quiet hours that are not times', (c: Raw) => { c.policies = { auto_presence: { quiet_hours: { from: '9pm', to: '06:00' } } } }, 'policies.auto_presence.quiet_hours.from'],
+    ['quiet hours that start and end together', (c: Raw) => { c.policies = { auto_presence: { quiet_hours: { from: '22:00', to: '22:00' } } } }, 'policies.auto_presence.quiet_hours.to: from and to must differ'],
     ['a negative night_below_lux', (c: Raw) => { c.policies = { auto_brightness: { night_below_lux: -1 } } }, 'policies.auto_brightness.night_below_lux'],
     ['a negative sync.months_back', (c: Raw) => { c.sync = { months_back: -1 } }, 'sync.months_back'],
     ['sync.months_ahead above 60', (c: Raw) => { c.sync = { months_ahead: 61 } }, 'sync.months_ahead'],

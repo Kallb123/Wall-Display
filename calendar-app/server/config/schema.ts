@@ -147,6 +147,9 @@ const button = z.strictObject({
   long: buttonAction.default('ha'),
 })
 
+/** What the button does when the config has no `button` block, or leaves a gesture out. */
+export const DEFAULT_BUTTON = button.parse({})
+
 const policies = z.strictObject({
   auto_presence: z.strictObject({
     off_after_minutes: z.number().int().min(1).default(10),

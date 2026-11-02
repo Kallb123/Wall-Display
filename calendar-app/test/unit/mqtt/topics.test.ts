@@ -3,10 +3,14 @@ import type { Command, DisplayState } from '../../../shared/display'
 import { defaultDisplayState } from '../../../server/control/commands'
 import {
   AVAILABILITY_TOPIC,
+  BUTTON_GESTURES,
+  buttonPayloadReason,
   COMMAND_TOPICS,
   displayBase,
+  parseButtonPayload,
   parseCommandPayload,
   parseCommandTopic,
+  PI_BUTTON_TOPIC,
   statePayloads,
   topicFor,
 } from '../../../server/mqtt/topics'
@@ -64,6 +68,34 @@ describe('parseCommandTopic', () => {
     ]) {
       expect(parseCommandTopic(topic), topic).toBeNull()
     }
+  })
+})
+
+describe('the button topic', () => {
+  it('is under pi/, for the display, and is not a command topic', () => {
+    expect(PI_BUTTON_TOPIC).toBe('pi/button')
+    expect(topicFor('hallway', PI_BUTTON_TOPIC)).toBe('wallcal/hallway/pi/button')
+    expect((COMMAND_TOPICS as readonly string[]).includes(PI_BUTTON_TOPIC)).toBe(false)
+    expect(parseCommandTopic(topicFor('hallway', PI_BUTTON_TOPIC))).toBeNull()
+  })
+})
+
+describe('parseButtonPayload', () => {
+  it('names the gesture in each of the three payloads', () => {
+    expect(BUTTON_GESTURES).toEqual(['single', 'double', 'long'])
+    for (const gesture of BUTTON_GESTURES) expect(parseButtonPayload(gesture)).toBe(gesture)
+  })
+
+  it('takes nothing else: no other case, no spaces, no other word, no empty payload', () => {
+    for (const payload of ['Single', 'DOUBLE', 'long ', ' long', 'long\n', 'triple', 'press', 'single,double', '', ' ', 'toString', '__proto__']) {
+      expect(parseButtonPayload(payload), JSON.stringify(payload)).toBeNull()
+    }
+  })
+
+  it('has a reason that names the topic and quotes at most 60 characters of the payload', () => {
+    expect(buttonPayloadReason('triple')).toBe('pi/button: must be single, double or long (got "triple")')
+    expect(buttonPayloadReason('a\nb')).toBe('pi/button: must be single, double or long (got "a\\nb")')
+    expect(buttonPayloadReason('x'.repeat(61))).toBe(`pi/button: must be single, double or long (got "${'x'.repeat(60)}…")`)
   })
 })
 

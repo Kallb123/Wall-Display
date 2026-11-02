@@ -2,14 +2,14 @@ import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IClientOptions } from 'mqtt'
 import type { Command, DisplayState } from '../../../shared/display'
-import type { MqttConfig } from '../../../server/config/schema'
+import type { ButtonConfig, MqttConfig } from '../../../server/config/schema'
 import { defaultDisplayState, expireState, reduceCommand } from '../../../server/control/commands'
 import { createEventBus } from '../../../server/events/bus'
 import type { EventBus } from '../../../server/events/bus'
 import { createMqttBridge, MAX_RECONNECT_MS, RECHECK_MS, reconnectDelayMs, STABLE_MS, STOP_WAIT_MS } from '../../../server/mqtt/client'
 import type { MqttBridge, MqttLink } from '../../../server/mqtt/client'
 import { discoveryMessages } from '../../../server/mqtt/discovery'
-import { COMMAND_TOPICS, lastSyncPayload, PI_SCREEN_TOPIC, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
+import { COMMAND_TOPICS, lastSyncPayload, PI_BUTTON_TOPIC, PI_SCREEN_TOPIC, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
 
 // The bridge with a fake MQTT client and fake timers: no network. The fake
 // records what is published and subscribed, and the test plays the broker by
@@ -96,6 +96,9 @@ class FakeClient extends EventEmitter implements MqttLink {
   }
 }
 
+/** What a connection subscribes to besides Home Assistant's birth topic: the command topics and the Pi agent's button. */
+const OWN_TOPICS = [...COMMAND_TOPICS, PI_BUTTON_TOPIC].map(suffix => `wallcal/hallway/${suffix}`)
+
 const bridges: MqttBridge[] = []
 
 /** The bridge doesn't read the resolution the event carries: it asks `specialDay` again. So an empty one will do. */
@@ -103,7 +106,7 @@ function emitSpecialDays(bus: EventBus): void {
   bus.emit('special_days.updated', { specialDays: { today: '2026-10-28', from: '2026-08-28', to: '2026-12-31', tiles: [], current: null, takeover: null } })
 }
 
-function setup(options: { displays?: string[], config?: MqttConfig, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
+function setup(options: { displays?: string[], config?: MqttConfig, button?: ButtonConfig, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
   const displays = options.displays ?? ['hallway']
   const bus = createEventBus()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -137,6 +140,7 @@ function setup(options: { displays?: string[], config?: MqttConfig, random?: () 
     lastSync: options.lastSync,
     specialDay: options.specialDay,
     timeZone: 'Europe/London',
+    button: options.button,
     control,
     bus,
     connect,
@@ -216,14 +220,14 @@ describe('connecting', () => {
     expect(bridge.status().map(({ displayId, state }) => `${displayId} ${state}`)).toEqual(['hallway connecting', 'kitchen connected'])
   })
 
-  it('says online first, then subscribes to every command topic at QoS 1, then publishes all of the state and the Pi agent\'s screen request, retained at QoS 1', () => {
+  it('says online first, then subscribes to every command topic and the button topic at QoS 1, then publishes all of the state and the Pi agent\'s screen request, retained at QoS 1', () => {
     const { client, log } = setup({ config: { ...CONFIG, discovery: false } })
 
     client().up()
 
     const [first, ...rest] = client().published
     expect(first).toEqual({ topic: 'wallcal/hallway/availability', payload: 'online', qos: 1, retain: true })
-    expect(client().subscribed).toEqual([{ topics: COMMAND_TOPICS.map(suffix => `wallcal/hallway/${suffix}`), qos: 1 }])
+    expect(client().subscribed).toEqual([{ topics: OWN_TOPICS, qos: 1 }])
     expect(rest.map(message => message.topic)).toEqual([...STATE_TOPICS, PI_SCREEN_TOPIC].map(suffix => `wallcal/hallway/${suffix}`))
     expect(rest.every(message => message.qos === 1 && message.retain)).toBe(true)
     expect(Object.fromEntries(rest.map(message => [message.topic.replace('wallcal/hallway/', ''), message.payload]))).toEqual({
@@ -462,7 +466,7 @@ describe('commands', () => {
     client().up()
 
     client().message('wallcal/hallway/view/state', 'agenda')
-    client().message('wallcal/hallway/pi/button', 'single')
+    client().message('wallcal/hallway/pi/screen/set', 'off')
     client().message('wallcal/kitchen/view/set', 'agenda')
     client().message('other/hallway/view/set', 'agenda')
 
@@ -480,6 +484,144 @@ describe('commands', () => {
 
     expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not apply the command from screen/set: database is locked')
     expect(control.applyCommand).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the Pi agent\'s button', () => {
+  const BUTTON = 'wallcal/hallway/pi/button'
+
+  it('subscribes to the display\'s button topic, in the same call as the command topics', () => {
+    const { client } = setup({ config: { ...CONFIG, discovery: false } })
+
+    client().up()
+
+    expect(client().subscribed).toHaveLength(1)
+    expect(client().subscribed[0]!.topics).toContain(BUTTON)
+    expect(client().subscribed[0]!.qos).toBe(1)
+  })
+
+  it('does what the default mapping says for each gesture: next view, toggle the photo, and nothing for the long press', () => {
+    const { client, control, log } = setup()
+    client().up()
+
+    client().message(BUTTON, 'single')
+    client().message(BUTTON, 'double')
+    client().message(BUTTON, 'long')
+
+    expect(control.applyCommand.mock.calls).toEqual([
+      ['hallway', { type: 'next_view' }],
+      ['hallway', { type: 'toggle_photo' }],
+    ])
+    expect(client().payloadsOn('wallcal/hallway/view/state')).toEqual(['month', 'agenda', 'photo'])
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('follows the mapping from the config', () => {
+    const { client, control } = setup({ button: { single: 'refresh', double: 'next_photo', long: 'this_month' } })
+    client().up()
+
+    client().message(BUTTON, 'single')
+    client().message(BUTTON, 'double')
+    client().message(BUTTON, 'long')
+
+    expect(control.applyCommand.mock.calls).toEqual([
+      ['hallway', { type: 'refresh' }],
+      ['hallway', { type: 'photo_next' }],
+      ['hallway', { type: 'set_month', month: 'current' }],
+    ])
+  })
+
+  it('turns the screen to the opposite of what it is now for toggle_screen', () => {
+    const { client, control } = setup({ button: { single: 'next_view', double: 'toggle_photo', long: 'toggle_screen' } })
+    client().up()
+
+    client().message(BUTTON, 'long')
+    client().message(BUTTON, 'long')
+
+    expect(control.applyCommand.mock.calls).toEqual([
+      ['hallway', { type: 'set_screen', screen: 'off' }],
+      ['hallway', { type: 'set_screen', screen: 'on' }],
+    ])
+    expect(client().payloadsOn('wallcal/hallway/screen/state')).toEqual(['on', 'off', 'on'])
+    expect(client().payloadsOn('wallcal/hallway/pi/screen/set')).toEqual(['on', 'off', 'on'])
+  })
+
+  it('applies nothing for ha or none, and does not log them', () => {
+    const { client, control, log } = setup({ button: { single: 'ha', double: 'none', long: 'ha' } })
+    client().up()
+
+    client().message(BUTTON, 'single')
+    client().message(BUTTON, 'double')
+    client().message(BUTTON, 'long')
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it('ignores a retained press, with a warning', () => {
+    const { client, control, log } = setup()
+    client().up()
+
+    client().message(BUTTON, 'single', true)
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0]![0]).toContain('ignored the retained message on wallcal/hallway/pi/button')
+  })
+
+  it('warns about a payload that is not a gesture, quoting it, and applies nothing', () => {
+    const { client, control, log } = setup()
+    client().up()
+
+    client().message(BUTTON, 'Single')
+    client().message(BUTTON, 'triple')
+    client().message(BUTTON, '')
+    client().message(BUTTON, `long${'x'.repeat(100)}\n`)
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn.mock.calls.map(call => call[0])).toEqual([
+      '[mqtt] hallway: ignored a message: pi/button: must be single, double or long (got "Single")',
+      '[mqtt] hallway: ignored a message: pi/button: must be single, double or long (got "triple")',
+      '[mqtt] hallway: ignored a message: pi/button: must be single, double or long (got "")',
+      `[mqtt] hallway: ignored a message: pi/button: must be single, double or long (got "long${'x'.repeat(56)}…")`,
+    ])
+  })
+
+  it('acts only on its own display\'s button', () => {
+    const { client, control, log } = setup({ displays: ['hallway', 'kitchen'] })
+    client('hallway').up()
+    client('kitchen').up()
+
+    client('hallway').message('wallcal/kitchen/pi/button', 'single')
+    client('hallway').message('wallcal/kitchen/pi/button', 'nonsense')
+    client('kitchen').message('wallcal/kitchen/pi/button', 'single')
+
+    expect(control.applyCommand.mock.calls).toEqual([['kitchen', { type: 'next_view' }]])
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('logs a press it cannot apply, and carries on', () => {
+    const { client, control, log } = setup()
+    client().up()
+    control.applyCommand.mockImplementationOnce(() => { throw new Error('database is locked') })
+
+    expect(() => client().message(BUTTON, 'single')).not.toThrow()
+    client().message(BUTTON, 'single')
+
+    expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not apply the single press of the button: database is locked')
+    expect(control.applyCommand).toHaveBeenCalledTimes(2)
+  })
+
+  it('logs a state it cannot read, and applies nothing', () => {
+    const { client, control, log } = setup({ button: { single: 'toggle_screen', double: 'toggle_photo', long: 'ha' } })
+    client().up()
+    control.getState.mockImplementationOnce(() => { throw new Error('no such display') })
+
+    expect(() => client().message(BUTTON, 'single')).not.toThrow()
+
+    expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not apply the single press of the button: no such display')
+    expect(control.applyCommand).not.toHaveBeenCalled()
   })
 })
 
@@ -549,12 +691,12 @@ describe('Home Assistant discovery', () => {
     expect(configsIn(client())).toHaveLength(messagesFor('hallway', 'Hallway').length)
   })
 
-  it('subscribes to Home Assistant\'s birth topic along with the command topics', () => {
+  it('subscribes to Home Assistant\'s birth topic along with the command and button topics', () => {
     const { client } = setup()
 
     client().up()
 
-    expect(client().subscribed).toEqual([{ topics: [...COMMAND_TOPICS.map(suffix => `wallcal/hallway/${suffix}`), 'homeassistant/status'], qos: 1 }])
+    expect(client().subscribed).toEqual([{ topics: [...OWN_TOPICS, 'homeassistant/status'], qos: 1 }])
   })
 
   it('publishes the configs again when Home Assistant says it is online', () => {
@@ -608,7 +750,7 @@ describe('Home Assistant discovery', () => {
     client().up()
 
     expect(configsIn(client())).toEqual([])
-    expect(client().subscribed).toEqual([{ topics: COMMAND_TOPICS.map(suffix => `wallcal/hallway/${suffix}`), qos: 1 }])
+    expect(client().subscribed).toEqual([{ topics: OWN_TOPICS, qos: 1 }])
 
     client().clear()
     client().message('homeassistant/status', 'online')
@@ -1186,6 +1328,8 @@ describe('errors', () => {
     client().message('wallcal/hallway/brightness/set', 'loud')
     control.applyCommand.mockImplementationOnce(() => { throw new Error(`failed for ${PASSWORD}`) })
     client().message('wallcal/hallway/screen/set', 'off')
+    control.getState.mockImplementationOnce(() => { throw new Error(`no state for ${PASSWORD}`) })
+    client().message('wallcal/hallway/pi/button', 'single')
 
     expect(logged()).not.toContain(PASSWORD)
     expect(logged()).toContain('***')

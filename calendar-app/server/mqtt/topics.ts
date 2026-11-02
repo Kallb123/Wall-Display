@@ -45,6 +45,13 @@ export const SPECIAL_DAY_TOPIC = 'special_day/state'
 /** What the Pi agent should make the panel: `on` or `off`. It is for the agent, so it is under `pi/` (the topic the agent subscribes to), and retained so an agent that starts later still gets the last request. Not one of `STATE_TOPICS`: those are the display's settings, each paired with a command topic, and this is the same `screen` setting told to the panel. */
 export const PI_SCREEN_TOPIC = 'pi/screen/set'
 
+/** A press of the physical button, as the Pi agent classifies it. The app subscribes to it (it is under `pi/`, like `pi/screen/set`), but it is not a command topic: the payload is a gesture, and the `button:` config decides what it does. Not retained, so a press is never replayed. */
+export const PI_BUTTON_TOPIC = 'pi/button'
+
+/** What `pi/button` can carry. */
+export const BUTTON_GESTURES = ['single', 'double', 'long'] as const
+export type ButtonGesture = (typeof BUTTON_GESTURES)[number]
+
 /** `online` while connected. The broker publishes `offline` if the app dies (the last will). */
 export const AVAILABILITY_TOPIC = 'availability'
 export const ONLINE = 'online'
@@ -133,6 +140,11 @@ function overlayCandidate(payload: string): Candidate {
   return { command: { type: 'set_overlay', overlay: json } }
 }
 
+/** The warning reason for a `pi/button` payload that is not a gesture: names the topic and quotes at most 60 characters of the payload, like `parseCommandPayload`'s. */
+export function buttonPayloadReason(payload: string): string {
+  return `${PI_BUTTON_TOPIC}: must be single, double or long (got ${quote(payload)})`
+}
+
 /** Turns a command topic's payload into a Command, validated with commandSchema. `reason` is safe to log: it names the topic and the fault, and quotes at most 60 characters of the payload. */
 export function parseCommandPayload(suffix: CommandTopic, payload: string): ParsedMessage {
   const candidate = candidateFor(suffix, payload)
@@ -146,6 +158,11 @@ export function parseCommandPayload(suffix: CommandTopic, payload: string): Pars
     return { ok: false, reason: `${suffix}: ${where ? `${where} ` : ''}${clip(issue.message)} (got ${quote(payload)})` }
   }
   return { ok: true, command: parsed.data }
+}
+
+/** The gesture a `pi/button` payload names, or null for anything else. An exact match, like the contract: `Single` and `single ` are not gestures. */
+export function parseButtonPayload(payload: string): ButtonGesture | null {
+  return (BUTTON_GESTURES as readonly string[]).includes(payload) ? payload as ButtonGesture : null
 }
 
 /** `ON` or `OFF`, as the auto_presence and auto_brightness topics carry a setting. */

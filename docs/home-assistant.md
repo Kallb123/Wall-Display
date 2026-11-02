@@ -131,13 +131,14 @@ The Pi agent (see [`pi-agent/`](../pi-agent/README.md)) publishes a second devic
 |---|---|---|
 | CPU temperature | `sensor.wall_calendar_pi_cpu_temperature` | The Pi's CPU temperature in °C. Diagnostic. |
 | Uptime | `sensor.wall_calendar_pi_uptime` | Seconds since the Pi booted. Diagnostic. |
+| Button | `event.wall_calendar_pi_button` | Fires `single`, `double` or `long` for every press of the physical button, whatever the app does with it (see `button:` in the app's config). Only there when `sensors.button` is on in the agent's config; turning it off removes the entity. |
 | Panel power | `binary_sensor.wall_calendar_pi_panel_power` | Whether the panel is on, as the agent last found it. With the `cec` back end that is what the monitor reports, so it also follows the monitor's own remote; with `output` it is whether the Pi's HDMI output is on; with `black` it is the state the agent was last asked for. Diagnostic. |
 
 All of them show as unavailable while the agent is offline (they follow `wallcal/<display id>/pi/availability`). The two diagnostic sensors also go unavailable if the agent stops reporting for three times its diagnostics interval.
 
 To turn the screen on or off, use the app's `switch.wall_calendar_screen`, not the Pi: the app passes it on to the agent on `pi/screen/set`. The panel power sensor is there to check that the panel really followed.
 
-Not there yet: the button (`event.wall_calendar_pi_button`), presence and illuminance entities. They come with the sensors in Milestone 3.
+Not there yet: the presence and illuminance entities. They come with the sensors in Milestone 3.
 
 ### How discovery behaves
 
@@ -368,7 +369,7 @@ Replace `notify.notify` with your own notify service if you use one. The state i
 
 ### Long press (needs the Pi agent)
 
-This one needs the Pi agent, which arrives in Milestone 3. It uses the Pi's button entity and a scene of your own.
+This one needs the Pi agent with the button on (`sensors.button` in its config). It uses the Pi's button entity and a scene of your own.
 
 ```yaml
 - alias: Wall calendar – long press

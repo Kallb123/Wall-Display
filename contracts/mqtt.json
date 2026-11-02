@@ -549,7 +549,7 @@
     "pi/illuminance": {
       "direction": "from_pi",
       "retained": false,
-      "description": "The ambient light in lux, a non-negative number.",
+      "description": "The ambient light in lux, a non-negative number with at most two decimal places. Published when the reading changes meaningfully, and at least every 30 seconds by default, so a subscriber is never more than that out of date. Not retained, because a stale reading is worse than none.",
       "payload": {
         "encoding": "text",
         "schema": {

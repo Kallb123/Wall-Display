@@ -479,6 +479,8 @@ The base is `wallcal/<display_id>/`.
 | `…/pi/button` | pi → | `single` \| `double` \| `long` |
 | `…/pi/presence` | pi → | `ON` \| `OFF` (retained) |
 | `…/pi/illuminance` | pi → | lux (float) |
+| `…/pi/cpu_temperature` | pi → | the Pi's CPU temperature in °C, to one decimal place, such as `48.3`. Published every minute (diagnostics interval); not published where it can't be read. |
+| `…/pi/uptime` | pi → | seconds since the Pi booted, a whole number. Published every diagnostics interval. |
 | `…/pi/screen/set` | app → pi | `on` \| `off`. The agent then turns the panel on or off. |
 | `…/pi/screen/state` | pi → | the actual panel state, if it can be detected |
 | `…/availability`, `…/pi/availability` | both | `online` / `offline` (MQTT last-will) |

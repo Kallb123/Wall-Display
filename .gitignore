@@ -30,3 +30,12 @@ secrets.yaml
 /mosquitto/data/
 /mosquitto/log/
 /mosquitto/config/passwords
+
+# Python (pi-agent)
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+/pi-agent/build/

@@ -123,9 +123,18 @@ All of them show as unavailable while the app is offline. They follow the app's 
 
 To show a message with an icon or a time limit, publish to the overlay topic yourself. See the bins reminder variant below.
 
-Not there yet:
+### The Pi device
 
-- A second device, "Wall Calendar Pi", with `event.wall_calendar_pi_button`, presence and illuminance. The Pi agent publishes it in Milestone 3.
+The Pi agent (see [`pi-agent/`](../pi-agent/README.md)) publishes a second device, "Wall Calendar Pi", the same way. It is only there when the agent runs on the Pi and has `mqtt.discovery` on.
+
+| Name | Entity ID | What it does |
+|---|---|---|
+| CPU temperature | `sensor.wall_calendar_pi_cpu_temperature` | The Pi's CPU temperature in °C. Diagnostic. |
+| Uptime | `sensor.wall_calendar_pi_uptime` | Seconds since the Pi booted. Diagnostic. |
+
+Both show as unavailable while the agent is offline (they follow `wallcal/<display id>/pi/availability`), and if it stops reporting for three times its diagnostics interval.
+
+Not there yet: the button (`event.wall_calendar_pi_button`), presence, illuminance and panel power entities. They come with the sensors in Milestone 3.
 
 ### How discovery behaves
 

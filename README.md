@@ -109,7 +109,7 @@ With an `mqtt` block in the config, each display keeps its state on an MQTT brok
 - The app subscribes to `view/set`, `month/set`, `screen/set`, `photo_source/set`, `brightness/set`, `auto_presence/set`, `auto_brightness/set`, `overlay/set`, `photo/next` and `refresh`. A payload that doesn't fit its topic is ignored and logged. A retained message on one of these topics is ignored too, so it isn't replayed at every reconnect; publish an empty retained message there to remove it from the broker.
 - `availability` is `online` while the app is connected. The broker publishes `offline` (the last will) if the app dies, and the app publishes it itself on a clean stop. The app opens one connection per display, named `<client_id>-<display id>`, so that each display has its own last will.
 
-The topics that the Raspberry Pi will use (`pi/…`) are in the contract, but the app doesn't use them yet. The app runs the same without a broker, or while the broker is down: it keeps retrying in the background, with a growing wait of up to a minute, and logs the first failure rather than every attempt.
+The topics that the Raspberry Pi uses (`pi/…`) are in the contract too. The [Pi agent](#pi-agent) publishes `pi/availability`, `pi/cpu_temperature` and `pi/uptime`; the app doesn't use any `pi/` topic yet. The app runs the same without a broker, or while the broker is down: it keeps retrying in the background, with a growing wait of up to a minute, and logs the first failure rather than every attempt.
 
 To watch it and to send a command, with the Mosquitto tools:
 
@@ -185,3 +185,15 @@ sudo ./kiosk/setup.sh --url 'http://<server>:8080/display?id=hallway'
 ```
 
 [`kiosk/README.md`](kiosk/README.md) covers reflashing the Pi, the setup options, extra Chromium flags, logs and troubleshooting.
+
+## Pi agent
+
+A small Python service on the Pi that reports to the same MQTT broker as the app. For now it publishes `pi/availability` (with a last will) and creates a "Wall Calendar Pi" device in Home Assistant with CPU temperature and uptime sensors. The button, presence and light sensors and the panel power control follow. [`pi-agent/install.sh`](pi-agent/install.sh) installs it as a systemd service:
+
+```sh
+sudo ./pi-agent/install.sh
+sudo nano /etc/wallcal-agent/config.yaml   # display id and MQTT host
+sudo systemctl restart wallcal-agent
+```
+
+[`pi-agent/README.md`](pi-agent/README.md) covers the config, logs and development.

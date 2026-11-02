@@ -13,6 +13,8 @@ import {
   OFFLINE,
   ONLINE,
   parseCommandPayload,
+  PI_SCREEN_TOPIC,
+  piScreenPayload,
   SPECIAL_DAY_TOPIC,
   specialDayPayload,
   STATE_TOPICS,
@@ -45,10 +47,6 @@ interface Contract {
 const contract = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../contracts/mqtt.json', import.meta.url)), 'utf8')) as Contract
 const names = Object.keys(contract.topics)
 const entries = Object.entries(contract.topics)
-
-// Topics the contract has and the app does not carry out yet. Each comes off its list when its PR lands.
-/** The app publishes these to the pi agent, in a later PR. */
-const TO_PI_LATER: readonly string[] = ['pi/screen/set'] // PR 3.2
 
 const ajv = new Ajv2020({ strict: true })
 const validators = new Map<string, ValidateFunction>()
@@ -133,9 +131,9 @@ describe('the topics', () => {
     expect(namesWhere(topic => topic.direction === 'from_app')).toEqual(sorted(published))
   })
 
-  it('has pi/screen/set as the only topic for the app to publish to the pi agent, and it is for a later PR', () => {
-    expect(namesWhere(topic => topic.direction === 'to_pi')).toEqual(sorted(TO_PI_LATER))
-    expect(TO_PI_LATER).toEqual(['pi/screen/set'])
+  it('has pi/screen/set as the only topic for the app to publish to the pi agent, retained', () => {
+    expect(namesWhere(topic => topic.direction === 'to_pi')).toEqual([PI_SCREEN_TOPIC])
+    expect(contract.topics[PI_SCREEN_TOPIC]!.retained).toBe(true)
   })
 
   it('has the pi agent\'s topics under pi/', () => {
@@ -261,6 +259,15 @@ describe('state payloads', () => {
     // A set followed by the state it publishes, as a round trip through the contract's own examples.
     expect(statePayloads({ ...defaultDisplayState(), brightness: 50 }, NOW, 'Europe/London')['brightness/state']).toBe('50')
     expect(parseCommandPayload('brightness/set', '50.0')).toMatchObject({ ok: true, command: { brightness: 50 } })
+  })
+})
+
+describe('the pi agent\'s screen request', () => {
+  it.each(['on', 'off'] as const)('screen %s: the payload passes the topic\'s schema', (screen) => {
+    const payload = piScreenPayload({ ...defaultDisplayState(), screen })
+
+    expect(payload).toBe(screen)
+    expect(contractAccepts(PI_SCREEN_TOPIC, payload)).toBe(true)
   })
 })
 

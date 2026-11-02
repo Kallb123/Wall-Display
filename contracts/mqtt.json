@@ -574,7 +574,7 @@
     "pi/screen/set": {
       "direction": "to_pi",
       "retained": true,
-      "description": "Tells the pi agent to turn the panel on or off. Retained, so an agent that starts later still gets the last request. The app does not publish it yet.",
+      "description": "Tells the pi agent to turn the panel on or off. Retained, so an agent that starts later still gets the last request. The app publishes it whenever the display's screen state changes, and on every connect.",
       "payload": {
         "encoding": "text",
         "schema": {

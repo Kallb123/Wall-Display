@@ -23,6 +23,7 @@ def test_topics_and_order() -> None:
     assert list(configs()) == [
         "homeassistant/sensor/wallcal_pi_hallway/cpu_temperature/config",
         "homeassistant/sensor/wallcal_pi_hallway/uptime/config",
+        "homeassistant/binary_sensor/wallcal_pi_hallway/panel_power/config",
     ]
 
 
@@ -55,6 +56,19 @@ def test_uptime_config() -> None:
     assert config["icon"] == "mdi:timer-outline"
 
 
+def test_panel_power_config() -> None:
+    config = configs()["homeassistant/binary_sensor/wallcal_pi_hallway/panel_power/config"]
+
+    assert config["name"] == "Panel power"
+    assert config["unique_id"] == "wallcal_pi_hallway_panel_power"
+    assert config["state_topic"] == "wallcal/hallway/pi/screen/state"
+    assert config["device_class"] == "power"
+    assert config["payload_on"] == "on"
+    assert config["payload_off"] == "off"
+    # Retained state that may not change for days, so it must not expire.
+    assert "expire_after" not in config
+
+
 @pytest.mark.parametrize("topic", list(configs()))
 def test_what_every_config_shares(topic: str) -> None:
     config = configs()[topic]
@@ -79,9 +93,10 @@ def test_what_every_config_shares(topic: str) -> None:
 
 
 @pytest.mark.parametrize(("interval", "expiry"), [(5, 15), (60, 180), (300, 900)])
-def test_values_expire_after_three_intervals(interval: int, expiry: int) -> None:
-    for config in configs(diagnostics_interval=interval).values():
-        assert config["expire_after"] == expiry
+def test_sensor_values_expire_after_three_intervals(interval: int, expiry: int) -> None:
+    for topic, config in configs(diagnostics_interval=interval).items():
+        if "/sensor/" in topic:
+            assert config["expire_after"] == expiry
 
 
 def test_unique_ids_differ_between_entities_and_displays() -> None:

@@ -224,5 +224,10 @@ setup --target "$T" --url "$URL" --user kiosk
 assert_eq "missing source file exits 1" 1 "$RC"
 assert_contains "missing source file is named" "$WORK/err" "chromium-policy.json"
 
+# 13. Packages. --target skips apt, so check the install line itself.
+apt_line=$(grep -A3 'apt-get install' "$REAL_KIOSK/setup.sh")
+assert_true "apt installs acl (setfacl, for the Pi agent's screen control)" grep -qw acl <<<"$apt_line"
+assert_true "apt still installs wlr-randr" grep -qw wlr-randr <<<"$apt_line"
+
 echo "# $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

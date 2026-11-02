@@ -22,9 +22,8 @@ FROM_PI_LATER = {
     "pi/button": "3.3",
     "pi/presence": "3.4",
     "pi/illuminance": "3.5",
-    "pi/screen/state": "3.2",
 }
-TO_PI_LATER = {"pi/screen/set": "3.2"}
+TO_PI_LATER: dict[str, str] = {}
 
 TEMPERATURES = [-20.04, -0.04, 0, 0.05, 48.25, 48.35, 99.99, 105, -5.5, 0.0, 12.0, 1234.56]
 UPTIMES = [0, 0.9, 59.99, 60, 86400.5, 10**9]
@@ -100,7 +99,69 @@ def test_every_pi_topic_is_handled_or_listed_for_a_later_pull_request(contract: 
 
     assert from_pi == set(topics.PUBLISHED) | set(FROM_PI_LATER)
     assert not set(topics.PUBLISHED) & set(FROM_PI_LATER)
-    assert to_pi == set(TO_PI_LATER)
+    assert to_pi == set(topics.SUBSCRIBED) | set(TO_PI_LATER)
+    assert not set(topics.SUBSCRIBED) & set(TO_PI_LATER)
+
+
+def test_the_agent_subscribes_to_its_topics_on_every_connect(rig: AgentRig) -> None:
+    wanted = [(f"wallcal/hallway/{name}", 1) for name in topics.SUBSCRIBED]
+
+    rig.client.broker_accepts()
+    assert all(subscription in rig.client.subscriptions for subscription in wanted)
+
+    rig.client.subscriptions.clear()
+    rig.client.connection_drops()
+    rig.client.broker_accepts()
+    assert all(subscription in rig.client.subscriptions for subscription in wanted)
+
+
+def test_every_valid_screen_request_in_the_contract_is_applied(contract: dict[str, Any], rig: AgentRig) -> None:
+    topic = contract["topics"][topics.SCREEN_SET]
+    assert topic["retained"] is True
+    rig.client.broker_accepts()
+    rig.agent.run_screen_work()
+
+    for payload in topic["examples"]:
+        rig.screen.set_calls.clear()
+        rig.client.message_arrives(f"wallcal/hallway/{topics.SCREEN_SET}", payload)
+        rig.agent.run_screen_work()
+
+        assert rig.screen.set_calls == [payload == "on"], payload
+        assert topics.parse_screen_payload(payload) is (payload == "on")
+
+
+def test_every_invalid_screen_request_in_the_contract_is_ignored(contract: dict[str, Any], rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+    rig.agent.run_screen_work()
+    rig.client.clear()
+
+    for payload in contract["topics"][topics.SCREEN_SET]["invalid_examples"]:
+        rig.client.message_arrives(f"wallcal/hallway/{topics.SCREEN_SET}", payload)
+        rig.agent.run_screen_work()
+
+        assert topics.parse_screen_payload(payload) is None, payload
+
+    assert rig.screen.set_calls == []
+    assert rig.client.publishes == []
+
+
+def test_screen_state_payloads_pass_the_schema_and_are_retained(contract: dict[str, Any], rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+    rig.client.clear()
+
+    for on in (False, True):
+        rig.client.message_arrives(f"wallcal/hallway/{topics.SCREEN_SET}", topics.screen_payload(on))
+        rig.agent.run_screen_work()
+
+    published = [p for p in rig.client.publishes if name_of(p.topic) == topics.SCREEN_STATE]
+    assert [p.payload for p in published] == ["off", "on"]
+    for p in published:
+        assert p.payload is not None
+        assert accepts(contract, topics.SCREEN_STATE, p.payload)
+        assert p.retain is contract["topics"][topics.SCREEN_STATE]["retained"]
+        assert p.qos == 1
+    for example in contract["topics"][topics.SCREEN_STATE]["examples"]:
+        assert example in (topics.screen_payload(True), topics.screen_payload(False))
 
 
 def test_the_pi_topics_are_the_ones_under_pi(contract: dict[str, Any]) -> None:
@@ -143,6 +204,7 @@ def test_discovery_topics_are_contract_topics_for_this_display(contract: dict[st
 
 def test_a_run_of_the_agent_only_publishes_what_the_contract_describes(contract: dict[str, Any], rig: AgentRig) -> None:
     rig.client.broker_accepts()
+    rig.agent.run_screen_work()
     for celsius in TEMPERATURES:
         rig.system.temperature = celsius
         rig.system.uptime = celsius + 100
@@ -164,7 +226,8 @@ def test_a_run_of_the_agent_only_publishes_what_the_contract_describes(contract:
     # Everything else is Home Assistant's discovery, retained, under its own prefix.
     discovery = [p for p in rig.client.publishes if not p.topic.startswith("wallcal/")]
     assert discovery
-    assert all(p.topic.startswith("homeassistant/sensor/wallcal_pi_hallway/") and p.retain for p in discovery)
+    assert all(p.topic.startswith("homeassistant/") and "/wallcal_pi_hallway/" in p.topic for p in discovery)
+    assert all(p.retain for p in discovery)
 
 
 def test_the_last_will_is_the_contracts_offline(contract: dict[str, Any], rig: AgentRig) -> None:

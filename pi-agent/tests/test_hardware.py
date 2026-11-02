@@ -2,9 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from wallcal_agent.hardware import Hardware, build_hardware
-from wallcal_agent.hardware.fake import FakeSystemInfo
+from wallcal_agent.config import CecConfig, OutputConfig, ScreenConfig
+from wallcal_agent.hardware import Hardware, ScreenError, build_hardware
+from wallcal_agent.hardware.fake import FakeScreen, FakeSystemInfo
 from wallcal_agent.hardware.linux import LinuxSystemInfo
+from wallcal_agent.hardware.screen import BlackScreen, CecScreen, OutputScreen
 
 
 def test_fake_defaults_and_settable_values() -> None:
@@ -30,13 +32,77 @@ def test_fake_uptime_advances_with_a_clock() -> None:
 
 
 def test_build_hardware_gives_fake_or_linux() -> None:
-    assert isinstance(build_hardware(fake=True).system, FakeSystemInfo)
-    assert isinstance(build_hardware(fake=False).system, LinuxSystemInfo)
-    assert isinstance(build_hardware(fake=True), Hardware)
+    assert isinstance(build_hardware(fake=True, screen=ScreenConfig()).system, FakeSystemInfo)
+    assert isinstance(build_hardware(fake=False, screen=ScreenConfig()).system, LinuxSystemInfo)
+    assert isinstance(build_hardware(fake=True, screen=ScreenConfig()), Hardware)
+
+
+def test_fake_hardware_has_a_pretend_panel_whatever_the_config_says() -> None:
+    for backend in ("black", "cec", "output"):
+        screen = build_hardware(fake=True, screen=ScreenConfig(backend=backend)).screen
+
+        assert isinstance(screen, FakeScreen)
+        assert screen.read_power() is True
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected"), [("black", BlackScreen), ("cec", CecScreen), ("output", OutputScreen)]
+)
+def test_build_hardware_picks_the_screen_back_end_from_the_config(backend: str, expected: type) -> None:
+    config = ScreenConfig(backend=backend, cec=CecConfig(device=4), output=OutputConfig(name="DP-1"))
+
+    assert type(build_hardware(fake=False, screen=config).screen) is expected
+
+
+def test_fake_screen_follows_requests_and_records_them() -> None:
+    fake = FakeScreen()
+
+    assert fake.read_power() is None
+    fake.set_power(True)
+    fake.set_power(False)
+
+    assert fake.set_calls == [True, False]
+    assert fake.read_power() is False
+    assert fake.read_count == 2
+
+
+def test_fake_screen_can_ignore_requests() -> None:
+    fake = FakeScreen(power=True)
+    fake.applies_requests = False
+
+    fake.set_power(False)
+
+    assert fake.set_calls == [False]
+    assert fake.read_power() is True
+
+
+def test_fake_screen_can_be_told_to_fail() -> None:
+    fake = FakeScreen(power=True)
+    fake.set_error = "no adapter"
+    fake.read_error = "timed out"
+
+    with pytest.raises(ScreenError, match="no adapter"):
+        fake.set_power(False)
+    with pytest.raises(ScreenError, match="timed out"):
+        fake.read_power()
+
+    # The request was made, but it did not change the panel.
+    assert fake.set_calls == [False]
+    assert fake.power is True
+
+
+def test_fake_screen_runs_its_hook_during_a_request() -> None:
+    fake = FakeScreen()
+    seen: list[bool] = []
+    fake.on_set = seen.append
+
+    fake.set_power(True)
+
+    assert seen == [True]
 
 
 def test_fake_hardware_uptime_moves_on_its_own() -> None:
-    system = build_hardware(fake=True).system
+    system = build_hardware(fake=True, screen=ScreenConfig()).system
 
     assert system.uptime_seconds() >= 0.0
     first = system.uptime_seconds()

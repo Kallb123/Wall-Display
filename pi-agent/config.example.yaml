@@ -20,3 +20,20 @@ sensors:
   button: false
   presence: false
   light: false
+
+# How the agent turns the panel on and off when the app asks (pi/screen/set), and reports what it is doing.
+# Nothing is touched until the first request. The display page also goes pure black when the screen is "off",
+# whichever back end is chosen.
+screen:
+  # black   - leave the panel alone; the page's black is all there is. Needs nothing set up. (default)
+  # cec     - switch the monitor on or to standby over HDMI CEC with cec-client (package cec-utils).
+  # output  - switch the HDMI output off and on in the kiosk's Wayland compositor (wlopm or wlr-randr).
+  backend: black
+  cec:                       # used by the cec back end
+    device: 0                # default 0 (the TV); a CEC logical address, 0 to 15
+  output:                    # used by the output back end
+    tool: wlopm              # default wlopm; or wlr-randr
+    name: HDMI-A-1           # default HDMI-A-1; the output's name (list them with: wlopm)
+    wayland_display: /run/user/1000/wayland-0   # default; the kiosk's Wayland socket
+  command_timeout_seconds: 10   # default 10, 1 to 60; how long cec-client, wlopm or wlr-randr may take
+  poll_seconds: 60           # default 60; how often the real panel state is read and published if it changed. 0 = never, else at least 5

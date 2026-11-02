@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import yaml
 
-from wallcal_agent.config import Config, ConfigError, load_config, parse_config
+from wallcal_agent.config import CecConfig, Config, ConfigError, OutputConfig, ScreenConfig, load_config, parse_config
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "config.example.yaml"
 
@@ -42,6 +42,13 @@ def test_minimal_config_gets_the_defaults() -> None:
     assert config.mqtt.discovery_prefix == "homeassistant"
     assert config.diagnostics_interval_seconds == 60
     assert config.enabled_sensors() == []
+    assert config.screen == ScreenConfig(
+        backend="black",
+        cec=CecConfig(device=0),
+        output=OutputConfig(tool="wlopm", name="HDMI-A-1", wayland_display="/run/user/1000/wayland-0"),
+        command_timeout_seconds=10,
+        poll_seconds=60,
+    )
 
 
 def test_full_config() -> None:
@@ -60,6 +67,13 @@ def test_full_config() -> None:
             },
             "diagnostics_interval_seconds": 5,
             "sensors": {"button": True, "light": True},
+            "screen": {
+                "backend": "output",
+                "cec": {"device": 15},
+                "output": {"tool": "wlr-randr", "name": "DP-2", "wayland_display": "/run/user/1001/wayland-1"},
+                "command_timeout_seconds": 60,
+                "poll_seconds": 5,
+            },
         }
     )
 
@@ -70,6 +84,13 @@ def test_full_config() -> None:
     assert config.mqtt.discovery_prefix == "ha/custom"
     assert config.diagnostics_interval_seconds == 5
     assert config.enabled_sensors() == ["button", "light"]
+    assert config.screen == ScreenConfig(
+        backend="output",
+        cec=CecConfig(device=15),
+        output=OutputConfig(tool="wlr-randr", name="DP-2", wayland_display="/run/user/1001/wayland-1"),
+        command_timeout_seconds=60,
+        poll_seconds=5,
+    )
 
 
 def test_the_example_file_is_valid_as_it_stands() -> None:
@@ -80,6 +101,7 @@ def test_the_example_file_is_valid_as_it_stands() -> None:
     assert config.mqtt.username == "wallcal"
     assert config.mqtt.client_id == "wallcal-pi-hallway"
     assert config.enabled_sensors() == []
+    assert config.screen.backend == "black"
 
 
 def test_the_example_file_sets_every_key_to_its_default() -> None:
@@ -90,10 +112,60 @@ def test_the_example_file_sets_every_key_to_its_default() -> None:
         del trimmed["mqtt"][key]
     del trimmed["diagnostics_interval_seconds"]
     del trimmed["sensors"]
+    del trimmed["screen"]
 
     assert parse_config(trimmed).mqtt.port == parse_config(example).mqtt.port
     assert parse_config(trimmed).mqtt.client_id == parse_config(example).mqtt.client_id
     assert parse_config(trimmed).diagnostics_interval_seconds == parse_config(example).diagnostics_interval_seconds
+    assert parse_config(trimmed).screen == parse_config(example).screen
+
+
+def test_the_examples_screen_block_sets_every_screen_key_to_its_default() -> None:
+    screen = yaml.safe_load(EXAMPLE_PATH.read_text())["screen"]
+
+    assert set(screen) == {"backend", "cec", "output", "command_timeout_seconds", "poll_seconds"}
+    assert parse_config({**minimal(), "screen": screen}).screen == ScreenConfig()
+
+
+@pytest.mark.parametrize("backend", ["black", "cec", "output"])
+def test_each_screen_backend_is_accepted(backend: str) -> None:
+    assert parse_config(with_change(["screen", "backend"], backend)).screen.backend == backend
+
+
+@pytest.mark.parametrize("value", [0, 5, 6, 3600])
+def test_screen_poll_seconds_accepts_zero_for_never_or_five_and_up(value: int) -> None:
+    assert parse_config(with_change(["screen", "poll_seconds"], value)).screen.poll_seconds == value
+
+
+@pytest.mark.parametrize("name", ["HDMI-A-1", "DP-1", "eDP-1", "HDMI-A-2", "Virtual-1", "NOOP-1", "out_put.2", "A:1"])
+def test_screen_output_names_that_are_accepted(name: str) -> None:
+    assert parse_config(with_change(["screen", "output", "name"], name)).screen.output.name == name
+
+
+def test_a_screen_section_may_be_left_empty() -> None:
+    data = minimal()
+    data["screen"] = None
+
+    assert parse_config(data).screen == ScreenConfig()
+
+
+def test_screen_sub_blocks_may_be_left_empty() -> None:
+    data = with_change(["screen"], {"backend": "cec", "cec": None, "output": None})
+
+    assert parse_config(data).screen == ScreenConfig(backend="cec")
+
+
+def test_a_back_end_that_is_not_selected_is_still_checked() -> None:
+    # Backend black, but the output name is wrong: found now, not on the day someone switches to it.
+    data = with_change(["screen"], {"backend": "black", "output": {"name": "bad name"}})
+
+    with pytest.raises(ConfigError, match=r"screen.output.name"):
+        parse_config(data)
+
+    data = with_change(["screen"], {"backend": "output", "cec": {"device": 16}})
+
+    with pytest.raises(ConfigError, match=r"screen.cec.device"):
+        parse_config(data)
 
 
 def test_sensors_may_be_left_empty() -> None:
@@ -145,6 +217,66 @@ def test_sensors_may_be_left_empty() -> None:
         (with_change(["diagnostics_interval_seconds"], 2.5), "diagnostics_interval_seconds: must be a whole number"),
         (with_change(["sensors"], ["button"]), "sensors: must be a mapping"),
         (with_change(["sensors", "button"], "on"), "sensors.button: must be true or false"),
+        (with_change(["screen"], ["cec"]), "screen: must be a mapping"),
+        (with_change(["screen", "backend"], "hdmi"), "screen.backend: must be one of black, cec, output"),
+        (with_change(["screen", "backend"], "CEC"), "screen.backend: must be one of black, cec, output"),
+        (with_change(["screen", "backend"], ""), "screen.backend: must be one of black, cec, output"),
+        (with_change(["screen", "backend"], 1), "screen.backend: must be text"),
+        (with_change(["screen", "cec"], "0"), "screen.cec: must be a mapping"),
+        (with_change(["screen", "cec", "device"], -1), "screen.cec.device: must be a CEC logical address, 0 to 15"),
+        (with_change(["screen", "cec", "device"], 16), "screen.cec.device: must be a CEC logical address, 0 to 15"),
+        (with_change(["screen", "cec", "device"], "0"), "screen.cec.device: must be a CEC logical address, 0 to 15"),
+        (with_change(["screen", "cec", "device"], 1.5), "screen.cec.device: must be a CEC logical address, 0 to 15"),
+        (with_change(["screen", "cec", "device"], True), "screen.cec.device: must be a CEC logical address, 0 to 15"),
+        (with_change(["screen", "output"], ["HDMI-A-1"]), "screen.output: must be a mapping"),
+        (with_change(["screen", "output", "tool"], "xrandr"), "screen.output.tool: must be one of wlopm, wlr-randr"),
+        (with_change(["screen", "output", "tool"], 3), "screen.output.tool: must be text"),
+        (with_change(["screen", "output", "name"], ""), "screen.output.name: must be one output name"),
+        (with_change(["screen", "output", "name"], "HDMI A 1"), "screen.output.name: must be one output name"),
+        (with_change(["screen", "output", "name"], "HDMI-A-1 "), "screen.output.name: must be one output name"),
+        (with_change(["screen", "output", "name"], "-HDMI"), "screen.output.name: must be one output name"),
+        (with_change(["screen", "output", "name"], "a;b"), "screen.output.name: must be one output name"),
+        (with_change(["screen", "output", "name"], "a\nb"), "screen.output.name: must be one output name"),
+        (with_change(["screen", "output", "name"], 1), "screen.output.name: must be text"),
+        (
+            with_change(["screen", "output", "wayland_display"], "wayland-0"),
+            "screen.output.wayland_display: must be the absolute path",
+        ),
+        (
+            with_change(["screen", "output", "wayland_display"], ""),
+            "screen.output.wayland_display: must be the absolute path",
+        ),
+        (
+            with_change(["screen", "output", "wayland_display"], "/"),
+            "screen.output.wayland_display: must be the absolute path",
+        ),
+        (
+            with_change(["screen", "output", "wayland_display"], "/run/user/1000/"),
+            "screen.output.wayland_display: must be the absolute path",
+        ),
+        (with_change(["screen", "output", "wayland_display"], 0), "screen.output.wayland_display: must be text"),
+        (
+            with_change(["screen", "command_timeout_seconds"], 0),
+            "screen.command_timeout_seconds: must be a whole number of seconds, 1 to 60",
+        ),
+        (
+            with_change(["screen", "command_timeout_seconds"], 61),
+            "screen.command_timeout_seconds: must be a whole number of seconds, 1 to 60",
+        ),
+        (
+            with_change(["screen", "command_timeout_seconds"], "10"),
+            "screen.command_timeout_seconds: must be a whole number of seconds",
+        ),
+        (
+            with_change(["screen", "command_timeout_seconds"], 2.5),
+            "screen.command_timeout_seconds: must be a whole number of seconds",
+        ),
+        (with_change(["screen", "poll_seconds"], 1), "screen.poll_seconds: must be at least 5 (or 0 to never check)"),
+        (with_change(["screen", "poll_seconds"], 4), "screen.poll_seconds: must be at least 5 (or 0 to never check)"),
+        (with_change(["screen", "poll_seconds"], -1), "screen.poll_seconds: must be at least 5 (or 0 to never check)"),
+        (with_change(["screen", "poll_seconds"], "60"), "screen.poll_seconds: must be a whole number of seconds"),
+        (with_change(["screen", "poll_seconds"], 7.5), "screen.poll_seconds: must be a whole number of seconds"),
+        (with_change(["screen", "poll_seconds"], False), "screen.poll_seconds: must be a whole number of seconds"),
     ],
 )
 def test_bad_config_names_the_key(data: Any, message: str) -> None:
@@ -160,6 +292,9 @@ def test_bad_config_names_the_key(data: Any, message: str) -> None:
         ({**minimal(), "dicovery": True}, "dicovery: unknown key"),
         (with_change(["mqtt", "prot"], 1883), "mqtt.prot: unknown key"),
         (with_change(["sensors", "lidar"], True), "sensors.lidar: unknown key"),
+        (with_change(["screen", "backen"], "cec"), "screen.backen: unknown key"),
+        (with_change(["screen", "cec", "address"], 0), "screen.cec.address: unknown key"),
+        (with_change(["screen", "output", "display"], "x"), "screen.output.display: unknown key"),
     ],
 )
 def test_unknown_keys_are_errors(data: Any, message: str) -> None:

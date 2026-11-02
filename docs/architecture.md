@@ -481,8 +481,8 @@ The base is `wallcal/<display_id>/`.
 | `…/pi/illuminance` | pi → | lux (float) |
 | `…/pi/cpu_temperature` | pi → | the Pi's CPU temperature in °C, to one decimal place, such as `48.3`. Published every minute (diagnostics interval); not published where it can't be read. |
 | `…/pi/uptime` | pi → | seconds since the Pi booted, a whole number. Published every diagnostics interval. |
-| `…/pi/screen/set` | app → pi | `on` \| `off`. The agent then turns the panel on or off. |
-| `…/pi/screen/state` | pi → | the actual panel state, if it can be detected |
+| `…/pi/screen/set` | app → pi | `on` \| `off` (retained): the display's `screen` state, published on every change and every connect. The agent then turns the panel on or off. |
+| `…/pi/screen/state` | pi → | `on` \| `off` (retained): the actual panel state as far as the back end can tell (see §8.3) |
 | `…/availability`, `…/pi/availability` | both | `online` / `offline` (MQTT last-will) |
 
 [`contracts/mqtt.json`](../contracts/mqtt.json) is the authoritative definition of the topics and payloads, and tests hold the app's code to it. A `…/set` message that arrives with the retain flag set is ignored, so a stale one on the broker isn't replayed at every reconnect. A connection has one last will, so the app opens one connection per display and each has its own `…/availability`.
@@ -675,6 +675,13 @@ These depend on what the M80F supports over HDMI. **Test early.**
 1. **HDMI-CEC** (`cec-client` / libcec): standby and on. This is the best option if Samsung's Anynet+ works with the Pi.
 2. **Output off**: turn the Pi's HDMI output off (`wlr-randr --output HDMI-A-1 --off` or `wlopm`). The monitor then goes to "no signal" standby. This works on almost any monitor, but wake-up can be slower.
 3. **Black screen**: the display shows pure black. This always works, but the backlight stays on.
+
+The pi agent has all three as back ends, chosen with `screen.backend` in its config (`cec`, `output` or `black`). It subscribes to `…/pi/screen/set`, which the app publishes retained whenever the display's `screen` state changes, so an agent that starts later still gets the last request. Commands run off the MQTT thread, and a burst of requests is applied once, as the latest. After each change, and every `screen.poll_seconds`, the agent reads the panel back and publishes `…/pi/screen/state` (retained): with `cec` the monitor's own power status (`pow`), with `output` whether the output is on, and with `black` simply the last request. The agent never turns the panel on or off by itself, and a clean stop leaves it as it is.
+
+The display page goes black whenever `screen` is `off`, whatever the back end. That *is* the `black` back end, and with `cec` or `output` it covers a monitor that ignores the request or a Pi whose agent is down. `black` is the default until the hardware findings (H.1) show which of the other two the M80F supports.
+
+- **`cec`** runs `cec-client -s -d 1` with `on 0` or `standby 0` (logical address 0, the display, by default). It needs `cec-utils`, the agent user in the `video` group for `/dev/cec*`, and Anynet+ (HDMI-CEC) turned on in the monitor's settings.
+- **`output`** runs `wlopm --on|--off HDMI-A-1` (the default, which keeps the output's mode, so Chromium isn't resized) or `wlr-randr --output HDMI-A-1 --on|--off` against the kiosk's compositor. The agent runs as its own user, so the kiosk launcher grants that user access to the Wayland socket with an ACL.
 
 Real backlight control would need **DDC/CI** (`ddcutil`). Support on Samsung smart monitors is uncertain. If it works, `brightness` can drive the actual backlight. If not, it falls back to the CSS overlay.
 

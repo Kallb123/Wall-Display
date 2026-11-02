@@ -2,6 +2,7 @@ import logging
 import os
 import signal
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,34 @@ def test_runs_until_signalled_then_says_offline(
     # The handlers main installed are put back, so it can be called again (and doesn't leak into other tests).
     assert signal.getsignal(sig) == before
     assert PASSWORD not in caplog.text
+
+
+def test_fake_hardware_has_a_pretend_panel_that_obeys_requests(config_file: Path, fake_client: FakeMqttClient) -> None:
+    state_topic = "wallcal/hallway/pi/screen/state"
+
+    def states() -> list[str | None]:
+        return [p.payload for p in list(fake_client.publishes) if p.topic == state_topic]
+
+    def play_the_broker() -> None:
+        deadline = time.monotonic() + 10
+        wait = threading.Event()
+        fake_client.broker_accepts()
+        while states() != ["on"] and time.monotonic() < deadline:
+            wait.wait(0.005)
+        fake_client.message_arrives("wallcal/hallway/pi/screen/set", "off")
+        while states() != ["on", "off"] and time.monotonic() < deadline:
+            wait.wait(0.005)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    player = threading.Timer(0.2, play_the_broker)
+    player.start()
+
+    code = cli.main(["--config", str(config_file), "--fake-hardware"])
+    player.join()
+
+    assert code == 0
+    assert states() == ["on", "off"]
+    assert ("wallcal/hallway/pi/screen/set", 1) in fake_client.subscriptions
 
 
 def test_enabled_sensors_are_reported_as_not_built_yet(

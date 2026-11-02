@@ -14,7 +14,7 @@ from paho.mqtt.reasoncodes import ReasonCode
 from wallcal_agent.agent import Agent
 from wallcal_agent.config import Config, MqttConfig
 from wallcal_agent.hardware import Hardware
-from wallcal_agent.hardware.fake import FakeSystemInfo
+from wallcal_agent.hardware.fake import FakeScreen, FakeSystemInfo
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "mqtt.json"
 
@@ -147,16 +147,26 @@ def system() -> FakeSystemInfo:
     return FakeSystemInfo(cpu_temperature=48.25, uptime=3600.0)
 
 
+@pytest.fixture
+def screen() -> FakeScreen:
+    return FakeScreen(power=True)
+
+
 @dataclass
 class AgentRig:
     agent: Agent
     client: FakeMqttClient
     system: FakeSystemInfo
+    screen: FakeScreen
 
 
 @pytest.fixture
-def make_agent(system: FakeSystemInfo) -> Callable[[Config], AgentRig]:
-    """Builds an Agent wired to a FakeMqttClient and the fake hardware."""
+def make_agent(system: FakeSystemInfo, screen: FakeScreen) -> Callable[[Config], AgentRig]:
+    """Builds an Agent wired to a FakeMqttClient and the fake hardware.
+
+    The agent has no screen worker thread: a test makes the screen work happen by calling `run_screen_work()` (or
+    `poll_screen()`), so what runs and when is under the test's control.
+    """
 
     def build(config: Config) -> AgentRig:
         client = FakeMqttClient()
@@ -165,8 +175,8 @@ def make_agent(system: FakeSystemInfo) -> Callable[[Config], AgentRig]:
             client.client_id = client_id
             return client
 
-        agent = Agent(config, Hardware(system=system), client_factory=factory)
-        return AgentRig(agent=agent, client=client, system=system)
+        agent = Agent(config, Hardware(system=system, screen=screen), client_factory=factory, screen_worker=False)
+        return AgentRig(agent=agent, client=client, system=system, screen=screen)
 
     return build
 

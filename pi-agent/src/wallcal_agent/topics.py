@@ -13,17 +13,25 @@ BASE = "wallcal/{display_id}"
 AVAILABILITY = "pi/availability"
 CPU_TEMPERATURE = "pi/cpu_temperature"
 UPTIME = "pi/uptime"
+# The request to turn the panel on or off (the agent subscribes to it) and what the panel is actually doing.
+SCREEN_SET = "pi/screen/set"
+SCREEN_STATE = "pi/screen/state"
 
 ONLINE = "online"
 OFFLINE = "offline"
 
 # Each topic the agent publishes, and whether it is retained. Availability is retained so a late subscriber learns
 # the state at once (and so the last will can replace it). The diagnostics are not: a stale reading is worse than none.
+# The panel state is retained because it only changes when someone asks, so it can be a long time between messages.
 PUBLISHED: dict[str, bool] = {
     AVAILABILITY: True,
     CPU_TEMPERATURE: False,
     UPTIME: False,
+    SCREEN_STATE: True,
 }
+
+# Each topic the agent listens to. The contract's `to_pi` topics are exactly these.
+SUBSCRIBED: tuple[str, ...] = (SCREEN_SET,)
 
 
 def topic_for(display_id: str, name: str) -> str:
@@ -48,3 +56,17 @@ def cpu_temperature_payload(celsius: float) -> str:
 def uptime_payload(seconds: float) -> str:
     """Whole seconds since boot. Fractions are dropped, and a clock that steps backwards gives 0, never a minus."""
     return str(max(0, math.floor(seconds)))
+
+
+def parse_screen_payload(text: str) -> bool | None:
+    """True for "on", False for "off", and None for anything else. Exact: "ON" and " on" are not valid."""
+    if text == "on":
+        return True
+    if text == "off":
+        return False
+    return None
+
+
+def screen_payload(on: bool) -> str:
+    """The payload for a panel that is on or off."""
+    return "on" if on else "off"

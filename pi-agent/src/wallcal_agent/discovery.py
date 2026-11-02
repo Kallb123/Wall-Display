@@ -2,8 +2,9 @@
 
 One config message per entity, mirroring calendar-app/server/mqtt/discovery.ts: keys are written out in full,
 the messages are retained so Home Assistant has them even if it starts after the Pi, and every entity goes
-unavailable with the agent (availability topic plus last will). Pure: no I/O. agent.py publishes these on every
-connect, and again when Home Assistant says it has restarted.
+unavailable with the agent (availability topic plus last will). The sensors also expire if the agent stops
+reporting; the panel power does not, because its state is retained and can stay the same for days. Pure: no I/O.
+agent.py publishes these on every connect, and again when Home Assistant says it has restarted.
 """
 
 import json
@@ -38,7 +39,7 @@ def birth_topic(prefix: str) -> str:
 
 
 def discovery_messages(prefix: str, display_id: str, version: str, diagnostics_interval: int) -> list[DiscoveryMessage]:
-    """Every discovery message for one Pi, in a fixed order: `<prefix>/sensor/wallcal_pi_<id>/<object id>/config`."""
+    """Every discovery message for one Pi, in a fixed order, at `<prefix>/<kind>/wallcal_pi_<id>/<object>/config`."""
     node = f"wallcal_pi_{display_id}"
     device = {
         "identifiers": [node],
@@ -49,11 +50,13 @@ def discovery_messages(prefix: str, display_id: str, version: str, diagnostics_i
     }
     origin = {"name": ORIGIN_NAME, "sw_version": version, "url": ORIGIN_URL}
 
-    # (object id, name, what is particular to the entity)
-    entities: list[tuple[str, str, dict[str, Any]]] = [
+    # (component, object id, name, whether it expires, what is particular to the entity)
+    entities: list[tuple[str, str, str, bool, dict[str, Any]]] = [
         (
+            "sensor",
             "cpu_temperature",
             "CPU temperature",
+            True,
             {
                 "state_topic": topics.topic_for(display_id, topics.CPU_TEMPERATURE),
                 "device_class": "temperature",
@@ -63,8 +66,10 @@ def discovery_messages(prefix: str, display_id: str, version: str, diagnostics_i
             },
         ),
         (
+            "sensor",
             "uptime",
             "Uptime",
+            True,
             {
                 "state_topic": topics.topic_for(display_id, topics.UPTIME),
                 "device_class": "duration",
@@ -72,10 +77,22 @@ def discovery_messages(prefix: str, display_id: str, version: str, diagnostics_i
                 "icon": "mdi:timer-outline",
             },
         ),
+        (
+            "binary_sensor",
+            "panel_power",
+            "Panel power",
+            False,
+            {
+                "state_topic": topics.topic_for(display_id, topics.SCREEN_STATE),
+                "device_class": "power",
+                "payload_on": topics.screen_payload(True),
+                "payload_off": topics.screen_payload(False),
+            },
+        ),
     ]
 
     messages: list[DiscoveryMessage] = []
-    for object_id, name, particular in entities:
+    for component, object_id, name, expires, particular in entities:
         config: dict[str, Any] = {
             "name": name,
             "unique_id": f"{node}_{object_id}",
@@ -84,14 +101,14 @@ def discovery_messages(prefix: str, display_id: str, version: str, diagnostics_i
             "payload_available": topics.ONLINE,
             "payload_not_available": topics.OFFLINE,
             "entity_category": "diagnostic",
-            "expire_after": EXPIRY_INTERVALS * diagnostics_interval,
+            **({"expire_after": EXPIRY_INTERVALS * diagnostics_interval} if expires else {}),
             "device": device,
             "origin": origin,
             "qos": 1,
         }
         messages.append(
             DiscoveryMessage(
-                topic=f"{prefix}/sensor/{node}/{object_id}/config",
+                topic=f"{prefix}/{component}/{node}/{object_id}/config",
                 payload=json.dumps(config, ensure_ascii=False),
             )
         )

@@ -21,8 +21,8 @@ LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wallcal-agent",
-        description="The Wall Display agent for the Raspberry Pi: MQTT availability, Home Assistant discovery "
-        "and diagnostics.",
+        description="The Wall Display agent for the Raspberry Pi: MQTT availability, Home Assistant discovery, "
+        "diagnostics and panel power.",
     )
     parser.add_argument(
         "--config",
@@ -33,7 +33,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fake-hardware",
         action="store_true",
-        help="use made-up sensor values, to try the agent somewhere that isn't a Pi",
+        help="use made-up sensor values and a pretend panel, to try the agent somewhere that isn't a Pi",
     )
     parser.add_argument(
         "--log-level",
@@ -69,7 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         stop.set()
 
     previous = {sig: signal.signal(sig, request_stop) for sig in (signal.SIGTERM, signal.SIGINT)}
-    agent = Agent(config, build_hardware(args.fake_hardware), client_factory=default_client_factory)
+    agent = Agent(config, build_hardware(args.fake_hardware, config.screen), client_factory=default_client_factory)
     try:
         agent.start()
         agent.run(stop)

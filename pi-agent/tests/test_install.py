@@ -1,5 +1,6 @@
 """Tests for install.sh, run against a scratch tree with --target (no root, no network)."""
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -83,3 +84,20 @@ def test_target_mode_touches_nothing_outside_the_target(tmp_path: Path) -> None:
     assert install_into(tmp_path).returncode == 0
     created = {path.relative_to(tmp_path).parts[0] for path in tmp_path.rglob("*")}
     assert created == {"etc"}
+
+
+def test_the_installer_adds_the_video_group_and_the_screen_tools() -> None:
+    # install_packages and create_user need root and a real system, so they can't run here: check what they say.
+    script = INSTALL.read_text()
+
+    assert re.search(r"^DEVICE_GROUPS=\(.*\bvideo\b.*\)$", script, re.MULTILINE)
+    assert re.search(r"apt-get install -y python3 python3-venv .*\bcec-utils\b", script)
+    assert re.search(r"apt-get install -y wlopm", script)
+
+
+def test_the_unit_lets_the_service_reach_the_kiosks_wayland_socket() -> None:
+    unit = UNIT_SOURCE.read_text()
+
+    # "yes" would hide /run/user, where the socket is.
+    assert re.search(r"^ProtectHome=read-only$", unit, re.MULTILINE)
+    assert not re.search(r"^ProtectHome=yes", unit, re.MULTILINE)

@@ -243,6 +243,7 @@ const stageStyle = computed(() => ({
 }))
 
 // 100 is full brightness and 0 is as dark as the overlay can make it; "off" is black.
+// This doubles as the Pi agent's `black` screen back end, so it is not tied to the back end the agent uses: with `cec` or `output` it still covers a panel that ignores the command, or a Pi whose agent is down.
 const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.value.brightness) / 100)
 </script>
 

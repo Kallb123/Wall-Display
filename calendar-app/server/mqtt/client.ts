@@ -5,7 +5,7 @@ import type { MqttConfig } from '../config/schema'
 import type { DisplayControl } from '../control/service'
 import type { EventBus } from '../events/bus'
 import { BIRTH_ONLINE, birthTopic, discoveryMessages } from './discovery'
-import { AVAILABILITY_TOPIC, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseCommandTopic, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
+import { AVAILABILITY_TOPIC, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseCommandTopic, PI_SCREEN_TOPIC, piScreenPayload, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
 import type { StateTopic } from './topics'
 
 // Keeps each display's state on an MQTT broker and takes commands from it
@@ -13,11 +13,12 @@ import type { StateTopic } from './topics'
 // connection and availability is per display, so each display gets its own
 // connection. With discovery on, it also publishes Home Assistant's entity
 // configs for the display on every connect, and again when Home Assistant
-// says it has restarted. This file decides when to connect, retry and publish;
-// the topics and payloads are in topics.ts and discovery.ts, and the MQTT
-// client itself is injected, so a test drives it with a fake and fake timers.
-// A broker that is missing or down never stops the app: nothing here throws
-// or waits for it.
+// says it has restarted. It also tells the Pi agent what the panel should be,
+// on `pi/screen/set`, whenever the screen setting changes. This file decides
+// when to connect, retry and publish; the topics and payloads are in topics.ts
+// and discovery.ts, and the MQTT client itself is injected, so a test drives
+// it with a fake and fake timers. A broker that is missing or down never stops
+// the app: nothing here throws or waits for it.
 
 /** The part of an MQTT.js client the bridge uses, so a test can pass a fake. */
 export interface MqttLink {
@@ -116,8 +117,8 @@ interface Link {
   client: MqttLink | undefined
   state: MqttBridgeStatus['state']
   lastError: string | null
-  /** What this connection last published on each state topic (and on `last_sync/state` and `special_day/state`). Emptied on every connect, so a connect publishes everything. */
-  published: Map<StateTopic | typeof LAST_SYNC_TOPIC | typeof SPECIAL_DAY_TOPIC, string>
+  /** What this connection last published on each state topic (and on `last_sync/state`, `special_day/state` and `pi/screen/set`). Emptied on every connect, so a connect publishes everything. */
+  published: Map<StateTopic | typeof LAST_SYNC_TOPIC | typeof SPECIAL_DAY_TOPIC | typeof PI_SCREEN_TOPIC, string>
   /** Connections that failed or dropped since the last one that lasted `STABLE_MS`. */
   failures: number
   /** When the current connection came up, in ms. */
@@ -202,7 +203,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
   }
 
-  /** Publishes the state topics whose payload is not what this connection last published. */
+  /** Publishes the state topics, and `pi/screen/set`, whose payload is not what this connection last published. */
   function publishState(link: Link): void {
     if (link.state !== 'connected') return
     let state: DisplayState
@@ -212,7 +213,12 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       log.error(`[mqtt] ${link.displayId}: could not read the state: ${describe(error)}`)
       return
     }
-    const entries = [...Object.entries(statePayloads(state, now(), timeZone)) as [StateTopic, string][], ...lastSyncEntry(link), ...specialDayEntry(link)]
+    const entries = [
+      ...Object.entries(statePayloads(state, now(), timeZone)) as [StateTopic, string][],
+      [PI_SCREEN_TOPIC, piScreenPayload(state)] as [typeof PI_SCREEN_TOPIC, string],
+      ...lastSyncEntry(link),
+      ...specialDayEntry(link),
+    ]
     for (const [topic, payload] of entries) {
       if (link.published.get(topic) === payload) continue
       link.published.set(topic, payload)

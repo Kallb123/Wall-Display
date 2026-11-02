@@ -458,6 +458,26 @@ const swimming: CalendarEvent = {
   start: '2026-11-01T08:30:00Z', end: '2026-11-01T09:30:00Z', all_day: false, start_date: null, end_date: null, people: [],
 }
 
+describe('the screen being off', () => {
+  const dimmerStyle = (wall: Awaited<ReturnType<typeof openWall>>) => wall.stage().find('[data-testid="dimmer"]').attributes('style')
+
+  // This is the Pi agent's `black` screen back end, so it has to stay whatever the brightness is.
+  it.each([100, 40, 0])('covers the whole stage in black at brightness %i, and lifts when the screen comes back on', async (brightness) => {
+    const wall = await openWall({ state: state({ screen: 'off', brightness }) })
+
+    expect(dimmerStyle(wall)).toContain('opacity: 1')
+
+    await wall.setState({ screen: 'on', brightness })
+    expect(dimmerStyle(wall)).toContain(`opacity: ${(100 - brightness) / 100}`)
+  })
+
+  it('is black over the photo frame too', async () => {
+    const wall = await openWall({ state: state({ screen: 'off', view: 'photo' }) })
+
+    expect(dimmerStyle(wall)).toContain('opacity: 1')
+  })
+})
+
 describe('burn-in shifting', () => {
   const shift = (wall: Awaited<ReturnType<typeof openWall>>) => wall.wrapper.find('[data-testid="shift"]')
 

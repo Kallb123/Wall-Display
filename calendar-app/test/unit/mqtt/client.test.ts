@@ -9,7 +9,7 @@ import type { EventBus } from '../../../server/events/bus'
 import { createMqttBridge, MAX_RECONNECT_MS, RECHECK_MS, reconnectDelayMs, STABLE_MS, STOP_WAIT_MS } from '../../../server/mqtt/client'
 import type { MqttBridge, MqttLink } from '../../../server/mqtt/client'
 import { discoveryMessages } from '../../../server/mqtt/discovery'
-import { COMMAND_TOPICS, lastSyncPayload, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
+import { COMMAND_TOPICS, lastSyncPayload, PI_SCREEN_TOPIC, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
 
 // The bridge with a fake MQTT client and fake timers: no network. The fake
 // records what is published and subscribed, and the test plays the broker by
@@ -216,7 +216,7 @@ describe('connecting', () => {
     expect(bridge.status().map(({ displayId, state }) => `${displayId} ${state}`)).toEqual(['hallway connecting', 'kitchen connected'])
   })
 
-  it('says online first, then subscribes to every command topic at QoS 1, then publishes all of the state, retained at QoS 1', () => {
+  it('says online first, then subscribes to every command topic at QoS 1, then publishes all of the state and the Pi agent\'s screen request, retained at QoS 1', () => {
     const { client, log } = setup({ config: { ...CONFIG, discovery: false } })
 
     client().up()
@@ -224,7 +224,7 @@ describe('connecting', () => {
     const [first, ...rest] = client().published
     expect(first).toEqual({ topic: 'wallcal/hallway/availability', payload: 'online', qos: 1, retain: true })
     expect(client().subscribed).toEqual([{ topics: COMMAND_TOPICS.map(suffix => `wallcal/hallway/${suffix}`), qos: 1 }])
-    expect(rest.map(message => message.topic)).toEqual(STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`))
+    expect(rest.map(message => message.topic)).toEqual([...STATE_TOPICS, PI_SCREEN_TOPIC].map(suffix => `wallcal/hallway/${suffix}`))
     expect(rest.every(message => message.qos === 1 && message.retain)).toBe(true)
     expect(Object.fromEntries(rest.map(message => [message.topic.replace('wallcal/hallway/', ''), message.payload]))).toEqual({
       'view/state': 'month',
@@ -235,6 +235,7 @@ describe('connecting', () => {
       'auto_presence/state': 'ON',
       'auto_brightness/state': 'ON',
       'overlay/state': '',
+      'pi/screen/set': 'on',
     })
     expect(log.info).toHaveBeenCalledWith('[mqtt] hallway: connected to mqtt://broker.local:1883')
   })
@@ -249,7 +250,7 @@ describe('connecting', () => {
     expect(topics).toEqual([
       'wallcal/hallway/availability',
       ...configs,
-      ...STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`),
+      ...[...STATE_TOPICS, PI_SCREEN_TOPIC].map(suffix => `wallcal/hallway/${suffix}`),
     ])
   })
 
@@ -717,6 +718,90 @@ describe('republishing the discovery configs', () => {
 
     expect(bridge.republishDiscovery()).toEqual([])
     expect(client().published).toEqual([])
+  })
+})
+
+describe('the Pi agent\'s screen request', () => {
+  const TOPIC = 'wallcal/hallway/pi/screen/set'
+
+  it('publishes the screen state on connect, retained at QoS 1', () => {
+    const { client, states } = setup()
+    states.set('hallway', { ...defaultDisplayState(), screen: 'off' })
+
+    client().up()
+
+    expect(client().published.filter(message => message.topic === TOPIC)).toEqual([
+      { topic: TOPIC, payload: 'off', qos: 1, retain: true },
+    ])
+  })
+
+  it('publishes it again, once, when the screen is turned on or off', () => {
+    const { client, control } = setup()
+    client().up()
+    client().clear()
+
+    control.applyCommand('hallway', { type: 'set_screen', screen: 'off' })
+    expect(client().payloadsOn(TOPIC)).toEqual(['off'])
+
+    control.applyCommand('hallway', { type: 'set_screen', screen: 'on' })
+    expect(client().payloadsOn(TOPIC)).toEqual(['off', 'on'])
+  })
+
+  it('does not publish it for a change to something else, or when the screen is set to what it was', () => {
+    const { client, control } = setup()
+    client().up()
+    client().clear()
+
+    control.applyCommand('hallway', { type: 'set_view', view: 'agenda' })
+    control.applyCommand('hallway', { type: 'set_brightness', brightness: 40 })
+    control.applyCommand('hallway', { type: 'set_screen', screen: 'on' })
+    vi.advanceTimersByTime(RECHECK_MS)
+
+    expect(client().payloadsOn(TOPIC)).toEqual([])
+  })
+
+  it('is sent again after a reconnect, as it is now', () => {
+    const { client, control } = setup()
+    client().up()
+    control.applyCommand('hallway', { type: 'set_screen', screen: 'off' })
+    client().down()
+    client().clear()
+
+    vi.advanceTimersByTime(SECOND)
+    client().up()
+
+    expect(client().payloadsOn(TOPIC)).toEqual(['off'])
+  })
+
+  it('sends it again when the broker never took it', () => {
+    const { client, control } = setup()
+    client().up()
+    client().clear()
+
+    // `screen/state` goes out first and would take the failure, so the failure is set up for `pi/screen/set`'s own publish.
+    const publish = client().publish.bind(client())
+    client().publish = (topic, payload, options, callback) => {
+      if (topic === TOPIC) client().failNextPublish = new Error('Connection closed')
+      return publish(topic, payload, options, callback)
+    }
+    control.applyCommand('hallway', { type: 'set_screen', screen: 'off' })
+    client().publish = publish
+    vi.advanceTimersByTime(RECHECK_MS)
+
+    expect(client().payloadsOn(TOPIC)).toEqual(['off', 'off'])
+  })
+
+  it('goes to the display that changed only', () => {
+    const { client, control } = setup({ displays: ['hallway', 'kitchen'] })
+    client('hallway').up()
+    client('kitchen').up()
+    client('hallway').clear()
+    client('kitchen').clear()
+
+    control.applyCommand('kitchen', { type: 'set_screen', screen: 'off' })
+
+    expect(client('hallway').payloadsOn(TOPIC)).toEqual([])
+    expect(client('kitchen').payloadsOn('wallcal/kitchen/pi/screen/set')).toEqual(['off'])
   })
 })
 

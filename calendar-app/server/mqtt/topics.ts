@@ -42,6 +42,9 @@ export const LAST_SYNC_TOPIC = 'last_sync/state'
 /** Today's special day name, or empty when there is none. Retained, and a fact about the app like `LAST_SYNC_TOPIC`, so not one of `STATE_TOPICS`. */
 export const SPECIAL_DAY_TOPIC = 'special_day/state'
 
+/** What the Pi agent should make the panel: `on` or `off`. It is for the agent, so it is under `pi/` (the topic the agent subscribes to), and retained so an agent that starts later still gets the last request. Not one of `STATE_TOPICS`: those are the display's settings, each paired with a command topic, and this is the same `screen` setting told to the panel. */
+export const PI_SCREEN_TOPIC = 'pi/screen/set'
+
 /** `online` while connected. The broker publishes `offline` if the app dies (the last will). */
 export const AVAILABILITY_TOPIC = 'availability'
 export const ONLINE = 'online'
@@ -170,4 +173,9 @@ export function lastSyncPayload(at: Date): string {
 /** What `special_day/state` carries: today's special day name, or empty when there is none. */
 export function specialDayPayload(name: string | null): string {
   return name ?? ''
+}
+
+/** What `pi/screen/set` carries: `state.screen` as it is, `on` or `off`. */
+export function piScreenPayload(state: DisplayState): string {
+  return state.screen
 }

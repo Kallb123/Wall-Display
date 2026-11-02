@@ -41,7 +41,7 @@ Then restart the app (`docker compose restart calendar-app`).
 
 In HA, go to Settings → Devices & services → Add integration → MQTT. Set the broker to the server's IP address and the port to 1883. Leave the username and password empty.
 
-The broker allows anonymous connections, so keep port 1883 on your home network. [`mosquitto/config/mosquitto.conf`](../mosquitto/config/mosquitto.conf) explains how to switch to a password file. If you do, the app, HA and (later) the Pi agent all need the login. Add it to the app's config:
+The broker allows anonymous connections, so keep port 1883 on your home network. [`mosquitto/config/mosquitto.conf`](../mosquitto/config/mosquitto.conf) explains how to switch to a password file. If you do, the app, HA and the Pi agent all need the login. Add it to the app's config:
 
 ```yaml
 mqtt:
@@ -131,10 +131,13 @@ The Pi agent (see [`pi-agent/`](../pi-agent/README.md)) publishes a second devic
 |---|---|---|
 | CPU temperature | `sensor.wall_calendar_pi_cpu_temperature` | The Pi's CPU temperature in °C. Diagnostic. |
 | Uptime | `sensor.wall_calendar_pi_uptime` | Seconds since the Pi booted. Diagnostic. |
+| Panel power | `binary_sensor.wall_calendar_pi_panel_power` | Whether the panel is on, as the agent last found it. With the `cec` back end that is what the monitor reports, so it also follows the monitor's own remote; with `output` it is whether the Pi's HDMI output is on; with `black` it is the state the agent was last asked for. Diagnostic. |
 
-Both show as unavailable while the agent is offline (they follow `wallcal/<display id>/pi/availability`), and if it stops reporting for three times its diagnostics interval.
+All of them show as unavailable while the agent is offline (they follow `wallcal/<display id>/pi/availability`). The two diagnostic sensors also go unavailable if the agent stops reporting for three times its diagnostics interval.
 
-Not there yet: the button (`event.wall_calendar_pi_button`), presence, illuminance and panel power entities. They come with the sensors in Milestone 3.
+To turn the screen on or off, use the app's `switch.wall_calendar_screen`, not the Pi: the app passes it on to the agent on `pi/screen/set`. The panel power sensor is there to check that the panel really followed.
+
+Not there yet: the button (`event.wall_calendar_pi_button`), presence and illuminance entities. They come with the sensors in Milestone 3.
 
 ### How discovery behaves
 

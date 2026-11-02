@@ -14,7 +14,7 @@ from paho.mqtt.reasoncodes import ReasonCode
 from wallcal_agent.agent import Agent
 from wallcal_agent.config import Config, MqttConfig, SensorsConfig
 from wallcal_agent.hardware import Hardware
-from wallcal_agent.hardware.fake import FakeButton, FakePresence, FakeScreen, FakeSystemInfo
+from wallcal_agent.hardware.fake import FakeButton, FakeLight, FakePresence, FakeScreen, FakeSystemInfo
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "mqtt.json"
 
@@ -153,7 +153,8 @@ def screen() -> FakeScreen:
 
 
 class FakeClock:
-    """A clock the test moves by hand, for the button's and presence's timings (the agent's `clock` argument)."""
+    """A clock the test moves by hand, for the button's, presence's and light's timings (the agent's `clock`
+    argument)."""
 
     def __init__(self, now: float = 1000.0) -> None:
         self.now = now
@@ -177,6 +178,8 @@ class AgentRig:
     button: FakeButton | None
     # None unless the config has `sensors.presence` on.
     presence: FakePresence | None
+    # None unless the config has `sensors.light` on. It reads 100 lux until a test sets `lux` or `error`.
+    light: FakeLight | None
 
 
 @pytest.fixture
@@ -185,8 +188,9 @@ def make_agent(system: FakeSystemInfo, screen: FakeScreen) -> Callable[[Config],
 
     The agent has no worker threads: a test makes the screen work happen by calling `run_screen_work()` (or
     `poll_screen()`), the button's by pressing `rig.button`, moving `rig.clock` and calling `run_button_work()`, and
-    presence by calling `rig.presence.set(...)`, moving `rig.clock` and calling `run_presence_work()`, so what runs
-    and when is under the test's control.
+    presence by calling `rig.presence.set(...)`, moving `rig.clock` and calling `run_presence_work()`, and the light
+    sensor by setting `rig.light.lux`, moving `rig.clock` and calling `run_light_work()`, so what runs and when is
+    under the test's control.
     """
 
     def build(config: Config) -> AgentRig:
@@ -199,17 +203,26 @@ def make_agent(system: FakeSystemInfo, screen: FakeScreen) -> Callable[[Config],
         clock = FakeClock()
         button = FakeButton() if config.sensors.button else None
         presence = FakePresence() if config.sensors.presence else None
+        light = FakeLight(lux=100.0) if config.sensors.light else None
         agent = Agent(
             config,
-            Hardware(system=system, screen=screen, button=button, presence=presence),
+            Hardware(system=system, screen=screen, button=button, presence=presence, light=light),
             client_factory=factory,
             clock=clock,
             screen_worker=False,
             button_worker=False,
             presence_worker=False,
+            light_worker=False,
         )
         return AgentRig(
-            agent=agent, client=client, system=system, screen=screen, clock=clock, button=button, presence=presence
+            agent=agent,
+            client=client,
+            system=system,
+            screen=screen,
+            clock=clock,
+            button=button,
+            presence=presence,
+            light=light,
         )
 
     return build
@@ -247,5 +260,19 @@ def presence_config(config: Config) -> Config:
 def presence_rig(presence_config: Config, make_agent: Callable[[Config], AgentRig]) -> AgentRig:
     """A started agent with a presence sensor, not connected yet."""
     built = make_agent(presence_config)
+    built.agent.start()
+    return built
+
+
+@pytest.fixture
+def light_config(config: Config) -> Config:
+    """The same config with `sensors.light` on, so the agent is given a light sensor."""
+    return replace(config, sensors=SensorsConfig(light=True))
+
+
+@pytest.fixture
+def light_rig(light_config: Config, make_agent: Callable[[Config], AgentRig]) -> AgentRig:
+    """A started agent with a light sensor, not connected yet."""
+    built = make_agent(light_config)
     built.agent.start()
     return built

@@ -33,6 +33,11 @@ PRESENCE_SOURCES = ("gpio", "uart")
 # The speeds the LD2410 can be set to. 256000 is how it leaves the factory.
 UART_BAUDS = (9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800)
 
+LIGHT_CHIPS = ("veml7700", "bh1750")
+# The I2C addresses each chip can answer on. The VEML7700 has just the one. The BH1750 has two, picked by its ADDR pin
+# (low is 0x23, high is 0x5c).
+LIGHT_ADDRESSES = {"veml7700": (0x10,), "bh1750": (0x23, 0x5C)}
+
 
 class ConfigError(Exception):
     """The config can't be used. The message is for the person who wrote it, so it reads as plain English."""
@@ -53,8 +58,7 @@ class MqttConfig:
 
 @dataclass(frozen=True)
 class SensorsConfig:
-    """Which sensors are wired to this Pi. The button's and the presence sensor's settings are in `ButtonConfig` and
-    `PresenceConfig`; the light sensor arrives later."""
+    """Which sensors are wired to this Pi. Their settings are in `ButtonConfig`, `PresenceConfig` and `LightConfig`."""
 
     button: bool = False
     presence: bool = False
@@ -130,6 +134,27 @@ class PresenceConfig:
 
 
 @dataclass(frozen=True)
+class LightConfig:
+    """The ambient light sensor: which chip and where it is, how often it is read, and what counts as a change."""
+
+    # veml7700 or bh1750. Both are small breakout boards on the Pi's I2C pins.
+    chip: str = "veml7700"
+    # The I2C bus number: /dev/i2c-<bus>. Bus 1 is the one on the header's pins 3 and 5.
+    bus: int = 1
+    # Left out of the config, this is the chip's own address (`parse_config` fills it in). A `LightConfig` made by
+    # hand for another chip must say so.
+    address: int = 0x10
+    # How often the sensor is read. Most readings are not published: see `change_percent` and `report_seconds`.
+    sample_ms: int = 1000
+    # A reading is published when it differs from the last one published by at least this share of it...
+    change_percent: int = 10
+    # ...and by at least this many lux, so flicker in a dark room isn't a change.
+    change_lux: float = 0.5
+    # The longest a reading goes unpublished, so Home Assistant can tell a steady room from a dead sensor.
+    report_seconds: int = 30
+
+
+@dataclass(frozen=True)
 class Config:
     display_id: str
     mqtt: MqttConfig
@@ -138,6 +163,7 @@ class Config:
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     button: ButtonConfig = field(default_factory=ButtonConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
+    light: LightConfig = field(default_factory=LightConfig)
 
     def enabled_sensors(self) -> list[str]:
         """The names of the sensors switched on, in a fixed order."""
@@ -412,11 +438,82 @@ def _parse_presence(data: Any) -> PresenceConfig:
     return PresenceConfig(source=source, pin=pin, hold_ms=hold, uart=_parse_uart(section.get("uart")))
 
 
+def _number(data: dict[Any, Any], key: str, path: str, default: float, message: str) -> float:
+    """A setting that may be a whole or a fractional number. A YAML `0.5` is a float and `1` is an int."""
+    if key not in data or data[key] is None:
+        return default
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ConfigError(f"{path}: {message}")
+    return value
+
+
+def _parse_light(data: Any) -> LightConfig:
+    if data is None:
+        return LightConfig()
+    section = _mapping(data, "light")
+    _check_keys(
+        section, "light", ("chip", "bus", "address", "sample_ms", "change_percent", "change_lux", "report_seconds")
+    )
+
+    chip = _text(section, "chip", "light.chip")
+    if chip is None:
+        chip = "veml7700"
+    if chip not in LIGHT_CHIPS:
+        raise ConfigError(f"light.chip: must be one of {', '.join(LIGHT_CHIPS)}")
+
+    bus_message = "must be an I2C bus number, 0 to 31"
+    bus = _whole_number(section, "bus", "light.bus", 1, bus_message)
+    if not 0 <= bus <= 31:
+        raise ConfigError(f"light.bus: {bus_message}")
+
+    # Checked against the chip chosen above. YAML reads `0x23` as a number, so it is written the way the chip's
+    # datasheet does.
+    allowed = LIGHT_ADDRESSES[chip]
+    address_message = f"must be {' or '.join(f'0x{address:02x}' for address in allowed)} for the {chip}"
+    address = _whole_number(section, "address", "light.address", allowed[0], address_message)
+    if address not in allowed:
+        raise ConfigError(f"light.address: {address_message}")
+
+    sample_message = "must be a whole number of milliseconds, 200 to 60000"
+    sample = _whole_number(section, "sample_ms", "light.sample_ms", 1000, sample_message)
+    if not 200 <= sample <= 60000:
+        raise ConfigError(f"light.sample_ms: {sample_message}")
+
+    percent_message = "must be a whole number of percent, 1 to 100"
+    percent = _whole_number(section, "change_percent", "light.change_percent", 10, percent_message)
+    if not 1 <= percent <= 100:
+        raise ConfigError(f"light.change_percent: {percent_message}")
+
+    lux_message = "must be a number of lux, 0 to 1000"
+    lux = _number(section, "change_lux", "light.change_lux", 0.5, lux_message)
+    # Written so that NaN, which is neither above nor below anything, is refused too.
+    if not 0 <= lux <= 1000:
+        raise ConfigError(f"light.change_lux: {lux_message}")
+
+    report_message = "must be a whole number of seconds, 5 to 3600"
+    report = _whole_number(section, "report_seconds", "light.report_seconds", 30, report_message)
+    if not 5 <= report <= 3600:
+        raise ConfigError(f"light.report_seconds: {report_message}")
+
+    return LightConfig(
+        chip=chip,
+        bus=bus,
+        address=address,
+        sample_ms=sample,
+        change_percent=percent,
+        change_lux=float(lux),
+        report_seconds=report,
+    )
+
+
 def parse_config(data: Any) -> Config:
     """Checks a config that has already been read from YAML. Raises ConfigError naming the first problem."""
     top = _mapping(data, "config") if data is not None else {}
     _check_keys(
-        top, "", ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen", "button", "presence")
+        top,
+        "",
+        ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen", "button", "presence", "light"),
     )
 
     display_id = _text(top, "display_id", "display_id")
@@ -442,6 +539,7 @@ def parse_config(data: Any) -> Config:
     # Checked whether or not the sensor is on, like the settings of a screen back end that isn't chosen.
     button = _parse_button(top.get("button"))
     presence = _parse_presence(top.get("presence"))
+    light = _parse_light(top.get("light"))
     # One wire can't be two inputs. Only when both sensors are on: with either off nothing opens the pin.
     if sensors.button and sensors.presence and presence.source == "gpio" and presence.pin == button.pin:
         raise ConfigError(f"presence.pin: GPIO{presence.pin} is already the button's pin (button.pin)")
@@ -454,6 +552,7 @@ def parse_config(data: Any) -> Config:
         screen=_parse_screen(top.get("screen")),
         button=button,
         presence=presence,
+        light=light,
     )
 
 

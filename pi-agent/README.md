@@ -5,13 +5,12 @@ A small Python service that runs on the Raspberry Pi next to the kiosk and talks
 What it does so far:
 
 - Publishes `pi/availability`: `online` while it runs, and `offline` from the broker's last will if it dies, or from the agent itself on a clean stop.
-- Publishes Home Assistant discovery configs for a "Wall Calendar Pi" device, with three diagnostic entities (CPU temperature, uptime and panel power) and, when the button and the presence sensor are on, a Button event entity and a Presence binary sensor.
+- Publishes Home Assistant discovery configs for a "Wall Calendar Pi" device, with three diagnostic entities (CPU temperature, uptime and panel power) and, when the button, the presence sensor and the light sensor are on, a Button event entity, a Presence binary sensor and an Illuminance sensor.
 - Publishes the CPU temperature and uptime every minute.
 - Turns the panel on and off when the app asks (`pi/screen/set`), and publishes what the panel is doing (`pi/screen/state`). See [Screen power](#screen-power).
 - Reads a push button on a GPIO pin, tells single, double and long presses apart, and publishes each one to `pi/button`. See [Button](#button).
 - Reads an LD2410 mmWave sensor, either from its OUT pin on a GPIO or from its serial data, and publishes whether someone is there to `pi/presence` (retained). See [Presence](#presence).
-
-The light sensor comes later in Milestone 3. Its config switch is already in the file, but turning it on only logs that it isn't built yet.
+- Reads a VEML7700 or BH1750 ambient light sensor over I²C and publishes the room's brightness in lux to `pi/illuminance`, when it changes meaningfully and at least every 30 seconds. See [Light sensor](#light-sensor).
 
 The agent only talks to the broker. It holds no state of its own, and the app works the same without it. With the default `black` screen back end it does nothing to the panel at all.
 
@@ -28,7 +27,7 @@ sudo systemctl restart wallcal-agent
 `install.sh`:
 
 1. Installs `python3-venv`, `python3-lgpio` (what reads the button's GPIO), `cec-utils` (for the `cec` screen back end) and `wlopm` (for the `output` one). If `wlopm` isn't available on your release, it warns and carries on: the agent doesn't need it unless you choose `output` with the `wlopm` tool.
-2. Creates a `wallcal-agent` system user and group with no login. It is added to the `gpio`, `i2c`, `dialout` and `video` groups where they exist: `gpio` is for the button and the presence sensor's OUT pin, `dialout` is for the presence sensor's serial port, `i2c` is for the light sensor to come, and `video` gives access to `/dev/cec*` for the `cec` back end.
+2. Creates a `wallcal-agent` system user and group with no login. It is added to the `gpio`, `i2c`, `dialout` and `video` groups where they exist: `gpio` is for the button and the presence sensor's OUT pin, `dialout` is for the presence sensor's serial port, `i2c` is for the light sensor's `/dev/i2c-1`, and `video` gives access to `/dev/cec*` for the `cec` back end.
 3. Installs the agent into a venv at `/opt/wallcal-agent/venv`. The venv can see the system's Python packages, because `python3-lgpio` only comes from apt. An older venv made without that is switched over.
 4. Copies `config.example.yaml` to `/etc/wallcal-agent/config.yaml`, only if there is no config yet. The file is `0640`, owned by `root:wallcal-agent`, because it holds the MQTT password.
 5. Installs `wallcal-agent.service`, enables it, and restarts it.
@@ -54,7 +53,7 @@ The file is `/etc/wallcal-agent/config.yaml`. [`config.example.yaml`](config.exa
 | `diagnostics_interval_seconds` | `60` | How often CPU temperature and uptime are published. At least 5. |
 | `sensors.button` | `false` | `true` if a push button is wired to this Pi. See [Button](#button). |
 | `sensors.presence` | `false` | `true` if an LD2410 mmWave sensor is wired to this Pi. See [Presence](#presence). |
-| `sensors.light` | `false` | Not built yet. |
+| `sensors.light` | `false` | `true` if a VEML7700 or BH1750 light sensor is wired to this Pi. See [Light sensor](#light-sensor). |
 | `button.pin` | `17` | The button's BCM GPIO number (not the pin's place on the header), a whole number from 0 to 27. |
 | `button.bounce_ms` | `30` | A change on the input only counts once it has stayed that way this long, so contact bounce isn't read as presses. 0 to 200. |
 | `button.double_press_ms` | `400` | The longest gap from letting go of the first press to pressing again that still makes a double press. 100 to 2000. |
@@ -64,6 +63,13 @@ The file is `/etc/wallcal-agent/config.yaml`. [`config.example.yaml`](config.exa
 | `presence.hold_ms` | `500` | A change only counts once it has held this long, so a flicker isn't published. 0 to 10000. |
 | `presence.uart.device` | `/dev/serial0` | The serial port, as an absolute path, for the `uart` source. |
 | `presence.uart.baud` | `256000` | The sensor's speed, for the `uart` source: one of 9600, 19200, 38400, 57600, 115200, 230400, 256000 (the factory setting) or 460800. |
+| `light.chip` | `veml7700` | Which sensor: `veml7700` or `bh1750`. |
+| `light.bus` | `1` | The I²C bus, so `/dev/i2c-<bus>`, a whole number from 0 to 31. Bus 1 is the one on the header's pins 3 and 5. |
+| `light.address` | the chip's own | The chip's I²C address. The VEML7700 only has `0x10`. The BH1750 is `0x23`, or `0x5c` with its ADDR pin wired high. Written as in the datasheet, `0x23`. |
+| `light.sample_ms` | `1000` | How often the sensor is read. Most readings are not published. 200 to 60000. |
+| `light.change_percent` | `10` | A reading is published when it differs from the last one published by at least this share of it. 1 to 100. |
+| `light.change_lux` | `0.5` | ...and by at least this many lux, so flicker in a dark room isn't a change. A number, 0 to 1000. |
+| `light.report_seconds` | `30` | A reading is published at least this often even when nothing has changed. 5 to 3600. |
 | `screen.backend` | `black` | How the panel is turned on and off: `black`, `cec` or `output`. See [Screen power](#screen-power). |
 | `screen.cec.device` | `0` | The `cec` back end: the CEC logical address to switch, 0 to 15. 0 is the TV. |
 | `screen.output.tool` | `wlopm` | The `output` back end: `wlopm` or `wlr-randr`. |
@@ -72,7 +78,7 @@ The file is `/etc/wallcal-agent/config.yaml`. [`config.example.yaml`](config.exa
 | `screen.command_timeout_seconds` | `10` | How long `cec-client`, `wlopm` or `wlr-randr` may take before it is given up on. 1 to 60. |
 | `screen.poll_seconds` | `60` | How often the real panel state is read, and published if it changed. `0` never checks; otherwise at least 5. |
 
-The settings for a back end you haven't chosen are still checked, and so are the `button` and `presence` settings while their sensors are off, so a mistake in them shows up now and not on the day you switch.
+The settings for a back end you haven't chosen are still checked, and so are the `button`, `presence` and `light` settings while their sensors are off, so a mistake in them shows up now and not on the day you switch.
 
 A config that is wrong makes the agent print what is wrong, naming the key (such as `mqtt.port: must be 1 to 65535`), and exit with status 2. systemd then restarts it every 5 seconds until the file is fixed. The password is never logged.
 
@@ -192,6 +198,34 @@ Watch it with the Mosquitto tools while you walk up to the wall:
 mosquitto_sub -h <broker> -t 'wallcal/<display id>/pi/presence' -v
 ```
 
+## Light sensor
+
+A VEML7700 or a BH1750 ambient light sensor tells the wall how bright the room is. The agent publishes the reading in lux to `pi/illuminance`, and the app's auto brightness policy can dim the display with it. Home Assistant gets an Illuminance entity too. Both chips are small breakout boards on the Pi's I²C pins, and the agent reads them with the `smbus2` library. Set `sensors.light: true` in the config (and `light.chip: bh1750` if that is the one you have) and restart the agent.
+
+Wire either chip:
+
+| Sensor | Pi |
+|---|---|
+| VIN (or VCC) | 3.3 V (pin 1) |
+| GND | GND (pin 6) |
+| SDA | GPIO2 (pin 3) |
+| SCL | GPIO3 (pin 5) |
+
+I²C is off by default on Raspberry Pi OS, so run `sudo raspi-config`, then Interface Options, I2C, and answer **Yes**. The installer does not do that for you, because it changes the Pi's boot settings. Afterwards `/dev/i2c-1` should exist. To check the wiring, `sudo apt install i2c-tools` and run `i2cdetect -y 1`: a VEML7700 shows as `10` and a BH1750 as `23` (or `5c` with its ADDR pin high; set `light.address` to match). The service user is in the `i2c` group, which is what lets it open the bus.
+
+How it behaves:
+
+- The sensor is read every `light.sample_ms` (1 s), but most readings are the same room again, so a reading is published only when it has changed meaningfully, or `light.report_seconds` (30 s) after the last one published, so a subscriber is never more than that out of date. A change is meaningful when it is at least `light.change_percent` (10%) of the last published value and at least `light.change_lux` (0.5 lx), so a bright room has to move a good deal and flicker in a dark one doesn't count. The payload is the lux as text with at most two decimal places, such as `0`, `12.5` or `430`.
+- A reading is a measurement, not a state, so it is not retained: a stale one replayed to a subscriber that connects later would be worse than none. Nothing is saved while the broker is away. Every connect starts afresh, so the new connection hears the light at the next sample.
+- The VEML7700 has two ranges and the agent moves between them as the light changes: a fine one for rooms (up to about 1100 lx) and a coarse one for daylight (up to about 35 klx, with the chip's non-linearity corrected). It is never a reading from the wrong range: after a move the agent waits for a fresh one. The BH1750 reads up to about 27 klx in its 0.5 lx mode.
+- If the bus can't be opened or the chip doesn't answer (I²C is off, the wiring is loose, the service user has no access), the agent logs one warning, such as `Could not read the light sensor: /dev/i2c-1 is not there; is I2C switched on in raspi-config?; will keep trying`, and carries on without it. It keeps trying every sample, opening the bus and setting the chip up again each time, so a sensor that is plugged in later is found. A repeat of the same failure goes to debug level, and `The light sensor is reading again` is logged once when it recovers. The Home Assistant entity is still announced, because that follows the config, and goes unavailable if nothing is published for three report intervals.
+
+Watch it with the Mosquitto tools while you cover the sensor with your hand:
+
+```sh
+mosquitto_sub -h <broker> -t 'wallcal/<display id>/pi/illuminance' -v
+```
+
 ## Logs
 
 ```sh
@@ -213,10 +247,11 @@ Everything is under `wallcal/<display id>/`, as text. The contract has the schem
 | `pi/screen/state` | yes | `on` or `off`: what the panel is doing, as far as the agent can tell. Left out when it can't tell. |
 | `pi/button` | no | `single`, `double` or `long`: one message for each press of the button, only when `sensors.button` is on. Not retained, so a press is never replayed to someone who connects later. |
 | `pi/presence` | yes | `ON` when the mmWave sensor sees someone, `OFF` when it doesn't, only when `sensors.presence` is on. Published on every confirmed change and on every connect, and retained, because it is a state: a subscriber that connects later learns it at once. |
+| `pi/illuminance` | no | The room's light in lux, at most two decimal places such as `12.5`, only when `sensors.light` is on. Published when it changes meaningfully and at least every `light.report_seconds`. Not retained: a stale reading is worse than none. |
 
 It subscribes to one topic, `pi/screen/set` (QoS 1), which the app publishes retained, `on` or `off`. See [Screen power](#screen-power).
 
-The discovery configs go to `<discovery_prefix>/sensor/wallcal_pi_<display id>/<cpu_temperature|uptime>/config`, `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/panel_power/config`, `<discovery_prefix>/event/wallcal_pi_<display id>/button/config` and `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/presence/config`, retained. Home Assistant creates `sensor.wall_calendar_pi_cpu_temperature`, `sensor.wall_calendar_pi_uptime`, `binary_sensor.wall_calendar_pi_panel_power`, `event.wall_calendar_pi_button` and `binary_sensor.wall_calendar_pi_presence`. All of them go unavailable while the agent is offline, and the two sensors also if they stop being reported for three intervals (the panel power doesn't expire, because it only changes when someone asks, the button is an event, not a reading, and presence is a retained state that can stay the same for days). The first three are diagnostic entities; the button and presence are not, because they are the ones you would put on a dashboard or use in an automation. The button's event types are `single`, `double` and `long`, and Presence is an `occupancy` binary sensor (`ON` is detected). When `sensors.button` or `sensors.presence` is off, the agent publishes an empty retained config to that entity's topic, which removes the entity if it was there from an earlier run. When Home Assistant restarts and announces `online` on `<discovery_prefix>/status`, the agent publishes the configs again. See [docs/home-assistant.md](../docs/home-assistant.md).
+The discovery configs go to `<discovery_prefix>/sensor/wallcal_pi_<display id>/<cpu_temperature|uptime>/config`, `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/panel_power/config`, `<discovery_prefix>/event/wallcal_pi_<display id>/button/config`, `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/presence/config` and `<discovery_prefix>/sensor/wallcal_pi_<display id>/illuminance/config`, retained. Home Assistant creates `sensor.wall_calendar_pi_cpu_temperature`, `sensor.wall_calendar_pi_uptime`, `binary_sensor.wall_calendar_pi_panel_power`, `event.wall_calendar_pi_button`, `binary_sensor.wall_calendar_pi_presence` and `sensor.wall_calendar_pi_illuminance`. All of them go unavailable while the agent is offline, and the sensors also if they stop being reported for three intervals (the diagnostics' interval, or `light.report_seconds` for the illuminance; the panel power doesn't expire, because it only changes when someone asks, the button is an event, not a reading, and presence is a retained state that can stay the same for days). The first three are diagnostic entities; the button, presence and illuminance are not, because they are the ones you would put on a dashboard or use in an automation. The button's event types are `single`, `double` and `long`, Presence is an `occupancy` binary sensor (`ON` is detected), and Illuminance is an `illuminance` sensor in `lx`. When `sensors.button`, `sensors.presence` or `sensors.light` is off, the agent publishes an empty retained config to that entity's topic, which removes the entity if it was there from an earlier run. When Home Assistant restarts and announces `online` on `<discovery_prefix>/status`, the agent publishes the configs again. See [docs/home-assistant.md](../docs/home-assistant.md).
 
 Watch it with the Mosquitto tools:
 
@@ -238,11 +273,13 @@ python3.11 -m venv .venv
 shellcheck install.sh
 ```
 
-The tests use a fake MQTT client and fake hardware, and a fake command runner for the screen back ends, so nothing runs `cec-client` or `wlopm`. Some of them hold the agent to [`contracts/mqtt.json`](../contracts/mqtt.json), the same file the app's tests use: every topic the agent publishes must be in it, from the Pi, with the same retain flag, and every payload must match its schema, and every `pi/screen/set` example is applied while every invalid one is ignored, and the button's gestures and presence's `ON` and `OFF` are the contract's. A new `pi/` topic in the contract fails a test until the agent handles it, or the test names the PR that will. `tests/test_install.py` runs `install.sh` against a scratch folder, so it needs no root.
+The tests use a fake MQTT client and fake hardware, and a fake command runner for the screen back ends, so nothing runs `cec-client` or `wlopm`. Some of them hold the agent to [`contracts/mqtt.json`](../contracts/mqtt.json), the same file the app's tests use: every topic the agent publishes must be in it, from the Pi, with the same retain flag, and every payload must match its schema, and every `pi/screen/set` example is applied while every invalid one is ignored, and the button's gestures and presence's `ON` and `OFF` are the contract's, and the illuminance payloads match the contract's pattern. A new `pi/` topic in the contract fails a test until the agent handles it, or the test names the PR that will. `tests/test_install.py` runs `install.sh` against a scratch folder, so it needs no root.
 
 The button is tested in layers. `button.py` is the gesture classifier: it has no threads and no clock of its own, so `tests/test_button.py` plays presses at exact times (noise, bounce, doubles, a long press, a triple press). The agent tests use a `FakeButton` whose `press()` and `release()` stand in for the GPIO library's callback, an injected clock, and no worker thread: a test presses the button, moves the clock and calls `run_button_work()`, as the screen tests call `run_screen_work()`. A few tests run the real worker thread with the shortest timings the config allows. `hardware/gpio.py` is tested against gpiozero's own `MockFactory`, driving a mock pin low and high, so that part needs no Pi either.
 
 Presence is tested the same way, in layers. `presence.py` is the filter: pure, with no clock of its own, so `tests/test_presence.py` plays readings at exact times (flickers, a late tick, a zero hold). `hardware/ld2410.py` has a pure frame parser, tested in `tests/test_ld2410.py` with byte strings (frames split at every place, garbage, a false header, command replies, a capped buffer), and a reader thread, tested against a fake serial port handed in through a port factory, so no serial device is needed. The agent tests use a `FakePresence` and `run_presence_work()`, as for the button, and `hardware/gpio.py`'s `GpioPresence` runs on gpiozero's mock pins.
+
+The light sensor is tested the same way. `light.py` is the reporter that decides which readings are published: pure, with no clock of its own, so `tests/test_light.py` plays readings at exact times (changes just under, at and over each threshold, the heartbeat, a reset, a clock that steps back). `hardware/light.py` has the VEML7700's and the BH1750's conversions as pure functions, and the two chips run against a fake I²C bus handed in through a bus factory, so `tests/test_light_hardware.py` checks the registers written, the auto-range up and down, the error messages, and the bus being opened again after a failure with no Pi and no sleeping. The agent tests use a `FakeLight` and `run_light_work()`, as for the others.
 
 To run the agent against a broker on your machine, without any Pi hardware:
 
@@ -251,6 +288,6 @@ cp config.example.yaml /tmp/wallcal-agent.yaml   # set mqtt.host to localhost
 .venv/bin/wallcal-agent --config /tmp/wallcal-agent.yaml --fake-hardware --log-level debug
 ```
 
-`--fake-hardware` reports made-up readings (the uptime counts up from when the agent started) and uses a pretend panel that starts on and follows `pi/screen/set`, whatever `screen.backend` says. With `sensors.button` on it uses a button that is never pressed, and with `sensors.presence` on a presence sensor that sees nobody. To try presence without a sensor, publish it yourself: `mosquitto_pub -h localhost -t 'wallcal/<display id>/pi/presence' -r -q 1 -m ON`. To try a gesture without wiring anything, publish it yourself: `mosquitto_pub -h localhost -t 'wallcal/<display id>/pi/button' -q 1 -m double`. `python -m wallcal_agent` does the same as the `wallcal-agent` command, and `--version` prints the version.
+`--fake-hardware` reports made-up readings (the uptime counts up from when the agent started) and uses a pretend panel that starts on and follows `pi/screen/set`, whatever `screen.backend` says. With `sensors.button` on it uses a button that is never pressed, with `sensors.presence` on a presence sensor that sees nobody, and with `sensors.light` on a light sensor that always reads 150 lux. To try presence without a sensor, publish it yourself: `mosquitto_pub -h localhost -t 'wallcal/<display id>/pi/presence' -r -q 1 -m ON`. To try the light without a sensor, publish a reading yourself: `mosquitto_pub -h localhost -t 'wallcal/<display id>/pi/illuminance' -q 1 -m 12.5`. To try a gesture without wiring anything, publish it yourself: `mosquitto_pub -h localhost -t 'wallcal/<display id>/pi/button' -q 1 -m double`. `python -m wallcal_agent` does the same as the `wallcal-agent` command, and `--version` prints the version.
 
-The code is in `src/wallcal_agent/`. The hardware sits behind small interfaces in `hardware/`, with a real Linux implementation and a fake one, so that later sensors can be added the same way. The screen back ends are in `hardware/screen.py`, the button's and the presence pin's GPIO are in `hardware/gpio.py`, the LD2410's serial reader and frame parser are in `hardware/ld2410.py`, the gesture classifier is `button.py` and the presence filter is `presence.py`.
+The code is in `src/wallcal_agent/`. The hardware sits behind small interfaces in `hardware/`, with a real Linux implementation and a fake one, so that new sensors can be added the same way. The screen back ends are in `hardware/screen.py`, the button's and the presence pin's GPIO are in `hardware/gpio.py`, the LD2410's serial reader and frame parser are in `hardware/ld2410.py`, the light sensor chips are in `hardware/light.py`, the gesture classifier is `button.py`, the presence filter is `presence.py` and the light reporter is `light.py`.

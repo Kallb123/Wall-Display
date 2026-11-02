@@ -113,6 +113,28 @@ def test_the_installer_adds_the_groups_the_presence_sensor_needs_and_the_package
     assert re.search(r'^\s*"pyserial>=3\.5,<4",$', (PI_AGENT / "pyproject.toml").read_text(), re.MULTILINE)
 
 
+def test_the_installer_adds_the_i2c_group_the_light_sensor_needs_and_the_package_depends_on_smbus2() -> None:
+    script = INSTALL.read_text()
+
+    # i2c for /dev/i2c-1. smbus2 is pure Python and comes from the package's own dependencies, so the venv's pip
+    # install fetches it and there is nothing for apt to add.
+    assert re.search(r"^DEVICE_GROUPS=\(.*\bi2c\b.*\)$", script, re.MULTILINE)
+    assert "still to come" not in script
+    assert re.search(r'^\s*"smbus2>=0\.4\.3,<1",$', (PI_AGENT / "pyproject.toml").read_text(), re.MULTILINE)
+
+
+def test_the_summary_tells_the_light_sensor_user_to_switch_i2c_on_and_the_installer_does_not_do_it(
+    tmp_path: Path,
+) -> None:
+    result = install_into(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "switch I2C on first: sudo raspi-config" in result.stdout
+    # It is the person's to switch on: nothing in the script edits the boot settings or loads the module.
+    script = INSTALL.read_text()
+    assert not re.search(r"^[^#\n]*(raspi-config nonint|config\.txt|modprobe|dtparam)", script, re.MULTILINE)
+
+
 def enable_system_site_packages(cfg: Path) -> None:
     """Runs install.sh's own function on a file, by sourcing the script (which does not run `main` then)."""
     result = subprocess.run(

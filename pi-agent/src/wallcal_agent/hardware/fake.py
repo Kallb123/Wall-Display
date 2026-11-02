@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from . import ButtonError, PresenceError, ScreenError
+from . import ButtonError, LightError, PresenceError, ScreenError
 
 
 class FakeSystemInfo:
@@ -131,3 +131,29 @@ class FakePresence:
     def set(self, present: bool) -> None:
         if self._on_change is not None:
             self._on_change(present)
+
+
+class FakeLight:
+    """A light sensor you set from a test. `lux` is what a read returns, and `read_count` is how many were made.
+
+    Set `error` to a message to make reads fail with a LightError, as a sensor that has come loose does. With neither
+    `lux` nor `error` there is nothing to read, and a read fails with "no reading" (a sensor that has not produced
+    anything yet). `--fake-hardware` uses `lux=150.0`, a lit room.
+    """
+
+    def __init__(self, lux: float | None = None) -> None:
+        self.lux = lux
+        self.error: str | None = None
+        self.read_count = 0
+        self.closed = False
+
+    def read_lux(self) -> float:
+        self.read_count += 1
+        if self.error is not None:
+            raise LightError(self.error)
+        if self.lux is None:
+            raise LightError("no reading")
+        return self.lux
+
+    def close(self) -> None:
+        self.closed = True

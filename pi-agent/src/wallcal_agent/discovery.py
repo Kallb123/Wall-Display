@@ -6,8 +6,10 @@ unavailable with the agent (availability topic plus last will). The sensors also
 reporting; the panel power does not, because its state is retained and can stay the same for days. The button is
 an `event` entity, which is not a reading at all, so it neither expires nor counts as diagnostic: it is the one
 entity here a person would put on a dashboard. Presence is a `binary_sensor` that is not diagnostic either, and does
-not expire, because it is retained and can stay the same for days in an empty room. Pure: no I/O. agent.py publishes
-these on every connect, and again when Home Assistant says it has restarted.
+not expire, because it is retained and can stay the same for days in an empty room. The illuminance sensor is not
+diagnostic and is not retained, so it expires like the diagnostics, but counted in the light sensor's own reporting
+interval, which is much shorter. Pure: no I/O. agent.py publishes these on every connect, and again when Home
+Assistant says it has restarted.
 """
 
 import json
@@ -23,8 +25,9 @@ ORIGIN_URL = "https://github.com/kallb123/wall-display"
 # What Home Assistant publishes on the birth topic when it is up and wants the configs again.
 BIRTH_ONLINE = "online"
 
-# How many diagnostics intervals may pass with nothing published before Home Assistant calls the value unavailable.
-# Three tolerates a missed publish or two but still catches an agent that is stuck while its connection stays up.
+# How many reporting intervals (the diagnostics', or the light sensor's) may pass with nothing published before Home
+# Assistant calls the value unavailable. Three tolerates a missed publish or two but still catches an agent that is
+# stuck while its connection stays up.
 EXPIRY_INTERVALS = 3
 
 
@@ -42,13 +45,21 @@ def birth_topic(prefix: str) -> str:
 
 
 def discovery_messages(
-    prefix: str, display_id: str, version: str, diagnostics_interval: int, button: bool, presence: bool
+    prefix: str,
+    display_id: str,
+    version: str,
+    diagnostics_interval: int,
+    button: bool,
+    presence: bool,
+    light: bool,
+    light_report_seconds: int,
 ) -> list[DiscoveryMessage]:
     """Every discovery message for one Pi, in a fixed order, at `<prefix>/<kind>/wallcal_pi_<id>/<object>/config`.
 
-    The button and then presence come last. With either one false its message is empty: Home Assistant takes an
-    empty retained config to mean "remove this entity", which cleans up after a sensor that has since been switched
-    off in the agent's config.
+    The button, presence and then the light sensor come last. With any of them false its message is empty: Home
+    Assistant takes an empty retained config to mean "remove this entity", which cleans up after a sensor that has
+    since been switched off in the agent's config. `light_report_seconds` is how often the light sensor publishes at
+    the least, which is what its entity's expiry is counted in.
     """
     node = f"wallcal_pi_{display_id}"
     device = {
@@ -60,14 +71,17 @@ def discovery_messages(
     }
     origin = {"name": ORIGIN_NAME, "sw_version": version, "url": ORIGIN_URL}
 
-    # (component, object id, name, whether it expires, whether it is diagnostic, what is particular to the entity, or
-    # None for an entity that is switched off, which gets an empty message where its config would be)
-    entities: list[tuple[str, str, str, bool, bool, dict[str, Any] | None]] = [
+    diagnostics_expiry = EXPIRY_INTERVALS * diagnostics_interval
+
+    # (component, object id, name, seconds before it expires or None if it doesn't, whether it is diagnostic, what is
+    # particular to the entity, or None for an entity that is switched off, which gets an empty message where its
+    # config would be)
+    entities: list[tuple[str, str, str, int | None, bool, dict[str, Any] | None]] = [
         (
             "sensor",
             "cpu_temperature",
             "CPU temperature",
-            True,
+            diagnostics_expiry,
             True,
             {
                 "state_topic": topics.topic_for(display_id, topics.CPU_TEMPERATURE),
@@ -81,7 +95,7 @@ def discovery_messages(
             "sensor",
             "uptime",
             "Uptime",
-            True,
+            diagnostics_expiry,
             True,
             {
                 "state_topic": topics.topic_for(display_id, topics.UPTIME),
@@ -94,7 +108,7 @@ def discovery_messages(
             "binary_sensor",
             "panel_power",
             "Panel power",
-            False,
+            None,
             True,
             {
                 "state_topic": topics.topic_for(display_id, topics.SCREEN_STATE),
@@ -113,7 +127,7 @@ def discovery_messages(
             "event",
             "button",
             "Button",
-            False,
+            None,
             False,
             {
                 "state_topic": topics.topic_for(display_id, topics.BUTTON),
@@ -133,7 +147,7 @@ def discovery_messages(
             "binary_sensor",
             "presence",
             "Presence",
-            False,
+            None,
             False,
             {
                 "state_topic": topics.topic_for(display_id, topics.PRESENCE),
@@ -145,9 +159,26 @@ def discovery_messages(
             else None,
         )
     )
+    entities.append(
+        (
+            "sensor",
+            "illuminance",
+            "Illuminance",
+            EXPIRY_INTERVALS * light_report_seconds,
+            False,
+            {
+                "state_topic": topics.topic_for(display_id, topics.ILLUMINANCE),
+                "device_class": "illuminance",
+                "unit_of_measurement": "lx",
+                "state_class": "measurement",
+            }
+            if light
+            else None,
+        )
+    )
 
     messages: list[DiscoveryMessage] = []
-    for component, object_id, name, expires, diagnostic, particular in entities:
+    for component, object_id, name, expiry, diagnostic, particular in entities:
         if particular is None:
             messages.append(DiscoveryMessage(topic=config_topic(component, object_id), payload=""))
             continue
@@ -159,7 +190,7 @@ def discovery_messages(
             "payload_available": topics.ONLINE,
             "payload_not_available": topics.OFFLINE,
             **({"entity_category": "diagnostic"} if diagnostic else {}),
-            **({"expire_after": EXPIRY_INTERVALS * diagnostics_interval} if expires else {}),
+            **({"expire_after": expiry} if expiry is not None else {}),
             "device": device,
             "origin": origin,
             "qos": 1,

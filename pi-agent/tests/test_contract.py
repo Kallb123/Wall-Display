@@ -21,13 +21,13 @@ from .conftest import AgentRig
 
 # Contract topics the agent does not handle yet, with the pull request that will. Listed so that a new pi/ topic in
 # the contract fails these tests until someone decides what the agent does with it.
-FROM_PI_LATER = {
-    "pi/illuminance": "3.5",
-}
+FROM_PI_LATER: dict[str, str] = {}
 TO_PI_LATER: dict[str, str] = {}
 
 TEMPERATURES = [-20.04, -0.04, 0, 0.05, 48.25, 48.35, 99.99, 105, -5.5, 0.0, 12.0, 1234.56]
 UPTIMES = [0, 0.9, 59.99, 60, 86400.5, 10**9]
+# Readings a light sensor can give: darkness, the noise just above it, a lit room, daylight, and the awkward roundings.
+LUX_READINGS = [0, 0.004, 0.005, 0.25, 0.3, 12.5, 99.999, 100, 150, 430, 1000, 1200.5, 35000, 65535.5, 120000]
 
 
 def play_every_gesture(rig: AgentRig) -> None:
@@ -68,6 +68,16 @@ def play_presence(rig: AgentRig) -> None:
     after(1.0)
     rig.presence.set(False)
     after(1.0)
+
+
+def play_light(rig: AgentRig) -> None:
+    """Brightens the room a good deal and then dims it, so a reading is published each time."""
+    assert rig.light is not None
+
+    for lux in (150.0, 430.0, 12.5):
+        rig.light.lux = lux
+        rig.clock.advance(1.0)
+        rig.agent.run_light_work()
 
 
 def topics_where(contract: dict[str, Any], direction: str) -> set[str]:
@@ -145,6 +155,15 @@ def test_the_presence_topic_is_described(contract: dict[str, Any]) -> None:
     assert topic["payload"]["encoding"] == "text"
     assert topic["examples"] == [topics.presence_payload(True), topics.presence_payload(False)]
     assert topics.PUBLISHED[topics.PRESENCE] is True
+
+
+def test_the_illuminance_topic_is_described(contract: dict[str, Any]) -> None:
+    topic = contract["topics"][topics.ILLUMINANCE]
+
+    assert topic["direction"] == "from_pi"
+    assert topic["retained"] is False
+    assert topic["payload"]["encoding"] == "text"
+    assert topics.PUBLISHED[topics.ILLUMINANCE] is False
 
 
 def test_the_agent_publishes_topics_that_are_from_pi_with_the_same_retain_flag(contract: dict[str, Any]) -> None:
@@ -282,6 +301,33 @@ def test_each_presence_the_agent_publishes_passes_the_schema_and_is_retained(
         assert p.qos == 1
 
 
+def test_every_valid_illuminance_payload_in_the_contract_is_one_the_agent_can_make(contract: dict[str, Any]) -> None:
+    topic = contract["topics"][topics.ILLUMINANCE]
+
+    for payload in topic["examples"]:
+        assert topics.illuminance_payload(float(payload)) == payload
+    for payload in topic["invalid_examples"]:
+        assert not accepts(contract, topics.ILLUMINANCE, payload)
+
+
+def test_each_reading_the_agent_publishes_passes_the_schema_and_is_not_retained(
+    contract: dict[str, Any], light_rig: AgentRig
+) -> None:
+    rig = light_rig
+    rig.client.broker_accepts()
+    rig.client.clear()
+
+    play_light(rig)
+
+    published = [p for p in rig.client.publishes if name_of(p.topic) == topics.ILLUMINANCE]
+    assert [p.payload for p in published] == ["150", "430", "12.5"]
+    for p in published:
+        assert p.payload is not None
+        assert accepts(contract, topics.ILLUMINANCE, p.payload)
+        assert p.retain is contract["topics"][topics.ILLUMINANCE]["retained"]
+        assert p.qos == 1
+
+
 def test_the_pi_topics_are_the_ones_under_pi(contract: dict[str, Any]) -> None:
     assert topics_where(contract, "from_pi") | topics_where(contract, "to_pi") == {
         name for name in contract["topics"] if name.startswith("pi/")
@@ -293,6 +339,13 @@ def test_temperature_payloads_pass_the_schema(contract: dict[str, Any], celsius:
     payload = topics.cpu_temperature_payload(celsius)
 
     assert accepts(contract, topics.CPU_TEMPERATURE, payload), payload
+
+
+@pytest.mark.parametrize("lux", LUX_READINGS)
+def test_illuminance_payloads_pass_the_schema(contract: dict[str, Any], lux: float) -> None:
+    payload = topics.illuminance_payload(lux)
+
+    assert accepts(contract, topics.ILLUMINANCE, payload), payload
 
 
 @pytest.mark.parametrize("seconds", UPTIMES)
@@ -308,7 +361,9 @@ def test_online_and_offline_pass_the_availability_schema(contract: dict[str, Any
 
 
 def test_discovery_topics_are_contract_topics_for_this_display(contract: dict[str, Any]) -> None:
-    for message in discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True, presence=True):
+    for message in discovery_messages(
+        "homeassistant", "hallway", "0.0.0", 60, button=True, presence=True, light=True, light_report_seconds=30
+    ):
         config = json.loads(message.payload)
         for key in ("state_topic", "availability_topic"):
             name = name_of(config[key])
@@ -321,7 +376,9 @@ def test_discovery_topics_are_contract_topics_for_this_display(contract: dict[st
 
 
 def test_the_presence_entity_is_on_the_contracts_topic_with_the_contracts_payloads(contract: dict[str, Any]) -> None:
-    messages = discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=False, presence=True)
+    messages = discovery_messages(
+        "homeassistant", "hallway", "0.0.0", 60, button=False, presence=True, light=False, light_report_seconds=30
+    )
     config = json.loads(next(m.payload for m in messages if "/presence/" in m.topic))
 
     assert name_of(config["state_topic"]) == topics.PRESENCE
@@ -330,8 +387,20 @@ def test_the_presence_entity_is_on_the_contracts_topic_with_the_contracts_payloa
     assert accepts(contract, topics.PRESENCE, config["payload_off"])
 
 
+def test_the_illuminance_entity_is_on_the_contracts_topic(contract: dict[str, Any]) -> None:
+    messages = discovery_messages(
+        "homeassistant", "hallway", "0.0.0", 60, button=False, presence=False, light=True, light_report_seconds=30
+    )
+    config = json.loads(next(m.payload for m in messages if "/illuminance/" in m.topic))
+
+    assert name_of(config["state_topic"]) == topics.ILLUMINANCE
+    assert contract["topics"][topics.ILLUMINANCE]["direction"] == "from_pi"
+
+
 def test_the_button_entity_offers_the_contracts_gestures_on_the_contracts_topic(contract: dict[str, Any]) -> None:
-    messages = discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True, presence=False)
+    messages = discovery_messages(
+        "homeassistant", "hallway", "0.0.0", 60, button=True, presence=False, light=False, light_report_seconds=30
+    )
     config = json.loads(next(m.payload for m in messages if "/event/" in m.topic))
 
     assert name_of(config["state_topic"]) == topics.BUTTON
@@ -343,12 +412,13 @@ def test_the_button_entity_offers_the_contracts_gestures_on_the_contracts_topic(
 def test_a_run_of_the_agent_only_publishes_what_the_contract_describes(
     contract: dict[str, Any], config: Config, make_agent: Callable[[Config], AgentRig]
 ) -> None:
-    rig = make_agent(replace(config, sensors=SensorsConfig(button=True, presence=True)))
+    rig = make_agent(replace(config, sensors=SensorsConfig(button=True, presence=True, light=True)))
     rig.agent.start()
     rig.client.broker_accepts()
     rig.agent.run_screen_work()
     play_every_gesture(rig)
     play_presence(rig)
+    play_light(rig)
     for celsius in TEMPERATURES:
         rig.system.temperature = celsius
         rig.system.uptime = celsius + 100

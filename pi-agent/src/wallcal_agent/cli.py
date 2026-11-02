@@ -16,15 +16,13 @@ from .hardware import build_hardware
 logger = logging.getLogger(__name__)
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
-# Sensors the agent now reads. The rest can be switched on in the config, but nothing looks at them yet.
-BUILT_SENSORS = ("button", "presence")
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wallcal-agent",
         description="The Wall Display agent for the Raspberry Pi: MQTT availability, Home Assistant discovery, "
-        "diagnostics, panel power, the button and the mmWave presence sensor.",
+        "diagnostics, panel power, the button, the mmWave presence sensor and the ambient light sensor.",
     )
     parser.add_argument(
         "--config",
@@ -35,8 +33,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fake-hardware",
         action="store_true",
-        help="use made-up sensor values, a pretend panel, a button that is never pressed and a presence sensor that "
-        "always sees nobody, to try the agent somewhere that isn't a Pi",
+        help="use made-up sensor values, a pretend panel, a button that is never pressed, a presence sensor that "
+        "always sees nobody and a light sensor that always reads 150 lux, to try the agent somewhere that isn't a Pi",
     )
     parser.add_argument(
         "--log-level",
@@ -61,11 +59,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ConfigError as error:
         print(f"wallcal-agent: config {args.config}: {error}", file=sys.stderr)
         return 2
-
-    for sensor in config.enabled_sensors():
-        if sensor in BUILT_SENSORS:
-            continue
-        logger.warning("Sensor %r is enabled in the config but not built yet, so it is ignored", sensor)
 
     stop = threading.Event()
 

@@ -111,7 +111,7 @@ The entities use names relative to the device, so HA normally generates the IDs 
 | Screen | `switch.wall_calendar_screen` | Screen on or off. |
 | Photo source | `select.wall_calendar_photo_source` | Which source the photo frame uses: `immich`, `google` or `local` (the local folder). Config category. A source that isn't set up in the config is still listed, because HA can't hide options; choosing one makes the wall use the first source that is set up instead (Immich, then the folder). `google` is accepted but not built yet, so it is never set up. |
 | Brightness | `number.wall_calendar_brightness` | A 0–100 % slider. It dims the page with an overlay. It is not the panel's backlight. |
-| Auto presence | `switch.wall_calendar_auto_presence` | Turns the built-in presence policy on or off. Config category. |
+| Auto presence | `switch.wall_calendar_auto_presence` | Turns the built-in presence policy on or off. Config category. Turn it off when a Home Assistant automation takes over the screen, so the two don't fight (see [Presence, driven by an automation](#presence-driven-by-an-automation-needs-the-pi-agent)). |
 | Auto brightness | `switch.wall_calendar_auto_brightness` | Turns the built-in brightness policy on or off. Config category. |
 | Message | `text.wall_calendar_message` | Shows a banner on the wall (up to 200 characters). Text only: no icon, and no time limit, so it stays until cleared. Clear the box to remove it. The box empties by itself when the message runs out or is cleared elsewhere. |
 | Next photo | `button.wall_calendar_next_photo` | Shows the next photo at once and starts the wait for the one after it again, so a skip is never followed straight away by a scheduled change. Does nothing visible unless the wall is on the `photo` view. |
@@ -132,13 +132,14 @@ The Pi agent (see [`pi-agent/`](../pi-agent/README.md)) publishes a second devic
 | CPU temperature | `sensor.wall_calendar_pi_cpu_temperature` | The Pi's CPU temperature in °C. Diagnostic. |
 | Uptime | `sensor.wall_calendar_pi_uptime` | Seconds since the Pi booted. Diagnostic. |
 | Button | `event.wall_calendar_pi_button` | Fires `single`, `double` or `long` for every press of the physical button, whatever the app does with it (see `button:` in the app's config). Only there when `sensors.button` is on in the agent's config; turning it off removes the entity. |
+| Presence | `binary_sensor.wall_calendar_pi_presence` | On while the mmWave sensor sees someone (device class occupancy). A change only counts once it has held for `presence.hold_ms` (half a second by default), so a flicker doesn't show. Only there when `sensors.presence` is on in the agent's config; turning it off removes the entity. The app's built-in policy uses the same reading (see `policies.auto_presence`). |
 | Panel power | `binary_sensor.wall_calendar_pi_panel_power` | Whether the panel is on, as the agent last found it. With the `cec` back end that is what the monitor reports, so it also follows the monitor's own remote; with `output` it is whether the Pi's HDMI output is on; with `black` it is the state the agent was last asked for. Diagnostic. |
 
 All of them show as unavailable while the agent is offline (they follow `wallcal/<display id>/pi/availability`). The two diagnostic sensors also go unavailable if the agent stops reporting for three times its diagnostics interval.
 
 To turn the screen on or off, use the app's `switch.wall_calendar_screen`, not the Pi: the app passes it on to the agent on `pi/screen/set`. The panel power sensor is there to check that the panel really followed.
 
-Not there yet: the presence and illuminance entities. They come with the sensors in Milestone 3.
+Not there yet: the illuminance entity. It comes with the light sensor in Milestone 3.
 
 ### How discovery behaves
 
@@ -390,6 +391,37 @@ This one needs the Pi agent with the button on (`sensors.button` in its config).
 ```
 
 The `event` entity fires for every press, whatever the app does with it. Set `button.long: ha` in the app's config so the app leaves the long press alone and only this automation acts on it.
+
+### Presence, driven by an automation (needs the Pi agent)
+
+The app has its own presence policy (`policies.auto_presence`): presence turns the screen on, and nobody for ten minutes turns it off. To replace it with your own rules, such as only when someone is home, turn the **Auto presence** switch off first, then drive the screen from the Pi's presence sensor. This needs the Pi agent with the presence sensor on (`sensors.presence` in its config).
+
+```yaml
+- alias: Wall calendar – screen on when someone is there
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.wall_calendar_pi_presence
+      to: "on"
+  actions:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.wall_calendar_screen
+
+- alias: Wall calendar – screen off after 20 minutes of nobody
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.wall_calendar_pi_presence
+      to: "off"
+      for: "00:20:00"
+  actions:
+    - action: switch.turn_off
+      target:
+        entity_id: switch.wall_calendar_screen
+```
+
+The `for:` makes the screen wait 20 minutes after the last movement before it goes off. Add conditions of your own, such as a `person` being home or the time of day. If the Pi agent goes offline the sensor becomes unavailable, which neither trigger matches, so the screen stays as it was.
+
+Leaving the Auto presence switch on as well means both act, and the app turns the screen off after its own wait, which may not be the one you chose.
 
 ## Dashboard
 

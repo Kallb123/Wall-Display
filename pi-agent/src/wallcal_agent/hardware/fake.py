@@ -2,6 +2,8 @@
 
 from collections.abc import Callable
 
+from . import ScreenError
+
 
 class FakeSystemInfo:
     """A Pi with values you set. Change `temperature` and `uptime` at any time.
@@ -29,3 +31,37 @@ class FakeSystemInfo:
         if self._clock is None:
             return self.uptime
         return self.uptime + (self._clock() - self._started)
+
+
+class FakeScreen:
+    """A panel you can inspect and break. `power` is what a read reports, and `set_calls` is every request made.
+
+    By default a request changes `power`, like a panel that obeys. Set `applies_requests` to False for one that
+    doesn't (or can't be read back), `set_error` or `read_error` to a message to make that call fail with a
+    ScreenError, and `on_set` to run something in the middle of a request (a test uses it to send more requests
+    while one is being handled).
+    """
+
+    def __init__(self, power: bool | None = None) -> None:
+        self.power = power
+        self.applies_requests = True
+        self.set_error: str | None = None
+        self.read_error: str | None = None
+        self.on_set: Callable[[bool], None] | None = None
+        self.set_calls: list[bool] = []
+        self.read_count = 0
+
+    def set_power(self, on: bool) -> None:
+        self.set_calls.append(on)
+        if self.on_set is not None:
+            self.on_set(on)
+        if self.set_error is not None:
+            raise ScreenError(self.set_error)
+        if self.applies_requests:
+            self.power = on
+
+    def read_power(self) -> bool | None:
+        self.read_count += 1
+        if self.read_error is not None:
+            raise ScreenError(self.read_error)
+        return self.power

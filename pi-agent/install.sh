@@ -14,8 +14,9 @@ VENV_DIR=/opt/wallcal-agent/venv
 CONFIG_DIR=/etc/wallcal-agent
 CONFIG_FILE=$CONFIG_DIR/config.yaml
 UNIT_FILE=/etc/systemd/system/wallcal-agent.service
-# Groups that give access to the hardware later milestones read. Only those that exist are used.
-DEVICE_GROUPS=(gpio i2c dialout)
+# Groups that give access to the hardware: the sensors later milestones read, and /dev/cec* (video) for the
+# cec screen back end. Only those that exist are used.
+DEVICE_GROUPS=(gpio i2c dialout video)
 
 TARGET=''
 CONFIG_CREATED=0
@@ -97,7 +98,13 @@ install_packages() {
   step "Installing packages"
   in_target && return 0
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv
+  # cec-utils (cec-client) is for the cec screen back end, wlopm for the output one. They are small, so both
+  # are installed whichever back end is chosen, and the choice can change without another install.
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv cec-utils
+  # Kept apart because not every Debian release has wlopm, and the agent works without it: the black and cec back
+  # ends don't use it, and the output one can use wlr-randr instead.
+  DEBIAN_FRONTEND=noninteractive apt-get install -y wlopm ||
+    warn "could not install wlopm; the output screen back end needs it, or wlr-randr (set screen.output.tool)"
   python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' ||
     fail "the agent needs Python 3.11 or newer (Raspberry Pi OS Bookworm has it)"
 }

@@ -7,7 +7,7 @@ and no error ever repeats the password.
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -19,7 +19,15 @@ _CLIENT_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # One or more `/`-separated levels. No `+` or `#` (topic wildcards) and no leading or trailing slash.
 _DISCOVERY_PREFIX = re.compile(r"^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$")
 
+# An output name such as HDMI-A-1, DP-2 or eDP-1. It ends up as an argument to wlopm or wlr-randr, so it must be
+# one plain word that can't be mistaken for an option (no leading hyphen) and has no spaces.
+_OUTPUT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+
 MIN_DIAGNOSTICS_INTERVAL = 5
+
+SCREEN_BACKENDS = ("black", "cec", "output")
+OUTPUT_TOOLS = ("wlopm", "wlr-randr")
+MIN_SCREEN_POLL_SECONDS = 5
 
 
 class ConfigError(Exception):
@@ -49,11 +57,42 @@ class SensorsConfig:
 
 
 @dataclass(frozen=True)
+class CecConfig:
+    """The `cec` back end: which device on the HDMI CEC bus to switch."""
+
+    # CEC logical address, 0 to 15. 0 is the TV, which is what a wall panel is.
+    device: int = 0
+
+
+@dataclass(frozen=True)
+class OutputConfig:
+    """The `output` back end: switching an output off in the kiosk's Wayland compositor."""
+
+    tool: str = "wlopm"
+    name: str = "HDMI-A-1"
+    # The kiosk's Wayland socket. The service has no desktop session of its own, so it is told where to connect.
+    wayland_display: str = "/run/user/1000/wayland-0"
+
+
+@dataclass(frozen=True)
+class ScreenConfig:
+    """How the agent turns the panel on and off, and how often it checks the panel's real state."""
+
+    backend: str = "black"
+    cec: CecConfig = field(default_factory=CecConfig)
+    output: OutputConfig = field(default_factory=OutputConfig)
+    command_timeout_seconds: int = 10
+    # 0 means never poll: the state is only published after a request, and when the agent connects.
+    poll_seconds: int = 60
+
+
+@dataclass(frozen=True)
 class Config:
     display_id: str
     mqtt: MqttConfig
     diagnostics_interval_seconds: int = 60
     sensors: SensorsConfig = field(default_factory=SensorsConfig)
+    screen: ScreenConfig = field(default_factory=ScreenConfig)
 
     def enabled_sensors(self) -> list[str]:
         """The names of the sensors switched on, in a fixed order."""
@@ -168,10 +207,97 @@ def _parse_sensors(data: Any) -> SensorsConfig:
     )
 
 
+def _parse_cec(data: Any) -> CecConfig:
+    if data is None:
+        return CecConfig()
+    section = _mapping(data, "screen.cec")
+    _check_keys(section, "screen.cec", ("device",))
+    device = _whole_number(section, "device", "screen.cec.device", 0, "must be a CEC logical address, 0 to 15")
+    if not 0 <= device <= 15:
+        raise ConfigError("screen.cec.device: must be a CEC logical address, 0 to 15")
+    return CecConfig(device=device)
+
+
+def _parse_output(data: Any) -> OutputConfig:
+    if data is None:
+        return OutputConfig()
+    section = _mapping(data, "screen.output")
+    _check_keys(section, "screen.output", ("tool", "name", "wayland_display"))
+
+    tool = _text(section, "tool", "screen.output.tool")
+    if tool is None:
+        tool = "wlopm"
+    if tool not in OUTPUT_TOOLS:
+        raise ConfigError(f"screen.output.tool: must be one of {', '.join(OUTPUT_TOOLS)}")
+
+    name = _text(section, "name", "screen.output.name")
+    if name is None:
+        name = "HDMI-A-1"
+    if not _OUTPUT_NAME.match(name):
+        raise ConfigError(
+            "screen.output.name: must be one output name such as HDMI-A-1 "
+            "(letters, digits and - _ . :, no spaces, not starting with a hyphen)"
+        )
+
+    wayland_display = _text(section, "wayland_display", "screen.output.wayland_display")
+    if wayland_display is None:
+        wayland_display = "/run/user/1000/wayland-0"
+    path = PurePosixPath(wayland_display)
+    if not path.is_absolute() or wayland_display.endswith("/") or "\0" in wayland_display:
+        raise ConfigError(
+            "screen.output.wayland_display: must be the absolute path of the Wayland socket, "
+            "such as /run/user/1000/wayland-0"
+        )
+    return OutputConfig(tool=tool, name=name, wayland_display=wayland_display)
+
+
+def _parse_screen(data: Any) -> ScreenConfig:
+    if data is None:
+        return ScreenConfig()
+    section = _mapping(data, "screen")
+    _check_keys(section, "screen", ("backend", "cec", "output", "command_timeout_seconds", "poll_seconds"))
+
+    backend = _text(section, "backend", "screen.backend")
+    if backend is None:
+        backend = "black"
+    if backend not in SCREEN_BACKENDS:
+        raise ConfigError(f"screen.backend: must be one of {', '.join(SCREEN_BACKENDS)}")
+
+    timeout = _whole_number(
+        section,
+        "command_timeout_seconds",
+        "screen.command_timeout_seconds",
+        10,
+        "must be a whole number of seconds, 1 to 60",
+    )
+    if not 1 <= timeout <= 60:
+        raise ConfigError("screen.command_timeout_seconds: must be a whole number of seconds, 1 to 60")
+
+    poll = _whole_number(
+        section,
+        "poll_seconds",
+        "screen.poll_seconds",
+        60,
+        f"must be a whole number of seconds, at least {MIN_SCREEN_POLL_SECONDS} (or 0 to never check)",
+    )
+    if poll != 0 and poll < MIN_SCREEN_POLL_SECONDS:
+        raise ConfigError(f"screen.poll_seconds: must be at least {MIN_SCREEN_POLL_SECONDS} (or 0 to never check)")
+
+    # Both sub-blocks are checked whichever back end is chosen, so a mistake is found now and not on the day
+    # someone switches back end.
+    return ScreenConfig(
+        backend=backend,
+        cec=_parse_cec(section.get("cec")),
+        output=_parse_output(section.get("output")),
+        command_timeout_seconds=timeout,
+        poll_seconds=poll,
+    )
+
+
 def parse_config(data: Any) -> Config:
     """Checks a config that has already been read from YAML. Raises ConfigError naming the first problem."""
     top = _mapping(data, "config") if data is not None else {}
-    _check_keys(top, "", ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors"))
+    _check_keys(top, "", ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen"))
 
     display_id = _text(top, "display_id", "display_id")
     if display_id is None:
@@ -197,6 +323,7 @@ def parse_config(data: Any) -> Config:
         mqtt=_parse_mqtt(top["mqtt"], display_id),
         diagnostics_interval_seconds=interval,
         sensors=_parse_sensors(top.get("sensors")),
+        screen=_parse_screen(top.get("screen")),
     )
 
 

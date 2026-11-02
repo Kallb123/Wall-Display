@@ -14,7 +14,9 @@ RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=yes
+# Not "yes": that hides /run/user as well as /home, and the kiosk's Wayland socket is in /run/user/<uid>. The
+# screen "output" back end connects to it. Connecting to a Unix socket still works on a read-only mount.
+ProtectHome=read-only
 PrivateTmp=yes
 
 [Install]

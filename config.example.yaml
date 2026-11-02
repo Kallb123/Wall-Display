@@ -89,7 +89,8 @@ displays:
     burn_in: true # default true; slowly shift the content and move the photo frame's clock between corners, against burn-in
     night_text: first_event # none (default) | first_event | next_alarm; the line under the night view's clock. next_alarm needs the alarm block above
 
-# What the physical button does. Each gesture is one of:
+# What the physical button does (the Pi agent's button: sensors.button in the
+# agent's config). Each gesture is one of:
 #   next_view      the next calendar view (month, agenda, week)
 #   toggle_photo   the photo frame, or back to the view it replaced
 #   next_photo     the next photo (and the photo wait starts again)

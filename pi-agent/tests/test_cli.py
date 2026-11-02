@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import signal
@@ -18,6 +19,7 @@ mqtt:
   username: wallcal
   password: {PASSWORD}
 sensors:
+  button: true
   presence: true
 """
 
@@ -156,6 +158,38 @@ def test_enabled_sensors_are_reported_as_not_built_yet(
 
     messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert messages == ["Sensor 'presence' is enabled in the config but not built yet, so it is ignored"]
+
+
+def test_a_button_on_its_own_raises_no_warning_and_is_announced_to_home_assistant(
+    tmp_path: Path, fake_client: FakeMqttClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("display_id: hallway\nmqtt:\n  host: broker.test\nsensors:\n  button: true\n")
+    timer = threading.Timer(0.3, lambda: (fake_client.broker_accepts(), os.kill(os.getpid(), signal.SIGTERM)))
+    timer.start()
+    caplog.set_level(logging.INFO)
+
+    code = cli.main(["--config", str(path), "--fake-hardware"])
+    timer.join()
+
+    assert code == 0
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert "Watching the button on GPIO17" in caplog.text
+    event = next(p for p in fake_client.publishes if p.topic == "homeassistant/event/wallcal_pi_hallway/button/config")
+    assert event.payload
+    assert json.loads(event.payload)["name"] == "Button"
+
+
+def test_a_bad_button_setting_exits_2_naming_the_key_even_with_the_button_off(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("display_id: hallway\nmqtt:\n  host: h\nbutton:\n  long_press_ms: 50\n")
+
+    assert cli.main(["--config", str(path), "--fake-hardware"]) == 2
+
+    err = capsys.readouterr().err
+    assert "button.long_press_ms: must be a whole number of milliseconds, 300 to 10000" in err
 
 
 def test_python_dash_m_works(tmp_path: Path) -> None:

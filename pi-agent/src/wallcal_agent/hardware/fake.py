@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from . import ScreenError
+from . import ButtonError, ScreenError
 
 
 class FakeSystemInfo:
@@ -65,3 +65,36 @@ class FakeScreen:
         if self.read_error is not None:
             raise ScreenError(self.read_error)
         return self.power
+
+
+class FakeButton:
+    """A button you press and release from a test. `start` and `close` are recorded.
+
+    `press()` and `release()` call what `start` was given, as the real input does from its own thread. Before
+    `start`, or after `close`, nobody is listening and they do nothing, as with a real one. `--fake-hardware` uses
+    one that is never pressed.
+    """
+
+    def __init__(self) -> None:
+        self.started = False
+        self.closed = False
+        self.start_error: str | None = None
+        self._on_change: Callable[[bool], None] | None = None
+
+    def start(self, on_change: Callable[[bool], None]) -> None:
+        if self.start_error is not None:
+            raise ButtonError(self.start_error)
+        self.started = True
+        self._on_change = on_change
+
+    def close(self) -> None:
+        self.closed = True
+        self._on_change = None
+
+    def press(self) -> None:
+        if self._on_change is not None:
+            self._on_change(True)
+
+    def release(self) -> None:
+        if self._on_change is not None:
+            self._on_change(False)

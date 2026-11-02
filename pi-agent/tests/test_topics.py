@@ -18,7 +18,24 @@ def test_published_retains_availability_and_the_panel_state_only() -> None:
         "pi/cpu_temperature": False,
         "pi/uptime": False,
         "pi/screen/state": True,
+        "pi/button": False,
     }
+
+
+def test_the_button_topic() -> None:
+    assert topics.BUTTON == "pi/button"
+    assert topics.topic_for("hallway", topics.BUTTON) == "wallcal/hallway/pi/button"
+
+
+@pytest.mark.parametrize("gesture", ["single", "double", "long"])
+def test_button_payloads_are_the_bare_gesture(gesture: str) -> None:
+    assert topics.button_payload(gesture) == gesture
+
+
+@pytest.mark.parametrize("gesture", ["", "Single", "triple", "press", "long ", "SINGLE"])
+def test_anything_else_is_not_a_button_gesture(gesture: str) -> None:
+    with pytest.raises(ValueError, match="not a button gesture"):
+        topics.button_payload(gesture)
 
 
 def test_the_agent_listens_for_screen_requests() -> None:

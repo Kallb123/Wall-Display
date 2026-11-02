@@ -11,18 +11,20 @@ from paho.mqtt.enums import CallbackAPIVersion
 
 from wallcal_agent import __version__, topics
 from wallcal_agent.agent import Agent, default_client_factory
-from wallcal_agent.config import Config, ScreenConfig
+from wallcal_agent.config import ButtonConfig, Config, ScreenConfig, SensorsConfig
 from wallcal_agent.discovery import discovery_messages
 from wallcal_agent.hardware import Hardware
-from wallcal_agent.hardware.fake import FakeScreen, FakeSystemInfo
+from wallcal_agent.hardware.fake import FakeButton, FakeScreen, FakeSystemInfo
 
-from .conftest import PASSWORD, AgentRig, FakeMqttClient, Published
+from .conftest import PASSWORD, AgentRig, FakeMessageInfo, FakeMqttClient, Published
 
 AVAILABILITY = "wallcal/hallway/pi/availability"
 CPU = "wallcal/hallway/pi/cpu_temperature"
 UPTIME = "wallcal/hallway/pi/uptime"
 SCREEN_SET = "wallcal/hallway/pi/screen/set"
 SCREEN_STATE = "wallcal/hallway/pi/screen/state"
+BUTTON = "wallcal/hallway/pi/button"
+BUTTON_DISCOVERY = "homeassistant/event/wallcal_pi_hallway/button/config"
 
 
 def by_topic(client: FakeMqttClient) -> dict[str, Published]:
@@ -65,7 +67,7 @@ def test_connecting_says_online_and_publishes_discovery_and_diagnostics(rig: Age
     published = by_topic(rig.client)
 
     assert published[AVAILABILITY] == Published(AVAILABILITY, "online", 1, True)
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60)
+    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False)
     for message in expected:
         assert published[message.topic] == Published(message.topic, message.payload, 1, True)
     assert published[CPU] == Published(CPU, "48.3", 1, False)
@@ -117,7 +119,7 @@ def test_home_assistant_birth_republishes_discovery(rig: AgentRig) -> None:
 
     rig.client.message_arrives("homeassistant/status", "online")
 
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60)
+    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False)
     assert rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
 
 
@@ -387,9 +389,12 @@ def test_default_client_factory_makes_a_paho_2_client() -> None:
     assert client._client_id == b"wallcal-pi-test"  # type: ignore[attr-defined]
 
 
-def test_topics_published_are_the_ones_declared(rig: AgentRig) -> None:
+def test_topics_published_are_the_ones_declared(button_rig: AgentRig) -> None:
+    rig = button_rig
     rig.client.broker_accepts()
     rig.agent.run_screen_work()
+    tap(rig)
+    after(rig, 1.0)
 
     names = {p.topic.removeprefix("wallcal/hallway/") for p in rig.client.publishes if p.topic.startswith("wallcal/")}
     assert names == set(topics.PUBLISHED)
@@ -1060,3 +1065,474 @@ def test_stop_does_not_wait_longer_than_one_command_may_take(config: Config, cap
     thread.join(5)
     assert not thread.is_alive()
     assert rig.client.publishes[-1] == Published(AVAILABILITY, "offline", 1, True)
+
+
+# The button. Like the panel, the rig has no worker thread: a test presses the fake button, moves the clock and calls
+# `run_button_work()` when the worker would have woken. The timings are the config's defaults: 30 ms to bounce,
+# 400 ms for a double, 1 s for a long press.
+
+
+def button_publishes(client: FakeMqttClient) -> list[Published]:
+    return [p for p in client.publishes if p.topic == BUTTON]
+
+
+def fake_button(rig: AgentRig) -> FakeButton:
+    assert rig.button is not None
+    return rig.button
+
+
+def connected(rig: AgentRig) -> AgentRig:
+    rig.client.broker_accepts()
+    rig.client.clear()
+    return rig
+
+
+def after(rig: AgentRig, seconds: float) -> list[str]:
+    """Lets time pass, lets the worker have its turn, and returns every gesture published so far."""
+    rig.clock.advance(seconds)
+    rig.agent.run_button_work()
+    return [p.payload or "" for p in button_publishes(rig.client)]
+
+
+def tap(rig: AgentRig, held: float = 0.0625) -> None:
+    fake_button(rig).press()
+    rig.clock.advance(held)
+    fake_button(rig).release()
+
+
+def test_start_opens_the_button(button_rig: AgentRig) -> None:
+    assert fake_button(button_rig).started is True
+    assert fake_button(button_rig).closed is False
+
+
+def test_start_logs_the_pin_the_button_is_on(
+    button_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = make_agent(replace(button_config, button=ButtonConfig(pin=22)))
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        rig.agent.start()
+
+    assert "Watching the button on GPIO22" in caplog.text
+
+
+def test_without_a_button_nothing_is_started_and_the_button_work_does_nothing(rig: AgentRig) -> None:
+    assert rig.button is None
+    rig.client.broker_accepts()
+    rig.client.clear()
+
+    rig.agent.run_button_work()
+    rig.agent.run_button_work(now=1e9)
+
+    assert rig.client.publishes == []
+    assert rig.agent._button_thread is None
+
+
+def test_a_single_press_is_published_once_the_double_press_window_has_passed(button_rig: AgentRig) -> None:
+    connected(button_rig)
+    tap(button_rig)
+
+    assert after(button_rig, 0.0625) == []
+    assert after(button_rig, 0.25) == []
+    assert after(button_rig, 0.25) == ["single"]
+    assert after(button_rig, 5.0) == ["single"]
+
+
+def test_a_gesture_is_published_at_qos_1_and_not_retained(button_rig: AgentRig) -> None:
+    connected(button_rig)
+    tap(button_rig)
+    after(button_rig, 1.0)
+
+    assert button_publishes(button_rig.client) == [Published(BUTTON, "single", 1, False)]
+
+
+def test_a_double_press_is_published_as_soon_as_the_second_press_is_confirmed(button_rig: AgentRig) -> None:
+    connected(button_rig)
+    tap(button_rig)
+    button_rig.clock.advance(0.125)
+    fake_button(button_rig).press()
+
+    assert after(button_rig, 0.0) == []  # not confirmed yet: it might be a bounce
+    assert after(button_rig, 0.0625) == ["double"]
+
+    fake_button(button_rig).release()
+    assert after(button_rig, 5.0) == ["double"]
+
+
+def test_a_long_press_is_published_while_the_button_is_still_held(button_rig: AgentRig) -> None:
+    connected(button_rig)
+    fake_button(button_rig).press()
+
+    assert after(button_rig, 0.5) == []
+    assert after(button_rig, 0.5) == ["long"]
+
+    fake_button(button_rig).release()
+    assert after(button_rig, 5.0) == ["long"]
+
+
+def test_the_edge_callback_only_notes_the_edge_and_publishes_nothing(button_rig: AgentRig) -> None:
+    connected(button_rig)
+
+    tap(button_rig)
+    button_rig.clock.advance(10.0)
+
+    # Time has passed and nobody ran the worker: all that happened is that the edges were noted.
+    assert button_publishes(button_rig.client) == []
+    assert button_rig.client.publishes == []
+
+
+def test_the_times_come_from_the_config_in_milliseconds(
+    button_config: Config, make_agent: Callable[[Config], AgentRig]
+) -> None:
+    rig = make_agent(replace(button_config, button=ButtonConfig(bounce_ms=0, double_press_ms=2000, long_press_ms=300)))
+    rig.agent.start()
+    connected(rig)
+
+    fake_button(rig).press()
+    assert after(rig, 0.25) == []
+    assert after(rig, 0.0625) == ["long"]
+    fake_button(rig).release()
+    tap(rig)
+    # A 2 s double press window: nothing yet after 1.5 s.
+    assert after(rig, 1.5) == ["long"]
+    assert after(rig, 0.5) == ["long", "single"]
+
+
+def test_a_blip_shorter_than_the_bounce_time_is_not_a_press(button_rig: AgentRig) -> None:
+    connected(button_rig)
+
+    fake_button(button_rig).press()
+    button_rig.clock.advance(0.0078125)
+    fake_button(button_rig).release()
+
+    assert after(button_rig, 10.0) == []
+
+
+def test_a_press_while_the_broker_is_away_is_dropped_and_not_sent_later(
+    button_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    button_rig.client.broker_accepts()
+    button_rig.client.connection_drops()
+    button_rig.client.clear()
+    tap(button_rig)
+
+    with caplog.at_level(logging.DEBUG, logger="wallcal_agent.agent"):
+        assert after(button_rig, 1.0) == []
+    button_rig.client.broker_accepts()
+    button_rig.agent.run_button_work()
+
+    assert button_publishes(button_rig.client) == []
+    assert "Dropped the single press" in caplog.text
+
+
+def test_a_press_before_the_first_connection_is_dropped_too(button_rig: AgentRig) -> None:
+    tap(button_rig)
+    after(button_rig, 1.0)
+    button_rig.client.broker_accepts()
+    button_rig.agent.run_button_work()
+
+    assert button_publishes(button_rig.client) == []
+
+
+def test_the_button_works_again_after_a_reconnect(button_rig: AgentRig) -> None:
+    connected(button_rig)
+    button_rig.client.connection_drops()
+    tap(button_rig)
+    after(button_rig, 1.0)
+    button_rig.client.broker_accepts()
+    button_rig.client.clear()
+
+    tap(button_rig)
+
+    assert after(button_rig, 1.0) == ["single"]
+
+
+def test_every_gesture_is_logged_at_info(button_rig: AgentRig, caplog: pytest.LogCaptureFixture) -> None:
+    connected(button_rig)
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        tap(button_rig)
+        after(button_rig, 0.125)
+        fake_button(button_rig).press()
+        after(button_rig, 1.0)
+        fake_button(button_rig).release()
+        after(button_rig, 1.0)
+
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    # The tap and the press 0.125 s later make a double; the second one is held, so it adds nothing.
+    assert messages == ["Button: double press"]
+
+
+def test_a_dropped_press_is_still_logged_at_info(button_rig: AgentRig, caplog: pytest.LogCaptureFixture) -> None:
+    tap(button_rig)
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        after(button_rig, 1.0)
+
+    assert "Button: single press" in caplog.text
+
+
+def test_a_publish_that_fails_is_logged_quietly_and_the_button_carries_on(
+    button_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    connected(button_rig)
+    failures = iter([RuntimeError("not connected")])
+
+    def publish(topic: str, payload: str | None = None, qos: int = 0, retain: bool = False) -> None:
+        error = next(failures, None)
+        if error is not None:
+            raise error
+
+    original = button_rig.client.publish
+    button_rig.client.publish = publish  # type: ignore[method-assign]
+    tap(button_rig)
+    with caplog.at_level(logging.DEBUG, logger="wallcal_agent.agent"):
+        after(button_rig, 1.0)
+    button_rig.client.publish = original  # type: ignore[method-assign]
+    tap(button_rig)
+
+    assert "Could not publish the single press" in caplog.text
+    assert after(button_rig, 1.0) == ["single"]
+
+
+def test_a_button_that_cannot_be_opened_is_one_warning_and_the_agent_carries_on(
+    button_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = make_agent(button_config)
+    fake_button(rig).start_error = "pin GPIO17 is already in use"
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        rig.agent.start()
+        rig.client.broker_accepts()
+        rig.agent.run_button_work()
+        rig.agent.stop()
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == ["Could not open the button on GPIO17: pin GPIO17 is already in use; carrying on without it"]
+    assert "Watching the button" not in caplog.text
+    # Everything else works: it connected, said it was online and said it was offline again.
+    assert rig.client.publishes[0].topic == AVAILABILITY
+    assert rig.client.publishes[-1] == Published(AVAILABILITY, "offline", 1, True)
+    assert rig.client.disconnected is True
+
+
+def test_a_button_that_could_not_be_opened_is_not_closed_and_gets_no_thread(
+    button_config: Config, caplog: pytest.LogCaptureFixture
+) -> None:
+    button = FakeButton()
+    button.start_error = "no access"
+    client = FakeMqttClient()
+    agent = Agent(
+        button_config,
+        Hardware(system=FakeSystemInfo(), screen=FakeScreen(power=True), button=button),
+        client_factory=lambda _: client,
+        screen_worker=False,
+    )
+
+    agent.start()
+    try:
+        assert agent._button_thread is None
+    finally:
+        agent.stop()
+
+    assert button.closed is False
+
+
+def test_stop_closes_the_button_before_it_disconnects(button_config: Config, system: FakeSystemInfo) -> None:
+    client = FakeMqttClient()
+
+    class Recording(FakeButton):
+        def close(self) -> None:
+            client.calls.append("button closed")
+            super().close()
+
+    button = Recording()
+    agent = Agent(
+        button_config,
+        Hardware(system=system, screen=FakeScreen(power=True), button=button),
+        client_factory=lambda _: client,
+        screen_worker=False,
+    )
+    agent.start()
+    client.broker_accepts()
+    client.calls.clear()
+
+    agent.stop()
+
+    assert client.calls.index("button closed") < client.calls.index(f"publish {AVAILABILITY}")
+    assert client.calls.index("button closed") < client.calls.index("disconnect")
+    assert button.closed is True
+
+
+def test_presses_after_stop_are_ignored(button_rig: AgentRig) -> None:
+    connected(button_rig)
+    button = fake_button(button_rig)
+    button_rig.agent.stop()
+    button_rig.client.clear()
+
+    # A late callback from the GPIO library's thread, as if the input had not quite been closed yet.
+    button_rig.agent._on_button_change(True)
+    button_rig.clock.advance(5.0)
+    button_rig.agent.run_button_work()
+
+    assert button.closed is True
+    assert button_publishes(button_rig.client) == []
+
+
+def test_stopping_drops_a_gesture_that_has_not_been_published(button_rig: AgentRig) -> None:
+    connected(button_rig)
+    tap(button_rig)
+    button_rig.clock.advance(5.0)
+
+    button_rig.agent.stop()
+    button_rig.agent.run_button_work()
+
+    assert button_publishes(button_rig.client) == []
+
+
+def test_discovery_has_the_button_entity_when_the_button_is_on(button_rig: AgentRig) -> None:
+    button_rig.client.broker_accepts()
+
+    published = by_topic(button_rig.client)[BUTTON_DISCOVERY]
+
+    assert published.retain is True
+    assert published.payload is not None
+    config = json.loads(published.payload)
+    assert config["state_topic"] == BUTTON
+    assert config["event_types"] == ["single", "double", "long"]
+
+
+def test_discovery_removes_the_button_entity_when_the_button_is_off(rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+
+    assert by_topic(rig.client)[BUTTON_DISCOVERY] == Published(BUTTON_DISCOVERY, "", 1, True)
+
+
+def test_discovery_after_home_assistant_restarts_follows_the_button_setting(button_rig: AgentRig) -> None:
+    button_rig.client.broker_accepts()
+    button_rig.client.clear()
+
+    button_rig.client.message_arrives("homeassistant/status", "online")
+
+    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=True)
+    assert button_rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
+
+
+# With the real worker thread. The logic is covered above without threads; these check the threading itself. They use
+# the real clock, so the times are the shortest the config allows (no bounce, 100 ms and 300 ms) to keep them quick.
+
+QUICK = ButtonConfig(bounce_ms=0, double_press_ms=100, long_press_ms=300)
+
+
+class ThreadedButton:
+    """An agent with its own button worker, and a client that notes which thread published each gesture."""
+
+    def __init__(self, config: Config, button: ButtonConfig = QUICK) -> None:
+        self.threads: list[str] = []
+        outer = self
+
+        class Client(FakeMqttClient):
+            def publish(
+                self, topic: str, payload: str | None = None, qos: int = 0, retain: bool = False
+            ) -> FakeMessageInfo:
+                if topic == BUTTON:
+                    outer.threads.append(threading.current_thread().name)
+                return super().publish(topic, payload, qos, retain)
+
+        self.client = Client()
+        self.button = FakeButton()
+        self.agent = Agent(
+            replace(config, sensors=SensorsConfig(button=True), button=button),
+            Hardware(system=FakeSystemInfo(), screen=FakeScreen(power=True), button=self.button),
+            client_factory=lambda _: self.client,
+            screen_worker=False,
+        )
+        self.agent.start()
+
+    def gestures(self) -> list[str]:
+        return [p.payload or "" for p in list(button_publishes(self.client))]
+
+
+def test_the_worker_thread_publishes_a_single_after_the_window(config: Config) -> None:
+    rig = ThreadedButton(config)
+    try:
+        rig.client.broker_accepts()
+        rig.button.press()
+        rig.button.release()
+
+        assert wait_until(lambda: rig.gestures() == ["single"])
+    finally:
+        rig.agent.stop()
+
+    # Never on the thread that pressed the button (the GPIO library's, here the test's).
+    assert rig.threads == ["wallcal-button"]
+
+
+def test_the_worker_thread_publishes_a_double_straight_away(config: Config) -> None:
+    rig = ThreadedButton(config, ButtonConfig(bounce_ms=0, double_press_ms=2000, long_press_ms=10000))
+    try:
+        rig.client.broker_accepts()
+        for _ in range(2):
+            rig.button.press()
+            rig.button.release()
+
+        # Far sooner than the 2 s window: a double does not wait for it.
+        assert wait_until(lambda: rig.gestures() == ["double"], timeout=1.5)
+    finally:
+        rig.agent.stop()
+
+
+def test_the_worker_thread_publishes_a_long_press_while_the_button_is_held(config: Config) -> None:
+    rig = ThreadedButton(config)
+    try:
+        rig.client.broker_accepts()
+        rig.button.press()
+
+        assert wait_until(lambda: rig.gestures() == ["long"])
+        rig.button.release()
+    finally:
+        rig.agent.stop()
+
+    assert rig.gestures() == ["long"]
+
+
+def test_the_worker_thread_waits_for_the_bounce_time_then_publishes(config: Config) -> None:
+    rig = ThreadedButton(config, ButtonConfig(bounce_ms=200, double_press_ms=100, long_press_ms=300))
+    try:
+        rig.client.broker_accepts()
+        rig.button.press()
+        rig.button.release()  # a blip within the bounce time: nothing ever happens
+        rig.button.press()
+        rig.button.release()
+        rig.button.press()
+
+        assert wait_until(lambda: rig.gestures() == ["long"], timeout=2)
+    finally:
+        rig.agent.stop()
+
+
+def test_the_worker_thread_is_a_daemon_and_stop_ends_it(config: Config) -> None:
+    rig = ThreadedButton(config)
+    thread = rig.agent._button_thread
+    assert thread is not None and thread.is_alive() and thread.daemon
+    assert thread.name == "wallcal-button"
+
+    rig.agent.stop()
+
+    assert not thread.is_alive()
+    assert rig.button.closed is True
+
+
+def test_stop_does_not_wait_for_a_long_deadline(config: Config) -> None:
+    rig = ThreadedButton(config, ButtonConfig(bounce_ms=0, double_press_ms=2000, long_press_ms=10000))
+    rig.client.broker_accepts()
+    rig.button.press()
+    time.sleep(0.05)
+    thread = rig.agent._button_thread
+    assert thread is not None
+
+    before = time.monotonic()
+    rig.agent.stop()
+
+    assert time.monotonic() - before < 1.5
+    assert not thread.is_alive()

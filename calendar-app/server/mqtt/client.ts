@@ -1,11 +1,13 @@
 import { connect as mqttConnect } from 'mqtt'
 import type { IClientOptions } from 'mqtt'
 import type { DisplayState } from '../../shared/display'
-import type { MqttConfig } from '../config/schema'
+import { DEFAULT_BUTTON } from '../config/schema'
+import type { ButtonConfig, MqttConfig } from '../config/schema'
+import { buttonCommand } from '../control/button'
 import type { DisplayControl } from '../control/service'
 import type { EventBus } from '../events/bus'
 import { BIRTH_ONLINE, birthTopic, discoveryMessages } from './discovery'
-import { AVAILABILITY_TOPIC, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseCommandTopic, PI_SCREEN_TOPIC, piScreenPayload, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
+import { AVAILABILITY_TOPIC, buttonPayloadReason, COMMAND_TOPICS, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseButtonPayload, parseCommandTopic, PI_BUTTON_TOPIC, PI_SCREEN_TOPIC, piScreenPayload, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
 import type { StateTopic } from './topics'
 
 // Keeps each display's state on an MQTT broker and takes commands from it
@@ -14,11 +16,12 @@ import type { StateTopic } from './topics'
 // connection. With discovery on, it also publishes Home Assistant's entity
 // configs for the display on every connect, and again when Home Assistant
 // says it has restarted. It also tells the Pi agent what the panel should be,
-// on `pi/screen/set`, whenever the screen setting changes. This file decides
-// when to connect, retry and publish; the topics and payloads are in topics.ts
-// and discovery.ts, and the MQTT client itself is injected, so a test drives
-// it with a fake and fake timers. A broker that is missing or down never stops
-// the app: nothing here throws or waits for it.
+// on `pi/screen/set`, whenever the screen setting changes, and listens for the
+// agent's button presses on `pi/button`, which the `button:` config turns into
+// commands. This file decides when to connect, retry and publish; the topics
+// and payloads are in topics.ts and discovery.ts, and the MQTT client itself
+// is injected, so a test drives it with a fake and fake timers. A broker that
+// is missing or down never stops the app: nothing here throws or waits for it.
 
 /** The part of an MQTT.js client the bridge uses, so a test can pass a fake. */
 export interface MqttLink {
@@ -53,6 +56,8 @@ export interface MqttBridgeOptions {
   specialDay?: () => string | null | undefined
   /** The display time zone, which decides what the current month is. */
   timeZone: string
+  /** What each gesture of the Pi agent's button does. Default: the config's defaults. */
+  button?: ButtonConfig
   control: Pick<DisplayControl, 'getState' | 'applyCommand'>
   bus: EventBus
   /** For tests. Default: `connect` from MQTT.js. */
@@ -129,7 +134,7 @@ interface Link {
 }
 
 export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
-  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, lastSync = () => null, specialDay = () => undefined } = options
+  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, button = DEFAULT_BUTTON, lastSync = () => null, specialDay = () => undefined } = options
   const broker = brokerName(config.url)
   let stopped = false
   let stopping: Promise<void> | undefined
@@ -239,12 +244,12 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
     publish(link, AVAILABILITY_TOPIC, ONLINE)
     if (config.discovery) publishDiscovery(link)
-    const topics = COMMAND_TOPICS.map(suffix => topicFor(link.displayId, suffix))
+    const topics = [...COMMAND_TOPICS, PI_BUTTON_TOPIC].map(suffix => topicFor(link.displayId, suffix))
     // Home Assistant's birth message is how it asks for the configs again after a restart.
     if (config.discovery) topics.push(birthTopic(config.discovery_prefix))
     client.subscribe(topics, { qos: 1 }, (error, granted) => {
       if (error) {
-        if (!stopped) log.warn(`[mqtt] ${link.displayId}: could not subscribe to the command topics: ${describe(error)}`)
+        if (!stopped) log.warn(`[mqtt] ${link.displayId}: could not subscribe to the command and button topics: ${describe(error)}`)
         return
       }
       // A broker that refuses a topic (its access rules) grants QoS 128 for it.
@@ -283,6 +288,26 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }, reconnectDelayMs(link.failures, random()))
   }
 
+  /** A press from the Pi agent's button: looks up what the config says the gesture does and applies it. `ha` and `none` do nothing here, and are not logged, as Home Assistant sees every press either way. */
+  function onButton(link: Link, topic: string, payload: string, retained: boolean): void {
+    // A retained press would run again on every connect. The agent never retains one, so this is someone else's.
+    if (retained) {
+      log.warn(`[mqtt] ${link.displayId}: ignored the retained message on ${topic} (publish an empty retained message there to remove it)`)
+      return
+    }
+    const gesture = parseButtonPayload(payload)
+    if (!gesture) {
+      log.warn(`[mqtt] ${link.displayId}: ignored a message: ${buttonPayloadReason(payload)}`)
+      return
+    }
+    try {
+      const command = buttonCommand(button[gesture], control.getState(link.displayId))
+      if (command) control.applyCommand(link.displayId, command)
+    } catch (error) {
+      log.error(`[mqtt] ${link.displayId}: could not apply the ${gesture} press of the button: ${describe(error)}`)
+    }
+  }
+
   function onMessage(link: Link, topic: string, payload: Buffer, retained: boolean): void {
     if (config.discovery && topic === birthTopic(config.discovery_prefix)) {
       // A retained `online` is old news: the connect that subscribed has just published every config.
@@ -290,6 +315,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         log.info(`[mqtt] ${link.displayId}: Home Assistant says it is online, so the discovery configs are published again`)
         publishDiscovery(link)
       }
+      return
+    }
+    if (topic === topicFor(link.displayId, PI_BUTTON_TOPIC)) {
+      onButton(link, topic, payload.toString('utf8'), retained)
       return
     }
     const parsedTopic = parseCommandTopic(topic)

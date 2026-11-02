@@ -534,6 +534,8 @@ button:
 
 A gesture is one of `next_view`, `toggle_photo`, `next_photo`, `toggle_screen`, `next_month`, `prev_month`, `this_month`, `refresh`, `ha` and `none`. `buttonCommand(action, state)` in `server/control/button.ts` turns each into the command the control service applies (`next_photo` is `photo_next`, `toggle_screen` is `set_screen` to the opposite of the screen now, `ha` and `none` are no command at all), so the button handling only has to look the gesture up and apply what comes back.
 
+The app subscribes to `…/pi/button`, looks the gesture up in `button:` and applies what `buttonCommand(...)` returns through `applyCommand()`, so it works with HA down as long as the broker is up. A retained press is ignored, so one is never replayed on a reconnect.
+
 The HA `event` entity fires for every press either way, so HA can always react as well.
 
 **Example automations**

@@ -7,6 +7,8 @@ payload cannot drift away from what the app and Home Assistant expect.
 import math
 from decimal import ROUND_HALF_UP, Decimal
 
+from .button import DOUBLE, LONG, SINGLE
+
 # Every topic sits under this, so one broker can serve several displays.
 BASE = "wallcal/{display_id}"
 
@@ -16,6 +18,11 @@ UPTIME = "pi/uptime"
 # The request to turn the panel on or off (the agent subscribes to it) and what the panel is actually doing.
 SCREEN_SET = "pi/screen/set"
 SCREEN_STATE = "pi/screen/state"
+# A press of the physical button, already told apart as single, double or long.
+BUTTON = "pi/button"
+
+# What the button publishes, written out here as the contract has them. button.py's detector produces these.
+BUTTON_GESTURES = (SINGLE, DOUBLE, LONG)
 
 ONLINE = "online"
 OFFLINE = "offline"
@@ -23,11 +30,13 @@ OFFLINE = "offline"
 # Each topic the agent publishes, and whether it is retained. Availability is retained so a late subscriber learns
 # the state at once (and so the last will can replace it). The diagnostics are not: a stale reading is worse than none.
 # The panel state is retained because it only changes when someone asks, so it can be a long time between messages.
+# A button press is an event, not a state: replayed to a subscriber that connects later it would act twice.
 PUBLISHED: dict[str, bool] = {
     AVAILABILITY: True,
     CPU_TEMPERATURE: False,
     UPTIME: False,
     SCREEN_STATE: True,
+    BUTTON: False,
 }
 
 # Each topic the agent listens to. The contract's `to_pi` topics are exactly these.
@@ -70,3 +79,10 @@ def parse_screen_payload(text: str) -> bool | None:
 def screen_payload(on: bool) -> str:
     """The payload for a panel that is on or off."""
     return "on" if on else "off"
+
+
+def button_payload(gesture: str) -> str:
+    """The payload for a press: "single", "double" or "long", exactly. Anything else is a bug and raises."""
+    if gesture not in BUTTON_GESTURES:
+        raise ValueError(f"not a button gesture: {gesture!r}")
+    return gesture

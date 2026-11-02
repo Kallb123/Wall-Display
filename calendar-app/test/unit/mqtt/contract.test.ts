@@ -7,12 +7,15 @@ import type { DisplayState } from '../../../shared/display'
 import { defaultDisplayState } from '../../../server/control/commands'
 import {
   AVAILABILITY_TOPIC,
+  BUTTON_GESTURES,
   COMMAND_TOPICS,
   LAST_SYNC_TOPIC,
   lastSyncPayload,
   OFFLINE,
   ONLINE,
+  parseButtonPayload,
   parseCommandPayload,
+  PI_BUTTON_TOPIC,
   PI_SCREEN_TOPIC,
   piScreenPayload,
   SPECIAL_DAY_TOPIC,
@@ -206,6 +209,24 @@ describe('command payloads', () => {
       const accepted = parseCommandPayload(name as CommandTopic, payload).ok
       expect(accepted, `${name} ${JSON.stringify(payload)}`).toBe(contractAccepts(name, payload))
     }
+  })
+})
+
+describe('the pi agent\'s button', () => {
+  const topic = contract.topics[PI_BUTTON_TOPIC]!
+
+  it('comes from the pi agent and is not retained, so a press is never replayed', () => {
+    expect(topic.direction).toBe('from_pi')
+    expect(topic.retained).toBe(false)
+  })
+
+  it('has the gestures the app knows, and no others', () => {
+    expect((topic.payload.schema as { enum: string[] }).enum).toEqual([...BUTTON_GESTURES])
+  })
+
+  it('is parsed for every example and not for any invalid example', () => {
+    for (const payload of topic.examples) expect(parseButtonPayload(payload), `example ${JSON.stringify(payload)}`).not.toBeNull()
+    for (const payload of topic.invalid_examples) expect(parseButtonPayload(payload), `invalid example ${JSON.stringify(payload)}`).toBeNull()
   })
 })
 

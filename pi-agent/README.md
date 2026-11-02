@@ -5,11 +5,12 @@ A small Python service that runs on the Raspberry Pi next to the kiosk and talks
 What it does so far:
 
 - Publishes `pi/availability`: `online` while it runs, and `offline` from the broker's last will if it dies, or from the agent itself on a clean stop.
-- Publishes Home Assistant discovery configs for a "Wall Calendar Pi" device, with three diagnostic entities: CPU temperature, uptime and panel power.
+- Publishes Home Assistant discovery configs for a "Wall Calendar Pi" device, with three diagnostic entities (CPU temperature, uptime and panel power) and, when the button is on, a Button event entity.
 - Publishes the CPU temperature and uptime every minute.
 - Turns the panel on and off when the app asks (`pi/screen/set`), and publishes what the panel is doing (`pi/screen/state`). See [Screen power](#screen-power).
+- Reads a push button on a GPIO pin, tells single, double and long presses apart, and publishes each one to `pi/button`. See [Button](#button).
 
-The button, the presence sensor and the light sensor come later in Milestone 3 (PRs 3.3 to 3.6). Their config switches are already in the file, but turning one on only logs that it isn't built yet.
+The presence sensor and the light sensor come later in Milestone 3. Their config switches are already in the file, but turning one on only logs that it isn't built yet.
 
 The agent only talks to the broker. It holds no state of its own, and the app works the same without it. With the default `black` screen back end it does nothing to the panel at all.
 
@@ -25,9 +26,9 @@ sudo systemctl restart wallcal-agent
 
 `install.sh`:
 
-1. Installs `python3-venv`, `cec-utils` (for the `cec` screen back end) and `wlopm` (for the `output` one). If `wlopm` isn't available on your release, it warns and carries on: the agent doesn't need it unless you choose `output` with the `wlopm` tool.
-2. Creates a `wallcal-agent` system user and group with no login. It is added to the `gpio`, `i2c`, `dialout` and `video` groups where they exist: the first three are for the sensors, and `video` gives access to `/dev/cec*` for the `cec` back end.
-3. Installs the agent into a venv at `/opt/wallcal-agent/venv`.
+1. Installs `python3-venv`, `python3-lgpio` (what reads the button's GPIO), `cec-utils` (for the `cec` screen back end) and `wlopm` (for the `output` one). If `wlopm` isn't available on your release, it warns and carries on: the agent doesn't need it unless you choose `output` with the `wlopm` tool.
+2. Creates a `wallcal-agent` system user and group with no login. It is added to the `gpio`, `i2c`, `dialout` and `video` groups where they exist: `gpio` is for the button and the sensors to come, `i2c` and `dialout` are for the sensors to come, and `video` gives access to `/dev/cec*` for the `cec` back end.
+3. Installs the agent into a venv at `/opt/wallcal-agent/venv`. The venv can see the system's Python packages, because `python3-lgpio` only comes from apt. An older venv made without that is switched over.
 4. Copies `config.example.yaml` to `/etc/wallcal-agent/config.yaml`, only if there is no config yet. The file is `0640`, owned by `root:wallcal-agent`, because it holds the MQTT password.
 5. Installs `wallcal-agent.service`, enables it, and restarts it.
 
@@ -50,7 +51,12 @@ The file is `/etc/wallcal-agent/config.yaml`. [`config.example.yaml`](config.exa
 | `mqtt.discovery` | `true` | Publish the Home Assistant discovery configs. |
 | `mqtt.discovery_prefix` | `homeassistant` | Change it if Home Assistant's MQTT integration uses another prefix. |
 | `diagnostics_interval_seconds` | `60` | How often CPU temperature and uptime are published. At least 5. |
-| `sensors.button`, `sensors.presence`, `sensors.light` | `false` | Not built yet. |
+| `sensors.button` | `false` | `true` if a push button is wired to this Pi. See [Button](#button). |
+| `sensors.presence`, `sensors.light` | `false` | Not built yet. |
+| `button.pin` | `17` | The button's BCM GPIO number (not the pin's place on the header), a whole number from 0 to 27. |
+| `button.bounce_ms` | `30` | A change on the input only counts once it has stayed that way this long, so contact bounce isn't read as presses. 0 to 200. |
+| `button.double_press_ms` | `400` | The longest gap from letting go of the first press to pressing again that still makes a double press. 100 to 2000. |
+| `button.long_press_ms` | `1000` | Held down this long is a long press. 300 to 10000. |
 | `screen.backend` | `black` | How the panel is turned on and off: `black`, `cec` or `output`. See [Screen power](#screen-power). |
 | `screen.cec.device` | `0` | The `cec` back end: the CEC logical address to switch, 0 to 15. 0 is the TV. |
 | `screen.output.tool` | `wlopm` | The `output` back end: `wlopm` or `wlr-randr`. |
@@ -59,7 +65,7 @@ The file is `/etc/wallcal-agent/config.yaml`. [`config.example.yaml`](config.exa
 | `screen.command_timeout_seconds` | `10` | How long `cec-client`, `wlopm` or `wlr-randr` may take before it is given up on. 1 to 60. |
 | `screen.poll_seconds` | `60` | How often the real panel state is read, and published if it changed. `0` never checks; otherwise at least 5. |
 
-The settings for a back end you haven't chosen are still checked, so a mistake in them shows up now and not on the day you switch.
+The settings for a back end you haven't chosen are still checked, and so are the `button` settings while `sensors.button` is off, so a mistake in them shows up now and not on the day you switch.
 
 A config that is wrong makes the agent print what is wrong, naming the key (such as `mqtt.port: must be 1 to 65535`), and exit with status 2. systemd then restarts it every 5 seconds until the file is fixed. The password is never logged.
 
@@ -109,6 +115,36 @@ Then watch it work by publishing a request:
 mosquitto_pub -h <broker> -t 'wallcal/<display id>/pi/screen/set' -r -q 1 -m off
 ```
 
+## Button
+
+A push button on a GPIO pin gives the wall three gestures to play with. The agent publishes each one to `pi/button`, and the app and Home Assistant decide what it does.
+
+Wire the button between the GPIO and a ground (GND) pin. By default that is GPIO17, which is physical pin 11, next to ground on pin 9. The agent switches on the Pi's own pull-up resistor, so the input sits high until the button pulls it low, and no resistor is needed. Then set `sensors.button: true` (and `button.pin` if you used another pin) in the config and restart the agent.
+
+The gestures:
+
+| Gesture | What you do | When it is published |
+|---|---|---|
+| `single` | Press and let go. | Once `button.double_press_ms` (400 ms) has passed with no second press, because until then it might be the start of a double. |
+| `double` | Press, let go, and press again within `button.double_press_ms` of letting go. | As soon as the second press is made. Holding that second press, or letting go of it, adds nothing. |
+| `long` | Hold the button for `button.long_press_ms` (1 s). | While it is still held, so the wall answers without waiting for you to let go. Letting go afterwards adds nothing. |
+
+A press that is let go before `long_press_ms` is a short press, however slowly the contacts settled. `button.bounce_ms` (30 ms) is how long the input has to stay put before a change counts, so a button that chatters as it closes still gives one press. A button that is already held down when the agent starts does nothing until it has been let go and pressed again.
+
+What each gesture does is not the agent's business. The app looks the gesture up in its own `button:` config (`next_view`, `toggle_photo`, `ha`, and so on) and acts on it, and Home Assistant always gets the Button `event` entity, so it sees every press whatever the app does with it. See [docs/home-assistant.md](../docs/home-assistant.md).
+
+How it behaves:
+
+- A press is dropped, not saved, if the broker can't be reached when it happens. A "long press" arriving minutes late would do something nobody asked for.
+- Each gesture is logged at `info` level, such as `Button: double press`.
+- If the GPIO can't be opened (the pin is in use, the service user has no access to the GPIO, or this isn't a Pi), the agent logs one warning, `Could not open the button on GPIO17: ...; carrying on without it`, and runs on without the button. It doesn't exit, which would only have systemd restart it every 5 seconds. The Home Assistant entity is still announced, because that follows the config.
+
+Watch the presses with the Mosquitto tools while you try it:
+
+```sh
+mosquitto_sub -h <broker> -t 'wallcal/<display id>/pi/button' -v
+```
+
 ## Logs
 
 ```sh
@@ -128,10 +164,11 @@ Everything is under `wallcal/<display id>/`, as text. The contract has the schem
 | `pi/cpu_temperature` | no | °C to one decimal place, such as `48.3`. Left out when the temperature can't be read. |
 | `pi/uptime` | no | Seconds since the Pi booted, a whole number. |
 | `pi/screen/state` | yes | `on` or `off`: what the panel is doing, as far as the agent can tell. Left out when it can't tell. |
+| `pi/button` | no | `single`, `double` or `long`: one message for each press of the button, only when `sensors.button` is on. Not retained, so a press is never replayed to someone who connects later. |
 
 It subscribes to one topic, `pi/screen/set` (QoS 1), which the app publishes retained, `on` or `off`. See [Screen power](#screen-power).
 
-The discovery configs go to `<discovery_prefix>/sensor/wallcal_pi_<display id>/<cpu_temperature|uptime>/config` and `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/panel_power/config`, retained. Home Assistant creates `sensor.wall_calendar_pi_cpu_temperature`, `sensor.wall_calendar_pi_uptime` and `binary_sensor.wall_calendar_pi_panel_power`. All three go unavailable while the agent is offline, and the two sensors also if they stop being reported for three intervals (the panel power doesn't expire, because it only changes when someone asks). When Home Assistant restarts and announces `online` on `<discovery_prefix>/status`, the agent publishes the configs again. See [docs/home-assistant.md](../docs/home-assistant.md).
+The discovery configs go to `<discovery_prefix>/sensor/wallcal_pi_<display id>/<cpu_temperature|uptime>/config`, `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/panel_power/config` and `<discovery_prefix>/event/wallcal_pi_<display id>/button/config`, retained. Home Assistant creates `sensor.wall_calendar_pi_cpu_temperature`, `sensor.wall_calendar_pi_uptime`, `binary_sensor.wall_calendar_pi_panel_power` and `event.wall_calendar_pi_button`. All of them go unavailable while the agent is offline, and the two sensors also if they stop being reported for three intervals (the panel power doesn't expire, because it only changes when someone asks, and the button is an event, not a reading). The first three are diagnostic entities; the button is not, because it is the one you would put on a dashboard or use in an automation. Its event types are `single`, `double` and `long`. When `sensors.button` is off, the agent publishes an empty retained config to the button's topic, which removes the entity if it was there from an earlier run. When Home Assistant restarts and announces `online` on `<discovery_prefix>/status`, the agent publishes the configs again. See [docs/home-assistant.md](../docs/home-assistant.md).
 
 Watch it with the Mosquitto tools:
 
@@ -153,7 +190,9 @@ python3.11 -m venv .venv
 shellcheck install.sh
 ```
 
-The tests use a fake MQTT client and fake hardware, and a fake command runner for the screen back ends, so nothing runs `cec-client` or `wlopm`. Some of them hold the agent to [`contracts/mqtt.json`](../contracts/mqtt.json), the same file the app's tests use: every topic the agent publishes must be in it, from the Pi, with the same retain flag, and every payload must match its schema, and every `pi/screen/set` example is applied while every invalid one is ignored. A new `pi/` topic in the contract fails a test until the agent handles it, or the test names the PR that will. `tests/test_install.py` runs `install.sh` against a scratch folder, so it needs no root.
+The tests use a fake MQTT client and fake hardware, and a fake command runner for the screen back ends, so nothing runs `cec-client` or `wlopm`. Some of them hold the agent to [`contracts/mqtt.json`](../contracts/mqtt.json), the same file the app's tests use: every topic the agent publishes must be in it, from the Pi, with the same retain flag, and every payload must match its schema, and every `pi/screen/set` example is applied while every invalid one is ignored, and the button's gestures are the contract's. A new `pi/` topic in the contract fails a test until the agent handles it, or the test names the PR that will. `tests/test_install.py` runs `install.sh` against a scratch folder, so it needs no root.
+
+The button is tested in layers. `button.py` is the gesture classifier: it has no threads and no clock of its own, so `tests/test_button.py` plays presses at exact times (noise, bounce, doubles, a long press, a triple press). The agent tests use a `FakeButton` whose `press()` and `release()` stand in for the GPIO library's callback, an injected clock, and no worker thread: a test presses the button, moves the clock and calls `run_button_work()`, as the screen tests call `run_screen_work()`. A few tests run the real worker thread with the shortest timings the config allows. `hardware/gpio.py` is tested against gpiozero's own `MockFactory`, driving a mock pin low and high, so that part needs no Pi either.
 
 To run the agent against a broker on your machine, without any Pi hardware:
 
@@ -162,6 +201,6 @@ cp config.example.yaml /tmp/wallcal-agent.yaml   # set mqtt.host to localhost
 .venv/bin/wallcal-agent --config /tmp/wallcal-agent.yaml --fake-hardware --log-level debug
 ```
 
-`--fake-hardware` reports made-up readings (the uptime counts up from when the agent started) and uses a pretend panel that starts on and follows `pi/screen/set`, whatever `screen.backend` says. `python -m wallcal_agent` does the same as the `wallcal-agent` command, and `--version` prints the version.
+`--fake-hardware` reports made-up readings (the uptime counts up from when the agent started) and uses a pretend panel that starts on and follows `pi/screen/set`, whatever `screen.backend` says. With `sensors.button` on it uses a button that is never pressed. To try a gesture without wiring anything, publish it yourself: `mosquitto_pub -h localhost -t 'wallcal/<display id>/pi/button' -q 1 -m double`. `python -m wallcal_agent` does the same as the `wallcal-agent` command, and `--version` prints the version.
 
-The code is in `src/wallcal_agent/`. The hardware sits behind small interfaces in `hardware/`, with a real Linux implementation and a fake one, so that later sensors can be added the same way. The screen back ends are in `hardware/screen.py`.
+The code is in `src/wallcal_agent/`. The hardware sits behind small interfaces in `hardware/`, with a real Linux implementation and a fake one, so that later sensors can be added the same way. The screen back ends are in `hardware/screen.py`, the button's GPIO is in `hardware/gpio.py` and the gesture classifier is `button.py`.

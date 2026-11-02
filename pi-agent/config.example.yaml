@@ -14,12 +14,21 @@ mqtt:
 # How often the diagnostic sensors (CPU temperature, uptime) are published.
 diagnostics_interval_seconds: 60   # default 60, at least 5
 
-# Sensors wired to this Pi. All off by default. They arrive in PRs 3.3-3.5; for now
-# they are validated and an enabled one is logged as "not built yet".
+# Sensors wired to this Pi. All off by default. The button is built (see the button block below). The presence and
+# light sensors arrive in later pull requests; until then an enabled one is validated and logged as "not built yet".
 sensors:
   button: false
   presence: false
   light: false
+
+# The push button, used when sensors.button is true. Wire it between the GPIO and ground (GND): the Pi's own
+# pull-up holds the input high, and a press pulls it low. What each press does is set in the app's own config.
+# These are checked even while the button is off.
+button:
+  pin: 17                    # default 17; the BCM GPIO number (GPIO17 is physical pin 11), 0 to 27
+  bounce_ms: 30              # default 30, 0 to 200; a change counts once the input has stayed that way this long
+  double_press_ms: 400       # default 400, 100 to 2000; the longest gap from letting go to pressing again for a double
+  long_press_ms: 1000        # default 1000, 300 to 10000; held this long is a long press, reported while still held
 
 # How the agent turns the panel on and off when the app asks (pi/screen/set), and reports what it is doing.
 # Nothing is touched until the first request. The display page also goes pure black when the screen is "off",

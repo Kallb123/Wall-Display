@@ -95,6 +95,58 @@ def test_the_installer_adds_the_video_group_and_the_screen_tools() -> None:
     assert re.search(r"apt-get install -y wlopm", script)
 
 
+def test_the_installer_adds_lgpio_for_the_button_and_lets_the_venv_see_it() -> None:
+    script = INSTALL.read_text()
+
+    assert re.search(r"apt-get install -y python3 python3-venv .*\bpython3-lgpio\b", script)
+    # python3-lgpio is only in apt, so a venv has to be made able to see the system's packages.
+    assert re.search(r'python3 -m venv --system-site-packages "\$VENV_DIR"', script)
+    assert re.search(r'enable_system_site_packages "\$VENV_DIR/pyvenv.cfg"', script)
+
+
+def enable_system_site_packages(cfg: Path) -> None:
+    """Runs install.sh's own function on a file, by sourcing the script (which does not run `main` then)."""
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1"; enable_system_site_packages "$2"', "_", str(INSTALL), str(cfg)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+PYVENV_WITHOUT = "home = /usr/bin\ninclude-system-site-packages = false\nversion = 3.11.2\n"
+PYVENV_WITH = PYVENV_WITHOUT.replace("false", "true")
+
+
+def test_an_existing_venv_made_without_system_packages_is_switched_over(tmp_path: Path) -> None:
+    cfg = tmp_path / "pyvenv.cfg"
+    cfg.write_text(PYVENV_WITHOUT)
+
+    enable_system_site_packages(cfg)
+
+    assert cfg.read_text() == PYVENV_WITH
+
+
+def test_a_venv_that_can_already_see_system_packages_is_left_alone(tmp_path: Path) -> None:
+    cfg = tmp_path / "pyvenv.cfg"
+    cfg.write_text(PYVENV_WITH)
+
+    enable_system_site_packages(cfg)
+    enable_system_site_packages(cfg)
+
+    assert cfg.read_text() == PYVENV_WITH
+
+
+def test_a_venv_config_without_the_setting_gets_it(tmp_path: Path) -> None:
+    cfg = tmp_path / "pyvenv.cfg"
+    cfg.write_text("home = /usr/bin\nversion = 3.11.2\n")
+
+    enable_system_site_packages(cfg)
+
+    assert cfg.read_text() == "home = /usr/bin\nversion = 3.11.2\ninclude-system-site-packages = true\n"
+
+
 def test_the_unit_lets_the_service_reach_the_kiosks_wayland_socket() -> None:
     unit = UNIT_SOURCE.read_text()
 

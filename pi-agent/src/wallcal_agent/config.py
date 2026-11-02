@@ -49,7 +49,7 @@ class MqttConfig:
 
 @dataclass(frozen=True)
 class SensorsConfig:
-    """Which sensors are wired to this Pi. They arrive in later pull requests."""
+    """Which sensors are wired to this Pi. The button's settings are in `ButtonConfig`; the others arrive later."""
 
     button: bool = False
     presence: bool = False
@@ -87,12 +87,27 @@ class ScreenConfig:
 
 
 @dataclass(frozen=True)
+class ButtonConfig:
+    """The push button: where it is wired, and how long each part of a press may take. Times are milliseconds."""
+
+    # BCM number, not the pin's place on the header. The button goes between this GPIO and ground.
+    pin: int = 17
+    # An edge only counts once the input has stayed that way this long, so contact bounce is not read as presses.
+    bounce_ms: int = 30
+    # The longest gap from letting go to pressing again that still makes a double press.
+    double_press_ms: int = 400
+    # Held this long, it is a long press, reported while the button is still down.
+    long_press_ms: int = 1000
+
+
+@dataclass(frozen=True)
 class Config:
     display_id: str
     mqtt: MqttConfig
     diagnostics_interval_seconds: int = 60
     sensors: SensorsConfig = field(default_factory=SensorsConfig)
     screen: ScreenConfig = field(default_factory=ScreenConfig)
+    button: ButtonConfig = field(default_factory=ButtonConfig)
 
     def enabled_sensors(self) -> list[str]:
         """The names of the sensors switched on, in a fixed order."""
@@ -294,10 +309,38 @@ def _parse_screen(data: Any) -> ScreenConfig:
     )
 
 
+def _milliseconds(data: dict[Any, Any], key: str, default: int, low: int, high: int) -> int:
+    """A `button.<key>` setting in milliseconds, which must be a whole number from `low` to `high`."""
+    path = f"button.{key}"
+    message = f"must be a whole number of milliseconds, {low} to {high}"
+    value = _whole_number(data, key, path, default, message)
+    if not low <= value <= high:
+        raise ConfigError(f"{path}: {message}")
+    return value
+
+
+def _parse_button(data: Any) -> ButtonConfig:
+    if data is None:
+        return ButtonConfig()
+    section = _mapping(data, "button")
+    _check_keys(section, "button", ("pin", "bounce_ms", "double_press_ms", "long_press_ms"))
+
+    pin = _whole_number(section, "pin", "button.pin", 17, "must be a BCM GPIO number, 0 to 27")
+    if not 0 <= pin <= 27:
+        raise ConfigError("button.pin: must be a BCM GPIO number, 0 to 27")
+
+    return ButtonConfig(
+        pin=pin,
+        bounce_ms=_milliseconds(section, "bounce_ms", 30, 0, 200),
+        double_press_ms=_milliseconds(section, "double_press_ms", 400, 100, 2000),
+        long_press_ms=_milliseconds(section, "long_press_ms", 1000, 300, 10000),
+    )
+
+
 def parse_config(data: Any) -> Config:
     """Checks a config that has already been read from YAML. Raises ConfigError naming the first problem."""
     top = _mapping(data, "config") if data is not None else {}
-    _check_keys(top, "", ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen"))
+    _check_keys(top, "", ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen", "button"))
 
     display_id = _text(top, "display_id", "display_id")
     if display_id is None:
@@ -324,6 +367,8 @@ def parse_config(data: Any) -> Config:
         diagnostics_interval_seconds=interval,
         sensors=_parse_sensors(top.get("sensors")),
         screen=_parse_screen(top.get("screen")),
+        # Checked whether or not sensors.button is on, like the settings of a screen back end that isn't chosen.
+        button=_parse_button(top.get("button")),
     )
 
 

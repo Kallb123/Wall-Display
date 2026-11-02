@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -12,9 +12,9 @@ from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.reasoncodes import ReasonCode
 
 from wallcal_agent.agent import Agent
-from wallcal_agent.config import Config, MqttConfig
+from wallcal_agent.config import Config, MqttConfig, SensorsConfig
 from wallcal_agent.hardware import Hardware
-from wallcal_agent.hardware.fake import FakeScreen, FakeSystemInfo
+from wallcal_agent.hardware.fake import FakeButton, FakeScreen, FakeSystemInfo
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "mqtt.json"
 
@@ -152,20 +152,38 @@ def screen() -> FakeScreen:
     return FakeScreen(power=True)
 
 
+class FakeClock:
+    """A clock the test moves by hand, for the button's timings (the agent's `clock` argument)."""
+
+    def __init__(self, now: float = 1000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> float:
+        self.now += seconds
+        return self.now
+
+
 @dataclass
 class AgentRig:
     agent: Agent
     client: FakeMqttClient
     system: FakeSystemInfo
     screen: FakeScreen
+    clock: FakeClock
+    # None unless the config has `sensors.button` on, as with the real hardware.
+    button: FakeButton | None
 
 
 @pytest.fixture
 def make_agent(system: FakeSystemInfo, screen: FakeScreen) -> Callable[[Config], AgentRig]:
     """Builds an Agent wired to a FakeMqttClient and the fake hardware.
 
-    The agent has no screen worker thread: a test makes the screen work happen by calling `run_screen_work()` (or
-    `poll_screen()`), so what runs and when is under the test's control.
+    The agent has no worker threads: a test makes the screen work happen by calling `run_screen_work()` (or
+    `poll_screen()`), and the button's by pressing `rig.button`, moving `rig.clock` and calling `run_button_work()`,
+    so what runs and when is under the test's control.
     """
 
     def build(config: Config) -> AgentRig:
@@ -175,8 +193,17 @@ def make_agent(system: FakeSystemInfo, screen: FakeScreen) -> Callable[[Config],
             client.client_id = client_id
             return client
 
-        agent = Agent(config, Hardware(system=system, screen=screen), client_factory=factory, screen_worker=False)
-        return AgentRig(agent=agent, client=client, system=system, screen=screen)
+        clock = FakeClock()
+        button = FakeButton() if config.sensors.button else None
+        agent = Agent(
+            config,
+            Hardware(system=system, screen=screen, button=button),
+            client_factory=factory,
+            clock=clock,
+            screen_worker=False,
+            button_worker=False,
+        )
+        return AgentRig(agent=agent, client=client, system=system, screen=screen, clock=clock, button=button)
 
     return build
 
@@ -185,5 +212,19 @@ def make_agent(system: FakeSystemInfo, screen: FakeScreen) -> Callable[[Config],
 def rig(config: Config, make_agent: Callable[[Config], AgentRig]) -> AgentRig:
     """A started agent that has not connected yet."""
     built = make_agent(config)
+    built.agent.start()
+    return built
+
+
+@pytest.fixture
+def button_config(config: Config) -> Config:
+    """The same config with `sensors.button` on, so the agent is given a button."""
+    return replace(config, sensors=SensorsConfig(button=True))
+
+
+@pytest.fixture
+def button_rig(button_config: Config, make_agent: Callable[[Config], AgentRig]) -> AgentRig:
+    """A started agent with a button, not connected yet."""
+    built = make_agent(button_config)
     built.agent.start()
     return built

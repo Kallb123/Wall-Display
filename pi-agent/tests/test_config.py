@@ -6,7 +6,16 @@ from typing import Any
 import pytest
 import yaml
 
-from wallcal_agent.config import CecConfig, Config, ConfigError, OutputConfig, ScreenConfig, load_config, parse_config
+from wallcal_agent.config import (
+    ButtonConfig,
+    CecConfig,
+    Config,
+    ConfigError,
+    OutputConfig,
+    ScreenConfig,
+    load_config,
+    parse_config,
+)
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "config.example.yaml"
 
@@ -49,6 +58,7 @@ def test_minimal_config_gets_the_defaults() -> None:
         command_timeout_seconds=10,
         poll_seconds=60,
     )
+    assert config.button == ButtonConfig(pin=17, bounce_ms=30, double_press_ms=400, long_press_ms=1000)
 
 
 def test_full_config() -> None:
@@ -74,6 +84,7 @@ def test_full_config() -> None:
                 "command_timeout_seconds": 60,
                 "poll_seconds": 5,
             },
+            "button": {"pin": 27, "bounce_ms": 0, "double_press_ms": 2000, "long_press_ms": 10000},
         }
     )
 
@@ -91,6 +102,7 @@ def test_full_config() -> None:
         command_timeout_seconds=60,
         poll_seconds=5,
     )
+    assert config.button == ButtonConfig(pin=27, bounce_ms=0, double_press_ms=2000, long_press_ms=10000)
 
 
 def test_the_example_file_is_valid_as_it_stands() -> None:
@@ -113,11 +125,13 @@ def test_the_example_file_sets_every_key_to_its_default() -> None:
     del trimmed["diagnostics_interval_seconds"]
     del trimmed["sensors"]
     del trimmed["screen"]
+    del trimmed["button"]
 
     assert parse_config(trimmed).mqtt.port == parse_config(example).mqtt.port
     assert parse_config(trimmed).mqtt.client_id == parse_config(example).mqtt.client_id
     assert parse_config(trimmed).diagnostics_interval_seconds == parse_config(example).diagnostics_interval_seconds
     assert parse_config(trimmed).screen == parse_config(example).screen
+    assert parse_config(trimmed).button == parse_config(example).button
 
 
 def test_the_examples_screen_block_sets_every_screen_key_to_its_default() -> None:
@@ -125,6 +139,46 @@ def test_the_examples_screen_block_sets_every_screen_key_to_its_default() -> Non
 
     assert set(screen) == {"backend", "cec", "output", "command_timeout_seconds", "poll_seconds"}
     assert parse_config({**minimal(), "screen": screen}).screen == ScreenConfig()
+
+
+def test_the_examples_button_block_sets_every_button_key_to_its_default() -> None:
+    button = yaml.safe_load(EXAMPLE_PATH.read_text())["button"]
+
+    assert set(button) == {"pin", "bounce_ms", "double_press_ms", "long_press_ms"}
+    assert parse_config({**minimal(), "button": button}).button == ButtonConfig()
+
+
+def test_the_button_block_is_optional_and_may_be_left_empty() -> None:
+    assert parse_config({**minimal(), "button": None}).button == ButtonConfig()
+    assert parse_config({**minimal(), "button": {}}).button == ButtonConfig()
+
+
+def test_each_button_setting_may_be_given_alone() -> None:
+    assert parse_config(with_change(["button", "pin"], 4)).button == ButtonConfig(pin=4)
+    assert parse_config(with_change(["button", "bounce_ms"], 50)).button == ButtonConfig(bounce_ms=50)
+    assert parse_config(with_change(["button", "double_press_ms"], 250)).button == ButtonConfig(double_press_ms=250)
+    assert parse_config(with_change(["button", "long_press_ms"], 1500)).button == ButtonConfig(long_press_ms=1500)
+
+
+def test_the_button_settings_are_checked_even_when_the_button_is_off() -> None:
+    data = with_change(["button", "pin"], 99)
+    data["sensors"] = {"button": False}
+
+    with pytest.raises(ConfigError, match=r"button\.pin"):
+        parse_config(data)
+
+
+@pytest.mark.parametrize(
+    ("key", "low", "high"), [("bounce_ms", 0, 200), ("double_press_ms", 100, 2000), ("long_press_ms", 300, 10000)]
+)
+def test_button_times_accept_both_ends_of_their_range(key: str, low: int, high: int) -> None:
+    assert getattr(parse_config(with_change(["button", key], low)).button, key) == low
+    assert getattr(parse_config(with_change(["button", key], high)).button, key) == high
+
+
+@pytest.mark.parametrize("pin", [0, 27])
+def test_button_pin_accepts_both_ends_of_its_range(pin: int) -> None:
+    assert parse_config(with_change(["button", "pin"], pin)).button.pin == pin
 
 
 @pytest.mark.parametrize("backend", ["black", "cec", "output"])
@@ -277,6 +331,52 @@ def test_sensors_may_be_left_empty() -> None:
         (with_change(["screen", "poll_seconds"], "60"), "screen.poll_seconds: must be a whole number of seconds"),
         (with_change(["screen", "poll_seconds"], 7.5), "screen.poll_seconds: must be a whole number of seconds"),
         (with_change(["screen", "poll_seconds"], False), "screen.poll_seconds: must be a whole number of seconds"),
+        (with_change(["button"], ["pin"]), "button: must be a mapping"),
+        (with_change(["button", "pin"], -1), "button.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["button", "pin"], 28), "button.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["button", "pin"], "17"), "button.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["button", "pin"], 17.5), "button.pin: must be a BCM GPIO number, 0 to 27"),
+        (with_change(["button", "pin"], True), "button.pin: must be a BCM GPIO number, 0 to 27"),
+        (
+            with_change(["button", "bounce_ms"], -1),
+            "button.bounce_ms: must be a whole number of milliseconds, 0 to 200",
+        ),
+        (
+            with_change(["button", "bounce_ms"], 201),
+            "button.bounce_ms: must be a whole number of milliseconds, 0 to 200",
+        ),
+        (
+            with_change(["button", "bounce_ms"], "30"),
+            "button.bounce_ms: must be a whole number of milliseconds, 0 to 200",
+        ),
+        (
+            with_change(["button", "bounce_ms"], 0.5),
+            "button.bounce_ms: must be a whole number of milliseconds, 0 to 200",
+        ),
+        (
+            with_change(["button", "double_press_ms"], 99),
+            "button.double_press_ms: must be a whole number of milliseconds, 100 to 2000",
+        ),
+        (
+            with_change(["button", "double_press_ms"], 2001),
+            "button.double_press_ms: must be a whole number of milliseconds, 100 to 2000",
+        ),
+        (
+            with_change(["button", "double_press_ms"], False),
+            "button.double_press_ms: must be a whole number of milliseconds, 100 to 2000",
+        ),
+        (
+            with_change(["button", "long_press_ms"], 299),
+            "button.long_press_ms: must be a whole number of milliseconds, 300 to 10000",
+        ),
+        (
+            with_change(["button", "long_press_ms"], 10001),
+            "button.long_press_ms: must be a whole number of milliseconds, 300 to 10000",
+        ),
+        (
+            with_change(["button", "long_press_ms"], "1s"),
+            "button.long_press_ms: must be a whole number of milliseconds, 300 to 10000",
+        ),
     ],
 )
 def test_bad_config_names_the_key(data: Any, message: str) -> None:
@@ -295,6 +395,7 @@ def test_bad_config_names_the_key(data: Any, message: str) -> None:
         (with_change(["screen", "backen"], "cec"), "screen.backen: unknown key"),
         (with_change(["screen", "cec", "address"], 0), "screen.cec.address: unknown key"),
         (with_change(["screen", "output", "display"], "x"), "screen.output.display: unknown key"),
+        (with_change(["button", "gpio"], 17), "button.gpio: unknown key"),
     ],
 )
 def test_unknown_keys_are_errors(data: Any, message: str) -> None:

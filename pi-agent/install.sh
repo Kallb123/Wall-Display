@@ -14,8 +14,8 @@ VENV_DIR=/opt/wallcal-agent/venv
 CONFIG_DIR=/etc/wallcal-agent
 CONFIG_FILE=$CONFIG_DIR/config.yaml
 UNIT_FILE=/etc/systemd/system/wallcal-agent.service
-# Groups that give access to the hardware: the sensors later milestones read, and /dev/cec* (video) for the
-# cec screen back end. Only those that exist are used.
+# Groups that give access to the hardware: the GPIO for the button (gpio) and the sensors still to come (gpio, i2c,
+# dialout), and /dev/cec* (video) for the cec screen back end. Only those that exist are used.
 DEVICE_GROUPS=(gpio i2c dialout video)
 
 TARGET=''
@@ -100,7 +100,9 @@ install_packages() {
   apt-get update
   # cec-utils (cec-client) is for the cec screen back end, wlopm for the output one. They are small, so both
   # are installed whichever back end is chosen, and the choice can change without another install.
-  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv cec-utils
+  # python3-lgpio is what gpiozero reads the button's GPIO with on Bookworm, Pi 5 included. It only comes from apt,
+  # which is why the venv is allowed to see the system's packages (see install_agent).
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-lgpio cec-utils
   # Kept apart because not every Debian release has wlopm, and the agent works without it: the black and cec back
   # ends don't use it, and the output one can use wlr-randr instead.
   DEBIAN_FRONTEND=noninteractive apt-get install -y wlopm ||
@@ -123,11 +125,23 @@ create_user() {
   done
 }
 
+# Lets a venv see the system's Python packages, by setting include-system-site-packages in its pyvenv.cfg. A venv
+# made by an earlier version of this script was made without that, and would not find python3-lgpio.
+enable_system_site_packages() {
+  local cfg=$1
+  if grep -q '^include-system-site-packages' "$cfg"; then
+    sed -i 's/^include-system-site-packages *=.*/include-system-site-packages = true/' "$cfg"
+  else
+    echo 'include-system-site-packages = true' >>"$cfg"
+  fi
+}
+
 # Not editable: the venv must keep working if the checkout is moved or deleted.
 install_agent() {
   step "Installing the agent into $VENV_DIR"
   in_target && return 0
-  [[ -x $VENV_DIR/bin/python ]] || python3 -m venv "$VENV_DIR"
+  [[ -x $VENV_DIR/bin/python ]] || python3 -m venv --system-site-packages "$VENV_DIR"
+  enable_system_site_packages "$VENV_DIR/pyvenv.cfg"
   "$VENV_DIR/bin/pip" install --upgrade "$SRC_DIR"
 }
 
@@ -193,4 +207,7 @@ main() {
   print_summary
 }
 
-main "$@"
+# Not when sourced, so a test can call one function at a time.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main "$@"
+fi

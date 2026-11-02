@@ -19,7 +19,6 @@ from .conftest import AgentRig
 # Contract topics the agent does not handle yet, with the pull request that will. Listed so that a new pi/ topic in
 # the contract fails these tests until someone decides what the agent does with it.
 FROM_PI_LATER = {
-    "pi/button": "3.3",
     "pi/presence": "3.4",
     "pi/illuminance": "3.5",
 }
@@ -27,6 +26,32 @@ TO_PI_LATER: dict[str, str] = {}
 
 TEMPERATURES = [-20.04, -0.04, 0, 0.05, 48.25, 48.35, 99.99, 105, -5.5, 0.0, 12.0, 1234.56]
 UPTIMES = [0, 0.9, 59.99, 60, 86400.5, 10**9]
+
+
+def play_every_gesture(rig: AgentRig) -> None:
+    """Presses the fake button so that a single, a double and a long press are published, in that order."""
+    assert rig.button is not None
+
+    def after(seconds: float) -> None:
+        rig.clock.advance(seconds)
+        rig.agent.run_button_work()
+
+    rig.button.press()
+    after(0.0625)
+    rig.button.release()
+    after(1.0)  # the single comes once the double press window has passed
+
+    for _ in range(2):
+        rig.button.press()
+        after(0.0625)
+        rig.button.release()
+        after(0.0625)
+    after(1.0)  # the double came with the second press, and nothing follows it
+
+    rig.button.press()
+    after(1.5)  # the long press comes while the button is down
+    rig.button.release()
+    after(1.0)
 
 
 def topics_where(contract: dict[str, Any], direction: str) -> set[str]:
@@ -84,6 +109,16 @@ def test_the_new_diagnostics_topics_are_described(contract: dict[str, Any]) -> N
         assert topic["payload"]["encoding"] == "text"
         assert len(topic["examples"]) >= 2
         assert len(topic["invalid_examples"]) >= 4
+
+
+def test_the_button_topic_is_described(contract: dict[str, Any]) -> None:
+    topic = contract["topics"][topics.BUTTON]
+
+    assert topic["direction"] == "from_pi"
+    assert topic["retained"] is False
+    assert topic["payload"]["encoding"] == "text"
+    assert topic["examples"] == list(topics.BUTTON_GESTURES)
+    assert topics.PUBLISHED[topics.BUTTON] is False
 
 
 def test_the_agent_publishes_topics_that_are_from_pi_with_the_same_retain_flag(contract: dict[str, Any]) -> None:
@@ -164,6 +199,36 @@ def test_screen_state_payloads_pass_the_schema_and_are_retained(contract: dict[s
         assert example in (topics.screen_payload(True), topics.screen_payload(False))
 
 
+def test_every_valid_button_payload_in_the_contract_is_one_the_agent_can_make_and_no_invalid_one_is(
+    contract: dict[str, Any],
+) -> None:
+    topic = contract["topics"][topics.BUTTON]
+
+    for payload in topic["examples"]:
+        assert topics.button_payload(payload) == payload
+    for payload in topic["invalid_examples"]:
+        with pytest.raises(ValueError, match="not a button gesture"):
+            topics.button_payload(payload)
+
+
+def test_each_gesture_the_agent_publishes_passes_the_schema_and_is_not_retained(
+    contract: dict[str, Any], button_rig: AgentRig
+) -> None:
+    rig = button_rig
+    rig.client.broker_accepts()
+    rig.client.clear()
+
+    play_every_gesture(rig)
+
+    published = [p for p in rig.client.publishes if name_of(p.topic) == topics.BUTTON]
+    assert [p.payload for p in published] == contract["topics"][topics.BUTTON]["examples"]
+    for p in published:
+        assert p.payload is not None
+        assert accepts(contract, topics.BUTTON, p.payload)
+        assert p.retain is contract["topics"][topics.BUTTON]["retained"]
+        assert p.qos == 1
+
+
 def test_the_pi_topics_are_the_ones_under_pi(contract: dict[str, Any]) -> None:
     assert topics_where(contract, "from_pi") | topics_where(contract, "to_pi") == {
         name for name in contract["topics"] if name.startswith("pi/")
@@ -190,7 +255,7 @@ def test_online_and_offline_pass_the_availability_schema(contract: dict[str, Any
 
 
 def test_discovery_topics_are_contract_topics_for_this_display(contract: dict[str, Any]) -> None:
-    for message in discovery_messages("homeassistant", "hallway", "0.0.0", 60):
+    for message in discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True):
         config = json.loads(message.payload)
         for key in ("state_topic", "availability_topic"):
             name = name_of(config[key])
@@ -202,9 +267,23 @@ def test_discovery_topics_are_contract_topics_for_this_display(contract: dict[st
         assert accepts(contract, name_of(config["availability_topic"]), config["payload_not_available"])
 
 
-def test_a_run_of_the_agent_only_publishes_what_the_contract_describes(contract: dict[str, Any], rig: AgentRig) -> None:
+def test_the_button_entity_offers_the_contracts_gestures_on_the_contracts_topic(contract: dict[str, Any]) -> None:
+    messages = discovery_messages("homeassistant", "hallway", "0.0.0", 60, button=True)
+    config = json.loads(next(m.payload for m in messages if "/event/" in m.topic))
+
+    assert name_of(config["state_topic"]) == topics.BUTTON
+    assert config["event_types"] == contract["topics"][topics.BUTTON]["payload"]["schema"]["enum"]
+    for example in contract["topics"][topics.BUTTON]["examples"]:
+        assert example in config["event_types"]
+
+
+def test_a_run_of_the_agent_only_publishes_what_the_contract_describes(
+    contract: dict[str, Any], button_rig: AgentRig
+) -> None:
+    rig = button_rig
     rig.client.broker_accepts()
     rig.agent.run_screen_work()
+    play_every_gesture(rig)
     for celsius in TEMPERATURES:
         rig.system.temperature = celsius
         rig.system.uptime = celsius + 100

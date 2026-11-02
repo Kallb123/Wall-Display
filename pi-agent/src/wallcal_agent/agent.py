@@ -1,5 +1,5 @@
-"""The agent's MQTT side: stays connected, says whether the Pi is online, publishes discovery and diagnostics, and
-turns the panel on and off when asked.
+"""The agent's MQTT side: stays connected, says whether the Pi is online, publishes discovery and diagnostics,
+turns the panel on and off when asked, and reports presses of the button.
 
 Availability follows the usual pattern. The last will (retained "offline") is set before connecting, so the
 broker announces it if the Pi vanishes. On every connect the agent publishes retained "online", and on a clean
@@ -13,6 +13,11 @@ Switching the panel runs commands that can take seconds, and a message handler m
 thread would stop answering the broker's pings. So the handler only notes what was asked for, and one worker
 thread does the work (see `run_screen_work`). The worker also re-checks the panel now and then, because the panel
 can be changed behind the agent's back (the monitor's own remote, say).
+
+The button works the same way. The GPIO library calls back on its own thread for every edge, so the callback only
+stamps the time and hands the edge to a gesture detector (button.py). A second worker thread sleeps until the
+detector's next deadline, then publishes whatever gestures are due (see `run_button_work`). A press while the broker
+is away is dropped, not saved: a "long press" arriving minutes late would do something nobody asked for.
 """
 
 import logging
@@ -27,14 +32,17 @@ from paho.mqtt.properties import Properties
 from paho.mqtt.reasoncodes import ReasonCode
 
 from . import __version__, discovery, topics
+from .button import GestureDetector
 from .config import Config
-from .hardware import Hardware, ScreenError
+from .hardware import ButtonError, Hardware, ScreenError
 
 logger = logging.getLogger(__name__)
 
 KEEPALIVE_SECONDS = 30
 # How long a clean stop waits for "offline" to reach the broker before giving up.
 OFFLINE_PUBLISH_TIMEOUT = 2.0
+# How long a clean stop waits for the button's thread. It only ever waits for a deadline, so it ends at once.
+BUTTON_STOP_TIMEOUT = 2.0
 # How much of a bad payload is quoted in the log. It came from the network, so it isn't trusted to be short.
 MAX_LOGGED_PAYLOAD = 32
 
@@ -77,6 +85,7 @@ class Agent:
         client_factory: ClientFactory = default_client_factory,
         clock: Callable[[], float] = time.monotonic,
         screen_worker: bool = True,
+        button_worker: bool = True,
     ) -> None:
         self._config = config
         self._hardware = hardware
@@ -103,6 +112,16 @@ class Agent:
         self._screen_published: bool | None = None
         # The last failure message for each kind of screen call, so a repeat is logged at debug, not warning.
         self._screen_failures: dict[str, str] = {}
+
+        # The button. `_button_cond` guards the detector and the stop flag, and wakes the worker when an edge
+        # arrives. Tests turn the worker off (`button_worker`), press the fake button, move their clock, and call
+        # `run_button_work` themselves.
+        self._use_button_worker = button_worker
+        self._button_thread: threading.Thread | None = None
+        self._button_cond = threading.Condition()
+        self._button_stop = False
+        # Only set while the button is open: it stays None when there is no button, or it could not be opened.
+        self._detector: GestureDetector | None = None
 
     def _topic(self, name: str) -> str:
         return topics.topic_for(self._config.display_id, name)
@@ -138,6 +157,7 @@ class Agent:
         if self._use_screen_worker:
             self._screen_thread = threading.Thread(target=self._screen_loop, name="wallcal-screen", daemon=True)
             self._screen_thread.start()
+        self._start_button()
 
     def run(self, stop: threading.Event) -> None:
         """Publishes the diagnostics every interval until `stop` is set."""
@@ -155,8 +175,9 @@ class Agent:
         if client is None or self._stopped:
             return
         self._stopped = True
-        # Before disconnecting, so the worker can't publish into a closed connection. It never leaves the panel
+        # Before disconnecting, so the workers can't publish into a closed connection. The panel is never left
         # half-set: a command already running finishes (or times out), and nothing new is started.
+        self._stop_button()
         self._stop_screen_worker()
         if self._connected.is_set():
             # A clean disconnect doesn't send the will, so the offline state is published by hand.
@@ -199,6 +220,7 @@ class Agent:
             self._config.display_id,
             __version__,
             self._config.diagnostics_interval_seconds,
+            button=self._config.sensors.button,
         )
         for message in messages:
             client.publish(message.topic, message.payload, qos=1, retain=True)
@@ -399,6 +421,100 @@ class Agent:
         thread.join(timeout=self._config.screen.command_timeout_seconds)
         if thread.is_alive():
             logger.warning("A panel command is still running; stopping without waiting for it")
+
+    def _start_button(self) -> None:
+        """Opens the button, if there is one, and starts the thread that watches its deadlines.
+
+        A button that can't be opened (the pin is busy, the service user has no GPIO access) is a warning, not a
+        reason to stop: the rest of the agent still works, and exiting would only have systemd restart it every
+        five seconds.
+        """
+        button = self._hardware.button
+        if button is None:
+            return
+        settings = self._config.button
+        detector = GestureDetector(
+            bounce=settings.bounce_ms / 1000,
+            double_press=settings.double_press_ms / 1000,
+            long_press=settings.long_press_ms / 1000,
+        )
+        self._detector = detector
+        try:
+            button.start(self._on_button_change)
+        except ButtonError as error:
+            self._detector = None
+            logger.warning("Could not open the button on GPIO%d: %s; carrying on without it", settings.pin, error)
+            return
+        logger.info("Watching the button on GPIO%d", settings.pin)
+        if self._use_button_worker:
+            self._button_thread = threading.Thread(target=self._button_loop, name="wallcal-button", daemon=True)
+            self._button_thread.start()
+
+    def _on_button_change(self, pressed: bool) -> None:
+        """Runs on the GPIO library's thread, so it only passes the edge on."""
+        with self._button_cond:
+            detector = self._detector
+            if detector is None or self._button_stop:
+                return
+            # Stamped under the lock so edges reach the detector in the order they happened.
+            detector.edge(pressed, self._clock())
+            self._button_cond.notify_all()
+
+    def run_button_work(self, now: float | None = None) -> None:
+        """Publishes the gestures that are due by `now` (by default, the clock's time now).
+
+        The worker thread calls this when a deadline arrives or an edge comes in. Without the worker
+        (`button_worker=False`) tests call it themselves, with the time they want.
+        """
+        with self._button_cond:
+            detector = self._detector
+            if detector is None or self._button_stop:
+                return
+            gestures = detector.tick(self._clock() if now is None else now)
+        for gesture in gestures:
+            self._publish_gesture(gesture)
+
+    def _publish_gesture(self, gesture: str) -> None:
+        logger.info("Button: %s press", gesture)
+        client = self._client
+        if client is None or not self._connected.is_set():
+            logger.debug("Dropped the %s press: not connected to the broker", gesture)
+            return
+        try:
+            # Not retained: a press is something that happened, not something that is true until it changes.
+            client.publish(self._topic(topics.BUTTON), topics.button_payload(gesture), qos=1, retain=False)
+        except (RuntimeError, ValueError) as error:
+            logger.debug("Could not publish the %s press: %s", gesture, error)
+
+    def _button_loop(self) -> None:
+        """The worker thread: sleeps until the detector's next deadline or a new edge, and stops when asked."""
+        while True:
+            with self._button_cond:
+                while not self._button_stop:
+                    detector = self._detector
+                    deadline = detector.next_deadline() if detector is not None else None
+                    if deadline is None:
+                        self._button_cond.wait()
+                        continue
+                    remaining = deadline - self._clock()
+                    if remaining <= 0:
+                        break
+                    self._button_cond.wait(remaining)
+                if self._button_stop:
+                    return
+            self.run_button_work()
+
+    def _stop_button(self) -> None:
+        """Stops the worker, then closes the input, so nothing more is heard from it."""
+        with self._button_cond:
+            self._button_stop = True
+            self._button_cond.notify_all()
+        thread = self._button_thread
+        if thread is not None:
+            thread.join(timeout=BUTTON_STOP_TIMEOUT)
+        button = self._hardware.button
+        if button is not None and self._detector is not None:
+            button.close()
 
     def _note_failure(self, text: str) -> None:
         """Warns about the first failure of an outage, then stays quiet at debug level, as the app does."""

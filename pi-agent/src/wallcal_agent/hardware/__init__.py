@@ -1,7 +1,7 @@
 """What the agent needs from the Pi, behind small interfaces so everything can be tested off the Pi.
 
-Later pull requests add the presence sensor and light sensor here. Each has a real implementation for the Pi and a
-fake one for tests and for `--fake-hardware`.
+A later pull request adds the light sensor here. Each has a real implementation for the Pi and a fake one for tests
+and for `--fake-hardware`.
 """
 
 from collections.abc import Callable
@@ -17,6 +17,11 @@ class ScreenError(Exception):
 
 class ButtonError(Exception):
     """The button's GPIO could not be opened. The message is short and says what went wrong, for the log."""
+
+
+class PresenceError(Exception):
+    """The presence sensor could not be opened (its GPIO or its serial port). The message is short and says what went
+    wrong, for the log."""
 
 
 class SystemInfo(Protocol):
@@ -58,6 +63,21 @@ class ButtonInput(Protocol):
         ...
 
 
+class PresenceInput(Protocol):
+    """Whether the mmWave sensor sees someone. It does no debouncing: the agent's presence filter does that."""
+
+    def start(self, on_change: Callable[[bool], None]) -> None:
+        """Starts watching the sensor. `on_change(True)` means someone is there and `on_change(False)` nobody. It is
+        called once straight away with the current reading where there is one, and then on changes (or on every
+        reading, for a sensor that reports them), from any thread, so it must be quick. Raises PresenceError if the
+        sensor can't be opened."""
+        ...
+
+    def close(self) -> None:
+        """Lets go of the sensor. Safe to call twice, or before `start`."""
+        ...
+
+
 @dataclass
 class Hardware:
     """Everything the agent talks to on the Pi."""
@@ -66,24 +86,29 @@ class Hardware:
     screen: ScreenControl
     # None when `sensors.button` is off.
     button: ButtonInput | None = None
+    # None when `sensors.presence` is off.
+    presence: PresenceInput | None = None
 
 
 def build_hardware(fake: bool, config: Config) -> Hardware:
     """The fake hardware for `--fake-hardware`, otherwise the real thing, with the screen back end the config picks.
 
-    The button is only built when `sensors.button` is on, so a Pi without one never touches the GPIO.
+    The button and the presence sensor are only built when their `sensors` switch is on, so a Pi without one never
+    touches the GPIO or the serial port.
     """
     # Imported here so the Linux-only code isn't loaded when it isn't wanted.
     if fake:
         import time
 
-        from .fake import FakeButton, FakeScreen, FakeSystemInfo
+        from .fake import FakeButton, FakePresence, FakeScreen, FakeSystemInfo
 
         return Hardware(
             system=FakeSystemInfo(clock=time.monotonic),
             screen=FakeScreen(power=True),
             # Never pressed: there is no finger to press it.
             button=FakeButton() if config.sensors.button else None,
+            # Nobody is there: there is no one to walk in front of it.
+            presence=FakePresence(initial=False) if config.sensors.presence else None,
         )
 
     from .linux import LinuxSystemInfo
@@ -94,4 +119,15 @@ def build_hardware(fake: bool, config: Config) -> Hardware:
         from .gpio import GpioButton
 
         button = GpioButton(config.button.pin)
-    return Hardware(system=LinuxSystemInfo(), screen=build_screen(config.screen), button=button)
+    presence: PresenceInput | None = None
+    if config.sensors.presence:
+        settings = config.presence
+        if settings.source == "uart":
+            from .ld2410 import Ld2410Uart
+
+            presence = Ld2410Uart(settings.uart.device, settings.uart.baud)
+        else:
+            from .gpio import GpioPresence
+
+            presence = GpioPresence(settings.pin)
+    return Hardware(system=LinuxSystemInfo(), screen=build_screen(config.screen), button=button, presence=presence)

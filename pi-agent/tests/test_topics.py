@@ -12,13 +12,14 @@ def test_online_and_offline() -> None:
     assert (topics.ONLINE, topics.OFFLINE) == ("online", "offline")
 
 
-def test_published_retains_availability_and_the_panel_state_only() -> None:
+def test_published_retains_availability_the_panel_state_and_presence_only() -> None:
     assert topics.PUBLISHED == {
         "pi/availability": True,
         "pi/cpu_temperature": False,
         "pi/uptime": False,
         "pi/screen/state": True,
         "pi/button": False,
+        "pi/presence": True,
     }
 
 
@@ -36,6 +37,17 @@ def test_button_payloads_are_the_bare_gesture(gesture: str) -> None:
 def test_anything_else_is_not_a_button_gesture(gesture: str) -> None:
     with pytest.raises(ValueError, match="not a button gesture"):
         topics.button_payload(gesture)
+
+
+def test_the_presence_topic() -> None:
+    assert topics.PRESENCE == "pi/presence"
+    assert topics.topic_for("hallway", topics.PRESENCE) == "wallcal/hallway/pi/presence"
+
+
+def test_presence_payloads_are_on_and_off_in_capitals() -> None:
+    assert topics.presence_payload(True) == "ON"
+    assert topics.presence_payload(False) == "OFF"
+    assert (topics.PRESENCE_ON, topics.PRESENCE_OFF) == ("ON", "OFF")
 
 
 def test_the_agent_listens_for_screen_requests() -> None:

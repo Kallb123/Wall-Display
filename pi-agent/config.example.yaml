@@ -14,8 +14,9 @@ mqtt:
 # How often the diagnostic sensors (CPU temperature, uptime) are published.
 diagnostics_interval_seconds: 60   # default 60, at least 5
 
-# Sensors wired to this Pi. All off by default. The button is built (see the button block below). The presence and
-# light sensors arrive in later pull requests; until then an enabled one is validated and logged as "not built yet".
+# Sensors wired to this Pi. All off by default. The button and the presence sensor are built (see the button and
+# presence blocks below). The light sensor arrives in a later pull request; until then, turning it on is validated and
+# logged as "not built yet".
 sensors:
   button: false
   presence: false
@@ -29,6 +30,22 @@ button:
   bounce_ms: 30              # default 30, 0 to 200; a change counts once the input has stayed that way this long
   double_press_ms: 400       # default 400, 100 to 2000; the longest gap from letting go to pressing again for a double
   long_press_ms: 1000        # default 1000, 300 to 10000; held this long is a long press, reported while still held
+
+# The mmWave presence sensor (an LD2410), used when sensors.presence is true. The agent publishes whether someone is
+# there to pi/presence (retained), and the app's auto presence policy can turn the screen on and off with it. These
+# are checked even while the sensor is off.
+#
+# Wiring, either way: VCC to 5 V, GND to GND.
+#   gpio - OUT to the GPIO below (GPIO27 is physical pin 13). The sensor drives it high while it sees someone.
+#   uart - TX to GPIO15 (RXD, pin 10) and RX to GPIO14 (TXD, pin 8), with the serial port switched on and the serial
+#          console off in raspi-config (Interface Options, Serial Port: login shell No, hardware Yes).
+presence:
+  source: gpio               # default gpio: the OUT pin as a plain input. Or uart: read the sensor's data frames
+  pin: 27                    # default 27; the BCM GPIO number, 0 to 27. Used by source gpio. Not the button's pin
+  hold_ms: 500               # default 500, 0 to 10000; a change only counts once it has held this long
+  uart:                      # used by source uart
+    device: /dev/serial0     # default /dev/serial0; the serial port, an absolute path
+    baud: 256000             # default 256000, the sensor's factory rate; or 9600 19200 38400 57600 115200 230400 460800
 
 # How the agent turns the panel on and off when the app asks (pi/screen/set), and reports what it is doing.
 # Nothing is touched until the first request. The display page also goes pure black when the screen is "off",

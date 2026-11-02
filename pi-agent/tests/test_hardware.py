@@ -3,13 +3,24 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from gpiozero import Device
+from gpiozero import Device, DigitalInputDevice
 from gpiozero.pins.mock import MockFactory
 
-from wallcal_agent.config import ButtonConfig, CecConfig, Config, MqttConfig, OutputConfig, ScreenConfig, SensorsConfig
-from wallcal_agent.hardware import ButtonError, Hardware, ScreenError, build_hardware
-from wallcal_agent.hardware.fake import FakeButton, FakeScreen, FakeSystemInfo
-from wallcal_agent.hardware.gpio import GpioButton
+from wallcal_agent.config import (
+    ButtonConfig,
+    CecConfig,
+    Config,
+    MqttConfig,
+    OutputConfig,
+    PresenceConfig,
+    ScreenConfig,
+    SensorsConfig,
+    UartConfig,
+)
+from wallcal_agent.hardware import ButtonError, Hardware, PresenceError, ScreenError, build_hardware
+from wallcal_agent.hardware.fake import FakeButton, FakePresence, FakeScreen, FakeSystemInfo
+from wallcal_agent.hardware.gpio import GpioButton, GpioPresence
+from wallcal_agent.hardware.ld2410 import Ld2410Uart
 from wallcal_agent.hardware.linux import LinuxSystemInfo
 from wallcal_agent.hardware.screen import BlackScreen, CecScreen, OutputScreen
 
@@ -37,7 +48,10 @@ def test_fake_uptime_advances_with_a_clock() -> None:
 
 
 def make_config(
-    screen: ScreenConfig | None = None, button: ButtonConfig | None = None, sensors: SensorsConfig | None = None
+    screen: ScreenConfig | None = None,
+    button: ButtonConfig | None = None,
+    sensors: SensorsConfig | None = None,
+    presence: PresenceConfig | None = None,
 ) -> Config:
     return Config(
         display_id="hallway",
@@ -45,6 +59,7 @@ def make_config(
         screen=screen or ScreenConfig(),
         button=button or ButtonConfig(),
         sensors=sensors or SensorsConfig(),
+        presence=presence or PresenceConfig(),
     )
 
 
@@ -389,6 +404,259 @@ def test_a_very_long_library_message_is_cut_short(mock_pins: MockFactory) -> Non
 
     with pytest.raises(ButtonError) as error:
         GpioButton(17, pin_factory=Wordy()).start(lambda pressed: None)
+
+    assert len(str(error.value)) < 250
+    assert str(error.value).endswith("...")
+
+
+# The presence sensor
+
+
+def test_presence_is_only_built_when_sensors_presence_is_on() -> None:
+    off = make_config(sensors=SensorsConfig(presence=False))
+    on = make_config(sensors=SensorsConfig(presence=True))
+
+    assert build_hardware(fake=True, config=off).presence is None
+    assert build_hardware(fake=False, config=off).presence is None
+    assert isinstance(build_hardware(fake=True, config=on).presence, FakePresence)
+    assert isinstance(build_hardware(fake=False, config=on).presence, GpioPresence)
+
+
+def test_fake_hardware_has_a_presence_sensor_that_sees_nobody_once_at_start() -> None:
+    sensor = build_hardware(fake=True, config=make_config(sensors=SensorsConfig(presence=True))).presence
+    assert isinstance(sensor, FakePresence)
+    seen: list[bool] = []
+
+    sensor.start(seen.append)
+
+    assert sensor.started is True
+    assert seen == [False]
+
+
+def test_fake_hardware_ignores_the_presence_source() -> None:
+    config = make_config(sensors=SensorsConfig(presence=True), presence=PresenceConfig(source="uart"))
+
+    assert isinstance(build_hardware(fake=True, config=config).presence, FakePresence)
+
+
+def test_the_real_presence_sensor_on_gpio_is_a_gpio_presence_on_the_configured_pin() -> None:
+    # Nothing is opened until start(), so this is safe off a Pi.
+    config = make_config(sensors=SensorsConfig(presence=True), presence=PresenceConfig(pin=22))
+
+    sensor = build_hardware(fake=False, config=config).presence
+
+    assert isinstance(sensor, GpioPresence)
+    assert sensor._pin == 22
+
+
+def test_the_real_presence_sensor_on_uart_is_an_ld2410_on_the_configured_port() -> None:
+    config = make_config(
+        sensors=SensorsConfig(presence=True),
+        presence=PresenceConfig(source="uart", pin=22, uart=UartConfig(device="/dev/ttyAMA0", baud=115200)),
+    )
+
+    sensor = build_hardware(fake=False, config=config).presence
+
+    assert isinstance(sensor, Ld2410Uart)
+    assert (sensor._device, sensor._baud) == ("/dev/ttyAMA0", 115200)
+
+
+def test_building_the_real_hardware_does_not_open_the_serial_port() -> None:
+    config = make_config(
+        sensors=SensorsConfig(presence=True),
+        presence=PresenceConfig(source="uart", uart=UartConfig(device="/dev/nope")),
+    )
+
+    assert build_hardware(fake=False, config=config).presence is not None
+
+
+def test_fake_presence_reports_readings_to_whoever_started_it() -> None:
+    fake = FakePresence()
+    seen: list[bool] = []
+
+    fake.set(True)  # nobody is listening yet
+    fake.start(seen.append)
+    fake.set(True)
+    fake.set(False)
+    fake.close()
+    fake.set(True)  # and nobody is listening now
+
+    assert seen == [True, False]
+    assert fake.started is True
+    assert fake.closed is True
+
+
+def test_fake_presence_can_report_a_reading_when_it_starts() -> None:
+    seen: list[bool] = []
+
+    FakePresence(initial=True).start(seen.append)
+
+    assert seen == [True]
+
+
+def test_fake_presence_can_fail_to_start() -> None:
+    fake = FakePresence(initial=True)
+    fake.start_error = "pin busy"
+    seen: list[bool] = []
+
+    with pytest.raises(PresenceError, match="pin busy"):
+        fake.start(seen.append)
+
+    assert fake.started is False
+    assert seen == []
+
+
+# The real one on GPIO, on gpiozero's mock pins. The sensor's OUT pin is high while it sees someone, and the pin has
+# the pull-down on, so with nothing driving it (a loose wire) it reads low.
+
+
+def test_a_gpio_presence_reports_the_level_it_finds_then_every_change(mock_pins: MockFactory) -> None:
+    pin = mock_pins.pin(27)
+    sensor = GpioPresence(27, pin_factory=mock_pins)
+    seen: list[bool] = []
+    sensor.start(seen.append)
+    try:
+        assert seen == [False]
+        pin.drive_high()
+        pin.drive_low()
+        pin.drive_high()
+    finally:
+        sensor.close()
+
+    assert seen == [False, True, False, True]
+
+
+def test_a_gpio_presence_that_finds_the_pin_already_high_says_someone_is_there(
+    mock_pins: MockFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The mock pin falls to its pull-down as the device opens, so the level is forced here: a sensor already
+    # driving the pin high when the agent starts.
+    monkeypatch.setattr(DigitalInputDevice, "value", property(lambda self: 1))
+    sensor = GpioPresence(27, pin_factory=mock_pins)
+    seen: list[bool] = []
+
+    sensor.start(seen.append)
+    sensor.close()
+
+    assert seen == [True]
+
+
+def test_a_gpio_presence_reads_every_edge_because_the_filter_does_the_debouncing(mock_pins: MockFactory) -> None:
+    pin = mock_pins.pin(27)
+    sensor = GpioPresence(27, pin_factory=mock_pins)
+    seen: list[bool] = []
+    sensor.start(seen.append)
+    try:
+        for _ in range(3):
+            pin.drive_high()
+            pin.drive_low()
+    finally:
+        sensor.close()
+
+    assert seen == [False] + [True, False] * 3
+
+
+def test_a_gpio_presence_uses_the_pin_it_was_given_with_the_pull_down_on(mock_pins: MockFactory) -> None:
+    pin = mock_pins.pin(23)
+    sensor = GpioPresence(23, pin_factory=mock_pins)
+    sensor.start(lambda present: None)
+    try:
+        assert pin.pull == "down"
+        assert pin.function == "input"
+    finally:
+        sensor.close()
+
+
+def test_closing_a_gpio_presence_frees_the_pin_and_stops_the_reports(mock_pins: MockFactory) -> None:
+    pin = mock_pins.pin(27)
+    first = GpioPresence(27, pin_factory=mock_pins)
+    seen: list[bool] = []
+    first.start(seen.append)
+    first.close()
+
+    pin.drive_high()
+    second = GpioPresence(27, pin_factory=mock_pins)
+    second.start(lambda present: None)  # would fail if the pin were still held
+    second.close()
+
+    assert seen == [False]
+
+
+def test_closing_a_gpio_presence_twice_or_before_it_started_is_harmless(mock_pins: MockFactory) -> None:
+    sensor = GpioPresence(27, pin_factory=mock_pins)
+    sensor.close()
+    sensor.start(lambda present: None)
+    sensor.close()
+    sensor.close()
+
+
+def test_starting_a_gpio_presence_again_lets_go_of_the_first_open(mock_pins: MockFactory) -> None:
+    sensor = GpioPresence(27, pin_factory=mock_pins)
+    first: list[bool] = []
+    second: list[bool] = []
+    sensor.start(first.append)
+    sensor.start(second.append)
+    try:
+        mock_pins.pin(27).drive_high()
+    finally:
+        sensor.close()
+
+    assert first == [False]
+    assert second == [False, True]
+
+
+def test_a_presence_pin_that_is_already_in_use_is_a_presence_error_with_a_short_message(
+    mock_pins: MockFactory,
+) -> None:
+    taken = GpioPresence(27, pin_factory=mock_pins)
+    taken.start(lambda present: None)
+    try:
+        with pytest.raises(PresenceError) as error:
+            GpioPresence(27, pin_factory=mock_pins).start(lambda present: None)
+    finally:
+        taken.close()
+
+    assert "in use" in str(error.value)
+    assert "\n" not in str(error.value)
+    assert len(str(error.value)) <= 210
+
+
+def test_a_presence_pin_that_cannot_be_opened_is_a_presence_error() -> None:
+    class Denied(MockFactory):
+        def pin(self, *args: Any, **kwargs: Any) -> Any:
+            raise PermissionError("no access to /dev/gpiochip4")
+
+    with pytest.raises(PresenceError, match="no access to /dev/gpiochip4"):
+        GpioPresence(27, pin_factory=Denied()).start(lambda present: None)
+
+
+def test_no_pin_factory_at_all_is_a_presence_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Device, "pin_factory", None)
+    monkeypatch.setenv("GPIOZERO_PIN_FACTORY", "no-such-factory")
+
+    with pytest.raises(PresenceError) as error:
+        GpioPresence(27).start(lambda present: None)
+
+    assert str(error.value) != ""
+    assert "\n" not in str(error.value)
+
+
+def test_a_presence_error_with_no_message_is_reported_by_its_kind() -> None:
+    class Odd(MockFactory):
+        def pin(self, *args: Any, **kwargs: Any) -> Any:
+            raise OSError
+
+    with pytest.raises(PresenceError, match="OSError"):
+        GpioPresence(27, pin_factory=Odd()).start(lambda present: None)
+
+
+def test_a_very_long_library_message_is_cut_short_for_presence_too() -> None:
+    class Wordy(MockFactory):
+        def pin(self, *args: Any, **kwargs: Any) -> Any:
+            raise OSError("x " * 500)
+
+    with pytest.raises(PresenceError) as error:
+        GpioPresence(27, pin_factory=Wordy()).start(lambda present: None)
 
     assert len(str(error.value)) < 250
     assert str(error.value).endswith("...")

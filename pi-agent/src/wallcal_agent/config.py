@@ -29,6 +29,10 @@ SCREEN_BACKENDS = ("black", "cec", "output")
 OUTPUT_TOOLS = ("wlopm", "wlr-randr")
 MIN_SCREEN_POLL_SECONDS = 5
 
+PRESENCE_SOURCES = ("gpio", "uart")
+# The speeds the LD2410 can be set to. 256000 is how it leaves the factory.
+UART_BAUDS = (9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800)
+
 
 class ConfigError(Exception):
     """The config can't be used. The message is for the person who wrote it, so it reads as plain English."""
@@ -49,7 +53,8 @@ class MqttConfig:
 
 @dataclass(frozen=True)
 class SensorsConfig:
-    """Which sensors are wired to this Pi. The button's settings are in `ButtonConfig`; the others arrive later."""
+    """Which sensors are wired to this Pi. The button's and the presence sensor's settings are in `ButtonConfig` and
+    `PresenceConfig`; the light sensor arrives later."""
 
     button: bool = False
     presence: bool = False
@@ -101,6 +106,30 @@ class ButtonConfig:
 
 
 @dataclass(frozen=True)
+class UartConfig:
+    """The `uart` presence source: which serial port the LD2410 is on, and how fast."""
+
+    # The Pi's own UART, whichever of its two it is on this model. Needs the serial port switched on in raspi-config.
+    device: str = "/dev/serial0"
+    baud: int = 256000
+
+
+@dataclass(frozen=True)
+class PresenceConfig:
+    """The mmWave presence sensor: how the agent reads it, and how long a change must last to count."""
+
+    # gpio reads the LD2410's OUT pin as a plain input. uart reads its data frames, which tell more but need the
+    # serial port.
+    source: str = "gpio"
+    # BCM number, not the pin's place on the header. Used by the gpio source. GPIO27 is physical pin 13.
+    pin: int = 27
+    # A change only counts once it has held this long, so a person walking past the edge of the beam, or the
+    # sensor flickering, doesn't make the screen flap. Milliseconds.
+    hold_ms: int = 500
+    uart: UartConfig = field(default_factory=UartConfig)
+
+
+@dataclass(frozen=True)
 class Config:
     display_id: str
     mqtt: MqttConfig
@@ -108,6 +137,7 @@ class Config:
     sensors: SensorsConfig = field(default_factory=SensorsConfig)
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     button: ButtonConfig = field(default_factory=ButtonConfig)
+    presence: PresenceConfig = field(default_factory=PresenceConfig)
 
     def enabled_sensors(self) -> list[str]:
         """The names of the sensors switched on, in a fixed order."""
@@ -337,10 +367,57 @@ def _parse_button(data: Any) -> ButtonConfig:
     )
 
 
+def _parse_uart(data: Any) -> UartConfig:
+    if data is None:
+        return UartConfig()
+    section = _mapping(data, "presence.uart")
+    _check_keys(section, "presence.uart", ("device", "baud"))
+
+    device = _text(section, "device", "presence.uart.device")
+    if device is None:
+        device = "/dev/serial0"
+    # The path is opened as it stands, so it must be one plain absolute path to a device.
+    if not PurePosixPath(device).is_absolute() or device.endswith("/") or "\0" in device:
+        raise ConfigError("presence.uart.device: must be the absolute path of the serial port, such as /dev/serial0")
+
+    baud_message = f"must be one of {', '.join(str(baud) for baud in UART_BAUDS)}"
+    baud = _whole_number(section, "baud", "presence.uart.baud", 256000, baud_message)
+    if baud not in UART_BAUDS:
+        raise ConfigError(f"presence.uart.baud: {baud_message}")
+    return UartConfig(device=device, baud=baud)
+
+
+def _parse_presence(data: Any) -> PresenceConfig:
+    if data is None:
+        return PresenceConfig()
+    section = _mapping(data, "presence")
+    _check_keys(section, "presence", ("source", "pin", "hold_ms", "uart"))
+
+    source = _text(section, "source", "presence.source")
+    if source is None:
+        source = "gpio"
+    if source not in PRESENCE_SOURCES:
+        raise ConfigError(f"presence.source: must be one of {', '.join(PRESENCE_SOURCES)}")
+
+    pin = _whole_number(section, "pin", "presence.pin", 27, "must be a BCM GPIO number, 0 to 27")
+    if not 0 <= pin <= 27:
+        raise ConfigError("presence.pin: must be a BCM GPIO number, 0 to 27")
+
+    hold_message = "must be a whole number of milliseconds, 0 to 10000"
+    hold = _whole_number(section, "hold_ms", "presence.hold_ms", 500, hold_message)
+    if not 0 <= hold <= 10000:
+        raise ConfigError(f"presence.hold_ms: {hold_message}")
+
+    # The uart block is checked whichever source is chosen, like the settings of a screen back end that isn't.
+    return PresenceConfig(source=source, pin=pin, hold_ms=hold, uart=_parse_uart(section.get("uart")))
+
+
 def parse_config(data: Any) -> Config:
     """Checks a config that has already been read from YAML. Raises ConfigError naming the first problem."""
     top = _mapping(data, "config") if data is not None else {}
-    _check_keys(top, "", ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen", "button"))
+    _check_keys(
+        top, "", ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen", "button", "presence")
+    )
 
     display_id = _text(top, "display_id", "display_id")
     if display_id is None:
@@ -361,14 +438,22 @@ def parse_config(data: Any) -> Config:
     if interval < MIN_DIAGNOSTICS_INTERVAL:
         raise ConfigError(f"diagnostics_interval_seconds: must be at least {MIN_DIAGNOSTICS_INTERVAL}")
 
+    sensors = _parse_sensors(top.get("sensors"))
+    # Checked whether or not the sensor is on, like the settings of a screen back end that isn't chosen.
+    button = _parse_button(top.get("button"))
+    presence = _parse_presence(top.get("presence"))
+    # One wire can't be two inputs. Only when both sensors are on: with either off nothing opens the pin.
+    if sensors.button and sensors.presence and presence.source == "gpio" and presence.pin == button.pin:
+        raise ConfigError(f"presence.pin: GPIO{presence.pin} is already the button's pin (button.pin)")
+
     return Config(
         display_id=display_id,
         mqtt=_parse_mqtt(top["mqtt"], display_id),
         diagnostics_interval_seconds=interval,
-        sensors=_parse_sensors(top.get("sensors")),
+        sensors=sensors,
         screen=_parse_screen(top.get("screen")),
-        # Checked whether or not sensors.button is on, like the settings of a screen back end that isn't chosen.
-        button=_parse_button(top.get("button")),
+        button=button,
+        presence=presence,
     )
 
 

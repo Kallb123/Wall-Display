@@ -21,6 +21,7 @@ mqtt:
 sensors:
   button: true
   presence: true
+  light: true
 """
 
 
@@ -157,7 +158,7 @@ def test_enabled_sensors_are_reported_as_not_built_yet(
     timer.join()
 
     messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert messages == ["Sensor 'presence' is enabled in the config but not built yet, so it is ignored"]
+    assert messages == ["Sensor 'light' is enabled in the config but not built yet, so it is ignored"]
 
 
 def test_a_button_on_its_own_raises_no_warning_and_is_announced_to_home_assistant(
@@ -178,6 +179,72 @@ def test_a_button_on_its_own_raises_no_warning_and_is_announced_to_home_assistan
     event = next(p for p in fake_client.publishes if p.topic == "homeassistant/event/wallcal_pi_hallway/button/config")
     assert event.payload
     assert json.loads(event.payload)["name"] == "Button"
+
+
+def test_presence_on_its_own_raises_no_warning_and_is_announced_to_home_assistant(
+    tmp_path: Path, fake_client: FakeMqttClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "display_id: hallway\nmqtt:\n  host: broker.test\nsensors:\n  presence: true\npresence:\n  hold_ms: 0\n"
+    )
+    presence_topic = "wallcal/hallway/pi/presence"
+
+    def play_the_broker() -> None:
+        deadline = time.monotonic() + 10
+        # The fake sensor sees nobody once at start, and with no hold that is confirmed straight away.
+        while "Presence: nobody" not in caplog.text and time.monotonic() < deadline:
+            threading.Event().wait(0.005)
+        fake_client.broker_accepts()
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    player = threading.Timer(0.2, play_the_broker)
+    player.start()
+    caplog.set_level(logging.INFO)
+
+    code = cli.main(["--config", str(path), "--fake-hardware"])
+    player.join()
+
+    assert code == 0
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert "Watching presence on GPIO27" in caplog.text
+    # The state confirmed before the broker was there is published, retained, when it connects.
+    assert [(p.payload, p.retain) for p in fake_client.publishes if p.topic == presence_topic] == [("OFF", True)]
+    entity = next(
+        p for p in fake_client.publishes if p.topic == "homeassistant/binary_sensor/wallcal_pi_hallway/presence/config"
+    )
+    assert entity.payload
+    assert json.loads(entity.payload)["name"] == "Presence"
+
+
+def test_a_bad_presence_setting_exits_2_naming_the_key_even_with_the_sensor_off(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("display_id: hallway\nmqtt:\n  host: h\npresence:\n  uart:\n    baud: 1200\n")
+
+    assert cli.main(["--config", str(path), "--fake-hardware"]) == 2
+
+    assert "presence.uart.baud: must be one of 9600" in capsys.readouterr().err
+
+
+def test_a_shared_pin_exits_2_naming_presence_pin(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "display_id: hallway\nmqtt:\n  host: h\nsensors:\n  button: true\n  presence: true\npresence:\n  pin: 17\n"
+    )
+
+    assert cli.main(["--config", str(path), "--fake-hardware"]) == 2
+
+    assert "presence.pin" in capsys.readouterr().err
+
+
+def test_the_help_says_what_the_fake_hardware_has(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+
+    out = " ".join(capsys.readouterr().out.split())
+    assert "presence sensor" in out
 
 
 def test_a_bad_button_setting_exits_2_naming_the_key_even_with_the_button_off(

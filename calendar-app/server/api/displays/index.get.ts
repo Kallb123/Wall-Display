@@ -18,6 +18,7 @@ export default defineEventHandler((): DisplaySettings[] => {
     timezone: config.timezone,
     burn_in: display.burn_in,
     night_text: display.night_text,
+    week_hours: display.week_hours,
     photo_sources: photoSources,
   }))
 })

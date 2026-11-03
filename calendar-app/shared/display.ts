@@ -147,6 +147,15 @@ export const commandSchema = z.discriminatedUnion('type', [
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']
 
+/** The hours of the day the week view draws in full, `from` inclusive to `to` exclusive. Whole hours, 0 to 24. */
+export interface WeekHours {
+  from: number
+  to: number
+}
+
+/** The week view's hours when config does not say, and what the client uses for settings cached before `week_hours` existed. */
+export const DEFAULT_WEEK_HOURS: WeekHours = { from: 7, to: 21 }
+
 /**
  * A display's settings from config: what `GET /api/displays` returns, and
  * what the page needs that the state does not hold. `timezone` is the config's
@@ -163,6 +172,8 @@ export interface DisplaySettings {
   burn_in: boolean
   /** What the night view shows under its clock. */
   night_text: NightText
+  /** The hours the week view draws in full; earlier and later hours are folded into a band. */
+  week_hours: WeekHours
   /**
    * The photo sources the server has set up, in the order a display falls back
    * to them (Immich, Google, folder). Empty with no `photos` block. The remote

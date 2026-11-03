@@ -123,6 +123,16 @@ const display = z.strictObject({
   burn_in: z.boolean().default(true),
   /** What the night view shows under its clock (PR 5.2). `next_alarm` needs the top-level `alarm` block. */
   night_text: z.enum(NIGHT_TEXTS).default('none'),
+  /**
+   * The hours the week view draws in full, `from` to `to` (PR 5.1). The hours
+   * before `from` and from `to` on are folded into a thin band at the top and
+   * bottom of each day, so a quiet night does not use up the screen. Whole
+   * hours only: `from` is 0 to 23 and `to` is 1 to 24 (24 is midnight at the end of the day).
+   */
+  week_hours: z.strictObject({
+    from: z.number().int('must be a whole number').min(0, 'must be from 0 to 23').max(23, 'must be from 0 to 23'),
+    to: z.number().int('must be a whole number').min(1, 'must be from 1 to 24').max(24, 'must be from 1 to 24'),
+  }).refine(hours => hours.from < hours.to, { message: 'week_hours.from must be before week_hours.to' }).default({ from: 7, to: 21 }),
 })
 
 /** What a gesture of the button can be set to (`button.single`, `double`, `long`). server/control/button.ts says what each does. */

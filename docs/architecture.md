@@ -176,7 +176,7 @@ Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`) a
 | View | Group | Contents |
 |---|---|---|
 | `month` | Calendar | Month grid, a side panel with today and the next three days (each with its weather), month title, special day art. See §4.4. |
-| `week` | Calendar | 7-day columns with timed blocks |
+| `week` | Calendar | 7-day columns with timed blocks on an hour scale, an all-day strip, and a "now" line. See §4.5. |
 | `agenda` | Calendar | Today and tomorrow in large type. The default for mornings. |
 | `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
 | `night` | Ambient | A very dim clock on pure black, whatever the theme. Used when the room is dark but you want the screen on. A line under the clock is set per display with `night_text`: nothing (`none`, the default), the first timed event in the next 24 hours (`first_event`), or the next alarm (`next_alarm`, read from Home Assistant, see §7.4). |
@@ -241,7 +241,19 @@ Grid rules (both styles):
 
 The layout engine is a pure function in `shared/`: given a month, today, the display's time zone and week start, and events (each already carrying its people), it returns the weekday header, five rows of cells with their bars, timed rows, "+N more" labels and veils, and the side panel's four days. Special days are added to its input with the special days PRs. Both styles render its output, and it is unit-tested apart from the UI.
 
-### 4.5 Later option: photo behind the calendar
+### 4.5 Week view
+
+The week view shows seven day columns, from the display's `week_start`, for the week containing today (or the previewed date while a special day preview runs). It is drawn in the soft style of the month view: one rounded tile per day, the same person markers and colours, and the same tints and takeover.
+
+- **All-day strip.** All-day and multi-day events, and timed events that run past midnight, are bars across the top of the columns, packed into three lanes by the same rules as the month view's bars: by start and then longest first, round ends where the event starts or ends, square ends where it carries in from another week or is split around a "+N more". A day with more than three of them gives its last lane to "+N more". The strip is only as tall as the lanes in use, so it takes no room in a week without such events.
+- **Timed blocks.** Every other event is a block on a shared hour scale, placed by its start and end on the wall clock in the display's time zone (not by the length between two instants), so a day with a clock change still lines up with its hour labels. An event shorter than 30 minutes is drawn 30 minutes long. Events that overlap in time sit **side by side** in the same column: within a group of overlapping events each takes the lowest free track and the group's tracks share the column's width equally. Events that merely touch (one ends as the next starts) do not overlap. Past events are dimmed.
+- **Collapsed hours.** The hours drawn in full are the display's `week_hours` (`from` to `to`, whole hours, default 7 to 21; `to` may be 24), set in config like the other per-display settings. The hours before `from` and from `to` on are folded into a thin band at the top and bottom of the columns, which shows the events that fall wholly inside it (their time and title) instead of leaving them out. An event that crosses the edge of the range is a block cut off at the edge, with a square end there. With `from: 0` or `to: 24` that band does not exist.
+- **Now line.** A line across today's column at the current time, with its time in the hour gutter. Before `from` or from `to` on, it sits on the edge of the matching band. It appears only when today is in the week shown.
+- **Special days and weather.** Past days are veiled, a decorated date has its tinted tile and small drawing, and a takeover shows its greeting, as in the month view (§6). Each day's head shows that day's forecast when there is a weather snapshot with one for it.
+
+The layout is a pure function in `shared/week-layout.ts`: given the week, now, the time zone, the week start, `week_hours` and the events (each already carrying its people), it returns the title, the seven days, the strip's bars and "+N more" labels, the blocks with their tracks, the two bands and the now line. The view draws it and adds nothing. The events come from the same fetch as the month view, whose grid always covers the week.
+
+### 4.6 Later option: photo behind the calendar
 
 Not planned for the first release. If it's added, it should be opt-in per view and keep readability first: calendar panels sit on a heavily blurred, darkened layer, with an automatic contrast check that falls back to the plain background if a photo is too bright or busy. Photo frame mode stays the main way to show photos.
 
@@ -438,7 +450,7 @@ The app holds one state document per display (multiple displays are supported vi
 - `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
-- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), live in config (and later in the settings page), not in this state.
+- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `week_hours`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), live in config (and later in the settings page), not in this state.
 
 Every input changes this state through the same command handler. Every change is broadcast to the display (WebSocket), to the remote page (WebSocket) and to HA (MQTT state topics). This keeps all inputs in sync.
 

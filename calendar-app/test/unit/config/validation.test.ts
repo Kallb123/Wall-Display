@@ -183,6 +183,31 @@ describe('validation errors name the field', () => {
     expect(message).toContain('alarm.units: unknown setting')
   })
 
+  it('week_hours with from not before to', async () => {
+    const message = await messageFor((c) => { c.displays[0].week_hours = { from: 12, to: 12 } })
+
+    expect(message).toContain('displays[0].week_hours')
+    expect(message).toContain('week_hours.from must be before week_hours.to')
+  })
+
+  it('week_hours out of range', async () => {
+    expect(await messageFor((c) => { c.displays[0].week_hours = { from: -1, to: 21 } })).toContain('displays[0].week_hours.from: must be from 0 to 23')
+    expect(await messageFor((c) => { c.displays[0].week_hours = { from: 7, to: 25 } })).toContain('displays[0].week_hours.to: must be from 1 to 24')
+    expect(await messageFor((c) => { c.displays[0].week_hours = { from: 7, to: 0 } })).toContain('displays[0].week_hours.to: must be from 1 to 24')
+  })
+
+  it('week_hours that are not whole hours', async () => {
+    const message = await messageFor((c) => { c.displays[0].week_hours = { from: 7.5, to: 21 } })
+
+    expect(message).toContain('displays[0].week_hours.from: must be a whole number')
+  })
+
+  it('week_hours with an unknown key', async () => {
+    const message = await messageFor((c) => { c.displays[0].week_hours = { from: 7, to: 21, start: 8 } })
+
+    expect(message).toContain('displays[0].week_hours.start: unknown setting')
+  })
+
   it('night_text next_alarm without an alarm block', async () => {
     const message = await messageFor((c) => { c.displays[0].night_text = 'next_alarm' })
 

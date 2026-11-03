@@ -11,6 +11,7 @@ What it does so far:
 - Reads a push button on a GPIO pin, tells single, double and long presses apart, and publishes each one to `pi/button`. See [Button](#button).
 - Reads an LD2410 mmWave sensor, either from its OUT pin on a GPIO or from its serial data, and publishes whether someone is there to `pi/presence` (retained). See [Presence](#presence).
 - Reads a VEML7700 or BH1750 ambient light sensor over I²C and publishes the room's brightness in lux to `pi/illuminance`, when it changes meaningfully and at least every 30 seconds. See [Light sensor](#light-sensor).
+- If the app goes away, turns the screen off when nobody is there and on again when someone comes, until the app is back. See [Offline fallback](#offline-fallback).
 
 The agent only talks to the broker. It holds no state of its own, and the app works the same without it. With the default `black` screen back end it does nothing to the panel at all.
 
@@ -70,6 +71,9 @@ The file is `/etc/wallcal-agent/config.yaml`. [`config.example.yaml`](config.exa
 | `light.change_percent` | `10` | A reading is published when it differs from the last one published by at least this share of it. 1 to 100. |
 | `light.change_lux` | `0.5` | ...and by at least this many lux, so flicker in a dark room isn't a change. A number, 0 to 1000. |
 | `light.report_seconds` | `30` | A reading is published at least this often even when nothing has changed. 5 to 3600. |
+| `fallback.enabled` | `true` | Whether the agent looks after the screen on its own while the app is away. It needs `sensors.presence`. See [Offline fallback](#offline-fallback). |
+| `fallback.timeout_minutes` | `5` | How long the app must be offline, or the broker unreachable, before the agent takes over. 1 to 1440. |
+| `fallback.off_after_minutes` | `10` | With nobody there this long while the agent is in charge, it turns the screen off. 1 to 1440. |
 | `screen.backend` | `black` | How the panel is turned on and off: `black`, `cec` or `output`. See [Screen power](#screen-power). |
 | `screen.cec.device` | `0` | The `cec` back end: the CEC logical address to switch, 0 to 15. 0 is the TV. |
 | `screen.output.tool` | `wlopm` | The `output` back end: `wlopm` or `wlr-randr`. |
@@ -78,7 +82,7 @@ The file is `/etc/wallcal-agent/config.yaml`. [`config.example.yaml`](config.exa
 | `screen.command_timeout_seconds` | `10` | How long `cec-client`, `wlopm` or `wlr-randr` may take before it is given up on. 1 to 60. |
 | `screen.poll_seconds` | `60` | How often the real panel state is read, and published if it changed. `0` never checks; otherwise at least 5. |
 
-The settings for a back end you haven't chosen are still checked, and so are the `button`, `presence` and `light` settings while their sensors are off, so a mistake in them shows up now and not on the day you switch.
+The settings for a back end you haven't chosen are still checked, and so are the `button`, `presence`, `light` and `fallback` settings while their sensors or the fallback are off, so a mistake in them shows up now and not on the day you switch.
 
 A config that is wrong makes the agent print what is wrong, naming the key (such as `mqtt.port: must be 1 to 65535`), and exit with status 2. systemd then restarts it every 5 seconds until the file is fixed. The password is never logged.
 
@@ -226,6 +230,39 @@ Watch it with the Mosquitto tools while you cover the sensor with your hand:
 mosquitto_sub -h <broker> -t 'wallcal/<display id>/pi/illuminance' -v
 ```
 
+## Offline fallback
+
+The app's presence policy turns the screen on and off, but it runs on the home server. If the server is down, the wall would stay as it was, lit all night. So the agent has a small rule of its own for that case. It needs the presence sensor (`sensors.presence`), because without it there is nothing to go on. With `fallback.enabled: false` the agent never does this.
+
+The agent hears whether the app is up from the app's `availability` topic, which the app publishes retained, with a last will, so it goes `offline` if the app dies. The app counts as **down** unless the agent is connected to the broker and the last thing it heard there was `online`. So an `offline` message, a broker that can't be reached, and nothing heard yet all count the same. A message that is neither `online` nor `offline` is logged and counts as down too.
+
+The rules:
+
+1. Once the app has been down for `fallback.timeout_minutes` (5) without a break, the agent takes over. If the app comes back sooner, nothing happens and the wait starts again next time. A Pi that boots while the server is down counts from the moment the agent starts, so it takes over after the same wait.
+2. While the agent is in charge, someone arriving turns the panel on. It acts when presence goes from nobody to someone. If someone is already there when it takes over, the screen is left as the app left it.
+3. While the agent is in charge, nobody there for `fallback.off_after_minutes` (10) turns the panel off, once. The wait counts from when presence went to nobody, or from when the agent took over, whichever is later, so a Pi that has been empty all along turns the screen off 10 minutes after it takes over, not 15. Someone arriving cancels the wait, and if they leave again a new one starts.
+4. If someone turns the screen on by hand while nobody is there (a live `pi/screen/set` of `on`, such as one sent with `mosquitto_pub`), the wait starts again from then, so it still goes off later.
+5. The moment the app is up again, the agent hands back and does nothing more. The app publishes the screen state again when it connects, so it takes over from there.
+
+The app's retained `pi/screen/set` is ignored while the agent is in charge. It is only the app's last word from before it went away, and the broker replays it on every reconnect, so obeying it would undo what the fallback just did. A live request is still applied. When the agent is not in charge the screen works as in [Screen power](#screen-power), retained request included.
+
+With the `black` back end the agent's switch does nothing to the panel, so the fallback has no visible effect: the page that would have gone black is served by the app, which is down. Use `cec` or `output` to make it count.
+
+How it behaves:
+
+- The agent subscribes to `availability` (QoS 1) on every connect, only when the fallback is in use: enabled, and the presence sensor opened. At start it logs `Offline fallback: on (takes over after 5 min without the app; screen off after 10 min with nobody there)`, or `Offline fallback: off` (with the reason, if it needs the sensor).
+- Taking over is a warning (`The app has been away for 5 minutes; the agent is looking after the screen until it is back`) and handing back is `info`, as are the panel switches it makes (`Offline fallback: nobody for 10 minutes, turning the panel off`).
+- The panel is switched through the same worker as a `pi/screen/set`, so a slow `cec-client` still never holds anything up, and `pi/screen/state` is published as usual.
+
+To try it, stop the app and watch the journal. With the stack from the repo's compose file:
+
+```sh
+docker compose stop calendar-app
+journalctl -u wallcal-agent -f
+```
+
+The app's last will puts `availability` to `offline` at once, and after `fallback.timeout_minutes` the agent logs that it is in charge. Walk away from the wall and wait for the screen to go off, then walk up to it. Start the app again to see it hand back. Setting both times to 1 makes this quick.
+
 ## Logs
 
 ```sh
@@ -249,7 +286,7 @@ Everything is under `wallcal/<display id>/`, as text. The contract has the schem
 | `pi/presence` | yes | `ON` when the mmWave sensor sees someone, `OFF` when it doesn't, only when `sensors.presence` is on. Published on every confirmed change and on every connect, and retained, because it is a state: a subscriber that connects later learns it at once. |
 | `pi/illuminance` | no | The room's light in lux, at most two decimal places such as `12.5`, only when `sensors.light` is on. Published when it changes meaningfully and at least every `light.report_seconds`. Not retained: a stale reading is worse than none. |
 
-It subscribes to one topic, `pi/screen/set` (QoS 1), which the app publishes retained, `on` or `off`. See [Screen power](#screen-power).
+It subscribes to `pi/screen/set` (QoS 1), which the app publishes retained, `on` or `off`. See [Screen power](#screen-power). When the offline fallback is in use it also subscribes to the app's own `availability` (QoS 1), which the app publishes retained, `online` or `offline`, and which the agent only reads. See [Offline fallback](#offline-fallback).
 
 The discovery configs go to `<discovery_prefix>/sensor/wallcal_pi_<display id>/<cpu_temperature|uptime>/config`, `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/panel_power/config`, `<discovery_prefix>/event/wallcal_pi_<display id>/button/config`, `<discovery_prefix>/binary_sensor/wallcal_pi_<display id>/presence/config` and `<discovery_prefix>/sensor/wallcal_pi_<display id>/illuminance/config`, retained. Home Assistant creates `sensor.wall_calendar_pi_cpu_temperature`, `sensor.wall_calendar_pi_uptime`, `binary_sensor.wall_calendar_pi_panel_power`, `event.wall_calendar_pi_button`, `binary_sensor.wall_calendar_pi_presence` and `sensor.wall_calendar_pi_illuminance`. All of them go unavailable while the agent is offline, and the sensors also if they stop being reported for three intervals (the diagnostics' interval, or `light.report_seconds` for the illuminance; the panel power doesn't expire, because it only changes when someone asks, the button is an event, not a reading, and presence is a retained state that can stay the same for days). The first three are diagnostic entities; the button, presence and illuminance are not, because they are the ones you would put on a dashboard or use in an automation. The button's event types are `single`, `double` and `long`, Presence is an `occupancy` binary sensor (`ON` is detected), and Illuminance is an `illuminance` sensor in `lx`. When `sensors.button`, `sensors.presence` or `sensors.light` is off, the agent publishes an empty retained config to that entity's topic, which removes the entity if it was there from an earlier run. When Home Assistant restarts and announces `online` on `<discovery_prefix>/status`, the agent publishes the configs again. See [docs/home-assistant.md](../docs/home-assistant.md).
 

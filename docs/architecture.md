@@ -483,7 +483,7 @@ The base is `wallcal/<display_id>/`.
 | `…/pi/uptime` | pi → | seconds since the Pi booted, a whole number. Published every diagnostics interval. |
 | `…/pi/screen/set` | app → pi | `on` \| `off` (retained): the display's `screen` state, published on every change and every connect. The agent then turns the panel on or off. |
 | `…/pi/screen/state` | pi → | `on` \| `off` (retained): the actual panel state as far as the back end can tell (see §8.3) |
-| `…/availability`, `…/pi/availability` | both | `online` / `offline` (MQTT last-will) |
+| `…/availability`, `…/pi/availability` | both | `online` / `offline` (MQTT last-will). The app's is also read by the agent, for the offline fallback (§10). |
 
 [`contracts/mqtt.json`](../contracts/mqtt.json) is the authoritative definition of the topics and payloads, and tests hold the app's code to it. A `…/set` message that arrives with the retain flag set is ignored, so a stale one on the broker isn't replayed at every reconnect. A connection has one last will, so the app opens one connection per display and each has its own `…/availability`.
 
@@ -676,6 +676,7 @@ More complex logic, such as "only when someone is home", "not during a film" or 
   - the mmWave sensor: the LD2410's OUT pin read as a plain GPIO input by default (debounced, so a change counts once it has held for `presence.hold_ms`), or its UART frames as an option (`presence.source: uart`)
   - I²C reader for the light sensor: a VEML7700 (which switches between two sensitivities by itself, so one reading works from a dark room to daylight) or a BH1750, read every `light.sample_ms` (1 s). It publishes when the reading changes meaningfully (by `light.change_percent`, 10 %, and by at least `light.change_lux`, 0.5 lx, so noise in the dark doesn't count) and at least every `light.report_seconds` (30 s)
   - screen control (see §8.3)
+  - offline fallback: reads the app's `…/availability`, and while the app has been away for `fallback.timeout_minutes` it turns the screen off when nobody is there and on when someone comes (§10)
   - MQTT with last-will availability, plus HA discovery for its own entities
 - The agent's only config is the MQTT host and credentials, plus the display ID.
 
@@ -697,7 +698,7 @@ These depend on what the M80F supports over HDMI. **Test early.**
 2. **Output off**: turn the Pi's HDMI output off (`wlr-randr --output HDMI-A-1 --off` or `wlopm`). The monitor then goes to "no signal" standby. This works on almost any monitor, but wake-up can be slower.
 3. **Black screen**: the display shows pure black. This always works, but the backlight stays on.
 
-The pi agent has all three as back ends, chosen with `screen.backend` in its config (`cec`, `output` or `black`). It subscribes to `…/pi/screen/set`, which the app publishes retained whenever the display's `screen` state changes, so an agent that starts later still gets the last request. Commands run off the MQTT thread, and a burst of requests is applied once, as the latest. After each change, and every `screen.poll_seconds`, the agent reads the panel back and publishes `…/pi/screen/state` (retained): with `cec` the monitor's own power status (`pow`), with `output` whether the output is on, and with `black` simply the last request. The agent never turns the panel on or off by itself, and a clean stop leaves it as it is.
+The pi agent has all three as back ends, chosen with `screen.backend` in its config (`cec`, `output` or `black`). It subscribes to `…/pi/screen/set`, which the app publishes retained whenever the display's `screen` state changes, so an agent that starts later still gets the last request. Commands run off the MQTT thread, and a burst of requests is applied once, as the latest. After each change, and every `screen.poll_seconds`, the agent reads the panel back and publishes `…/pi/screen/state` (retained): with `cec` the monitor's own power status (`pow`), with `output` whether the output is on, and with `black` simply the last request. The agent never turns the panel on or off by itself, except for the offline fallback (§10), and a clean stop leaves it as it is.
 
 The display page goes black whenever `screen` is `off`, whatever the back end. That *is* the `black` back end, and with `cec` or `output` it covers a monitor that ignores the request or a Pi whose agent is down. `black` is the default until the hardware findings (H.1) show which of the other two the M80F supports.
 
@@ -791,7 +792,7 @@ wall-display/
 |---|---|
 | HA down | The calendar still renders from ICS. Button, presence and the remote page still work via the app and MQTT, if the broker isn't the HA add-on. HA-source calendars show last-known data. |
 | MQTT broker down | The display and remote page still work over WebSocket. Button, sensors and HA control pause. The agent reconnects with backoff. |
-| Server down | The display shows last-known data with an "offline" badge. The agent can still turn the screen off with local presence rules after a timeout. |
+| Server down | The display shows last-known data with an "offline" badge. The agent notices through the app's `…/availability` (or a broker it can't reach). After `fallback.timeout_minutes` (5 by default) it takes over: with nobody there for `fallback.off_after_minutes` (10) it turns the screen off, and it turns it on again when someone comes. It ignores the app's retained `…/pi/screen/set` meanwhile, and hands back as soon as the app is up again. Needs the presence sensor. |
 | ICS feed fails | Keep the last good copy and expose "Last sync" in HA so an automation can alert. |
 | Photo provider down | Rotate through the existing cache. |
 | Special day art missing or fails to load | The tile tint, palette and greeting still show. Only the picture is left out. |

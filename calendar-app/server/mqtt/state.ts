@@ -1,3 +1,4 @@
+import type { BrightnessPolicy } from '../control/brightness'
 import type { PresencePolicy } from '../control/presence'
 import type { MqttBridge } from './client'
 
@@ -21,4 +22,15 @@ export function setPresencePolicy(policy: PresencePolicy | undefined): void {
 
 export function getPresencePolicy(): PresencePolicy | undefined {
   return currentPresence
+}
+
+// The auto brightness policy, for the same reason: its light readings arrive over MQTT, and it listens to the event bus.
+let currentBrightness: BrightnessPolicy | undefined
+
+export function setBrightnessPolicy(policy: BrightnessPolicy | undefined): void {
+  currentBrightness = policy
+}
+
+export function getBrightnessPolicy(): BrightnessPolicy | undefined {
+  return currentBrightness
 }

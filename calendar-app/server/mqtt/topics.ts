@@ -55,6 +55,9 @@ export type ButtonGesture = (typeof BUTTON_GESTURES)[number]
 /** Whether the Pi agent's mmWave sensor sees someone: `ON` or `OFF`. Under `pi/` like the button, and not a command topic: the `policies.auto_presence` rules decide what it does. Unlike a button press it is a state, so it is retained, and the retained value is how the app learns the current one when it connects. */
 export const PI_PRESENCE_TOPIC = 'pi/presence'
 
+/** How bright the room is, in lux, from the Pi agent's light sensor: a non-negative number as text, such as `12.5`. Under `pi/` like the button and presence, and not a command topic: the `policies.auto_brightness` rules decide what it does. A reading is a measurement, so it is not retained: one replayed to a late subscriber is stale, and worse than none. The agent sends one when the light changes and at least every 30 seconds. */
+export const PI_ILLUMINANCE_TOPIC = 'pi/illuminance'
+
 /** `online` while connected. The broker publishes `offline` if the app dies (the last will). */
 export const AVAILABILITY_TOPIC = 'availability'
 export const ONLINE = 'online'
@@ -153,6 +156,11 @@ export function presencePayloadReason(payload: string): string {
   return `${PI_PRESENCE_TOPIC}: must be ON or OFF (got ${quote(payload)})`
 }
 
+/** The warning reason for a `pi/illuminance` payload that is not a number of lux: names the topic and quotes at most 60 characters of the payload, like the button's. */
+export function illuminancePayloadReason(payload: string): string {
+  return `${PI_ILLUMINANCE_TOPIC}: must be a number of lux such as 12.5 (got ${quote(payload)})`
+}
+
 /** Turns a command topic's payload into a Command, validated with commandSchema. `reason` is safe to log: it names the topic and the fault, and quotes at most 60 characters of the payload. */
 export function parseCommandPayload(suffix: CommandTopic, payload: string): ParsedMessage {
   const candidate = candidateFor(suffix, payload)
@@ -178,6 +186,16 @@ export function parsePresencePayload(payload: string): boolean | null {
   if (payload === 'ON') return true
   if (payload === 'OFF') return false
   return null
+}
+
+/** A `pi/illuminance` payload as the contract allows it: a plain decimal number, with no sign, no exponent, no leading zeros and no comma. */
+const LUX = /^(0|[1-9]\d*)(\.\d+)?$/
+
+/** The lux a `pi/illuminance` payload carries, or null for anything else. An exact match, like the contract: `-1`, `.5`, `1e3`, `12,5` and ` 5` are not readings. A number too big to be one (it overflows to infinity) is not either. */
+export function parseIlluminancePayload(payload: string): number | null {
+  if (!LUX.test(payload)) return null
+  const lux = Number(payload)
+  return Number.isFinite(lux) ? lux : null
 }
 
 /** `ON` or `OFF`, as the auto_presence and auto_brightness topics carry a setting. */

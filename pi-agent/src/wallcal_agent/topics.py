@@ -22,6 +22,8 @@ SCREEN_STATE = "pi/screen/state"
 BUTTON = "pi/button"
 # Whether the mmWave sensor sees someone: a state, so it is retained and a late subscriber learns it at once.
 PRESENCE = "pi/presence"
+# The ambient light in lux: a measurement, so it is not retained.
+ILLUMINANCE = "pi/illuminance"
 
 # What the button publishes, written out here as the contract has them. button.py's detector produces these.
 BUTTON_GESTURES = (SINGLE, DOUBLE, LONG)
@@ -39,6 +41,8 @@ OFFLINE = "offline"
 # The panel state is retained because it only changes when someone asks, so it can be a long time between messages.
 # A button press is an event, not a state: replayed to a subscriber that connects later it would act twice. Presence
 # is the other way round: a state, true until it changes, so the retained value is how the app learns it at connect.
+# A light reading is a measurement, like the diagnostics: replayed to a subscriber that connects later it would be
+# a stale one, which is worse than none, so it is not retained. The agent publishes it again every few seconds anyway.
 PUBLISHED: dict[str, bool] = {
     AVAILABILITY: True,
     CPU_TEMPERATURE: False,
@@ -46,6 +50,7 @@ PUBLISHED: dict[str, bool] = {
     SCREEN_STATE: True,
     BUTTON: False,
     PRESENCE: True,
+    ILLUMINANCE: False,
 }
 
 # Each topic the agent listens to. The contract's `to_pi` topics are exactly these.
@@ -100,3 +105,19 @@ def button_payload(gesture: str) -> str:
 def presence_payload(present: bool) -> str:
     """The payload for someone there or nobody: "ON" or "OFF"."""
     return PRESENCE_ON if present else PRESENCE_OFF
+
+
+def illuminance_payload(lux: float) -> str:
+    """Lux to at most two decimal places, with no trailing zeros, as the contract wants ("0", "0.25", "12.5", "430").
+
+    Rounds halves away from zero, as the temperature does. A reading below zero, or one that is not a number, is a bug
+    in whatever read the sensor, so it raises and nothing is published. A value that rounds to zero is always "0",
+    never "-0", and the text is never in exponent form, which the contract's pattern does not allow.
+    """
+    if not math.isfinite(lux) or lux < 0:
+        raise ValueError(f"cannot format an illuminance of {lux}")
+    rounded = Decimal(repr(lux)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if rounded.is_zero():
+        return "0"
+    # Always written with two decimals, so there is a point to stop at: "12.50" is "12.5" and "100.00" is "100".
+    return format(rounded, "f").rstrip("0").rstrip(".")

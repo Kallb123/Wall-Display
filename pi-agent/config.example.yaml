@@ -14,9 +14,7 @@ mqtt:
 # How often the diagnostic sensors (CPU temperature, uptime) are published.
 diagnostics_interval_seconds: 60   # default 60, at least 5
 
-# Sensors wired to this Pi. All off by default. The button and the presence sensor are built (see the button and
-# presence blocks below). The light sensor arrives in a later pull request; until then, turning it on is validated and
-# logged as "not built yet".
+# Sensors wired to this Pi. All off by default. Each one's settings are in the block of the same name below.
 sensors:
   button: false
   presence: false
@@ -46,6 +44,22 @@ presence:
   uart:                      # used by source uart
     device: /dev/serial0     # default /dev/serial0; the serial port, an absolute path
     baud: 256000             # default 256000, the sensor's factory rate; or 9600 19200 38400 57600 115200 230400 460800
+
+# The ambient light sensor (a VEML7700 or a BH1750 on the I2C bus), used when sensors.light is true. The agent publishes
+# the room's brightness in lux to pi/illuminance, and the app's auto brightness policy can dim the display with it.
+# These are checked even while the sensor is off.
+#
+# Wiring, for either chip: VIN to 3.3 V (pin 1), GND to GND (pin 6), SDA to GPIO2 (pin 3), SCL to GPIO3 (pin 5).
+# Switch I2C on first: sudo raspi-config, Interface Options, I2C. Then i2cdetect -y 1 (from the i2c-tools package)
+# should show 10 for a VEML7700, or 23 for a BH1750.
+light:
+  chip: veml7700             # default veml7700; or bh1750
+  bus: 1                     # default 1, 0 to 31; the I2C bus, /dev/i2c-<bus>. Bus 1 is the one on pins 3 and 5
+  address: 0x10              # default is the chip's own: 0x10 for the veml7700 (its only one), 0x23 for the bh1750 (or 0x5c with its ADDR pin high)
+  sample_ms: 1000            # default 1000, 200 to 60000; how often the sensor is read
+  change_percent: 10         # default 10, 1 to 100; a reading is published when it is this share different from the last one published...
+  change_lux: 0.5            # default 0.5, 0 to 1000; ...and at least this many lux different, so flicker in the dark is not a change
+  report_seconds: 30         # default 30, 5 to 3600; published at least this often even when nothing changes
 
 # How the agent turns the panel on and off when the app asks (pi/screen/set), and reports what it is doing.
 # Nothing is touched until the first request. The display page also goes pure black when the screen is "off",

@@ -15,8 +15,8 @@ CONFIG_DIR=/etc/wallcal-agent
 CONFIG_FILE=$CONFIG_DIR/config.yaml
 UNIT_FILE=/etc/systemd/system/wallcal-agent.service
 # Groups that give access to the hardware: the GPIO for the button and the presence sensor's OUT pin (gpio), the
-# serial port for the presence sensor's uart source (dialout), /dev/cec* (video) for the cec screen back end, and I2C
-# (i2c) for the light sensor still to come. Only those that exist are used.
+# serial port for the presence sensor's uart source (dialout), /dev/cec* (video) for the cec screen back end, and
+# /dev/i2c-* (i2c) for the light sensor. Only those that exist are used.
 DEVICE_GROUPS=(gpio i2c dialout video)
 
 TARGET=''
@@ -189,10 +189,13 @@ EOF
 Agent installed and restarted. Your config in $CONFIG_FILE was kept.
 EOF
   fi
+  # I2C is not switched on here: that is a change to the Pi's boot settings, and not every Pi has a light sensor.
   cat <<'EOF'
 
 Logs:   journalctl -u wallcal-agent -f
 Status: systemctl status wallcal-agent
+
+For the light sensor, switch I2C on first: sudo raspi-config, Interface Options, I2C.
 EOF
 }
 

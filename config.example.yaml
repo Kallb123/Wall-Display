@@ -127,9 +127,35 @@ policies:
     # alone both ways: presence doesn't turn it on and nobody doesn't turn it
     # off. from and to must differ; from later than to wraps past midnight.
     quiet_hours: { from: "22:30", to: "06:30" }
+  # Needs the Pi agent's light sensor (sensors.light in the agent's config),
+  # which publishes pi/illuminance. While the policy is on it owns the
+  # brightness: one you set by hand lasts only until the next reading moves it.
+  # The Auto brightness switch in Home Assistant turns the policy off, for when
+  # an automation takes over.
   auto_brightness:
-    night_below_lux: 3 # optional; below this the night action applies
-    night_action: night_view # none | night_view | screen_off
+    # Lux to brightness (0-100), as points that go up in lux. It is read on a
+    # log scale between the points, as the eye sees light, and is flat beyond
+    # the first and last. For reference, a dark room is under 5 lx, a living
+    # room in the evening 50-150 and daylight indoors 300 or more. This is the
+    # default.
+    curve:
+      - { lux: 0, brightness: 30 }
+      - { lux: 20, brightness: 60 }
+      - { lux: 200, brightness: 100 }
+    min_step: 5 # the brightness moves only once the curve asks for this much more or less (1-50), so it doesn't flicker; either end of the curve is always reached
+    smoothing_seconds: 30 # how slowly a change in the light is followed (0-600); 0 follows every reading at once
+    # Optional. Below this the room counts as dark and the night action applies.
+    night_below_lux: 3
+    # Optional. The room counts as light again from this lux up, so a room
+    # hovering around night_below_lux doesn't flip in and out. Needs
+    # night_below_lux, and must be above it. Left out, twice night_below_lux.
+    # night_above_lux: 6
+    # What dark does: none, night_view (the night view is shown, and the view
+    # you had comes back when the room is light) or screen_off (the screen is
+    # turned off, and on again when the room is light). Either one is only
+    # undone if you haven't changed the view or the screen in the meantime.
+    # Anything other than none needs night_below_lux.
+    night_action: night_view
 
 # How many whole months of events are kept: this many before the current month
 # and this many after it (0-60 each, default 12 and 12). The remote's month

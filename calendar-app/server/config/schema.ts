@@ -150,6 +150,8 @@ const button = z.strictObject({
 /** What the button does when the config has no `button` block, or leaves a gesture out. */
 export const DEFAULT_BUTTON = button.parse({})
 
+const curveBrightness = z.number().int('must be a whole number').min(0, 'must be from 0 to 100').max(100, 'must be from 0 to 100')
+
 const policies = z.strictObject({
   auto_presence: z.strictObject({
     off_after_minutes: z.number().int().min(1).default(10),
@@ -160,8 +162,31 @@ const policies = z.strictObject({
     }).optional(),
   }).prefault({}),
   auto_brightness: z.strictObject({
-    night_below_lux: z.number().min(0).optional(),
+    // Lux to brightness. It is read on a log scale between the points and flat beyond the ends, so two points are the least that make a curve.
+    curve: z.array(z.strictObject({ lux: z.number().min(0), brightness: curveBrightness }))
+      .min(2, 'must have at least two points (a lux and a brightness each)')
+      .refine(points => points.every((point, index) => index === 0 || point.lux > points[index - 1]!.lux), {
+        message: 'lux must go up from each point to the next',
+      })
+      .default([{ lux: 0, brightness: 30 }, { lux: 20, brightness: 60 }, { lux: 200, brightness: 100 }]),
+    // The brightness only moves once the curve says it should by this much, so a reading that hovers on a step doesn't make it flicker. Reaching either end of the curve is always allowed.
+    min_step: z.number().int().min(1).max(50).default(5),
+    // The time constant of the smoothing: how quickly the lux reading is followed. 0 follows each reading at once.
+    smoothing_seconds: z.number().min(0).max(600).default(30),
+    night_below_lux: z.number().positive().optional(),
+    // Light again from here up. Left out, twice night_below_lux, so a room hovering around the threshold doesn't flip in and out of the night action.
+    night_above_lux: z.number().positive().optional(),
     night_action: z.enum(['none', 'night_view', 'screen_off']).default('none'),
+  }).superRefine((value, ctx) => {
+    if (value.night_action !== 'none' && value.night_below_lux === undefined) {
+      ctx.addIssue({ code: 'custom', message: `is needed when night_action is ${value.night_action} (the room counts as dark below it)`, path: ['night_below_lux'] })
+    }
+    if (value.night_above_lux === undefined) return
+    if (value.night_below_lux === undefined) {
+      ctx.addIssue({ code: 'custom', message: 'needs night_below_lux as well (the room counts as dark below that, and light again from here)', path: ['night_above_lux'] })
+    } else if (value.night_above_lux <= value.night_below_lux) {
+      ctx.addIssue({ code: 'custom', message: 'must be more than night_below_lux (the room counts as light again from here)', path: ['night_above_lux'] })
+    }
   }).prefault({}),
 })
 

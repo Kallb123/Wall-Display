@@ -451,7 +451,7 @@ Every input changes this state through the same command handler. Every change is
 | HA companion app | The same HA entities. You can add the remote page as a Webpage card too. |
 | Physical button | `pi-agent` → MQTT event → app button mapping (see §7.4) |
 | mmWave presence | `pi-agent` → MQTT (`pi/presence`) → app presence policy (§7.7) and/or HA automations |
-| Ambient light | `pi-agent` → MQTT → app auto-brightness and/or HA automations |
+| Ambient light | `pi-agent` → MQTT (`pi/illuminance`) → app auto-brightness policy (§7.7) and/or HA automations |
 | Built-in schedule | App-side rules, for example "agenda 06:30–09:00". Optional. HA can do this too. |
 
 ### 7.3 MQTT topics
@@ -478,7 +478,7 @@ The base is `wallcal/<display_id>/`.
 | `…/special_day/state` | app → | today's special day name, or empty (retained) |
 | `…/pi/button` | pi → | `single` \| `double` \| `long` |
 | `…/pi/presence` | pi → | `ON` \| `OFF` (retained): whether someone is there. Published on every change the agent confirms and again on every connect, so the app learns the current state at once. |
-| `…/pi/illuminance` | pi → | lux (float) |
+| `…/pi/illuminance` | pi → | lux, as a number with at most two decimal places, such as `12.5`. Published when the reading changes meaningfully, and otherwise at least every `report_seconds` (30 by default), so a subscriber is never more than that out of date. Not retained, because a stale reading is worse than none. |
 | `…/pi/cpu_temperature` | pi → | the Pi's CPU temperature in °C, to one decimal place, such as `48.3`. Published every minute (diagnostics interval); not published where it can't be read. |
 | `…/pi/uptime` | pi → | seconds since the Pi booted, a whole number. Published every diagnostics interval. |
 | `…/pi/screen/set` | app → pi | `on` \| `off` (retained): the display's `screen` state, published on every change and every connect. The agent then turns the panel on or off. |
@@ -649,7 +649,19 @@ These run in the app and each has an HA switch to turn it off:
   - **Quiet hours** (`policies.auto_presence.quiet_hours`, `from` and `to` in the config's `timezone`, which must differ and may wrap midnight, such as 22:30 to 06:30) leave the screen alone in both directions: presence doesn't turn it on, and the wait doesn't turn it off.
 
   The policy applies `set_screen` through the same command handler as every other input, so the change reaches the display, the remote, HA and the agent like any other. It is in `server/control/presence.ts`, and every switch it makes is logged. The HA "Auto presence" switch turns it off.
-- **Auto brightness.** Maps lux to the `brightness` overlay with a smoothing curve. Below a darkness threshold it can switch to the `night` view, or turn the screen off.
+- **Auto brightness.** The app reads `…/pi/illuminance` and sets `brightness` from it. A reading is a measurement, so a retained message there is ignored, like the button's. The rules, with every setting under `policies.auto_brightness`:
+  - **Every reading** updates the smoothed lux and whether the room is dark, whether or not `auto_brightness` is on. With it off, nothing else happens. The rest of the rules apply only while it is on.
+  - **The curve** (`curve`, default 0 lx → 30, 20 lx → 60, 200 lx → 100) maps lux to brightness. Between two points it is read on a log scale (a straight line in the logarithm of 1 plus the lux), so each doubling of the light counts the same, which is how the eye sees it. Beyond the first and last points it stays flat. The lux in the points must go up, and each brightness is a whole number from 0 to 100.
+  - **Smoothing** (`smoothing_seconds`, default 30, 0 to follow each reading at once) is exponential, also on the log scale, with that time constant. Readings that come close together barely move it, so a passing shadow or a flash is mostly ignored, while a reading after a long gap is followed almost entirely. A restart starts from the first reading.
+  - **Hysteresis** (`min_step`, default 5) stops the brightness from creeping. It only moves once the curve's brightness is at least `min_step` away from the current one. The lowest and highest brightness the curve can give are the exception: they are always reached, so a dark room gets exactly its lowest value, not one step short of it.
+  - **Darkness** needs a night action as well (`night_action`: `none`, the default, `night_view` or `screen_off`) and `night_below_lux`, which the config needs for any action other than `none`. The room is dark once the smoothed lux is below `night_below_lux`, and light again only once it is at or above `night_above_lux` (default twice `night_below_lux`, and it must be above it). The gap between the two stops the wall from flipping at dusk. The first reading decides on `night_below_lux` alone.
+  - **Getting dark.** With `night_view`, a wall that is not already on the `night` view goes to it, and the policy remembers the view it left. A wall that is already on `night` is left alone and nothing is remembered, because someone chose that. With `screen_off`, a screen that is `on` is turned off, and the policy remembers that it did it.
+  - **Getting light.** With `night_view`, the wall goes back to the remembered view, but only if it is still on `night`. With `screen_off`, the screen is turned on again, but only if it is still off. If someone has changed it in the meantime, the policy leaves it.
+  - **Someone else changes things.** Leaving the `night` view, or turning the screen on, makes the policy forget what it remembered, so it never undoes a change that someone made by hand. It acts when the room *becomes* dark, not while it stays dark, so a screen that someone (or auto presence) turns on in a dark room stays on until the room has been light and then dark again. Turning `auto_brightness` off also makes it forget, and leaves the wall as it is.
+  - **Switched on.** When `auto_brightness` is turned on with a reading already known, the brightness goes to the curve's value at once, whatever the step, and if the room is dark the night action applies as above. Until the first reading after a start, nothing changes.
+  - **While it is on, it owns the brightness.** A brightness set by hand is put back at the next reading, unless it is within `min_step` of the curve. With no readings (the agent is offline, or `sensors.light` is off) nothing changes: the policy has no timers and holds the wall as it was.
+
+  The policy applies `set_brightness`, `set_view` and `set_screen` through the same command handler as every other input. It is in `server/control/brightness.ts`. Every view or screen change it makes is logged with the lux that caused it; brightness changes are not, because there would be one every few minutes at dusk. It needs the Pi agent with the light sensor on (`sensors.light`). The HA "Auto brightness" switch turns it off.
 
 More complex logic, such as "only when someone is home", "not during a film" or tying in with lights, belongs in HA automations. Turn the built-in policy off when HA takes over.
 
@@ -662,7 +674,7 @@ More complex logic, such as "only when someone is home", "not during a film" or 
 - `pi-agent` is a Python systemd service with `Restart=always`:
   - `gpiozero` for the button (debounce; single, double and long press detection)
   - the mmWave sensor: the LD2410's OUT pin read as a plain GPIO input by default (debounced, so a change counts once it has held for `presence.hold_ms`), or its UART frames as an option (`presence.source: uart`)
-  - I²C reader for the light sensor (publishes on change or every 30 s)
+  - I²C reader for the light sensor: a VEML7700 (which switches between two sensitivities by itself, so one reading works from a dark room to daylight) or a BH1750, read every `light.sample_ms` (1 s). It publishes when the reading changes meaningfully (by `light.change_percent`, 10 %, and by at least `light.change_lux`, 0.5 lx, so noise in the dark doesn't count) and at least every `light.report_seconds` (30 s)
   - screen control (see §8.3)
   - MQTT with last-will availability, plus HA discovery for its own entities
 - The agent's only config is the MQTT host and credentials, plus the display ID.
@@ -673,7 +685,7 @@ More complex logic, such as "only when someone is home", "not during a film" or 
 |---|---|---|---|
 | Button | Any momentary push button (a nice panel-mount or arcade-style one) | GPIO17 to GND, internal pull-up | Single, double and long press |
 | mmWave presence | HLK-LD2410C (presence) | OUT pin to GPIO27 (the default), 5 V power, 3.3 V logic. Optionally UART (GPIO14/15) | Detects still people, unlike PIR. Tune range "gates" so it doesn't see through walls. The OUT pin is a plain on/off signal and is the default, because it needs no setup on the Pi. With `presence.source: uart` the agent reads the LD2410's own frames instead; enable the serial port and disable the serial console in `raspi-config` for that. The LD2450 (multi-target tracking) isn't supported. |
-| Ambient light | VEML7700 (good low-light range) or BH1750 | I²C (GPIO2/3), 3.3 V | Mount it facing into the room, not at the screen, and away from the panel's own glow |
+| Ambient light | VEML7700 (good low-light range) or BH1750 (`light.chip`) | I²C: VIN to 3.3 V, GND, SDA to GPIO2 (pin 3), SCL to GPIO3 (pin 5). Address 0x10 for the VEML7700, 0x23 for the BH1750 (0x5C with its ADDR pin high) | Mount it facing into the room, not at the screen, and away from the panel's own glow. Switch I²C on in `raspi-config` (Interface Options, I2C). `i2cdetect -y 1` should show 10 or 23 (5c). |
 
 **Alternative:** put the sensors and button on an ESP32 running ESPHome instead of the Pi. This is native in HA and the Pi stays purely a kiosk. The app then gets them via HA or MQTT just the same. Choose this if the sensor placement doesn't suit where the Pi sits.
 

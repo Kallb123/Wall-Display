@@ -20,6 +20,7 @@ def test_published_retains_availability_the_panel_state_and_presence_only() -> N
         "pi/screen/state": True,
         "pi/button": False,
         "pi/presence": True,
+        "pi/illuminance": False,
     }
 
 
@@ -48,6 +49,13 @@ def test_presence_payloads_are_on_and_off_in_capitals() -> None:
     assert topics.presence_payload(True) == "ON"
     assert topics.presence_payload(False) == "OFF"
     assert (topics.PRESENCE_ON, topics.PRESENCE_OFF) == ("ON", "OFF")
+
+
+def test_the_illuminance_topic() -> None:
+    assert topics.ILLUMINANCE == "pi/illuminance"
+    assert topics.topic_for("hallway", topics.ILLUMINANCE) == "wallcal/hallway/pi/illuminance"
+    # A reading is a measurement: a stale one replayed to a late subscriber is worse than none.
+    assert topics.PUBLISHED[topics.ILLUMINANCE] is False
 
 
 def test_the_agent_listens_for_screen_requests() -> None:
@@ -101,3 +109,46 @@ def test_cpu_temperature_refuses_a_value_that_is_not_a_number(bad: float) -> Non
 )
 def test_uptime_is_whole_seconds_and_never_negative(seconds: float, expected: str) -> None:
     assert topics.uptime_payload(seconds) == expected
+
+
+@pytest.mark.parametrize(
+    ("lux", "expected"),
+    [
+        (0, "0"),
+        (0.0, "0"),
+        (-0.0, "0"),
+        (0.004, "0"),
+        (0.005, "0.01"),
+        (0.01, "0.01"),
+        (0.25, "0.25"),
+        (0.255, "0.26"),
+        (0.1, "0.1"),
+        (0.1 + 0.2, "0.3"),
+        (1, "1"),
+        (12.5, "12.5"),
+        (12.50, "12.5"),
+        (12.504, "12.5"),
+        (12.505, "12.51"),
+        (99.999, "100"),
+        (100, "100"),
+        (100.0, "100"),
+        (430, "430"),
+        (430.004, "430"),
+        (1000, "1000"),
+        (1200.5, "1200.5"),
+        (120000, "120000"),
+        (65535.5, "65535.5"),
+        (1e15, "1000000000000000"),
+        (1e-9, "0"),
+    ],
+)
+def test_illuminance_has_at_most_two_decimals_no_trailing_zeros_and_never_minus_zero_or_an_exponent(
+    lux: float, expected: str
+) -> None:
+    assert topics.illuminance_payload(lux) == expected
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -0.01, -1, -1e-9, -430.5])
+def test_illuminance_refuses_a_reading_that_is_negative_or_not_a_number(bad: float) -> None:
+    with pytest.raises(ValueError, match="cannot format an illuminance"):
+        topics.illuminance_payload(bad)

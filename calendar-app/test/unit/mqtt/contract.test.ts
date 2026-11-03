@@ -15,8 +15,10 @@ import {
   ONLINE,
   parseButtonPayload,
   parseCommandPayload,
+  parseIlluminancePayload,
   parsePresencePayload,
   PI_BUTTON_TOPIC,
+  PI_ILLUMINANCE_TOPIC,
   PI_PRESENCE_TOPIC,
   PI_SCREEN_TOPIC,
   piScreenPayload,
@@ -247,6 +249,30 @@ describe('the pi agent\'s presence', () => {
   it('is parsed for every example and not for any invalid example', () => {
     for (const payload of topic.examples) expect(parsePresencePayload(payload), `example ${JSON.stringify(payload)}`).not.toBeNull()
     for (const payload of topic.invalid_examples) expect(parsePresencePayload(payload), `invalid example ${JSON.stringify(payload)}`).toBeNull()
+  })
+})
+
+describe('the pi agent\'s light sensor', () => {
+  const topic = contract.topics[PI_ILLUMINANCE_TOPIC]!
+
+  it('comes from the pi agent and is not retained, so a stale reading is never replayed', () => {
+    expect(topic.direction).toBe('from_pi')
+    expect(topic.retained).toBe(false)
+  })
+
+  it('is parsed to a number for every example and not for any invalid example', () => {
+    for (const payload of topic.examples) {
+      const lux = parseIlluminancePayload(payload)
+      expect(lux, `example ${JSON.stringify(payload)}`).not.toBeNull()
+      expect(lux, `example ${JSON.stringify(payload)}`).toBe(Number(payload))
+    }
+    for (const payload of topic.invalid_examples) expect(parseIlluminancePayload(payload), `invalid example ${JSON.stringify(payload)}`).toBeNull()
+  })
+
+  it('is parsed the way the contract\'s schema says, for readings of every size and shape the agent sends', () => {
+    for (const payload of ['0', '0.01', '0.25', '1', '12.5', '99.99', '100', '430', '54612.5', '120000', '-1', '-0', '1e3', '.5', '5.', '007', '1,5', ' 1', '1 ']) {
+      expect(parseIlluminancePayload(payload) !== null, JSON.stringify(payload)).toBe(contractAccepts(PI_ILLUMINANCE_TOPIC, payload))
+    }
   })
 })
 

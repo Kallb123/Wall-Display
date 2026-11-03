@@ -148,7 +148,7 @@ def test_fake_hardware_has_a_pretend_panel_that_obeys_requests(config_file: Path
     assert ("wallcal/hallway/pi/screen/set", 1) in fake_client.subscriptions
 
 
-def test_enabled_sensors_are_reported_as_not_built_yet(
+def test_every_sensor_is_built_so_switching_all_of_them_on_raises_no_warning(
     config_file: Path, fake_client: FakeMqttClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     timer = stop_soon(signal.SIGTERM)
@@ -157,8 +157,10 @@ def test_enabled_sensors_are_reported_as_not_built_yet(
     cli.main(["--config", str(config_file), "--fake-hardware"])
     timer.join()
 
-    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert messages == ["Sensor 'light' is enabled in the config but not built yet, so it is ignored"]
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert "not built yet" not in caplog.text
+    for line in ("Watching the button on GPIO17", "Watching presence on GPIO27", "Reading the light sensor"):
+        assert line in caplog.text
 
 
 def test_a_button_on_its_own_raises_no_warning_and_is_announced_to_home_assistant(
@@ -217,6 +219,56 @@ def test_presence_on_its_own_raises_no_warning_and_is_announced_to_home_assistan
     assert json.loads(entity.payload)["name"] == "Presence"
 
 
+def test_the_light_sensor_on_its_own_raises_no_warning_publishes_its_reading_and_is_announced_to_home_assistant(
+    tmp_path: Path, fake_client: FakeMqttClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "display_id: hallway\nmqtt:\n  host: broker.test\nsensors:\n  light: true\nlight:\n  sample_ms: 200\n"
+    )
+    light_topic = "wallcal/hallway/pi/illuminance"
+
+    def readings() -> list[tuple[str | None, bool]]:
+        return [(p.payload, p.retain) for p in list(fake_client.publishes) if p.topic == light_topic]
+
+    def play_the_broker() -> None:
+        fake_client.broker_accepts()
+        deadline = time.monotonic() + 10
+        # The fake sensor reads 150 lux every time, and the first reading after a connect is the one that is published.
+        while not readings() and time.monotonic() < deadline:
+            threading.Event().wait(0.005)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    player = threading.Timer(0.2, play_the_broker)
+    player.start()
+    caplog.set_level(logging.INFO)
+
+    code = cli.main(["--config", str(path), "--fake-hardware"])
+    player.join()
+
+    assert code == 0
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert "Reading the light sensor (VEML7700 at 0x10 on /dev/i2c-1)" in caplog.text
+    # A reading is a measurement, so it is not retained.
+    assert readings() == [("150", False)]
+    entity = next(
+        p for p in fake_client.publishes if p.topic == "homeassistant/sensor/wallcal_pi_hallway/illuminance/config"
+    )
+    assert entity.payload
+    assert json.loads(entity.payload)["name"] == "Illuminance"
+
+
+def test_a_bad_light_setting_exits_2_naming_the_key_even_with_the_sensor_off(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("display_id: hallway\nmqtt:\n  host: h\nlight:\n  chip: bh1750\n  address: 0x10\n")
+
+    assert cli.main(["--config", str(path), "--fake-hardware"]) == 2
+
+    assert "light.address: must be 0x23 or 0x5c for the bh1750" in capsys.readouterr().err
+
+
 def test_a_bad_presence_setting_exits_2_naming_the_key_even_with_the_sensor_off(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -245,6 +297,7 @@ def test_the_help_says_what_the_fake_hardware_has(capsys: pytest.CaptureFixture[
 
     out = " ".join(capsys.readouterr().out.split())
     assert "presence sensor" in out
+    assert "light sensor" in out
 
 
 def test_a_bad_button_setting_exits_2_naming_the_key_even_with_the_button_off(

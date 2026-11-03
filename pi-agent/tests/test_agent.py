@@ -10,11 +10,20 @@ from paho.mqtt.client import MQTTMessage
 from paho.mqtt.enums import CallbackAPIVersion
 
 from wallcal_agent import __version__, topics
+from wallcal_agent import agent as agent_module
 from wallcal_agent.agent import Agent, default_client_factory
-from wallcal_agent.config import ButtonConfig, Config, PresenceConfig, ScreenConfig, SensorsConfig, UartConfig
+from wallcal_agent.config import (
+    ButtonConfig,
+    Config,
+    LightConfig,
+    PresenceConfig,
+    ScreenConfig,
+    SensorsConfig,
+    UartConfig,
+)
 from wallcal_agent.discovery import discovery_messages
 from wallcal_agent.hardware import Hardware
-from wallcal_agent.hardware.fake import FakeButton, FakePresence, FakeScreen, FakeSystemInfo
+from wallcal_agent.hardware.fake import FakeButton, FakeLight, FakePresence, FakeScreen, FakeSystemInfo
 
 from .conftest import PASSWORD, AgentRig, FakeMessageInfo, FakeMqttClient, Published
 
@@ -27,6 +36,8 @@ BUTTON = "wallcal/hallway/pi/button"
 BUTTON_DISCOVERY = "homeassistant/event/wallcal_pi_hallway/button/config"
 PRESENCE = "wallcal/hallway/pi/presence"
 PRESENCE_DISCOVERY = "homeassistant/binary_sensor/wallcal_pi_hallway/presence/config"
+ILLUMINANCE = "wallcal/hallway/pi/illuminance"
+ILLUMINANCE_DISCOVERY = "homeassistant/sensor/wallcal_pi_hallway/illuminance/config"
 
 
 def by_topic(client: FakeMqttClient) -> dict[str, Published]:
@@ -69,7 +80,9 @@ def test_connecting_says_online_and_publishes_discovery_and_diagnostics(rig: Age
     published = by_topic(rig.client)
 
     assert published[AVAILABILITY] == Published(AVAILABILITY, "online", 1, True)
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False, presence=False)
+    expected = discovery_messages(
+        "homeassistant", "hallway", __version__, 60, button=False, presence=False, light=False, light_report_seconds=30
+    )
     for message in expected:
         assert published[message.topic] == Published(message.topic, message.payload, 1, True)
     assert published[CPU] == Published(CPU, "48.3", 1, False)
@@ -121,7 +134,9 @@ def test_home_assistant_birth_republishes_discovery(rig: AgentRig) -> None:
 
     rig.client.message_arrives("homeassistant/status", "online")
 
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False, presence=False)
+    expected = discovery_messages(
+        "homeassistant", "hallway", __version__, 60, button=False, presence=False, light=False, light_report_seconds=30
+    )
     assert rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
 
 
@@ -392,7 +407,7 @@ def test_default_client_factory_makes_a_paho_2_client() -> None:
 
 
 def test_topics_published_are_the_ones_declared(config: Config, make_agent: Callable[[Config], AgentRig]) -> None:
-    rig = make_agent(replace(config, sensors=SensorsConfig(button=True, presence=True)))
+    rig = make_agent(replace(config, sensors=SensorsConfig(button=True, presence=True, light=True)))
     rig.agent.start()
     rig.client.broker_accepts()
     rig.agent.run_screen_work()
@@ -402,6 +417,7 @@ def test_topics_published_are_the_ones_declared(config: Config, make_agent: Call
     rig.presence.set(True)
     rig.clock.advance(1.0)
     rig.agent.run_presence_work()
+    rig.agent.run_light_work()
 
     names = {p.topic.removeprefix("wallcal/hallway/") for p in rig.client.publishes if p.topic.startswith("wallcal/")}
     assert names == set(topics.PUBLISHED)
@@ -1421,7 +1437,9 @@ def test_discovery_after_home_assistant_restarts_follows_the_button_setting(butt
 
     button_rig.client.message_arrives("homeassistant/status", "online")
 
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=True, presence=False)
+    expected = discovery_messages(
+        "homeassistant", "hallway", __version__, 60, button=True, presence=False, light=False, light_report_seconds=30
+    )
     assert button_rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
 
 
@@ -1932,7 +1950,9 @@ def test_discovery_after_home_assistant_restarts_follows_the_presence_setting(pr
 
     presence_rig.client.message_arrives("homeassistant/status", "online")
 
-    expected = discovery_messages("homeassistant", "hallway", __version__, 60, button=False, presence=True)
+    expected = discovery_messages(
+        "homeassistant", "hallway", __version__, 60, button=False, presence=True, light=False, light_report_seconds=30
+    )
     assert presence_rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
 
 
@@ -2025,3 +2045,602 @@ def test_stop_does_not_wait_for_a_long_presence_hold(config: Config) -> None:
 
     assert time.monotonic() - before < 1.5
     assert not thread.is_alive()
+
+
+# The light sensor. As with the others, the rig has no worker thread: a test sets the fake sensor's reading, moves the
+# clock and calls `run_light_work()` when the worker would have woken. The settings are the config's defaults: a change
+# of 10% and half a lux, and at least every 30 s.
+
+
+def light_publishes(client: FakeMqttClient) -> list[Published]:
+    return [p for p in client.publishes if p.topic == ILLUMINANCE]
+
+
+def fake_light(rig: AgentRig) -> FakeLight:
+    assert rig.light is not None
+    return rig.light
+
+
+def light_after(rig: AgentRig, seconds: float, lux: float | None = None) -> list[str]:
+    """Lets time pass, sets the room's light if told to, lets the worker take a sample, and returns every reading
+    published so far."""
+    rig.clock.advance(seconds)
+    if lux is not None:
+        fake_light(rig).lux = lux
+    rig.agent.run_light_work()
+    return [p.payload or "" for p in light_publishes(rig.client)]
+
+
+def test_start_logs_which_chip_is_read_where(
+    light_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    veml = make_agent(light_config)
+    bh = make_agent(replace(light_config, light=LightConfig(chip="bh1750", bus=0, address=0x5C)))
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        veml.agent.start()
+        bh.agent.start()
+
+    messages = [r.getMessage() for r in caplog.records if r.name == "wallcal_agent.agent"]
+    assert "Reading the light sensor (VEML7700 at 0x10 on /dev/i2c-1)" in messages
+    assert "Reading the light sensor (BH1750 at 0x5c on /dev/i2c-0)" in messages
+
+
+def test_start_does_not_read_the_sensor_because_the_first_read_is_what_opens_it(light_rig: AgentRig) -> None:
+    assert fake_light(light_rig).read_count == 0
+    assert fake_light(light_rig).closed is False
+
+
+def test_without_a_light_sensor_nothing_is_started_and_the_light_work_does_nothing(rig: AgentRig) -> None:
+    assert rig.light is None
+    rig.client.broker_accepts()
+    rig.client.clear()
+
+    rig.agent.run_light_work()
+    rig.agent.run_light_work(now=1e9)
+
+    assert rig.client.publishes == []
+    assert rig.agent._light_thread is None
+    assert rig.agent._light_reporter is None
+
+
+def test_the_first_reading_is_published_at_qos_1_and_not_retained(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    fake_light(light_rig).lux = 430.0
+
+    assert light_after(light_rig, 0.0) == ["430"]
+    assert light_publishes(light_rig.client) == [Published(ILLUMINANCE, "430", 1, False)]
+
+
+def test_the_payload_is_the_contracts_text_form_of_the_lux(light_rig: AgentRig) -> None:
+    connected(light_rig)
+
+    assert light_after(light_rig, 0.0, lux=12.504) == ["12.5"]
+    assert light_after(light_rig, 1.0, lux=0.0) == ["12.5", "0"]
+
+
+def test_a_small_change_is_not_published(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_after(light_rig, 0.0, lux=100.0)
+
+    assert light_after(light_rig, 1.0, lux=105.0) == ["100"]
+    assert light_after(light_rig, 1.0, lux=95.5) == ["100"]
+    # Every sample was still taken.
+    assert fake_light(light_rig).read_count == 3
+
+
+def test_a_meaningful_change_is_published(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_after(light_rig, 0.0, lux=100.0)
+
+    assert light_after(light_rig, 1.0, lux=110.0) == ["100", "110"]
+    assert light_after(light_rig, 1.0, lux=60.0) == ["100", "110", "60"]
+
+
+def test_a_change_in_the_dark_must_be_at_least_the_lux_floor(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_after(light_rig, 0.0, lux=1.0)
+
+    assert light_after(light_rig, 1.0, lux=1.25) == ["1"]
+    assert light_after(light_rig, 1.0, lux=1.5) == ["1", "1.5"]
+
+
+def test_a_steady_reading_is_published_again_every_report_interval(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_after(light_rig, 0.0, lux=100.0)
+
+    assert light_after(light_rig, 29.0) == ["100"]
+    assert light_after(light_rig, 1.0) == ["100", "100"]
+    assert light_after(light_rig, 29.0) == ["100", "100"]
+    assert light_after(light_rig, 1.0) == ["100", "100", "100"]
+
+
+def test_the_thresholds_and_the_interval_come_from_the_config(
+    light_config: Config, make_agent: Callable[[Config], AgentRig]
+) -> None:
+    rig = make_agent(
+        replace(light_config, light=LightConfig(change_percent=50, change_lux=20.0, report_seconds=5)),
+    )
+    rig.agent.start()
+    connected(rig)
+    light_after(rig, 0.0, lux=100.0)
+
+    assert light_after(rig, 1.0, lux=140.0) == ["100"]
+    assert light_after(rig, 1.0, lux=150.0) == ["100", "150"]
+    assert light_after(rig, 4.0) == ["100", "150"]
+    assert light_after(rig, 1.0) == ["100", "150", "150"]
+
+
+def test_the_time_can_be_given_to_the_work_and_not_only_read_from_the_clock(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    fake_light(light_rig).lux = 100.0
+    light_rig.agent.run_light_work(now=500.0)
+    light_rig.agent.run_light_work(now=529.0)
+
+    assert len(light_publishes(light_rig.client)) == 1
+
+    light_rig.agent.run_light_work(now=530.0)
+
+    assert len(light_publishes(light_rig.client)) == 2
+
+
+def test_nothing_is_published_while_the_broker_is_away(light_rig: AgentRig) -> None:
+    light_rig.client.broker_accepts()
+    light_after(light_rig, 0.0, lux=100.0)
+    light_rig.client.connection_drops()
+    light_rig.client.clear()
+
+    assert light_after(light_rig, 1.0, lux=500.0) == []
+    assert light_after(light_rig, 60.0, lux=500.0) == []
+    # It is still read, so a fault is still noticed.
+    assert fake_light(light_rig).read_count == 3
+
+
+def test_nothing_is_published_before_the_first_connection(light_rig: AgentRig) -> None:
+    assert light_after(light_rig, 0.0, lux=100.0) == []
+    assert light_after(light_rig, 60.0) == []
+
+
+def test_the_first_sample_after_connecting_is_published_even_if_it_was_read_before(light_rig: AgentRig) -> None:
+    light_after(light_rig, 0.0, lux=100.0)
+    light_rig.client.broker_accepts()
+    light_rig.client.clear()
+
+    assert light_after(light_rig, 1.0) == ["100"]
+
+
+def test_a_reading_taken_while_the_broker_was_away_is_not_remembered_as_published(light_rig: AgentRig) -> None:
+    light_rig.client.broker_accepts()
+    light_after(light_rig, 0.0, lux=100.0)
+    light_rig.client.connection_drops()
+    light_after(light_rig, 1.0, lux=500.0)
+    light_rig.client.broker_accepts()
+    light_rig.client.clear()
+
+    # Had the 500 been counted as published, this reading would look like no change from it.
+    assert light_after(light_rig, 1.0, lux=500.0) == ["500"]
+
+
+def test_every_connect_publishes_the_next_reading_again_even_if_nothing_has_changed(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_after(light_rig, 0.0, lux=100.0)
+    light_rig.client.connection_drops()
+    light_rig.client.broker_accepts()
+    light_rig.client.clear()
+
+    assert light_after(light_rig, 1.0) == ["100"]
+    assert light_after(light_rig, 1.0) == ["100"]
+
+
+def test_connecting_publishes_no_reading_by_itself(light_rig: AgentRig) -> None:
+    light_after(light_rig, 0.0, lux=100.0)
+
+    light_rig.client.broker_accepts()
+
+    assert light_publishes(light_rig.client) == []
+
+
+def test_a_reading_is_never_saved_for_later(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_rig.client.connection_drops()
+    light_after(light_rig, 0.0, lux=100.0)
+    light_rig.client.broker_accepts()
+
+    # Unlike presence, nothing is published on connect: the next sample is what the new connection hears.
+    assert light_publishes(light_rig.client) == []
+
+
+def test_a_failed_reading_is_one_warning_without_a_traceback_and_publishes_nothing(
+    light_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    connected(light_rig)
+    fake_light(light_rig).error = "[Errno 121] Remote I/O error"
+
+    with caplog.at_level(logging.DEBUG, logger="wallcal_agent.agent"):
+        light_after(light_rig, 0.0)
+
+    records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert [r.getMessage() for r in records] == [
+        "Could not read the light sensor: [Errno 121] Remote I/O error; will keep trying"
+    ]
+    assert records[0].exc_info is None
+    assert light_publishes(light_rig.client) == []
+
+
+def test_the_same_light_failure_over_and_over_warns_once_then_logs_at_debug(
+    light_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    connected(light_rig)
+    fake_light(light_rig).error = "no answer"
+
+    with caplog.at_level(logging.DEBUG, logger="wallcal_agent.agent"):
+        for _ in range(4):
+            light_after(light_rig, 1.0)
+
+    text = "Could not read the light sensor: no answer; will keep trying"
+    assert [r.levelname for r in caplog.records if r.getMessage() == text] == ["WARNING", "DEBUG", "DEBUG", "DEBUG"]
+
+
+def test_a_different_failure_warns_again(light_rig: AgentRig, caplog: pytest.LogCaptureFixture) -> None:
+    connected(light_rig)
+
+    with caplog.at_level(logging.WARNING, logger="wallcal_agent.agent"):
+        fake_light(light_rig).error = "no answer"
+        light_after(light_rig, 1.0)
+        fake_light(light_rig).error = "/dev/i2c-1 is not there; is I2C switched on in raspi-config?"
+        light_after(light_rig, 1.0)
+
+    assert [r.getMessage() for r in caplog.records] == [
+        "Could not read the light sensor: no answer; will keep trying",
+        "Could not read the light sensor: /dev/i2c-1 is not there; is I2C switched on in raspi-config?; "
+        "will keep trying",
+    ]
+
+
+def test_the_first_good_reading_after_a_failure_says_so_once(
+    light_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    connected(light_rig)
+    fake_light(light_rig).error = "no answer"
+    light_after(light_rig, 1.0)
+    fake_light(light_rig).error = None
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        assert light_after(light_rig, 1.0, lux=100.0) == ["100"]
+        light_after(light_rig, 1.0, lux=100.0)
+        light_after(light_rig, 1.0, lux=300.0)
+
+    assert [r.getMessage() for r in caplog.records] == ["The light sensor is reading again"]
+    assert [r.levelname for r in caplog.records] == ["INFO"]
+
+
+def test_a_failure_after_a_recovery_warns_again(light_rig: AgentRig, caplog: pytest.LogCaptureFixture) -> None:
+    connected(light_rig)
+    fake_light(light_rig).error = "no answer"
+
+    with caplog.at_level(logging.INFO, logger="wallcal_agent.agent"):
+        light_after(light_rig, 1.0)
+        fake_light(light_rig).error = None
+        light_after(light_rig, 1.0, lux=100.0)
+        fake_light(light_rig).error = "no answer"
+        light_after(light_rig, 1.0)
+
+    assert [r.levelname for r in caplog.records] == ["WARNING", "INFO", "WARNING"]
+
+
+def test_a_failure_is_logged_while_the_broker_is_away_too(
+    light_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake_light(light_rig).error = "no answer"
+
+    with caplog.at_level(logging.WARNING, logger="wallcal_agent.agent"):
+        light_after(light_rig, 1.0)
+
+    assert "Could not read the light sensor: no answer" in caplog.text
+
+
+def test_a_failure_does_not_forget_what_was_published(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_after(light_rig, 0.0, lux=100.0)
+    fake_light(light_rig).error = "no answer"
+    light_after(light_rig, 5.0)
+    fake_light(light_rig).error = None
+
+    # Not published again: nothing has changed, and it is not yet the report interval since the last one.
+    assert light_after(light_rig, 5.0, lux=100.0) == ["100"]
+
+
+def test_a_publish_that_fails_is_logged_quietly_and_the_sensor_carries_on(
+    light_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    connected(light_rig)
+    original = light_rig.client.publish
+
+    def refuse(topic: str, payload: str | None = None, qos: int = 0, retain: bool = False) -> None:
+        raise RuntimeError("not connected")
+
+    light_rig.client.publish = refuse  # type: ignore[method-assign]
+    with caplog.at_level(logging.DEBUG, logger="wallcal_agent.agent"):
+        light_after(light_rig, 0.0, lux=100.0)
+    light_rig.client.publish = original  # type: ignore[method-assign]
+
+    assert "Could not publish the light reading" in caplog.text
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert light_after(light_rig, 1.0, lux=300.0) == ["300"]
+
+
+def test_a_sensor_that_gives_a_nonsense_reading_does_not_stop_the_work(
+    light_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    connected(light_rig)
+
+    with caplog.at_level(logging.DEBUG, logger="wallcal_agent.agent"):
+        assert light_after(light_rig, 0.0, lux=-5.0) == []
+    assert "cannot format an illuminance" in caplog.text
+    assert light_after(light_rig, 1.0, lux=100.0) == ["100"]
+
+
+def test_stop_closes_the_light_sensor_before_it_disconnects(light_config: Config, system: FakeSystemInfo) -> None:
+    client = FakeMqttClient()
+
+    class Recording(FakeLight):
+        def close(self) -> None:
+            client.calls.append("light closed")
+            super().close()
+
+    sensor = Recording(lux=100.0)
+    agent = Agent(
+        light_config,
+        Hardware(system=system, screen=FakeScreen(power=True), light=sensor),
+        client_factory=lambda _: client,
+        screen_worker=False,
+        light_worker=False,
+    )
+    agent.start()
+    client.broker_accepts()
+    client.calls.clear()
+
+    agent.stop()
+
+    assert client.calls.index("light closed") < client.calls.index(f"publish {AVAILABILITY}")
+    assert client.calls.index("light closed") < client.calls.index("disconnect")
+    assert sensor.closed is True
+
+
+def test_stop_closes_a_sensor_that_was_never_read(light_rig: AgentRig) -> None:
+    light_rig.agent.stop()
+
+    assert fake_light(light_rig).closed is True
+    assert fake_light(light_rig).read_count == 0
+
+
+def test_stopping_twice_closes_the_sensor_once_over_harmlessly(light_rig: AgentRig) -> None:
+    light_rig.agent.stop()
+    light_rig.agent.stop()
+
+    assert fake_light(light_rig).closed is True
+
+
+def test_without_a_light_sensor_stop_has_nothing_to_close(rig: AgentRig) -> None:
+    rig.agent.stop()
+
+    assert rig.light is None
+
+
+def test_a_sample_after_stop_reads_nothing_and_publishes_nothing(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    light_rig.agent.stop()
+    light_rig.client.clear()
+
+    assert light_after(light_rig, 1.0, lux=100.0) == []
+    assert fake_light(light_rig).read_count == 0
+
+
+def test_a_sample_that_was_being_read_when_stop_came_is_not_published(light_rig: AgentRig) -> None:
+    connected(light_rig)
+    sensor = fake_light(light_rig)
+    read = sensor.read_lux
+
+    def read_while_stopping() -> float:
+        lux = read()
+        light_rig.agent.stop()
+        return lux
+
+    sensor.read_lux = read_while_stopping  # type: ignore[method-assign]
+    sensor.lux = 100.0
+    light_rig.client.clear()
+    light_rig.agent.run_light_work()
+
+    assert light_publishes(light_rig.client) == []
+
+
+def test_discovery_has_the_illuminance_entity_when_the_sensor_is_on(light_rig: AgentRig) -> None:
+    light_rig.client.broker_accepts()
+
+    published = by_topic(light_rig.client)[ILLUMINANCE_DISCOVERY]
+
+    assert published.retain is True
+    assert published.payload is not None
+    config = json.loads(published.payload)
+    assert config["state_topic"] == ILLUMINANCE
+    assert config["device_class"] == "illuminance"
+    assert config["unit_of_measurement"] == "lx"
+    # Three report intervals of 30 s, and not three diagnostics intervals of 60 s.
+    assert config["expire_after"] == 90
+
+
+def test_the_entitys_expiry_follows_the_configured_report_interval(
+    light_config: Config, make_agent: Callable[[Config], AgentRig]
+) -> None:
+    rig = make_agent(replace(light_config, light=LightConfig(report_seconds=120)))
+    rig.agent.start()
+    rig.client.broker_accepts()
+
+    payload = by_topic(rig.client)[ILLUMINANCE_DISCOVERY].payload
+
+    assert payload is not None
+    assert json.loads(payload)["expire_after"] == 360
+
+
+def test_discovery_removes_the_illuminance_entity_when_the_sensor_is_off(rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+
+    assert by_topic(rig.client)[ILLUMINANCE_DISCOVERY] == Published(ILLUMINANCE_DISCOVERY, "", 1, True)
+
+
+def test_the_entity_is_still_announced_when_the_sensor_cannot_be_read(light_rig: AgentRig) -> None:
+    fake_light(light_rig).error = "no answer"
+    light_rig.client.broker_accepts()
+    light_after(light_rig, 1.0)
+
+    assert by_topic(light_rig.client)[ILLUMINANCE_DISCOVERY].payload != ""
+
+
+def test_discovery_after_home_assistant_restarts_follows_the_light_setting(light_rig: AgentRig) -> None:
+    light_rig.client.broker_accepts()
+    light_rig.client.clear()
+
+    light_rig.client.message_arrives("homeassistant/status", "online")
+
+    expected = discovery_messages(
+        "homeassistant", "hallway", __version__, 60, button=False, presence=False, light=True, light_report_seconds=30
+    )
+    assert light_rig.client.publishes == [Published(m.topic, m.payload, 1, True) for m in expected]
+
+
+# With the real worker thread. The logic is covered above without threads; these check the threading itself. They use
+# the real clock, so the sample time is the shortest the config allows.
+
+
+class ThreadedLight:
+    """An agent with its own light worker, and a client that notes which thread published each reading."""
+
+    def __init__(self, config: Config, sample_ms: int = 200, sensor: FakeLight | None = None) -> None:
+        self.threads: list[str] = []
+        outer = self
+
+        class Client(FakeMqttClient):
+            def publish(
+                self, topic: str, payload: str | None = None, qos: int = 0, retain: bool = False
+            ) -> FakeMessageInfo:
+                if topic == ILLUMINANCE:
+                    outer.threads.append(threading.current_thread().name)
+                return super().publish(topic, payload, qos, retain)
+
+        self.client = Client()
+        self.sensor = sensor or FakeLight(lux=100.0)
+        self.agent = Agent(
+            replace(config, sensors=SensorsConfig(light=True), light=LightConfig(sample_ms=sample_ms)),
+            Hardware(system=FakeSystemInfo(), screen=FakeScreen(power=True), light=self.sensor),
+            client_factory=lambda _: self.client,
+            screen_worker=False,
+        )
+        self.agent.start()
+
+    def readings(self) -> list[str]:
+        return [p.payload or "" for p in list(light_publishes(self.client))]
+
+
+def test_the_worker_thread_reads_at_once_and_then_every_sample_and_publishes_changes(config: Config) -> None:
+    rig = ThreadedLight(config)
+    try:
+        assert wait_until(lambda: rig.sensor.read_count >= 1)
+        rig.client.broker_accepts()
+
+        assert wait_until(lambda: rig.readings() == ["100"])
+        rig.sensor.lux = 300.0
+        assert wait_until(lambda: rig.readings() == ["100", "300"])
+    finally:
+        rig.agent.stop()
+
+    # Never on the thread that connected (the test's, here).
+    assert rig.threads == ["wallcal-light", "wallcal-light"]
+
+
+def test_the_worker_thread_waits_the_sample_time_between_readings(config: Config) -> None:
+    times: list[float] = []
+
+    class Timed(FakeLight):
+        def read_lux(self) -> float:
+            times.append(time.monotonic())
+            return super().read_lux()
+
+    rig = ThreadedLight(config, sample_ms=200, sensor=Timed(lux=100.0))
+    try:
+        assert wait_until(lambda: len(times) >= 4)
+    finally:
+        rig.agent.stop()
+
+    # Counted from the due time, so one late sample is followed by an early one, but four take three intervals.
+    assert times[3] - times[0] >= 0.55, times
+
+
+def test_the_worker_thread_carries_on_after_a_failure_and_after_the_sensor_comes_back(config: Config) -> None:
+    sensor = FakeLight(lux=100.0)
+    sensor.error = "no answer"
+    rig = ThreadedLight(config, sensor=sensor)
+    try:
+        rig.client.broker_accepts()
+        assert wait_until(lambda: sensor.read_count >= 2)
+        assert rig.readings() == []
+        sensor.error = None
+
+        assert wait_until(lambda: rig.readings() == ["100"])
+    finally:
+        rig.agent.stop()
+
+
+def test_the_light_worker_thread_is_a_daemon_and_stop_ends_it(config: Config) -> None:
+    rig = ThreadedLight(config)
+    thread = rig.agent._light_thread
+    assert thread is not None and thread.is_alive() and thread.daemon
+    assert thread.name == "wallcal-light"
+
+    rig.agent.stop()
+
+    assert not thread.is_alive()
+    assert rig.sensor.closed is True
+
+
+def test_stop_does_not_wait_for_a_long_sample_time(config: Config) -> None:
+    rig = ThreadedLight(config, sample_ms=60000)
+    assert wait_until(lambda: rig.sensor.read_count == 1)
+    thread = rig.agent._light_thread
+    assert thread is not None
+
+    before = time.monotonic()
+    rig.agent.stop()
+
+    assert time.monotonic() - before < 1.5
+    assert not thread.is_alive()
+    assert rig.sensor.read_count == 1
+
+
+def test_stop_does_not_wait_longer_than_a_reading_may_take(
+    config: Config, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(agent_module, "LIGHT_STOP_TIMEOUT", 0.1)
+    release = threading.Event()
+
+    class Stuck(FakeLight):
+        def read_lux(self) -> float:
+            release.wait(10)
+            return super().read_lux()
+
+    rig = ThreadedLight(config, sensor=Stuck(lux=100.0))
+    thread = rig.agent._light_thread
+    assert thread is not None
+    try:
+        with caplog.at_level(logging.WARNING, logger="wallcal_agent.agent"):
+            before = time.monotonic()
+            rig.agent.stop()
+
+        assert time.monotonic() - before < 1.5
+        assert thread.is_alive()
+        assert "A light sensor reading is still running; stopping without waiting for it" in caplog.text
+    finally:
+        release.set()
+        thread.join(timeout=5)
+    # A reading that finishes after the stop publishes nothing.
+    assert rig.readings() == []

@@ -11,6 +11,7 @@ from wallcal_agent.config import (
     CecConfig,
     Config,
     ConfigError,
+    LightConfig,
     OutputConfig,
     PresenceConfig,
     ScreenConfig,
@@ -64,6 +65,9 @@ def test_minimal_config_gets_the_defaults() -> None:
     assert config.presence == PresenceConfig(
         source="gpio", pin=27, hold_ms=500, uart=UartConfig(device="/dev/serial0", baud=256000)
     )
+    assert config.light == LightConfig(
+        chip="veml7700", bus=1, address=0x10, sample_ms=1000, change_percent=10, change_lux=0.5, report_seconds=30
+    )
 
 
 def test_full_config() -> None:
@@ -96,6 +100,15 @@ def test_full_config() -> None:
                 "hold_ms": 10000,
                 "uart": {"device": "/dev/ttyUSB0", "baud": 115200},
             },
+            "light": {
+                "chip": "bh1750",
+                "bus": 3,
+                "address": 0x5C,
+                "sample_ms": 200,
+                "change_percent": 100,
+                "change_lux": 1000,
+                "report_seconds": 3600,
+            },
         }
     )
 
@@ -116,6 +129,9 @@ def test_full_config() -> None:
     assert config.button == ButtonConfig(pin=26, bounce_ms=0, double_press_ms=2000, long_press_ms=10000)
     assert config.presence == PresenceConfig(
         source="uart", pin=5, hold_ms=10000, uart=UartConfig(device="/dev/ttyUSB0", baud=115200)
+    )
+    assert config.light == LightConfig(
+        chip="bh1750", bus=3, address=0x5C, sample_ms=200, change_percent=100, change_lux=1000.0, report_seconds=3600
     )
 
 
@@ -141,6 +157,7 @@ def test_the_example_file_sets_every_key_to_its_default() -> None:
     del trimmed["screen"]
     del trimmed["button"]
     del trimmed["presence"]
+    del trimmed["light"]
 
     assert parse_config(trimmed).mqtt.port == parse_config(example).mqtt.port
     assert parse_config(trimmed).mqtt.client_id == parse_config(example).mqtt.client_id
@@ -148,6 +165,7 @@ def test_the_example_file_sets_every_key_to_its_default() -> None:
     assert parse_config(trimmed).screen == parse_config(example).screen
     assert parse_config(trimmed).button == parse_config(example).button
     assert parse_config(trimmed).presence == parse_config(example).presence
+    assert parse_config(trimmed).light == parse_config(example).light
 
 
 def test_the_examples_screen_block_sets_every_screen_key_to_its_default() -> None:
@@ -195,6 +213,110 @@ def test_button_times_accept_both_ends_of_their_range(key: str, low: int, high: 
 @pytest.mark.parametrize("pin", [0, 27])
 def test_button_pin_accepts_both_ends_of_its_range(pin: int) -> None:
     assert parse_config(with_change(["button", "pin"], pin)).button.pin == pin
+
+
+def test_the_examples_light_block_sets_every_light_key_to_its_default() -> None:
+    light = yaml.safe_load(EXAMPLE_PATH.read_text())["light"]
+
+    assert set(light) == {"chip", "bus", "address", "sample_ms", "change_percent", "change_lux", "report_seconds"}
+    assert parse_config({**minimal(), "light": light}).light == LightConfig()
+
+
+def test_the_light_block_is_optional_and_may_be_left_empty() -> None:
+    assert parse_config({**minimal(), "light": None}).light == LightConfig()
+    assert parse_config({**minimal(), "light": {}}).light == LightConfig()
+
+
+def test_each_light_setting_may_be_given_alone() -> None:
+    assert parse_config(with_change(["light", "chip"], "bh1750")).light == LightConfig(chip="bh1750", address=0x23)
+    assert parse_config(with_change(["light", "bus"], 0)).light == LightConfig(bus=0)
+    assert parse_config(with_change(["light", "address"], 0x10)).light == LightConfig(address=0x10)
+    assert parse_config(with_change(["light", "sample_ms"], 5000)).light == LightConfig(sample_ms=5000)
+    assert parse_config(with_change(["light", "change_percent"], 25)).light == LightConfig(change_percent=25)
+    assert parse_config(with_change(["light", "change_lux"], 2.5)).light == LightConfig(change_lux=2.5)
+    assert parse_config(with_change(["light", "report_seconds"], 60)).light == LightConfig(report_seconds=60)
+
+
+def test_the_light_settings_are_checked_even_when_the_sensor_is_off() -> None:
+    data = with_change(["light", "sample_ms"], 10)
+    data["sensors"] = {"light": False}
+
+    with pytest.raises(ConfigError, match=r"light\.sample_ms"):
+        parse_config(data)
+
+
+@pytest.mark.parametrize(
+    ("chip", "address"),
+    [("veml7700", 0x10), ("bh1750", 0x23)],
+)
+def test_the_address_is_the_chips_own_when_left_out(chip: str, address: int) -> None:
+    assert parse_config(with_change(["light", "chip"], chip)).light.address == address
+
+
+@pytest.mark.parametrize(("chip", "address"), [("veml7700", 0x10), ("bh1750", 0x23), ("bh1750", 0x5C)])
+def test_the_addresses_each_chip_answers_on_are_accepted(chip: str, address: int) -> None:
+    data = with_change(["light", "chip"], chip)
+    data["light"]["address"] = address
+
+    assert parse_config(data).light.address == address
+
+
+@pytest.mark.parametrize("address", [0x23, 0x5C, 0x11, 0])
+def test_the_veml7700_has_only_the_one_address(address: int) -> None:
+    data = with_change(["light", "chip"], "veml7700")
+    data["light"]["address"] = address
+
+    with pytest.raises(ConfigError, match=r"light\.address: must be 0x10 for the veml7700"):
+        parse_config(data)
+
+
+@pytest.mark.parametrize("address", [0x10, 0x22, 0x5D, 35.0, "0x23", True])
+def test_the_bh1750_has_two_addresses(address: Any) -> None:
+    data = with_change(["light", "chip"], "bh1750")
+    data["light"]["address"] = address
+
+    with pytest.raises(ConfigError, match=r"light\.address: must be 0x23 or 0x5c for the bh1750"):
+        parse_config(data)
+
+
+def test_a_hex_address_in_the_file_is_read_as_the_number_it_is(tmp_path: Path) -> None:
+    path = write(
+        tmp_path,
+        """
+        display_id: hallway
+        mqtt:
+          host: broker.test
+        light:
+          chip: bh1750
+          address: 0x5C
+          change_lux: 1
+        """,
+    )
+
+    light = load_config(path).light
+
+    assert (light.address, light.change_lux) == (0x5C, 1.0)
+    assert isinstance(light.change_lux, float)
+
+
+@pytest.mark.parametrize(
+    ("key", "low", "high"),
+    [
+        ("bus", 0, 31),
+        ("sample_ms", 200, 60000),
+        ("change_percent", 1, 100),
+        ("change_lux", 0, 1000),
+        ("report_seconds", 5, 3600),
+    ],
+)
+def test_light_settings_accept_both_ends_of_their_range(key: str, low: int, high: int) -> None:
+    assert getattr(parse_config(with_change(["light", key], low)).light, key) == low
+    assert getattr(parse_config(with_change(["light", key], high)).light, key) == high
+
+
+@pytest.mark.parametrize("value", [0, 0.25, 0.5, 1, 999.5, 1000, 1000.0])
+def test_change_lux_may_be_whole_or_fractional(value: float) -> None:
+    assert parse_config(with_change(["light", "change_lux"], value)).light.change_lux == value
 
 
 def test_the_examples_presence_block_sets_every_presence_key_to_its_default() -> None:
@@ -489,6 +611,69 @@ def test_sensors_may_be_left_empty() -> None:
             "presence.hold_ms: must be a whole number of milliseconds, 0 to 10000",
         ),
         (with_change(["presence", "uart"], "/dev/serial0"), "presence.uart: must be a mapping"),
+        (with_change(["light"], ["veml7700"]), "light: must be a mapping"),
+        (with_change(["light", "chip"], "tsl2561"), "light.chip: must be one of veml7700, bh1750"),
+        (with_change(["light", "chip"], "VEML7700"), "light.chip: must be one of veml7700, bh1750"),
+        (with_change(["light", "chip"], ""), "light.chip: must be one of veml7700, bh1750"),
+        (with_change(["light", "chip"], 7700), "light.chip: must be text"),
+        (with_change(["light", "bus"], -1), "light.bus: must be an I2C bus number, 0 to 31"),
+        (with_change(["light", "bus"], 32), "light.bus: must be an I2C bus number, 0 to 31"),
+        (with_change(["light", "bus"], "1"), "light.bus: must be an I2C bus number, 0 to 31"),
+        (with_change(["light", "bus"], 1.5), "light.bus: must be an I2C bus number, 0 to 31"),
+        (with_change(["light", "bus"], True), "light.bus: must be an I2C bus number, 0 to 31"),
+        (with_change(["light", "address"], 16.0), "light.address: must be 0x10 for the veml7700"),
+        (with_change(["light", "address"], "0x10"), "light.address: must be 0x10 for the veml7700"),
+        (with_change(["light", "address"], True), "light.address: must be 0x10 for the veml7700"),
+        (
+            with_change(["light", "sample_ms"], 199),
+            "light.sample_ms: must be a whole number of milliseconds, 200 to 60000",
+        ),
+        (
+            with_change(["light", "sample_ms"], 60001),
+            "light.sample_ms: must be a whole number of milliseconds, 200 to 60000",
+        ),
+        (
+            with_change(["light", "sample_ms"], "1000"),
+            "light.sample_ms: must be a whole number of milliseconds, 200 to 60000",
+        ),
+        (
+            with_change(["light", "sample_ms"], 500.5),
+            "light.sample_ms: must be a whole number of milliseconds, 200 to 60000",
+        ),
+        (
+            with_change(["light", "change_percent"], 0),
+            "light.change_percent: must be a whole number of percent, 1 to 100",
+        ),
+        (
+            with_change(["light", "change_percent"], 101),
+            "light.change_percent: must be a whole number of percent, 1 to 100",
+        ),
+        (
+            with_change(["light", "change_percent"], 12.5),
+            "light.change_percent: must be a whole number of percent, 1 to 100",
+        ),
+        (
+            with_change(["light", "change_percent"], False),
+            "light.change_percent: must be a whole number of percent, 1 to 100",
+        ),
+        (with_change(["light", "change_lux"], -0.1), "light.change_lux: must be a number of lux, 0 to 1000"),
+        (with_change(["light", "change_lux"], 1000.5), "light.change_lux: must be a number of lux, 0 to 1000"),
+        (with_change(["light", "change_lux"], "0.5"), "light.change_lux: must be a number of lux, 0 to 1000"),
+        (with_change(["light", "change_lux"], True), "light.change_lux: must be a number of lux, 0 to 1000"),
+        (with_change(["light", "change_lux"], float("nan")), "light.change_lux: must be a number of lux, 0 to 1000"),
+        (with_change(["light", "change_lux"], float("inf")), "light.change_lux: must be a number of lux, 0 to 1000"),
+        (
+            with_change(["light", "report_seconds"], 4),
+            "light.report_seconds: must be a whole number of seconds, 5 to 3600",
+        ),
+        (
+            with_change(["light", "report_seconds"], 3601),
+            "light.report_seconds: must be a whole number of seconds, 5 to 3600",
+        ),
+        (
+            with_change(["light", "report_seconds"], 30.0),
+            "light.report_seconds: must be a whole number of seconds, 5 to 3600",
+        ),
         (
             with_change(["presence", "uart", "device"], "serial0"),
             "presence.uart.device: must be the absolute path of the serial port",
@@ -588,6 +773,7 @@ def test_bad_config_names_the_key(data: Any, message: str) -> None:
         (with_change(["button", "gpio"], 17), "button.gpio: unknown key"),
         (with_change(["presence", "gpio"], 27), "presence.gpio: unknown key"),
         (with_change(["presence", "uart", "port"], "/dev/serial0"), "presence.uart.port: unknown key"),
+        (with_change(["light", "pin"], 2), "light.pin: unknown key"),
     ],
 )
 def test_unknown_keys_are_errors(data: Any, message: str) -> None:

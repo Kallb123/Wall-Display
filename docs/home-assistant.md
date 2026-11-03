@@ -112,7 +112,7 @@ The entities use names relative to the device, so HA normally generates the IDs 
 | Photo source | `select.wall_calendar_photo_source` | Which source the photo frame uses: `immich`, `google` or `local` (the local folder). Config category. A source that isn't set up in the config is still listed, because HA can't hide options; choosing one makes the wall use the first source that is set up instead (Immich, then the folder). `google` is accepted but not built yet, so it is never set up. |
 | Brightness | `number.wall_calendar_brightness` | A 0–100 % slider. It dims the page with an overlay. It is not the panel's backlight. |
 | Auto presence | `switch.wall_calendar_auto_presence` | Turns the built-in presence policy on or off. Config category. Turn it off when a Home Assistant automation takes over the screen, so the two don't fight (see [Presence, driven by an automation](#presence-driven-by-an-automation-needs-the-pi-agent)). |
-| Auto brightness | `switch.wall_calendar_auto_brightness` | Turns the built-in brightness policy on or off. Config category. |
+| Auto brightness | `switch.wall_calendar_auto_brightness` | Turns the built-in brightness policy on or off. Config category. Turn it off when a Home Assistant automation sets the brightness, so the two don't fight (see [Brightness, driven by an automation](#brightness-driven-by-an-automation-needs-the-pi-agent)). |
 | Message | `text.wall_calendar_message` | Shows a banner on the wall (up to 200 characters). Text only: no icon, and no time limit, so it stays until cleared. Clear the box to remove it. The box empties by itself when the message runs out or is cleared elsewhere. |
 | Next photo | `button.wall_calendar_next_photo` | Shows the next photo at once and starts the wait for the one after it again, so a skip is never followed straight away by a scheduled change. Does nothing visible unless the wall is on the `photo` view. |
 | Refresh calendars | `button.wall_calendar_refresh_calendars` | Syncs every calendar now. |
@@ -133,13 +133,12 @@ The Pi agent (see [`pi-agent/`](../pi-agent/README.md)) publishes a second devic
 | Uptime | `sensor.wall_calendar_pi_uptime` | Seconds since the Pi booted. Diagnostic. |
 | Button | `event.wall_calendar_pi_button` | Fires `single`, `double` or `long` for every press of the physical button, whatever the app does with it (see `button:` in the app's config). Only there when `sensors.button` is on in the agent's config; turning it off removes the entity. |
 | Presence | `binary_sensor.wall_calendar_pi_presence` | On while the mmWave sensor sees someone (device class occupancy). A change only counts once it has held for `presence.hold_ms` (half a second by default), so a flicker doesn't show. Only there when `sensors.presence` is on in the agent's config; turning it off removes the entity. The app's built-in policy uses the same reading (see `policies.auto_presence`). |
+| Illuminance | `sensor.wall_calendar_pi_illuminance` | The light in the room in lx (device class illuminance). It is sent when it changes meaningfully (by 10 % and at least 0.5 lx by default) and at least every `light.report_seconds` (30 by default). Only there when `sensors.light` is on in the agent's config; turning it off removes the entity. The app's built-in policy uses the same reading (see `policies.auto_brightness`). |
 | Panel power | `binary_sensor.wall_calendar_pi_panel_power` | Whether the panel is on, as the agent last found it. With the `cec` back end that is what the monitor reports, so it also follows the monitor's own remote; with `output` it is whether the Pi's HDMI output is on; with `black` it is the state the agent was last asked for. Diagnostic. |
 
-All of them show as unavailable while the agent is offline (they follow `wallcal/<display id>/pi/availability`). The two diagnostic sensors also go unavailable if the agent stops reporting for three times its diagnostics interval.
+All of them show as unavailable while the agent is offline (they follow `wallcal/<display id>/pi/availability`). The two diagnostic sensors also go unavailable if the agent stops reporting for three times its diagnostics interval, and so does the illuminance sensor, for three times `light.report_seconds` (90 seconds by default).
 
 To turn the screen on or off, use the app's `switch.wall_calendar_screen`, not the Pi: the app passes it on to the agent on `pi/screen/set`. The panel power sensor is there to check that the panel really followed.
-
-Not there yet: the illuminance entity. It comes with the light sensor in Milestone 3.
 
 ### How discovery behaves
 
@@ -422,6 +421,32 @@ The app has its own presence policy (`policies.auto_presence`): presence turns t
 The `for:` makes the screen wait 20 minutes after the last movement before it goes off. Add conditions of your own, such as a `person` being home or the time of day. If the Pi agent goes offline the sensor becomes unavailable, which neither trigger matches, so the screen stays as it was.
 
 Leaving the Auto presence switch on as well means both act, and the app turns the screen off after its own wait, which may not be the one you chose.
+
+### Brightness, driven by an automation (needs the Pi agent)
+
+The app has its own brightness policy (`policies.auto_brightness`): it follows the room's light along a curve, smooths the readings, and can switch to the night view or turn the screen off when the room is dark. To replace it with your own rules, turn the **Auto brightness** switch off first, then set the brightness from the Pi's illuminance sensor. This needs the Pi agent with the light sensor on (`sensors.light` in its config).
+
+```yaml
+- alias: Wall calendar – brightness follows the room
+  triggers:
+    - trigger: state
+      entity_id: sensor.wall_calendar_pi_illuminance
+  conditions:
+    - condition: template
+      value_template: "{{ has_value('sensor.wall_calendar_pi_illuminance') }}"
+  actions:
+    - action: number.set_value
+      target:
+        entity_id: number.wall_calendar_brightness
+      data:
+        value: >-
+          {% set lux = states('sensor.wall_calendar_pi_illuminance') | float(0) %}
+          {{ [30 + lux * 0.35, 100] | min | round(0) }}
+```
+
+This runs a straight line from 30 % in the dark to 100 % at 200 lx. Change the numbers to suit the room. Unlike the built-in policy it doesn't smooth the readings, so a passing shadow dims the wall for a moment. A `filter` sensor (the Filter integration) with the `lowpass` filter on the illuminance sensor gives a smoother one to use instead. If the Pi agent goes offline the sensor becomes unavailable, the condition stops the automation, and the brightness stays as it was.
+
+Leaving the Auto brightness switch on as well means both act, and the app puts its own value back at the next reading.
 
 ## Dashboard
 

@@ -1,6 +1,6 @@
 """The agent's MQTT side: stays connected, says whether the Pi is online, publishes discovery and diagnostics,
-turns the panel on and off when asked, reports presses of the button and says whether anyone is in front of the
-mmWave sensor.
+turns the panel on and off when asked, reports presses of the button, says whether anyone is in front of the mmWave
+sensor and reports how bright the room is.
 
 Availability follows the usual pattern. The last will (retained "offline") is set before connecting, so the
 broker announces it if the Pi vanishes. On every connect the agent publishes retained "online", and on a clean
@@ -25,6 +25,12 @@ it has held for a moment. Where it differs is what happens while the broker is a
 event, so nothing is dropped: the latest confirmed state is remembered and published, retained, when the connection
 is back. The retained message is also how the app learns the current state when it starts. A clean stop leaves it
 alone, so the last known state stays on the broker (the sensor's availability is the agent's own `online`/`offline`).
+
+The light sensor is read, not watched, so its worker thread (a fourth) simply reads it every `light.sample_ms`. A
+reading is a measurement, not a state: a stale one replayed to a late subscriber is worse than none, so it is never
+retained and nothing is saved while the broker is away. Most readings are the same room again, so they are published
+only when the light has changed meaningfully, or every `light.report_seconds` at the least (see light.py). A connect
+starts that afresh, so the new connection hears the light at once.
 """
 
 import logging
@@ -41,7 +47,8 @@ from paho.mqtt.reasoncodes import ReasonCode
 from . import __version__, discovery, topics
 from .button import GestureDetector
 from .config import Config
-from .hardware import ButtonError, Hardware, PresenceError, ScreenError
+from .hardware import ButtonError, Hardware, LightError, PresenceError, ScreenError
+from .light import LightReporter
 from .presence import PresenceFilter
 
 logger = logging.getLogger(__name__)
@@ -53,6 +60,9 @@ OFFLINE_PUBLISH_TIMEOUT = 2.0
 BUTTON_STOP_TIMEOUT = 2.0
 # The same for the presence worker.
 PRESENCE_STOP_TIMEOUT = 2.0
+# How long a clean stop waits for the light worker. It may be in the middle of a reading, which takes up to about half a
+# second when the sensor changes range, and is otherwise waiting for the next one, which it is woken from at once.
+LIGHT_STOP_TIMEOUT = 2.0
 # How much of a bad payload is quoted in the log. It came from the network, so it isn't trusted to be short.
 MAX_LOGGED_PAYLOAD = 32
 
@@ -97,6 +107,7 @@ class Agent:
         screen_worker: bool = True,
         button_worker: bool = True,
         presence_worker: bool = True,
+        light_worker: bool = True,
     ) -> None:
         self._config = config
         self._hardware = hardware
@@ -149,6 +160,19 @@ class Agent:
         # a newer one when a connect and a change happen together.
         self._presence_publish_lock = threading.Lock()
 
+        # The light sensor. `_light_cond` guards the reporter and the stop flag, and wakes the worker when it is to
+        # stop. Tests turn the worker off (`light_worker`), set the fake sensor, move their clock and call
+        # `run_light_work` themselves.
+        self._use_light_worker = light_worker
+        self._light_thread: threading.Thread | None = None
+        self._light_cond = threading.Condition()
+        self._light_stop = False
+        # Only set when there is a sensor: it stays None when `sensors.light` is off.
+        self._light_reporter: LightReporter | None = None
+        # The message of the last failed reading, so a repeat is logged at debug, not warning. None while it works.
+        # Only the worker touches it.
+        self._light_failure: str | None = None
+
     def _topic(self, name: str) -> str:
         return topics.topic_for(self._config.display_id, name)
 
@@ -185,6 +209,7 @@ class Agent:
             self._screen_thread.start()
         self._start_button()
         self._start_presence()
+        self._start_light()
 
     def run(self, stop: threading.Event) -> None:
         """Publishes the diagnostics every interval until `stop` is set."""
@@ -206,6 +231,7 @@ class Agent:
         # half-set: a command already running finishes (or times out), and nothing new is started.
         self._stop_button()
         self._stop_presence()
+        self._stop_light()
         self._stop_screen_worker()
         if self._connected.is_set():
             # A clean disconnect doesn't send the will, so the offline state is published by hand.
@@ -250,6 +276,8 @@ class Agent:
             self._config.diagnostics_interval_seconds,
             button=self._config.sensors.button,
             presence=self._config.sensors.presence,
+            light=self._config.sensors.light,
+            light_report_seconds=self._config.light.report_seconds,
         )
         for message in messages:
             client.publish(message.topic, message.payload, qos=1, retain=True)
@@ -278,6 +306,7 @@ class Agent:
         client.subscribe(self._topic(topics.SCREEN_SET), qos=1)
         self.publish_diagnostics()
         self._announce_on_connect()
+        self._restart_light_reports()
         # Last, so everything else is there when a subscriber sees the retained state.
         self._publish_presence()
 
@@ -648,6 +677,119 @@ class Agent:
             thread.join(timeout=PRESENCE_STOP_TIMEOUT)
         sensor = self._hardware.presence
         if sensor is not None and self._presence_filter is not None:
+            sensor.close()
+
+    def _start_light(self) -> None:
+        """Starts the thread that reads the light sensor, if there is one.
+
+        Nothing is opened here: the sensor opens the bus on its first reading. If that fails (I2C is off, the chip is
+        not there) it is a warning and not a reason to stop, for the reason the button's isn't, and the worker keeps
+        trying, so a sensor that is plugged in later is found.
+        """
+        sensor = self._hardware.light
+        if sensor is None:
+            return
+        settings = self._config.light
+        self._light_reporter = LightReporter(
+            change_percent=settings.change_percent,
+            change_lux=settings.change_lux,
+            report_interval=settings.report_seconds,
+        )
+        logger.info(
+            "Reading the light sensor (%s at 0x%02x on /dev/i2c-%d)",
+            settings.chip.upper(),
+            settings.address,
+            settings.bus,
+        )
+        if self._use_light_worker:
+            self._light_thread = threading.Thread(target=self._light_loop, name="wallcal-light", daemon=True)
+            self._light_thread.start()
+
+    def run_light_work(self, now: float | None = None) -> None:
+        """Reads the sensor once, and publishes the reading if it is worth it at `now` (by default, the clock's time
+        now): see light.py.
+
+        The worker thread calls this every `light.sample_ms`. Without the worker (`light_worker=False`) tests call
+        it themselves, with the time they want.
+        """
+        sensor = self._hardware.light
+        reporter = self._light_reporter
+        if sensor is None or reporter is None or self._light_stopping():
+            return
+        try:
+            # Outside the lock: it can take half a second, and the connect callback must not wait for it.
+            lux = sensor.read_lux()
+        except LightError as error:
+            text = f"Could not read the light sensor: {error}; will keep trying"
+            if self._light_failure == text:
+                logger.debug("%s", text)
+            else:
+                self._light_failure = text
+                logger.warning("%s", text)
+            return
+        if self._light_failure is not None:
+            self._light_failure = None
+            logger.info("The light sensor is reading again")
+        with self._light_cond:
+            # While the broker is away the reporter isn't asked: nothing is published, so nothing may be marked as
+            # published, or the first reading after the connect could be held back as "no change".
+            if self._light_stop or not self._connected.is_set():
+                return
+            due = reporter.offer(lux, self._clock() if now is None else now)
+        if due:
+            self._publish_illuminance(lux)
+
+    def _publish_illuminance(self, lux: float) -> None:
+        client = self._client
+        if client is None:
+            return
+        try:
+            # Not retained: a reading is a measurement, and a stale one is worse than none.
+            client.publish(self._topic(topics.ILLUMINANCE), topics.illuminance_payload(lux), qos=1, retain=False)
+        except (RuntimeError, ValueError) as error:
+            logger.debug("Could not publish the light reading: %s", error)
+
+    def _restart_light_reports(self) -> None:
+        """Forgets what was published, so the next reading is, now that there is a connection to hear it."""
+        with self._light_cond:
+            reporter = self._light_reporter
+            if reporter is not None:
+                reporter.reset()
+
+    def _light_stopping(self) -> bool:
+        with self._light_cond:
+            return self._light_stop
+
+    def _light_loop(self) -> None:
+        """The worker thread: reads the sensor every `sample_ms`, and stops when asked."""
+        interval = self._config.light.sample_ms / 1000
+        due = self._clock()
+        while True:
+            with self._light_cond:
+                while not self._light_stop:
+                    remaining = due - self._clock()
+                    if remaining <= 0:
+                        break
+                    self._light_cond.wait(remaining)
+                if self._light_stop:
+                    return
+            self.run_light_work()
+            # Counting from the due time keeps the rhythm steady; if a reading took longer than the interval, or the
+            # Pi was suspended, don't fire a burst.
+            due = max(due + interval, self._clock())
+
+    def _stop_light(self) -> None:
+        """Stops the worker, then closes the sensor, so nothing more is read."""
+        with self._light_cond:
+            self._light_stop = True
+            self._light_cond.notify_all()
+        thread = self._light_thread
+        if thread is not None:
+            thread.join(timeout=LIGHT_STOP_TIMEOUT)
+            if thread.is_alive():
+                logger.warning("A light sensor reading is still running; stopping without waiting for it")
+        sensor = self._hardware.light
+        if sensor is not None and self._light_reporter is not None:
             sensor.close()
 
     def _note_failure(self, text: str) -> None:

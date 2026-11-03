@@ -11,6 +11,7 @@ from wallcal_agent.config import (
     CecConfig,
     Config,
     ConfigError,
+    FallbackConfig,
     LightConfig,
     OutputConfig,
     PresenceConfig,
@@ -68,6 +69,7 @@ def test_minimal_config_gets_the_defaults() -> None:
     assert config.light == LightConfig(
         chip="veml7700", bus=1, address=0x10, sample_ms=1000, change_percent=10, change_lux=0.5, report_seconds=30
     )
+    assert config.fallback == FallbackConfig(enabled=True, timeout_minutes=5, off_after_minutes=10)
 
 
 def test_full_config() -> None:
@@ -158,6 +160,7 @@ def test_the_example_file_sets_every_key_to_its_default() -> None:
     del trimmed["button"]
     del trimmed["presence"]
     del trimmed["light"]
+    del trimmed["fallback"]
 
     assert parse_config(trimmed).mqtt.port == parse_config(example).mqtt.port
     assert parse_config(trimmed).mqtt.client_id == parse_config(example).mqtt.client_id
@@ -166,6 +169,7 @@ def test_the_example_file_sets_every_key_to_its_default() -> None:
     assert parse_config(trimmed).button == parse_config(example).button
     assert parse_config(trimmed).presence == parse_config(example).presence
     assert parse_config(trimmed).light == parse_config(example).light
+    assert parse_config(trimmed).fallback == parse_config(example).fallback
 
 
 def test_the_examples_screen_block_sets_every_screen_key_to_its_default() -> None:
@@ -220,6 +224,40 @@ def test_the_examples_light_block_sets_every_light_key_to_its_default() -> None:
 
     assert set(light) == {"chip", "bus", "address", "sample_ms", "change_percent", "change_lux", "report_seconds"}
     assert parse_config({**minimal(), "light": light}).light == LightConfig()
+
+
+def test_the_examples_fallback_block_sets_every_fallback_key_to_its_default() -> None:
+    fallback = yaml.safe_load(EXAMPLE_PATH.read_text())["fallback"]
+
+    assert set(fallback) == {"enabled", "timeout_minutes", "off_after_minutes"}
+    assert parse_config({**minimal(), "fallback": fallback}).fallback == FallbackConfig()
+
+
+def test_the_fallback_block_is_optional_and_may_be_left_empty() -> None:
+    assert parse_config({**minimal(), "fallback": None}).fallback == FallbackConfig()
+    assert parse_config({**minimal(), "fallback": {}}).fallback == FallbackConfig()
+
+
+def test_each_fallback_setting_may_be_given_alone() -> None:
+    assert parse_config(with_change(["fallback", "enabled"], False)).fallback == FallbackConfig(enabled=False)
+    assert parse_config(with_change(["fallback", "timeout_minutes"], 30)).fallback == FallbackConfig(timeout_minutes=30)
+    assert parse_config(with_change(["fallback", "off_after_minutes"], 1)).fallback == FallbackConfig(
+        off_after_minutes=1
+    )
+
+
+@pytest.mark.parametrize("key", ["timeout_minutes", "off_after_minutes"])
+@pytest.mark.parametrize("minutes", [1, 1440])
+def test_fallback_times_accept_both_ends_of_their_range(key: str, minutes: int) -> None:
+    assert getattr(parse_config(with_change(["fallback", key], minutes)).fallback, key) == minutes
+
+
+def test_the_fallback_settings_are_checked_even_when_presence_is_off() -> None:
+    data = with_change(["fallback", "timeout_minutes"], 0)
+    assert data.get("sensors") is None
+
+    with pytest.raises(ConfigError, match=r"fallback.timeout_minutes"):
+        parse_config(data)
 
 
 def test_the_light_block_is_optional_and_may_be_left_empty() -> None:
@@ -611,6 +649,65 @@ def test_sensors_may_be_left_empty() -> None:
             "presence.hold_ms: must be a whole number of milliseconds, 0 to 10000",
         ),
         (with_change(["presence", "uart"], "/dev/serial0"), "presence.uart: must be a mapping"),
+        (
+            with_change(["fallback", "timeout_minutes"], 0),
+            "fallback.timeout_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "timeout_minutes"], 1441),
+            "fallback.timeout_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "timeout_minutes"], -1),
+            "fallback.timeout_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "timeout_minutes"], "5"),
+            "fallback.timeout_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "timeout_minutes"], 5.5),
+            "fallback.timeout_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "timeout_minutes"], 5.0),
+            "fallback.timeout_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "timeout_minutes"], True),
+            "fallback.timeout_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "off_after_minutes"], 0),
+            "fallback.off_after_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "off_after_minutes"], 1441),
+            "fallback.off_after_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "off_after_minutes"], -1),
+            "fallback.off_after_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "off_after_minutes"], "5"),
+            "fallback.off_after_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "off_after_minutes"], 5.5),
+            "fallback.off_after_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "off_after_minutes"], 5.0),
+            "fallback.off_after_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (
+            with_change(["fallback", "off_after_minutes"], True),
+            "fallback.off_after_minutes: must be a whole number of minutes, 1 to 1440",
+        ),
+        (with_change(["fallback", "enabled"], "yes"), "fallback.enabled: must be true or false"),
+        (with_change(["fallback", "enabled"], 1), "fallback.enabled: must be true or false"),
+        (with_change(["fallback"], ["enabled"]), "fallback: must be a mapping"),
         (with_change(["light"], ["veml7700"]), "light: must be a mapping"),
         (with_change(["light", "chip"], "tsl2561"), "light.chip: must be one of veml7700, bh1750"),
         (with_change(["light", "chip"], "VEML7700"), "light.chip: must be one of veml7700, bh1750"),
@@ -774,6 +871,7 @@ def test_bad_config_names_the_key(data: Any, message: str) -> None:
         (with_change(["presence", "gpio"], 27), "presence.gpio: unknown key"),
         (with_change(["presence", "uart", "port"], "/dev/serial0"), "presence.uart.port: unknown key"),
         (with_change(["light", "pin"], 2), "light.pin: unknown key"),
+        (with_change(["fallback", "timeout"], 5), "fallback.timeout: unknown key"),
     ],
 )
 def test_unknown_keys_are_errors(data: Any, message: str) -> None:

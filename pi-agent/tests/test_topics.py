@@ -24,6 +24,27 @@ def test_published_retains_availability_the_panel_state_and_presence_only() -> N
     }
 
 
+def test_the_apps_availability_is_watched_and_is_not_the_pis_own() -> None:
+    assert topics.APP_AVAILABILITY == "availability"
+    assert topics.WATCHED == ("availability",)
+    assert topics.APP_AVAILABILITY != topics.AVAILABILITY
+    assert topics.SUBSCRIBED == ("pi/screen/set",)
+
+
+def test_the_app_availability_topic_is_not_under_pi() -> None:
+    assert topics.topic_for("hallway", topics.APP_AVAILABILITY) == "wallcal/hallway/availability"
+
+
+def test_online_and_offline_are_read_as_the_app_being_up_or_down() -> None:
+    assert topics.parse_availability_payload("online") is True
+    assert topics.parse_availability_payload("offline") is False
+
+
+@pytest.mark.parametrize("text", ["", " ", "Online", "OFFLINE", "ON", "online ", " offline", "on", "true", "1"])
+def test_anything_else_is_not_an_availability(text: str) -> None:
+    assert topics.parse_availability_payload(text) is None
+
+
 def test_the_button_topic() -> None:
     assert topics.BUTTON == "pi/button"
     assert topics.topic_for("hallway", topics.BUTTON) == "wallcal/hallway/pi/button"

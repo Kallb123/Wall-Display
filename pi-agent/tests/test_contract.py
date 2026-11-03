@@ -173,6 +173,26 @@ def test_the_agent_publishes_topics_that_are_from_pi_with_the_same_retain_flag(c
         assert contract["topics"][name]["retained"] is retained, name
 
 
+def test_every_watched_topic_is_from_the_app_and_retained(contract: dict[str, Any]) -> None:
+    for name in topics.WATCHED:
+        assert name in contract["topics"], name
+        assert contract["topics"][name]["direction"] == "from_app", name
+        assert contract["topics"][name]["retained"] is True, name
+
+
+def test_every_example_availability_of_the_app_is_read_and_no_invalid_one_is(contract: dict[str, Any]) -> None:
+    topic = contract["topics"][topics.APP_AVAILABILITY]
+
+    for payload in topic["examples"]:
+        assert topics.parse_availability_payload(payload) is not None, payload
+    for payload in topic["invalid_examples"]:
+        assert topics.parse_availability_payload(payload) is None, payload
+
+
+def test_the_apps_availability_topic_is_under_the_display() -> None:
+    assert topics.topic_for("hallway", topics.APP_AVAILABILITY) == "wallcal/hallway/availability"
+
+
 def test_every_pi_topic_is_handled_or_listed_for_a_later_pull_request(contract: dict[str, Any]) -> None:
     from_pi = topics_where(contract, "from_pi")
     to_pi = topics_where(contract, "to_pi")
@@ -193,6 +213,15 @@ def test_the_agent_subscribes_to_its_topics_on_every_connect(rig: AgentRig) -> N
     rig.client.connection_drops()
     rig.client.broker_accepts()
     assert all(subscription in rig.client.subscriptions for subscription in wanted)
+
+
+def test_the_agent_subscribes_to_each_watched_topic_on_connect_when_the_fallback_is_in_use(
+    fallback_rig: AgentRig,
+) -> None:
+    fallback_rig.client.broker_accepts()
+
+    for name in topics.WATCHED:
+        assert (f"wallcal/hallway/{name}", 1) in fallback_rig.client.subscriptions
 
 
 def test_every_valid_screen_request_in_the_contract_is_applied(contract: dict[str, Any], rig: AgentRig) -> None:

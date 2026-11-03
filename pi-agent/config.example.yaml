@@ -61,6 +61,16 @@ light:
   change_lux: 0.5            # default 0.5, 0 to 1000; ...and at least this many lux different, so flicker in the dark is not a change
   report_seconds: 30         # default 30, 5 to 3600; published at least this often even when nothing changes
 
+# What the agent does on its own when the app is away (offline, or the broker unreachable): it takes over the screen
+# with local presence rules, turning it off when nobody has been there a while and on again when someone comes. It
+# hands the screen back the moment the app is up. Needs sensors.presence, otherwise it stays off. With the black
+# screen back end below it has no visible effect, as the agent's switch does nothing to the panel. These are checked
+# even while it is off.
+fallback:
+  enabled: true              # default true
+  timeout_minutes: 5         # default 5, 1 to 1440; how long the app must be offline (or the broker unreachable) first
+  off_after_minutes: 10      # default 10, 1 to 1440; with nobody there this long, the agent turns the screen off
+
 # How the agent turns the panel on and off when the app asks (pi/screen/set), and reports what it is doing.
 # Nothing is touched until the first request. The display page also goes pure black when the screen is "off",
 # whichever back end is chosen.

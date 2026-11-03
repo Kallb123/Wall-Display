@@ -155,6 +155,18 @@ class LightConfig:
 
 
 @dataclass(frozen=True)
+class FallbackConfig:
+    """What the agent does on its own when the app is away: take over the screen with local presence rules."""
+
+    # Needs sensors.presence: without a presence sensor there is nothing to go on, so it stays off.
+    enabled: bool = True
+    # How long the app must be offline (or the broker unreachable) before the agent takes over. Minutes.
+    timeout_minutes: int = 5
+    # With nobody there this long (counted from the take-over at the earliest), the agent turns the screen off. Minutes.
+    off_after_minutes: int = 10
+
+
+@dataclass(frozen=True)
 class Config:
     display_id: str
     mqtt: MqttConfig
@@ -164,6 +176,7 @@ class Config:
     button: ButtonConfig = field(default_factory=ButtonConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
     light: LightConfig = field(default_factory=LightConfig)
+    fallback: FallbackConfig = field(default_factory=FallbackConfig)
 
     def enabled_sensors(self) -> list[str]:
         """The names of the sensors switched on, in a fixed order."""
@@ -507,13 +520,44 @@ def _parse_light(data: Any) -> LightConfig:
     )
 
 
+def _parse_fallback(data: Any) -> FallbackConfig:
+    if data is None:
+        return FallbackConfig()
+    section = _mapping(data, "fallback")
+    _check_keys(section, "fallback", ("enabled", "timeout_minutes", "off_after_minutes"))
+
+    minutes_message = "must be a whole number of minutes, 1 to 1440"
+    timeout = _whole_number(section, "timeout_minutes", "fallback.timeout_minutes", 5, minutes_message)
+    if not 1 <= timeout <= 1440:
+        raise ConfigError(f"fallback.timeout_minutes: {minutes_message}")
+    off_after = _whole_number(section, "off_after_minutes", "fallback.off_after_minutes", 10, minutes_message)
+    if not 1 <= off_after <= 1440:
+        raise ConfigError(f"fallback.off_after_minutes: {minutes_message}")
+
+    return FallbackConfig(
+        enabled=_flag(section, "enabled", "fallback.enabled", True),
+        timeout_minutes=timeout,
+        off_after_minutes=off_after,
+    )
+
+
 def parse_config(data: Any) -> Config:
     """Checks a config that has already been read from YAML. Raises ConfigError naming the first problem."""
     top = _mapping(data, "config") if data is not None else {}
     _check_keys(
         top,
         "",
-        ("display_id", "mqtt", "diagnostics_interval_seconds", "sensors", "screen", "button", "presence", "light"),
+        (
+            "display_id",
+            "mqtt",
+            "diagnostics_interval_seconds",
+            "sensors",
+            "screen",
+            "button",
+            "presence",
+            "light",
+            "fallback",
+        ),
     )
 
     display_id = _text(top, "display_id", "display_id")
@@ -540,6 +584,7 @@ def parse_config(data: Any) -> Config:
     button = _parse_button(top.get("button"))
     presence = _parse_presence(top.get("presence"))
     light = _parse_light(top.get("light"))
+    fallback = _parse_fallback(top.get("fallback"))
     # One wire can't be two inputs. Only when both sensors are on: with either off nothing opens the pin.
     if sensors.button and sensors.presence and presence.source == "gpio" and presence.pin == button.pin:
         raise ConfigError(f"presence.pin: GPIO{presence.pin} is already the button's pin (button.pin)")
@@ -553,6 +598,7 @@ def parse_config(data: Any) -> Config:
         button=button,
         presence=presence,
         light=light,
+        fallback=fallback,
     )
 
 

@@ -33,6 +33,10 @@ BUTTON_GESTURES = (SINGLE, DOUBLE, LONG)
 PRESENCE_ON = "ON"
 PRESENCE_OFF = "OFF"
 
+# The app's own availability for this display. The app publishes it, retained, with a last will, so it reads
+# `offline` when the app dies. Not to be confused with AVAILABILITY, which is the Pi's.
+APP_AVAILABILITY = "availability"
+
 ONLINE = "online"
 OFFLINE = "offline"
 
@@ -55,6 +59,10 @@ PUBLISHED: dict[str, bool] = {
 
 # Each topic the agent listens to. The contract's `to_pi` topics are exactly these.
 SUBSCRIBED: tuple[str, ...] = (SCREEN_SET,)
+
+# Each topic from the app that the agent listens to. Unlike SUBSCRIBED (requests to the Pi), these are the app's own
+# state, read only by the offline fallback to tell whether the app is there.
+WATCHED: tuple[str, ...] = (APP_AVAILABILITY,)
 
 
 def topic_for(display_id: str, name: str) -> str:
@@ -86,6 +94,15 @@ def parse_screen_payload(text: str) -> bool | None:
     if text == "on":
         return True
     if text == "off":
+        return False
+    return None
+
+
+def parse_availability_payload(text: str) -> bool | None:
+    """True for "online", False for "offline", and None for anything else (including an empty, cleared message)."""
+    if text == ONLINE:
+        return True
+    if text == OFFLINE:
         return False
     return None
 

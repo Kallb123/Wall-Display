@@ -15,6 +15,7 @@ from wallcal_agent.agent import Agent, default_client_factory
 from wallcal_agent.config import (
     ButtonConfig,
     Config,
+    FallbackConfig,
     LightConfig,
     PresenceConfig,
     ScreenConfig,
@@ -22,6 +23,7 @@ from wallcal_agent.config import (
     UartConfig,
 )
 from wallcal_agent.discovery import discovery_messages
+from wallcal_agent.fallback import FallbackPolicy
 from wallcal_agent.hardware import Hardware
 from wallcal_agent.hardware.fake import FakeButton, FakeLight, FakePresence, FakeScreen, FakeSystemInfo
 
@@ -2644,3 +2646,708 @@ def test_stop_does_not_wait_longer_than_a_reading_may_take(
         thread.join(timeout=5)
     # A reading that finishes after the stop publishes nothing.
     assert rig.readings() == []
+
+
+# The offline fallback. As with the others, the rig has no worker thread: a test moves the clock and calls
+# `run_presence_work()`, `run_fallback_work()` and `run_screen_work()` when the workers would have woken. The settings
+# are the defaults: in charge after 5 minutes without the app, screen off after 10 minutes with nobody there.
+
+APP_AVAILABILITY = "wallcal/hallway/availability"
+MINUTE = 60.0
+FALLBACK_LOGGER = "wallcal_agent.agent"
+
+
+def app_says(rig: AgentRig, payload: str, retain: bool = True) -> None:
+    rig.client.message_arrives(APP_AVAILABILITY, payload, retain=retain)
+
+
+def presence_becomes(rig: AgentRig, present: bool) -> None:
+    """The sensor reports, the hold passes and the agent confirms it."""
+    assert rig.presence is not None
+    rig.presence.set(present)
+    rig.clock.advance(1)
+    rig.agent.run_presence_work()
+
+
+def fallback_after(rig: AgentRig, seconds: float) -> None:
+    """Moves the clock on and lets the fallback work, as its thread would have."""
+    rig.clock.advance(seconds)
+    rig.agent.run_fallback_work()
+
+
+def panel_requests(rig: AgentRig) -> list[bool]:
+    """What the screen worker is made to apply now."""
+    rig.screen.set_calls.clear()
+    rig.agent.run_screen_work()
+    return list(rig.screen.set_calls)
+
+
+def in_charge(rig: AgentRig) -> bool:
+    return rig.agent._fallback_in_charge()
+
+
+def test_the_app_availability_is_subscribed_to_on_every_connect_when_the_fallback_is_in_use(
+    fallback_rig: AgentRig,
+) -> None:
+    fallback_rig.client.broker_accepts()
+    assert (APP_AVAILABILITY, 1) in fallback_rig.client.subscriptions
+
+    fallback_rig.client.subscriptions.clear()
+    fallback_rig.client.connection_drops()
+    fallback_rig.client.broker_accepts()
+    assert (APP_AVAILABILITY, 1) in fallback_rig.client.subscriptions
+
+
+def test_the_app_availability_is_not_subscribed_to_when_the_fallback_is_off(
+    presence_config: Config, make_agent: Callable[[Config], AgentRig]
+) -> None:
+    rig = make_agent(replace(presence_config, fallback=FallbackConfig(enabled=False)))
+    rig.agent.start()
+    rig.client.broker_accepts()
+
+    assert APP_AVAILABILITY not in [topic for topic, _ in rig.client.subscriptions]
+
+
+def test_the_app_availability_is_not_subscribed_to_without_a_presence_sensor(rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+
+    assert APP_AVAILABILITY not in [topic for topic, _ in rig.client.subscriptions]
+
+
+def test_the_app_availability_is_not_subscribed_to_when_the_sensor_could_not_be_opened(
+    presence_config: Config, make_agent: Callable[[Config], AgentRig]
+) -> None:
+    rig = make_agent(presence_config)
+    assert rig.presence is not None
+    rig.presence.start_error = "no access"
+    rig.agent.start()
+    rig.client.broker_accepts()
+
+    assert APP_AVAILABILITY not in [topic for topic, _ in rig.client.subscriptions]
+    assert rig.agent._fallback is None
+
+
+def test_start_says_the_fallback_is_on_and_with_what_times(
+    presence_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = make_agent(replace(presence_config, fallback=FallbackConfig(timeout_minutes=3, off_after_minutes=7)))
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        rig.agent.start()
+
+    assert (
+        "Offline fallback: on (takes over after 3 min without the app; screen off after 7 min with nobody there)"
+        in caplog.text
+    )
+
+
+def test_start_says_the_fallback_is_off_and_why(
+    config: Config, presence_config: Config, make_agent: Callable[[Config], AgentRig], caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        make_agent(config).agent.start()
+        assert "Offline fallback: off (needs sensors.presence)" in caplog.text
+        caplog.clear()
+        make_agent(replace(presence_config, fallback=FallbackConfig(enabled=False))).agent.start()
+        assert "Offline fallback: off" in caplog.text
+        assert "needs sensors.presence" not in caplog.text
+
+
+def test_it_takes_over_after_the_timeout_with_the_app_offline(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "offline")
+
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        fallback_after(fallback_rig, 5 * MINUTE - 1)
+        assert "looking after the screen" not in caplog.text
+        assert in_charge(fallback_rig) is False
+        fallback_after(fallback_rig, 1)
+
+    assert in_charge(fallback_rig) is True
+    assert [r.levelno for r in caplog.records if "looking after" in r.message] == [logging.WARNING]
+    assert "The app has been away for 5 minutes; the agent is looking after the screen until it is back" in caplog.text
+
+
+def test_it_takes_over_when_the_broker_cannot_be_reached(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_unreachable()
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+
+
+def test_it_takes_over_when_nothing_is_heard_from_the_app(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+
+
+def test_it_counts_from_the_start_of_the_agent_when_the_broker_was_never_there(fallback_rig: AgentRig) -> None:
+    fallback_after(fallback_rig, 4 * MINUTE)
+    assert in_charge(fallback_rig) is False
+    fallback_after(fallback_rig, MINUTE)
+
+    assert in_charge(fallback_rig) is True
+
+
+def test_an_app_that_is_online_never_lets_it_take_over(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        fallback_after(fallback_rig, 60 * MINUTE)
+
+    assert in_charge(fallback_rig) is False
+    assert "looking after" not in caplog.text
+
+
+def test_an_app_that_comes_back_before_the_timeout_starts_the_wait_afresh(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 4 * MINUTE)
+    app_says(fallback_rig, "online")
+    fallback_after(fallback_rig, MINUTE)
+    app_says(fallback_rig, "offline")
+
+    fallback_after(fallback_rig, 4 * MINUTE)
+    assert in_charge(fallback_rig) is False
+    fallback_after(fallback_rig, MINUTE)
+    assert in_charge(fallback_rig) is True
+
+
+def test_the_apps_availability_arriving_after_the_connect_is_what_counts(fallback_rig: AgentRig) -> None:
+    # Before the connect there is nothing heard, so the app is down; the retained "online" that follows the connect
+    # is the first thing heard on it.
+    fallback_after(fallback_rig, 4 * MINUTE)
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+
+    fallback_after(fallback_rig, 10 * MINUTE)
+
+    assert in_charge(fallback_rig) is False
+
+
+def test_a_connect_forgets_what_was_heard_on_the_last_one(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+    fallback_rig.client.connection_drops()
+    fallback_rig.client.broker_accepts()
+
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+
+
+def test_losing_the_connection_makes_the_app_down(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+    fallback_after(fallback_rig, 10 * MINUTE)
+    fallback_rig.client.connection_drops()
+
+    fallback_after(fallback_rig, 4 * MINUTE)
+    assert in_charge(fallback_rig) is False
+    fallback_after(fallback_rig, MINUTE)
+    assert in_charge(fallback_rig) is True
+
+
+def test_a_cleared_availability_counts_as_down_without_a_warning(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+    with caplog.at_level(logging.WARNING, logger=FALLBACK_LOGGER):
+        app_says(fallback_rig, "")
+    assert caplog.text == ""
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+
+
+def test_a_bad_availability_counts_as_down_and_is_logged_shortened(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+    with caplog.at_level(logging.WARNING, logger=FALLBACK_LOGGER):
+        app_says(fallback_rig, "maybe" * 100)
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+    assert f"{APP_AVAILABILITY}: expected" in caplog.text
+    assert "maybe" * 7 not in caplog.text
+
+
+def test_the_availability_of_the_pi_itself_is_not_the_apps(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_rig.client.message_arrives(AVAILABILITY, "online", retain=True)
+
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+
+
+def test_someone_arriving_while_in_charge_turns_the_panel_on(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    presence_becomes(fallback_rig, False)
+    fallback_rig.agent.run_screen_work()
+    fallback_after(fallback_rig, 5 * MINUTE)
+    fallback_rig.screen.power = False
+
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        presence_becomes(fallback_rig, True)
+        fallback_rig.agent.run_fallback_work()
+
+    assert panel_requests(fallback_rig) == [True]
+    assert "Offline fallback: someone is there, turning the panel on" in caplog.text
+
+
+def test_someone_arriving_before_it_takes_over_does_nothing(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    presence_becomes(fallback_rig, False)
+    presence_becomes(fallback_rig, True)
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+    assert panel_requests(fallback_rig) == []
+
+
+def test_presence_that_changed_before_it_took_over_is_remembered(fallback_rig: AgentRig) -> None:
+    # Nobody since before the take-over: the wait for an empty room counts from the take-over, not from the change.
+    fallback_rig.client.broker_accepts()
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 5 * MINUTE)
+    assert panel_requests(fallback_rig) == []
+
+    fallback_after(fallback_rig, 10 * MINUTE - 2)
+    assert panel_requests(fallback_rig) == []
+    fallback_after(fallback_rig, 2)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_nobody_for_the_wait_turns_the_panel_off_once(fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+    presence_becomes(fallback_rig, False)
+
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        fallback_after(fallback_rig, 10 * MINUTE - 2)
+        assert panel_requests(fallback_rig) == []
+        fallback_after(fallback_rig, 1)
+        fallback_after(fallback_rig, 10 * MINUTE)
+
+    assert panel_requests(fallback_rig) == [False]
+    assert caplog.text.count("Offline fallback: nobody for 10 minutes, turning the panel off") == 1
+    fallback_after(fallback_rig, 60 * MINUTE)
+    assert panel_requests(fallback_rig) == []
+
+
+def test_the_panel_is_switched_by_the_screen_worker_and_not_by_the_fallback(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_rig.agent.run_screen_work()
+    fallback_rig.screen.set_calls.clear()
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 15 * MINUTE)
+
+    assert fallback_rig.screen.set_calls == []
+    fallback_rig.agent.run_screen_work()
+    assert fallback_rig.screen.set_calls == [False]
+    # And the state is published as for any other request.
+    assert by_topic(fallback_rig.client)[SCREEN_STATE].payload == topics.screen_payload(False)
+
+
+def test_presence_changes_while_the_app_is_up_are_remembered_for_the_take_over(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 20 * MINUTE)
+    assert panel_requests(fallback_rig) == []
+    app_says(fallback_rig, "offline")
+
+    fallback_after(fallback_rig, 5 * MINUTE)
+    assert in_charge(fallback_rig) is True
+    fallback_after(fallback_rig, 10 * MINUTE)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_someone_arriving_cancels_the_wait_and_leaving_starts_a_new_one(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 9 * MINUTE)
+    presence_becomes(fallback_rig, True)
+    fallback_after(fallback_rig, 30 * MINUTE)
+    assert panel_requests(fallback_rig) == [True]
+    presence_becomes(fallback_rig, False)
+
+    fallback_after(fallback_rig, 9 * MINUTE)
+    assert panel_requests(fallback_rig) == []
+    fallback_after(fallback_rig, 2 * MINUTE)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_a_disconnect_while_in_charge_keeps_it_in_charge_and_the_timer_going(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 5 * MINUTE)
+    fallback_after(fallback_rig, 5 * MINUTE)
+    fallback_rig.client.connection_drops()
+    assert in_charge(fallback_rig) is True
+
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert panel_requests(fallback_rig) == [False]
+    # The reconnect that follows still hears nothing from the app, so it is still in charge.
+    fallback_rig.client.broker_accepts()
+    assert in_charge(fallback_rig) is True
+
+
+def test_the_app_coming_back_hands_back_and_drops_what_was_pending(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 5 * MINUTE)
+    # The wait runs out, but the worker has not run yet when the app says it is back.
+    fallback_rig.clock.advance(10 * MINUTE)
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        app_says(fallback_rig, "online")
+        fallback_rig.agent.run_fallback_work()
+
+    assert in_charge(fallback_rig) is False
+    assert "The app is back; handing the screen back to it" in caplog.text
+    assert [r.levelno for r in caplog.records if "The app is back" in r.message] == [logging.INFO]
+    assert panel_requests(fallback_rig) == []
+    # Nothing more happens, however long the room stays empty or whoever comes.
+    fallback_after(fallback_rig, 60 * MINUTE)
+    presence_becomes(fallback_rig, True)
+    fallback_after(fallback_rig, 1)
+    assert panel_requests(fallback_rig) == []
+
+
+def test_it_does_not_say_it_is_back_when_it_never_said_it_took_over(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_rig.clock.advance(6 * MINUTE)
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        app_says(fallback_rig, "online")
+        fallback_rig.agent.run_fallback_work()
+
+    assert "looking after" not in caplog.text
+    assert "is back" not in caplog.text
+
+
+def test_it_can_take_over_again_after_handing_back(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+    app_says(fallback_rig, "online")
+    fallback_rig.agent.run_fallback_work()
+    app_says(fallback_rig, "offline")
+
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    assert in_charge(fallback_rig) is True
+
+
+def test_a_retained_screen_request_is_ignored_while_in_charge(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        fallback_rig.client.message_arrives(SCREEN_SET, "on", retain=True)
+
+    assert panel_requests(fallback_rig) == []
+    assert "Ignoring the retained pi/screen/set while the app is away" in caplog.text
+
+
+def test_a_retained_screen_request_that_arrives_after_the_timeout_is_ignored_even_before_a_tick(
+    fallback_rig: AgentRig,
+) -> None:
+    # The take-over fell due, but the worker has not run: the request is still the app's old word.
+    fallback_rig.client.broker_accepts()
+    fallback_rig.clock.advance(5 * MINUTE)
+
+    fallback_rig.client.message_arrives(SCREEN_SET, "off", retain=True)
+
+    assert panel_requests(fallback_rig) == []
+
+
+def test_a_retained_screen_request_is_applied_when_not_in_charge(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+    fallback_after(fallback_rig, 60 * MINUTE)
+
+    fallback_rig.client.message_arrives(SCREEN_SET, "off", retain=True)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_a_retained_screen_request_is_applied_before_the_timeout(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 4 * MINUTE)
+
+    fallback_rig.client.message_arrives(SCREEN_SET, "off", retain=True)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_a_retained_screen_request_is_applied_when_the_fallback_is_not_in_use(rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+    rig.clock.advance(60 * MINUTE)
+
+    rig.client.message_arrives(SCREEN_SET, "off", retain=True)
+
+    assert panel_requests(rig) == [False]
+
+
+def test_a_retained_screen_request_is_applied_again_once_the_app_is_back(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+    app_says(fallback_rig, "online")
+
+    fallback_rig.client.message_arrives(SCREEN_SET, "off", retain=True)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_the_hand_back_applies_the_request_that_was_ignored(fallback_rig: AgentRig) -> None:
+    # The Pi lost the broker, not the app: the app never reconnects, so it does not publish its request again.
+    fallback_rig.client.broker_accepts()
+    app_says(fallback_rig, "online")
+    fallback_rig.client.message_arrives(SCREEN_SET, "on", retain=True)
+    assert panel_requests(fallback_rig) == [True]
+    fallback_rig.client.connection_drops()
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 5 * MINUTE)
+    fallback_after(fallback_rig, 10 * MINUTE)
+    assert panel_requests(fallback_rig) == [False]
+
+    # The broker is back: its retained request is ignored while the agent is still in charge...
+    fallback_rig.client.broker_accepts()
+    fallback_rig.client.message_arrives(SCREEN_SET, "on", retain=True)
+    assert panel_requests(fallback_rig) == []
+    # ...and applied once the app's availability hands back.
+    app_says(fallback_rig, "online")
+    fallback_rig.agent.run_fallback_work()
+    assert panel_requests(fallback_rig) == [True]
+
+
+def test_the_app_availability_is_subscribed_to_before_the_screen_request(fallback_rig: AgentRig) -> None:
+    # So the broker's retained availability arrives first, and the agent knows whether the app is there by the time
+    # the retained request is judged.
+    fallback_rig.client.broker_accepts()
+    names = [topic for topic, _ in fallback_rig.client.subscriptions]
+
+    assert names.index(APP_AVAILABILITY) < names.index(SCREEN_SET)
+
+
+def test_a_connect_while_the_agent_is_starting_still_subscribes_to_the_app_availability(
+    fallback_config: Config, system: FakeSystemInfo, screen: FakeScreen
+) -> None:
+    # paho connects on its own thread, which may beat the rest of start().
+    class EagerClient(FakeMqttClient):
+        def loop_start(self) -> None:
+            super().loop_start()
+            self.broker_accepts()
+
+    client = EagerClient()
+    agent = Agent(
+        fallback_config,
+        Hardware(system=system, screen=screen, presence=FakePresence()),
+        client_factory=lambda client_id: client,
+        screen_worker=False,
+        button_worker=False,
+        presence_worker=False,
+        light_worker=False,
+        fallback_worker=False,
+    )
+    agent.start()
+
+    assert (APP_AVAILABILITY, 1) in client.subscriptions
+
+
+def test_a_live_screen_request_is_applied_while_in_charge(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    fallback_rig.client.message_arrives(SCREEN_SET, "off")
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_a_live_request_to_turn_the_panel_on_restarts_the_wait_for_an_empty_room(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 9 * MINUTE)
+    fallback_rig.client.message_arrives(SCREEN_SET, "on")
+    assert panel_requests(fallback_rig) == [True]
+
+    fallback_after(fallback_rig, 9 * MINUTE)
+    assert panel_requests(fallback_rig) == []
+    fallback_after(fallback_rig, 2 * MINUTE)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_a_live_request_to_turn_the_panel_off_does_not_restart_the_wait(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 9 * MINUTE)
+    fallback_rig.client.message_arrives(SCREEN_SET, "off")
+    assert panel_requests(fallback_rig) == [False]
+
+    fallback_after(fallback_rig, 2 * MINUTE)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_a_request_applied_before_it_took_over_does_not_move_the_wait(
+    fallback_rig: AgentRig,
+) -> None:
+    # Not in charge yet, so the policy is not told: the wait counts from the take-over, at minute 5.
+    fallback_rig.client.broker_accepts()
+    presence_becomes(fallback_rig, False)
+    fallback_after(fallback_rig, 4 * MINUTE)
+    fallback_rig.client.message_arrives(SCREEN_SET, "on", retain=True)
+    fallback_after(fallback_rig, MINUTE)
+
+    fallback_after(fallback_rig, 10 * MINUTE)
+
+    assert panel_requests(fallback_rig) == [False]
+
+
+def test_a_screen_request_of_the_wrong_kind_is_still_a_warning_while_in_charge(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_after(fallback_rig, 5 * MINUTE)
+
+    with caplog.at_level(logging.WARNING, logger=FALLBACK_LOGGER):
+        fallback_rig.client.message_arrives(SCREEN_SET, "toggle")
+
+    assert "expected" in caplog.text
+
+
+def test_the_fallback_work_does_nothing_without_the_fallback(rig: AgentRig) -> None:
+    rig.client.broker_accepts()
+    rig.clock.advance(60 * MINUTE)
+    rig.agent.run_fallback_work()
+
+    assert panel_requests(rig) == []
+    assert in_charge(rig) is False
+
+
+def test_the_fallback_work_does_nothing_after_stop(fallback_rig: AgentRig) -> None:
+    fallback_rig.client.broker_accepts()
+    fallback_rig.agent.stop()
+    fallback_rig.clock.advance(60 * MINUTE)
+    fallback_rig.agent.run_fallback_work()
+
+    assert in_charge(fallback_rig) is False
+    assert panel_requests(fallback_rig) == []
+
+
+def test_the_clock_can_be_given_to_the_work_and_not_only_read(
+    fallback_rig: AgentRig, caplog: pytest.LogCaptureFixture
+) -> None:
+    fallback_rig.client.broker_accepts()
+    start = fallback_rig.clock.now
+
+    with caplog.at_level(logging.WARNING, logger=FALLBACK_LOGGER):
+        fallback_rig.agent.run_fallback_work(now=start + 5 * MINUTE)
+
+    assert "looking after" in caplog.text
+
+
+# With the real worker thread. The logic is covered above without threads; these check the threading itself. They use
+# the real clock, so the times are short.
+
+
+class ThreadedFallback:
+    """An agent with its own fallback worker, and a screen that notes which thread switched it."""
+
+    def __init__(self, config: Config, timeout_minutes: int = 1, clock: Callable[[], float] = time.monotonic) -> None:
+        self.threads: list[str] = []
+        outer = self
+
+        class Screen(FakeScreen):
+            def set_power(self, on: bool) -> None:
+                outer.threads.append(threading.current_thread().name)
+                super().set_power(on)
+
+        self.client = FakeMqttClient()
+        self.screen = Screen(power=True)
+        self.sensor = FakePresence()
+        self.agent = Agent(
+            replace(
+                config,
+                sensors=SensorsConfig(presence=True),
+                presence=PresenceConfig(hold_ms=10),
+                fallback=FallbackConfig(timeout_minutes=timeout_minutes, off_after_minutes=1),
+            ),
+            Hardware(system=FakeSystemInfo(), screen=self.screen, presence=self.sensor),
+            client_factory=lambda _: self.client,
+            clock=clock,
+            presence_worker=True,
+        )
+        self.agent.start()
+
+
+def test_the_fallback_worker_thread_is_a_daemon_and_stop_ends_it(config: Config) -> None:
+    rig = ThreadedFallback(config)
+    thread = rig.agent._fallback_thread
+    assert thread is not None and thread.is_alive() and thread.daemon
+    assert thread.name == "wallcal-fallback"
+    rig.client.broker_accepts()
+
+    rig.agent.stop()
+
+    assert not thread.is_alive()
+
+
+def test_stop_does_not_wait_for_a_long_timeout(config: Config) -> None:
+    rig = ThreadedFallback(config, timeout_minutes=1440)
+    rig.client.broker_accepts()
+    time.sleep(0.05)
+    thread = rig.agent._fallback_thread
+    assert thread is not None
+
+    before = time.monotonic()
+    rig.agent.stop()
+
+    assert time.monotonic() - before < 1.5
+    assert not thread.is_alive()
+
+
+def test_the_worker_thread_takes_over_and_the_screen_worker_switches_the_panel(
+    config: Config, caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = ThreadedFallback(config)
+    # The settings are whole minutes, so the policy is swapped for one with times that suit a test, and the worker is
+    # woken to read its new deadline.
+    with rig.agent._fallback_cond:
+        rig.agent._fallback = FallbackPolicy(timeout=0.05, off_after=0.05, now=time.monotonic())
+        rig.agent._fallback_cond.notify_all()
+    try:
+        with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+            rig.client.broker_accepts()
+            rig.sensor.set(False)
+            assert wait_until(lambda: rig.screen.set_calls == [False])
+    finally:
+        rig.agent.stop()
+
+    # Never on the fallback's own thread.
+    assert rig.threads == ["wallcal-screen"]
+    assert "looking after the screen" in caplog.text
+    assert "nobody for 1 minutes, turning the panel off" in caplog.text

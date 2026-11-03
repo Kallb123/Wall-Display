@@ -124,9 +124,10 @@ class FakeMqttClient:
     def connection_drops(self) -> None:
         self.on_disconnect(self, None, None, NORMAL_DISCONNECT, None)
 
-    def message_arrives(self, topic: str, payload: str) -> None:
+    def message_arrives(self, topic: str, payload: str, retain: bool = False) -> None:
         message = MQTTMessage(topic=topic.encode())
         message.payload = payload.encode()
+        message.retain = retain
         self.on_message(self, None, message)
 
     def clear(self) -> None:
@@ -213,6 +214,7 @@ def make_agent(system: FakeSystemInfo, screen: FakeScreen) -> Callable[[Config],
             button_worker=False,
             presence_worker=False,
             light_worker=False,
+            fallback_worker=False,
         )
         return AgentRig(
             agent=agent,
@@ -274,5 +276,19 @@ def light_config(config: Config) -> Config:
 def light_rig(light_config: Config, make_agent: Callable[[Config], AgentRig]) -> AgentRig:
     """A started agent with a light sensor, not connected yet."""
     built = make_agent(light_config)
+    built.agent.start()
+    return built
+
+
+@pytest.fixture
+def fallback_config(presence_config: Config) -> Config:
+    """Presence on and the fallback at its defaults (in charge after 5 min, screen off after 10 min): in use."""
+    return presence_config
+
+
+@pytest.fixture
+def fallback_rig(fallback_config: Config, make_agent: Callable[[Config], AgentRig]) -> AgentRig:
+    """A started agent with the fallback in use, not connected yet."""
+    built = make_agent(fallback_config)
     built.agent.start()
     return built

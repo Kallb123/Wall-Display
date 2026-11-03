@@ -792,7 +792,7 @@ wall-display/
 |---|---|
 | HA down | The calendar still renders from ICS. Button, presence and the remote page still work via the app and MQTT, if the broker isn't the HA add-on. HA-source calendars show last-known data. |
 | MQTT broker down | The display and remote page still work over WebSocket. Button, sensors and HA control pause. The agent reconnects with backoff. |
-| Server down | The display shows last-known data with an "offline" badge. The agent notices through the app's `…/availability` (or a broker it can't reach). After `fallback.timeout_minutes` (5 by default) it takes over: with nobody there for `fallback.off_after_minutes` (10) it turns the screen off, and it turns it on again when someone comes. It ignores the app's retained `…/pi/screen/set` meanwhile, and hands back as soon as the app is up again. Needs the presence sensor. |
+| Server down | The display shows last-known data with an "offline" badge. The agent notices through the app's `…/availability` (or a broker it can't reach). After `fallback.timeout_minutes` (5 by default) it takes over: with nobody there for `fallback.off_after_minutes` (10) it turns the screen off, and it turns it on again when someone comes. It ignores the app's retained `…/pi/screen/set` meanwhile, and hands back as soon as the app is up again, applying the newest screen request it has heard. Needs the presence sensor. |
 | ICS feed fails | Keep the last good copy and expose "Last sync" in HA so an automation can alert. |
 | Photo provider down | Rotate through the existing cache. |
 | Special day art missing or fails to load | The tile tint, palette and greeting still show. Only the picture is left out. |

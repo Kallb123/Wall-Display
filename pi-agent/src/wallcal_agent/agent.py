@@ -31,6 +31,13 @@ reading is a measurement, not a state: a stale one replayed to a late subscriber
 retained and nothing is saved while the broker is away. Most readings are the same room again, so they are published
 only when the light has changed meaningfully, or every `light.report_seconds` at the least (see light.py). A connect
 starts that afresh, so the new connection hears the light at once.
+
+The offline fallback (fallback.py) is the fifth worker thread. The agent listens to the app's own availability, and
+when the app has been away for `fallback.timeout_minutes` it looks after the panel itself: off when nobody has been
+there for `fallback.off_after_minutes`, on again when someone comes. The policy only decides; the worker thread sleeps
+until its next deadline and hands the result to the screen worker, so the panel is only ever switched in one place.
+While the agent is in charge the app's retained screen request is ignored (it is the app's last word from before it went
+away, and the broker replays it on every connect); it hands back the moment the app says it is online again.
 """
 
 import logging
@@ -47,6 +54,7 @@ from paho.mqtt.reasoncodes import ReasonCode
 from . import __version__, discovery, topics
 from .button import GestureDetector
 from .config import Config
+from .fallback import HAND_BACK, SCREEN_OFF, SCREEN_ON, TAKE_OVER, FallbackPolicy
 from .hardware import ButtonError, Hardware, LightError, PresenceError, ScreenError
 from .light import LightReporter
 from .presence import PresenceFilter
@@ -63,6 +71,8 @@ PRESENCE_STOP_TIMEOUT = 2.0
 # How long a clean stop waits for the light worker. It may be in the middle of a reading, which takes up to about half a
 # second when the sensor changes range, and is otherwise waiting for the next one, which it is woken from at once.
 LIGHT_STOP_TIMEOUT = 2.0
+# The same for the fallback worker, which only ever waits for a deadline.
+FALLBACK_STOP_TIMEOUT = 2.0
 # How much of a bad payload is quoted in the log. It came from the network, so it isn't trusted to be short.
 MAX_LOGGED_PAYLOAD = 32
 
@@ -108,6 +118,7 @@ class Agent:
         button_worker: bool = True,
         presence_worker: bool = True,
         light_worker: bool = True,
+        fallback_worker: bool = True,
     ) -> None:
         self._config = config
         self._hardware = hardware
@@ -173,6 +184,21 @@ class Agent:
         # Only the worker touches it.
         self._light_failure: str | None = None
 
+        # The offline fallback. `_fallback_cond` guards the policy, the stop flag and whether the app is up, and wakes
+        # the worker when an input changes its deadline. Tests turn the worker off (`fallback_worker`), move their
+        # clock and call `run_fallback_work` themselves.
+        self._use_fallback_worker = fallback_worker
+        self._fallback_thread: threading.Thread | None = None
+        self._fallback_cond = threading.Condition()
+        self._fallback_stop = False
+        # Only set when the fallback is in use: it stays None when it is switched off or there is no presence sensor.
+        self._fallback: FallbackPolicy | None = None
+        # Whether the app is up: connected, and the last availability heard on this connection was "online".
+        self._app_up = False
+        # The newest valid pi/screen/set, applied again at the hand-back. An app that never went away (it was the
+        # Pi that lost the broker) does not publish it again, and the fallback may have switched the panel since.
+        self._latest_request: bool | None = None
+
     def _topic(self, name: str) -> str:
         return topics.topic_for(self._config.display_id, name)
 
@@ -201,6 +227,10 @@ class Agent:
             " (TLS)" if mqtt_config.tls else "",
         )
         logger.info("Panel power back end: %s", self._config.screen.backend)
+        # Before connecting: the fallback must be there for the first connect to subscribe to the app's availability,
+        # or the agent would take over from an app that is there all along. It needs to know whether presence opened.
+        self._start_presence()
+        self._start_fallback()
         client.connect_async(mqtt_config.host, mqtt_config.port, keepalive=KEEPALIVE_SECONDS)
         client.loop_start()
         self._client = client
@@ -208,7 +238,6 @@ class Agent:
             self._screen_thread = threading.Thread(target=self._screen_loop, name="wallcal-screen", daemon=True)
             self._screen_thread.start()
         self._start_button()
-        self._start_presence()
         self._start_light()
 
     def run(self, stop: threading.Event) -> None:
@@ -232,6 +261,7 @@ class Agent:
         self._stop_button()
         self._stop_presence()
         self._stop_light()
+        self._stop_fallback()
         self._stop_screen_worker()
         if self._connected.is_set():
             # A clean disconnect doesn't send the will, so the offline state is published by hand.
@@ -302,6 +332,12 @@ class Agent:
             self.publish_discovery()
             # Home Assistant says when it restarts, and then wants the configs again.
             client.subscribe(discovery.birth_topic(self._config.mqtt.discovery_prefix), qos=1)
+        if self._fallback is not None:
+            # Nothing has been heard on this connection yet, so the app is down until the retained message arrives.
+            # Before the screen request, so the app's availability is known by the time its retained request arrives.
+            self._feed_app(False)
+            for name in topics.WATCHED:
+                client.subscribe(self._topic(name), qos=1)
         # Retained, so the last request arrives straight away: an agent that starts late still obeys it.
         client.subscribe(self._topic(topics.SCREEN_SET), qos=1)
         self.publish_diagnostics()
@@ -313,6 +349,7 @@ class Agent:
     def _on_connect_fail(self, client: MqttClient, userdata: Any) -> None:
         """paho couldn't reach the broker at all (nothing listening, no route). It keeps retrying."""
         self._note_failure(f"Could not reach MQTT broker {self._config.mqtt.host}:{self._config.mqtt.port}")
+        self._feed_app(False)
 
     def _on_disconnect(
         self,
@@ -328,11 +365,15 @@ class Agent:
             if not self._stopped:
                 logger.info("Lost the MQTT connection (%s). Reconnecting in the background.", reason_code)
             self._failure_logged = True
+        # Without the broker there is no way to hear the app. Repeats are fine: down stays dated from the first.
+        self._feed_app(False)
 
     def _on_message(self, client: MqttClient, userdata: Any, message: MQTTMessage) -> None:
         text = message.payload.decode("utf-8", errors="replace")
         if message.topic == self._topic(topics.SCREEN_SET):
-            self._on_screen_request(message.topic, text)
+            self._on_screen_request(message.topic, text, message.retain)
+        elif message.topic in {self._topic(name) for name in topics.WATCHED}:
+            self._on_app_availability(message.topic, text)
         elif (
             message.topic == discovery.birth_topic(self._config.mqtt.discovery_prefix)
             and text == discovery.BIRTH_ONLINE
@@ -340,7 +381,15 @@ class Agent:
             logger.info("Home Assistant has started; publishing discovery again")
             self.publish_discovery()
 
-    def _on_screen_request(self, topic: str, text: str) -> None:
+    def _on_app_availability(self, topic: str, text: str) -> None:
+        """Runs on paho's thread. Only "online" means the app is up: anything else is down, and a bad one is logged."""
+        up = topics.parse_availability_payload(text)
+        if up is None and text != "":
+            shown = text if len(text) <= MAX_LOGGED_PAYLOAD else text[:MAX_LOGGED_PAYLOAD] + "..."
+            logger.warning('Ignoring %s: expected "online" or "offline", got %r', topic, shown)
+        self._feed_app(bool(up))
+
+    def _on_screen_request(self, topic: str, text: str, retained: bool = False) -> None:
         """Runs on paho's thread, so it only passes the request on."""
         if text == "":
             # Someone cleared the retained request. There is nothing to do, and nothing wrong.
@@ -350,8 +399,22 @@ class Agent:
             shown = text if len(text) <= MAX_LOGGED_PAYLOAD else text[:MAX_LOGGED_PAYLOAD] + "..."
             logger.warning('Ignoring %s: expected "on" or "off", got %r', topic, shown)
             return
+        with self._fallback_cond:
+            # Kept for the hand-back, ignored or not: it is the newest word on what the panel should be.
+            self._latest_request = wanted
+        if retained and self._fallback_in_charge():
+            # The app's last word from before it went away. The broker replays it on every reconnect, so obeying it
+            # would undo what the fallback has just done. It is applied at the hand-back instead.
+            logger.info("Ignoring the retained pi/screen/set while the app is away")
+            return
+        if wanted and not retained:
+            self._feed_screen_turned_on()
+        self._request_panel(wanted)
+
+    def _request_panel(self, on: bool) -> None:
+        """Notes what the panel should be, for the screen worker to apply. The newest request wins."""
         with self._screen_cond:
-            self._screen_wanted = wanted
+            self._screen_wanted = on
             self._screen_cond.notify_all()
 
     def _announce_on_connect(self) -> None:
@@ -630,6 +693,8 @@ class Agent:
             self._presence_state = changed
         logger.info("Presence: %s", "someone is there" if changed else "nobody")
         self._publish_presence()
+        # After the presence lock is let go: the agent never holds two of its locks at once.
+        self._feed_presence(changed, self._clock() if now is None else now)
 
     def _publish_presence(self) -> None:
         """Publishes the latest confirmed state, retained, if there is one and the broker is there.
@@ -791,6 +856,126 @@ class Agent:
         sensor = self._hardware.light
         if sensor is not None and self._light_reporter is not None:
             sensor.close()
+
+    def _start_fallback(self) -> None:
+        """Starts the fallback, if it is switched on and there is a presence sensor to go on, and says which it is."""
+        settings = self._config.fallback
+        if not settings.enabled:
+            logger.info("Offline fallback: off")
+            return
+        if self._presence_filter is None:
+            logger.info("Offline fallback: off (needs sensors.presence)")
+            return
+        # The app counts as down from now, so a Pi that boots while the server is away still takes over in time.
+        self._fallback = FallbackPolicy(
+            timeout=settings.timeout_minutes * 60, off_after=settings.off_after_minutes * 60, now=self._clock()
+        )
+        logger.info(
+            "Offline fallback: on (takes over after %d min without the app; screen off after %d min with nobody there)",
+            settings.timeout_minutes,
+            settings.off_after_minutes,
+        )
+        if self._use_fallback_worker:
+            self._fallback_thread = threading.Thread(target=self._fallback_loop, name="wallcal-fallback", daemon=True)
+            self._fallback_thread.start()
+
+    def _feed_app(self, up: bool) -> None:
+        """Tells the policy whether the app is up, and wakes the worker."""
+        with self._fallback_cond:
+            policy = self._fallback
+            if policy is None or self._fallback_stop:
+                return
+            self._app_up = up
+            policy.app(up, self._clock())
+            self._fallback_cond.notify_all()
+
+    def _feed_presence(self, present: bool, now: float) -> None:
+        with self._fallback_cond:
+            policy = self._fallback
+            if policy is None or self._fallback_stop:
+                return
+            policy.presence(present, now)
+            self._fallback_cond.notify_all()
+
+    def _feed_screen_turned_on(self) -> None:
+        """A live request to turn the panel on: if nobody is there, the wait for an empty room starts again."""
+        with self._fallback_cond:
+            policy = self._fallback
+            if policy is None or self._fallback_stop:
+                return
+            policy.screen_turned_on(self._clock())
+            self._fallback_cond.notify_all()
+
+    def _fallback_in_charge(self) -> bool:
+        """Whether the fallback is looking after the panel now. The policy only takes over when a call settles a
+        take-over that has fallen due, so it is told what it already knows first."""
+        with self._fallback_cond:
+            policy = self._fallback
+            if policy is None or self._fallback_stop:
+                return False
+            policy.app(self._app_up, self._clock())
+            return policy.in_charge
+
+    def run_fallback_work(self, now: float | None = None) -> None:
+        """Carries out what the fallback has decided by `now` (by default, the clock's time now), if anything.
+
+        The worker thread calls this when a deadline arrives or an input changes one. Without the worker
+        (`fallback_worker=False`) tests call it themselves, with the time they want. The panel is switched through
+        the screen worker, as a request over MQTT is, never from here.
+        """
+        settings = self._config.fallback
+        with self._fallback_cond:
+            policy = self._fallback
+            if policy is None or self._fallback_stop:
+                return
+            actions = policy.tick(self._clock() if now is None else now)
+            latest = self._latest_request
+        for action in actions:
+            if action == TAKE_OVER:
+                logger.warning(
+                    "The app has been away for %d minutes; the agent is looking after the screen until it is back",
+                    settings.timeout_minutes,
+                )
+            elif action == HAND_BACK:
+                logger.info("The app is back; handing the screen back to it")
+                if latest is not None:
+                    # What the app last asked for. If it has just connected it is publishing this again anyway.
+                    self._request_panel(latest)
+            elif action == SCREEN_ON:
+                logger.info("Offline fallback: someone is there, turning the panel on")
+                self._request_panel(True)
+            elif action == SCREEN_OFF:
+                logger.info(
+                    "Offline fallback: nobody for %d minutes, turning the panel off", settings.off_after_minutes
+                )
+                self._request_panel(False)
+
+    def _fallback_loop(self) -> None:
+        """The worker thread: sleeps until the policy's next deadline or a new input, and stops when asked."""
+        while True:
+            with self._fallback_cond:
+                while not self._fallback_stop:
+                    policy = self._fallback
+                    deadline = policy.next_deadline() if policy is not None else None
+                    if deadline is None:
+                        self._fallback_cond.wait()
+                        continue
+                    remaining = deadline - self._clock()
+                    if remaining <= 0:
+                        break
+                    self._fallback_cond.wait(remaining)
+                if self._fallback_stop:
+                    return
+            self.run_fallback_work()
+
+    def _stop_fallback(self) -> None:
+        """Stops the worker. Before the screen worker, so nothing asks for a panel change that will not be made."""
+        with self._fallback_cond:
+            self._fallback_stop = True
+            self._fallback_cond.notify_all()
+        thread = self._fallback_thread
+        if thread is not None:
+            thread.join(timeout=FALLBACK_STOP_TIMEOUT)
 
     def _note_failure(self, text: str) -> None:
         """Warns about the first failure of an outage, then stays quiet at debug level, as the app does."""

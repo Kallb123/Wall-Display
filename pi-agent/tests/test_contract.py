@@ -215,6 +215,15 @@ def test_the_agent_subscribes_to_its_topics_on_every_connect(rig: AgentRig) -> N
     assert all(subscription in rig.client.subscriptions for subscription in wanted)
 
 
+def test_the_agent_subscribes_to_each_watched_topic_on_connect_when_the_fallback_is_in_use(
+    fallback_rig: AgentRig,
+) -> None:
+    fallback_rig.client.broker_accepts()
+
+    for name in topics.WATCHED:
+        assert (f"wallcal/hallway/{name}", 1) in fallback_rig.client.subscriptions
+
+
 def test_every_valid_screen_request_in_the_contract_is_applied(contract: dict[str, Any], rig: AgentRig) -> None:
     topic = contract["topics"][topics.SCREEN_SET]
     assert topic["retained"] is True

@@ -242,9 +242,9 @@ The rules:
 2. While the agent is in charge, someone arriving turns the panel on. It acts when presence goes from nobody to someone. If someone is already there when it takes over, the screen is left as the app left it.
 3. While the agent is in charge, nobody there for `fallback.off_after_minutes` (10) turns the panel off, once. The wait counts from when presence went to nobody, or from when the agent took over, whichever is later, so a Pi that has been empty all along turns the screen off 10 minutes after it takes over, not 15. Someone arriving cancels the wait, and if they leave again a new one starts.
 4. If someone turns the screen on by hand while nobody is there (a live `pi/screen/set` of `on`, such as one sent with `mosquitto_pub`), the wait starts again from then, so it still goes off later.
-5. The moment the app is up again, the agent hands back and does nothing more. The app publishes the screen state again when it connects, so it takes over from there.
+5. The moment the app is up again, the agent hands back and does nothing more. It applies the newest `pi/screen/set` it has heard, ignored or not, so the panel goes back to what the app wants. That matters when it was the Pi that lost the broker and the app never went away: an app that has just started publishes the screen state again anyway.
 
-The app's retained `pi/screen/set` is ignored while the agent is in charge. It is only the app's last word from before it went away, and the broker replays it on every reconnect, so obeying it would undo what the fallback just did. A live request is still applied. When the agent is not in charge the screen works as in [Screen power](#screen-power), retained request included.
+The app's retained `pi/screen/set` is ignored while the agent is in charge. It is only the app's last word from before it went away, and the broker replays it on every reconnect, so obeying it would undo what the fallback just did. It is applied at the hand-back instead. A live request is still applied. When the agent is not in charge the screen works as in [Screen power](#screen-power), retained request included.
 
 With the `black` back end the agent's switch does nothing to the panel, so the fallback has no visible effect: the page that would have gone black is served by the app, which is down. Use `cec` or `output` to make it count.
 

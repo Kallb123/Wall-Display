@@ -122,6 +122,12 @@ async function openWall(initial: { state?: DisplayState, specialDays?: SpecialDa
       await vi.advanceTimersByTimeAsync(ms)
       await flushPromises()
     },
+    // Moves the clock on by `ms` at once, then lets the page tick once, so it sees the new time. Ticking every second of a quarter of an hour renders the month view 900 times, which is slow enough to time out on a busy CI runner. Only for tests that look at where the page is by then, not at what happens on the way.
+    jump: async (ms: number) => {
+      vi.setSystemTime(Date.now() + ms - 1000)
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+    },
   }
 }
 
@@ -560,7 +566,7 @@ describe('burn-in shifting', () => {
 
   it('does not move the offline badge for a view that has no pill', async () => {
     const wall = await openWall()
-    await wall.tick(15 * 60_000)
+    await wall.jump(15 * 60_000)
 
     expect(wall.wrapper.findComponent({ name: 'OfflineBadge' }).props('side')).toBe('right')
   })

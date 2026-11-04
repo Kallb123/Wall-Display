@@ -177,7 +177,8 @@ function gridCells(month: MonthKey, today: string, weekStart: MonthLayoutInput['
   })
 }
 
-function peopleOf(event: CalendarEvent): ItemPeople {
+/** Who `event` is for, as the wall draws it. Shared with the week view. */
+export function itemPeople(event: CalendarEvent): ItemPeople {
   return {
     people: event.people,
     colour: event.people[0]?.colour ?? null,
@@ -296,7 +297,7 @@ function layoutRow(cells: DayCell[], placed: Placed[], timeZone: string): WeekRo
         // Round only where the event itself starts or ends, not where it carries on or is cut.
         roundStart: cells[columns[0]!]!.date === span.first,
         roundEnd: cells[columns[columns.length - 1]!]!.date === span.last,
-        ...peopleOf(event),
+        ...itemPeople(event),
       }))
     })
   }).sort((a, b) => a.lane - b.lane || a.column - b.column || a.event.id - b.event.id)
@@ -308,7 +309,7 @@ function layoutRow(cells: DayCell[], placed: Placed[], timeZone: string): WeekRo
       lane: row.lane,
       column: row.column,
       time: formatTime(new Date(row.placed.span.start), timeZone),
-      ...peopleOf(row.placed.event),
+      ...itemPeople(row.placed.event),
     }))
     .sort((a, b) => a.column - b.column || a.lane - b.lane || a.event.id - b.event.id)
 
@@ -329,7 +330,7 @@ function panelDays(today: string, events: CalendarEvent[], timeZone: string): Pa
   return Array.from({ length: PANEL_DAYS }, (_, index): PanelDay => {
     const date = addDays(today, index)
     const found = entriesOn(events, date, timeZone)
-    const item = (entry: { event: CalendarEvent, time: string | null }): PanelItem => ({ event: entry.event, time: entry.time, ...peopleOf(entry.event) })
+    const item = (entry: { event: CalendarEvent, time: string | null }): PanelItem => ({ event: entry.event, time: entry.time, ...itemPeople(entry.event) })
     return {
       date,
       label: index === 0 ? 'Today' : index === 1 ? 'Tomorrow' : LONG_WEEKDAYS[dayOfWeek(date)]!,

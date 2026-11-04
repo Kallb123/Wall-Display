@@ -1,4 +1,4 @@
-import type { MonthKey, NextAlarm, NightText, View } from '../../shared/display'
+import type { MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -29,6 +29,10 @@ export interface ViewProps {
   timezone: string
   /** The month the month view shows: the one the server pinned in `state.month`, or else the current month. Not necessarily the month `now` is in. */
   month: MonthKey
+  /** A date in the week the week view shows, `YYYY-MM-DD`: today, or the previewed date while a preview runs. */
+  weekOf: string
+  /** The hours the week view draws in full (the display's `week_hours`); the rest are folded into a thin band at each end. */
+  weekHours: WeekHours
   /** The current conditions and the daily forecast, or null for none (no weather set up, or not heard yet). A view draws no weather at all then. */
   weather: WeatherSnapshot | null
   /** The day a week starts on, for the month grid. */

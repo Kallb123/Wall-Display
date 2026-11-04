@@ -14,7 +14,7 @@ import type { CalendarEvent } from '../../shared/types/events'
 const NOW = new Date('2026-10-28T22:30:00Z')
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'night', events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
+  view: 'night', events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
 })
 
 function event(changes: Partial<CalendarEvent> = {}): CalendarEvent {

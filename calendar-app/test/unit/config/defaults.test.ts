@@ -53,6 +53,7 @@ describe('defaults', () => {
       week_start: 'monday',
       burn_in: true,
       night_text: 'none',
+      week_hours: { from: 7, to: 21 },
     })
   })
 
@@ -150,6 +151,14 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.displays[0]).toMatchObject({ burn_in: false, night_text: 'first_event' })
+  })
+
+  it('keeps week_hours as set on a display', async () => {
+    const raw = minimalConfig()
+    raw.displays[0].week_hours = { from: 0, to: 24 }
+    const { config } = await load({ config: raw })
+
+    expect(config.displays[0]!.week_hours).toEqual({ from: 0, to: 24 })
   })
 
   it('keeps a year of events either side of this month unless told otherwise', async () => {

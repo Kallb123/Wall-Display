@@ -86,7 +86,7 @@ let eventsAnswer: CalendarEvent[]
 
 function server(url: string, options?: { query?: Record<string, string> }) {
   requests.push({ url, query: options?.query })
-  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', ...settingsExtra }]
+  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', week_hours: { from: 7, to: 21 }, ...settingsExtra }]
   if (url === '/api/events') return { events: eventsAnswer }
   if (url === '/api/special-days/preview') {
     const answer = previewAnswer(options?.query ?? {})
@@ -221,10 +221,11 @@ describe('a takeover today', () => {
     expect(wall.wrapper.find('[data-testid="takeover-full"]').exists()).toBe(true)
   })
 
-  it('changes the week view\'s palette and art, which is a stand-in for now', async () => {
+  it('changes the week view too, with the greeting beside the title', async () => {
     const wall = await openWall({ state: state({ view: 'week' }), specialDays: resolution() })
 
     expect(wall.stage().attributes('data-palette')).toBe('night')
+    expect(wall.wrapper.find('[data-testid="week-view"] [data-testid="greeting"]').text()).toBe('Happy Halloween')
     expect(wall.wrapper.find('[data-testid="takeover-full"]').exists()).toBe(true)
   })
 

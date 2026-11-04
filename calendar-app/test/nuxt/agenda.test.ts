@@ -22,7 +22,7 @@ const weather: WeatherSnapshot = {
 }
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'agenda', events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
+  view: 'agenda', events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
 })
 
 const line = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, day: 'day-today' | 'day-tomorrow') =>

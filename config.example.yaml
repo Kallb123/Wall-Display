@@ -88,6 +88,7 @@ displays:
     week_start: monday # monday | sunday
     burn_in: true # default true; slowly shift the content and move the photo frame's clock between corners, against burn-in
     night_text: first_event # none (default) | first_event | next_alarm; the line under the night view's clock. next_alarm needs the alarm block above
+    week_hours: { from: 7, to: 21 } # the hours the week view draws in full (whole hours, from 0-23 to 1-24); earlier and later hours are folded into a thin band
 
 # What the physical button does (the Pi agent's button: sensors.button in the
 # agent's config). Each gesture is one of:

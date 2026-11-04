@@ -30,7 +30,7 @@ const broken = asStorage({
   },
 })
 
-const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', photo_sources: [] }
+const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [] }
 const weather: WeatherSnapshot = {
   current: { condition: 'rainy', temperature: 12 },
   daily: [{ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 }],

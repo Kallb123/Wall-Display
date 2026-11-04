@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { currentMonth, displayStateSchema } from '../../shared/display'
+import { currentMonth, DEFAULT_WEEK_HOURS, displayStateSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
 import { specialDayArtUrl } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
@@ -11,7 +11,7 @@ import AgendaView from '~/components/views/AgendaView.vue'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import NightView from '~/components/views/NightView.vue'
 import PhotoView from '~/components/views/PhotoView.vue'
-import PlaceholderView from '~/components/views/PlaceholderView.vue'
+import WeekView from '~/components/views/WeekView.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
@@ -38,11 +38,11 @@ import type { ViewProps } from '~/utils/views'
 // a slow orbit, and the photo frame's pill is told which corner to be in.
 useHead({ title: 'Display' })
 
-// Each view. The placeholder stands in for the ones not built yet.
+// Each view.
 const viewComponents: Record<View, Component> = {
   // The Soft style. The Classic one arrives in PR 5.7 and will be chosen here by `month_style`.
   month: MonthSoftView,
-  week: PlaceholderView,
+  week: WeekView,
   agenda: AgendaView,
   photo: PhotoView,
   night: NightView,
@@ -121,6 +121,9 @@ const shownMonth = computed(() => {
   return previewed ?? state.value.month ?? currentMonth(now.value, timezone.value)
 })
 
+// The week view shows the week of today, or of the previewed date while a preview runs. Either is inside the month grid that is already fetched, so it needs no request of its own.
+const weekOf = computed(() => (previewing.value ? previewDays.value?.today : null) ?? today.value)
+
 /** The takeover in force, which sets the palette, the art behind the view and the greeting. */
 const takeover = computed(() => takeoverInForce({
   resolution: activeSpecialDays.value,
@@ -155,7 +158,8 @@ const shiftStyle = computed(() => ({
 const viewProps = computed<ViewProps | null>(() => {
   const display = settings.value
   const month = shownMonth.value
-  if (!display || !month) return null
+  const weekDate = weekOf.value
+  if (!display || !month || !weekDate) return null
   return {
     view: state.value.view,
     events: events.value,
@@ -163,6 +167,9 @@ const viewProps = computed<ViewProps | null>(() => {
     timezone: display.timezone,
     month,
     weekStart: display.week_start,
+    // Settings cached before week_hours existed lack it.
+    weekHours: display.week_hours ?? DEFAULT_WEEK_HOURS,
+    weekOf: weekDate,
     weather: weather.value,
     specialDays: activeSpecialDays.value ? { tiles: activeSpecialDays.value.tiles, takeover: takeover.value } : NO_SPECIAL_DAYS,
     displayId: displayId.value,

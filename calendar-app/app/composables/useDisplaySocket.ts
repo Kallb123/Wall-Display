@@ -1,5 +1,5 @@
-import { displayStateSchema, nextAlarmSchema } from '../../shared/display'
-import type { DisplayState, NextAlarm, SocketRole } from '../../shared/display'
+import { displaySettingsSchema, displayStateSchema, nextAlarmSchema } from '../../shared/display'
+import type { DisplaySettings, DisplayState, NextAlarm, SocketRole } from '../../shared/display'
 import { specialDaysResolutionSchema } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import { weatherSnapshotSchema } from '../../shared/weather'
@@ -24,7 +24,9 @@ export interface DisplaySocketOptions {
  * weather follows the state, and is `undefined` until it has been heard (a
  * null is the server saying there is none), and so do the special days (the
  * tiles and takeover to draw, architecture §6.5) and the next alarm (a null
- * being none, for the night view). `photoNext` counts the
+ * being none, for the night view). `settings` is this display's own settings
+ * (`settings.updated`, sent on connect and whenever the settings page changes
+ * them), `undefined` until heard. `photoNext` counts the
  * `photo.next` messages for this display (the server's cue to show another
  * photo; a rise is the signal, the number means nothing) and `opens` counts
  * the times the socket has opened, a reconnect being one more. Both only ever
@@ -39,6 +41,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
   const weather = ref<WeatherSnapshot | null | undefined>(undefined)
   const specialDays = ref<SpecialDaysResolution | null | undefined>(undefined)
   const alarm = ref<NextAlarm | undefined>(undefined)
+  const settings = ref<DisplaySettings | undefined>(undefined)
   const photoNext = ref(0)
   const opens = ref(0)
 
@@ -91,7 +94,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       return
     }
     if (typeof message !== 'object' || message === null) return
-    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays, alarm: nextAlarm } = message as Record<string, unknown>
+    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays, alarm: nextAlarm, settings: nextSettings } = message as Record<string, unknown>
 
     if (type === 'state.updated' && from === id) {
       const parsed = displayStateSchema.safeParse(next)
@@ -110,6 +113,10 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       // For every wall too. The schema also turns away a time that isn't an instant.
       const parsed = nextAlarmSchema.safeParse(nextAlarm)
       if (parsed.success) alarm.value = parsed.data
+    } else if (type === 'settings.updated' && from === id) {
+      // This display's own settings, as the settings page changes them. One that is the wrong shape, or names another display, is ignored.
+      const parsed = displaySettingsSchema.safeParse(nextSettings)
+      if (parsed.success && parsed.data.id === id) settings.value = parsed.data
     } else if (type === 'photo.next' && from === id) {
       photoNext.value++
     }
@@ -122,11 +129,12 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
     weather.value = undefined
     specialDays.value = undefined
     alarm.value = undefined
+    settings.value = undefined
     if (id) connect(id)
     else status.value = 'closed'
   }, { immediate: true })
 
   onScopeDispose(close)
 
-  return { status, state, weather, specialDays, alarm, photoNext, opens }
+  return { status, state, weather, specialDays, alarm, settings, photoNext, opens }
 }

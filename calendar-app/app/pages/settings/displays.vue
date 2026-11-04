@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Radio, WifiOff } from 'lucide-vue-next'
-import type { ConnectionsStatus, DiscoveryResult, DisplayStatus } from '../../../shared/settings'
+import type { ConnectionsStatus, DiscoveryResult, DisplayPreferences, DisplayPreferencesEntry, DisplayStatus, PreferencesStatus, PreferencesUpdate, SharedPreferences } from '../../../shared/settings'
 import { isOverlayShowing, overlayIcon } from '~/utils/overlay'
+import { preferenceFailure } from '~/utils/preferences'
 import { requestFailure } from '~/utils/remote'
 import {
   SERVER_UNREACHABLE,
@@ -18,8 +19,11 @@ import {
 
 // The Displays tab (architecture §7.6): what each display is showing and
 // whether it is connected, read live from the server every 5 seconds, and
-// "Republish discovery", the one write, which sends Home Assistant its
-// discovery messages again (for when it has been reset or restarted without them).
+// "Republish discovery", which sends Home Assistant its discovery messages
+// again (for when it has been reset or restarted without them). Since PR 5.6
+// each display card also has its Preferences, and an "Every display" card has
+// the shared ones. Those are read once (not polled, so a form being edited is
+// never pulled from under the person) and each Save answers with the new status.
 
 useHead({ title: 'Displays · Settings' })
 
@@ -59,6 +63,59 @@ async function republish() {
     }
   } finally {
     republishing.value = false
+  }
+}
+
+/** The preferences as the server has them, or null until they have been read. */
+const preferences = ref<PreferencesStatus | null>(null)
+const preferencesFailed = ref(false)
+
+async function loadPreferences() {
+  try {
+    preferences.value = await $fetch<PreferencesStatus>('/api/settings/preferences')
+    preferencesFailed.value = false
+  } catch {
+    preferencesFailed.value = true
+  }
+}
+
+onMounted(loadPreferences)
+
+const entryFor = (id: string): DisplayPreferencesEntry | undefined => preferences.value?.displays.find(entry => entry.id === id)
+
+// Each form is its own scope: `shared`, or `display:<id>`.
+const SHARED = 'shared'
+const displayScope = (id: string) => `display:${id}`
+const savingScopes = ref<Record<string, boolean>>({})
+/** What the server refused, key by key, until the next save of that form. `_` is a problem with the whole request. */
+const refusals = ref<Record<string, Record<string, string>>>({})
+const saveOutcomes = ref<Record<string, { tone: 'note' | 'error', text: string }>>({})
+const NO_ERRORS: Record<string, string> = {}
+
+/** Sends one form's update (a save or a reset) and takes the status the server answers with. */
+async function savePreferences(scope: string, update: PreferencesUpdate<DisplayPreferences> | PreferencesUpdate<SharedPreferences>) {
+  if (savingScopes.value[scope]) return
+  const url = scope === SHARED ? '/api/settings/preferences/shared' : `/api/settings/preferences/displays/${encodeURIComponent(scope.slice('display:'.length))}`
+  savingScopes.value[scope] = true
+  refusals.value = { ...refusals.value, [scope]: NO_ERRORS }
+  saveOutcomes.value = Object.fromEntries(Object.entries(saveOutcomes.value).filter(([key]) => key !== scope))
+  try {
+    // Refused for want of a PIN: the dialog is open, and this runs again once a PIN is accepted.
+    const done = await pin.guard(headers => $fetch<PreferencesStatus>(url, { method: 'PUT', body: update, headers }), () => savePreferences(scope, update))
+    if (done) {
+      preferences.value = done.value
+      saveOutcomes.value[scope] = { tone: 'note', text: 'Saved. The wall picks it up straight away.' }
+    }
+  } catch (caught) {
+    const { status, message, fields } = preferenceFailure(caught)
+    if (status === 400) {
+      refusals.value[scope] = Object.keys(fields).length ? fields : { _: message ?? 'The server refused those values' }
+      saveOutcomes.value[scope] = { tone: 'error', text: message ?? 'The server refused those values' }
+    } else {
+      saveOutcomes.value[scope] = { tone: 'error', text: status === null ? SERVER_UNREACHABLE : 'The server couldn\'t save those' }
+    }
+  } finally {
+    savingScopes.value[scope] = false
   }
 }
 
@@ -187,6 +244,22 @@ function overlayOf(display: DisplayStatus) {
         </section>
       </div>
 
+      <section v-if="entryFor(display.id)" class="panel" aria-label="Preferences" data-testid="display-preferences">
+        <h3 class="subhead">
+          Preferences
+        </h3>
+        <SettingsDisplayPreferencesForm
+          :entry="entryFor(display.id)!"
+          :alarm-configured="preferences!.alarm_configured"
+          :saving="savingScopes[displayScope(display.id)] ?? false"
+          :errors="refusals[displayScope(display.id)] ?? NO_ERRORS"
+          @submit="savePreferences(displayScope(display.id), $event)"
+        />
+        <SettingsNotice v-if="saveOutcomes[displayScope(display.id)]" class="outcome" :tone="saveOutcomes[displayScope(display.id)]!.tone" data-testid="preferences-outcome">
+          {{ saveOutcomes[displayScope(display.id)]!.text }}
+        </SettingsNotice>
+      </section>
+
       <div v-if="overlayOf(display)" class="message" data-testid="display-overlay">
         <span class="message-icon">
           <AppIcon :icon="overlayIcon(overlayOf(display)!.icon)" :size="24" />
@@ -197,6 +270,34 @@ function overlayOf(display: DisplayStatus) {
         </p>
       </div>
     </SettingsCard>
+
+    <SettingsCard v-if="preferences && preferences.displays.length > 0" data-testid="shared-card">
+      <header class="head">
+        <div class="titles">
+          <h2 class="name">
+            Every display
+          </h2>
+          <p class="meta">
+            Preferences all the displays share
+          </p>
+        </div>
+      </header>
+      <SettingsSharedPreferencesForm
+        :entry="preferences.shared"
+        :photos-configured="preferences.photos_configured"
+        :mqtt-configured="preferences.mqtt_configured"
+        :saving="savingScopes[SHARED] ?? false"
+        :errors="refusals[SHARED] ?? NO_ERRORS"
+        @submit="savePreferences(SHARED, $event)"
+      />
+      <SettingsNotice v-if="saveOutcomes[SHARED]" :tone="saveOutcomes[SHARED]!.tone" data-testid="preferences-outcome">
+        {{ saveOutcomes[SHARED]!.text }}
+      </SettingsNotice>
+    </SettingsCard>
+
+    <SettingsNotice v-if="preferencesFailed && !preferences" tone="error" data-testid="preferences-failed">
+      The preferences couldn't be read from the server.
+    </SettingsNotice>
 
     <SettingsPinDialog
       v-if="pin.pinNeeded.value"

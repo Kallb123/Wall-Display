@@ -573,6 +573,49 @@ describe('burn-in shifting', () => {
   })
 })
 
+describe('settings changed on the settings page', () => {
+  const update = (changes: Record<string, unknown>) => ({
+    type: 'settings.updated',
+    display_id: 'hallway',
+    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [], ...changes },
+  })
+
+  it('re-themes the wall at once', async () => {
+    const wall = await openWall()
+    expect(wall.stage().attributes('data-theme')).toBe('light')
+    const socket = FakeSocket.all.at(-1)!
+
+    socket.push(update({ theme: 'dark' }))
+    await flushPromises()
+
+    expect(wall.stage().attributes('data-theme')).toBe('dark')
+  })
+
+  it('shows the night text it is now asked for', async () => {
+    eventsAnswer = [swimming]
+    const wall = await openWall({ state: state({ view: 'night' }) })
+    expect(wall.wrapper.find('[data-testid="night-text"]').exists()).toBe(false)
+
+    FakeSocket.all.at(-1)!.push(update({ night_text: 'first_event' }))
+    await flushPromises()
+
+    expect(wall.wrapper.find('[data-testid="night-text"]').text()).toBe('Tomorrow 08:30 \u00B7 Swimming')
+  })
+
+  it('ignores a bad one, and keeps the cache in step with a good one', async () => {
+    const wall = await openWall()
+    const socket = FakeSocket.all.at(-1)!
+
+    socket.push(update({ theme: 'purple' }))
+    await flushPromises()
+    expect(wall.stage().attributes('data-theme')).toBe('light')
+
+    socket.push(update({ theme: 'dark' }))
+    await flushPromises()
+    expect(JSON.parse(localStorage.getItem('wallcal:display:hallway')!).settings.theme).toBe('dark')
+  })
+})
+
 describe('the night view', () => {
   it('is the night view, not a placeholder, and shows the clock', async () => {
     const wall = await openWall({ state: state({ view: 'night' }) })

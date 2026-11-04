@@ -3,9 +3,6 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import ClockWidget from '~/components/ClockWidget.vue'
 import OfflineBadge from '~/components/OfflineBadge.vue'
 import OverlayBanner from '~/components/OverlayBanner.vue'
-import PlaceholderView from '~/components/views/PlaceholderView.vue'
-import { NO_SPECIAL_DAYS } from '~/utils/views'
-import type { CalendarEvent } from '../../shared/types/events'
 
 // Light component tests. The page itself (sockets, caching, scaling) is covered
 // by the Playwright tests in test/visual, which can play the server.
@@ -131,39 +128,5 @@ describe('OverlayBanner', () => {
     await wrapper.setProps({ overlay: { text: 'Hello', icon: 'no-such-icon', until: null } })
 
     expect(banner(wrapper).find('svg').classes()).toContain('lucide-message-circle-icon')
-  })
-})
-
-describe('PlaceholderView', () => {
-  const now = new Date('2026-10-28T09:41:00Z')
-  const person = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
-  const event = (id: number, overrides: Partial<CalendarEvent>): CalendarEvent => ({
-    id, calendar_id: 'family', title: `Event ${id}`, display_title: `Event ${id}`, location: null,
-    start: '2026-10-28T14:00:00Z', end: '2026-10-28T15:00:00Z', all_day: false, start_date: null, end_date: null, people: [person],
-    ...overrides,
-  })
-
-  it('names the view and lists what is still to come', async () => {
-    const events = [
-      event(1, { start: '2026-10-28T07:00:00Z', end: '2026-10-28T08:00:00Z', display_title: 'Already over' }),
-      event(2, { all_day: true, start_date: '2026-10-28', end_date: '2026-10-29', display_title: 'All day thing' }),
-      event(3, { display_title: 'School run' }),
-    ]
-    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'agenda', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS } })
-
-    expect(wrapper.find('h1').text()).toBe('Agenda')
-    const rows = wrapper.findAll('[data-testid="event"]').map(row => row.text())
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toContain('All day')
-    expect(rows[0]).toContain('All day thing')
-    expect(rows[1]).toContain('14:00')
-    expect(rows[1]).toContain('School run')
-  })
-
-  it('shows at most eight events', async () => {
-    const events = Array.from({ length: 12 }, (_, i) => event(i + 1, {}))
-    const wrapper = await mountSuspended(PlaceholderView, { props: { view: 'month', events, now, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS } })
-
-    expect(wrapper.findAll('[data-testid="event"]')).toHaveLength(8)
   })
 })

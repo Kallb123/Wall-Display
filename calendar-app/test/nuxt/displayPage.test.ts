@@ -221,10 +221,11 @@ describe('a takeover today', () => {
     expect(wall.wrapper.find('[data-testid="takeover-full"]').exists()).toBe(true)
   })
 
-  it('changes the week view\'s palette and art, which is a stand-in for now', async () => {
+  it('changes the week view too, with the greeting beside the title', async () => {
     const wall = await openWall({ state: state({ view: 'week' }), specialDays: resolution() })
 
     expect(wall.stage().attributes('data-palette')).toBe('night')
+    expect(wall.wrapper.find('[data-testid="week-view"] [data-testid="greeting"]').text()).toBe('Happy Halloween')
     expect(wall.wrapper.find('[data-testid="takeover-full"]').exists()).toBe(true)
   })
 

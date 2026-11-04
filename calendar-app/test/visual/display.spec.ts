@@ -2,9 +2,8 @@ import { expect, test } from '@playwright/test'
 import { NOW, playServer, settle } from './helpers'
 
 // The shell around the views: themes, the socket, dimming, offline, scaling. The
-// month view's own look is in month.spec.ts, and the agenda's in agenda.spec.ts.
-// The week view is still the placeholder, which is what these use when they
-// need a view that isn't any of those.
+// month view's own look is in month.spec.ts, the agenda's in agenda.spec.ts and
+// the week's in week.spec.ts.
 
 test.describe('the theme follows the display', () => {
   for (const [id, theme] of [['hallway', 'light'], ['kitchen', 'dark']]) {
@@ -31,7 +30,7 @@ test('the view follows the server', async ({ page }) => {
 
   server.send({ view: 'week' })
 
-  await expect(page.locator('h1')).toHaveText('Week')
+  await expect(page.getByTestId('week-view')).toBeVisible()
   await expect(page.getByTestId('agenda-view')).toHaveCount(0)
 })
 

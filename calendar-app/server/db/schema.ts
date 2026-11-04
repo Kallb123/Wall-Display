@@ -210,6 +210,18 @@ export const specialDays = sqliteTable('special_days', {
   index('special_days_scene_id_idx').on(table.sceneId),
 ])
 
+/**
+ * Preferences saved on the settings page (PR 5.6), on top of config.yaml. One
+ * row per scope: `display:<id>` for a display's own, `shared` for the ones every
+ * display shares. `values` holds only the overridden keys, as JSON. A row for a
+ * display no longer in the config is left alone and ignored.
+ */
+export const preferenceOverrides = sqliteTable('preference_overrides', {
+  scope: text('scope').primaryKey(),
+  values: text('values', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date()),
+})
+
 export type CalendarRow = typeof calendars.$inferSelect
 export type NewCalendarRow = typeof calendars.$inferInsert
 export type EventRow = typeof events.$inferSelect
@@ -226,3 +238,5 @@ export type SpecialDaySceneRow = typeof specialDayScenes.$inferSelect
 export type NewSpecialDaySceneRow = typeof specialDayScenes.$inferInsert
 export type SpecialDayRow = typeof specialDays.$inferSelect
 export type NewSpecialDayRow = typeof specialDays.$inferInsert
+export type PreferenceOverrideRow = typeof preferenceOverrides.$inferSelect
+export type NewPreferenceOverrideRow = typeof preferenceOverrides.$inferInsert

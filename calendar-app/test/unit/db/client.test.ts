@@ -47,7 +47,7 @@ describe('runMigrations', () => {
       .prepare(`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '\\_\\_%' escape '\\' order by name`)
       .all()
       .map(row => (row as { name: string }).name)
-    expect(tables).toEqual(['calendars', 'display_state', 'events', 'photo_assets', 'photo_playlists', 'special_day_scenes', 'special_days', 'sync_status'])
+    expect(tables).toEqual(['calendars', 'display_state', 'events', 'photo_assets', 'photo_playlists', 'preference_overrides', 'special_day_scenes', 'special_days', 'sync_status'])
     expect(result.applied).toBe(result.total)
     expect(result.applied).toBeGreaterThan(0)
   })
@@ -110,6 +110,26 @@ describe('runMigrations', () => {
       { ...yearly, scene_id: null, who: null, since_year: null, extra_art: null },
       { ...once, scene_id: null, who: null, since_year: null, extra_art: null },
     ])
+  })
+
+  it('adds the preference overrides table on top of a database from before 0005, keeping what it holds', async () => {
+    const before = join(await tempDir(), 'migrations')
+    cpSync(MIGRATIONS_DIR, before, { recursive: true })
+    const journalFile = join(before, 'meta', '_journal.json')
+    const journal = JSON.parse(readFileSync(journalFile, 'utf8')) as { entries: { tag: string }[] }
+    journal.entries = journal.entries.filter(entry => entry.tag < '0005')
+    writeFileSync(journalFile, JSON.stringify(journal))
+
+    const handle = track(openDatabase(':memory:'))
+    runMigrations(handle, before)
+    handle.sqlite.prepare(`insert into display_state (display_id, state, updated_at) values ('hallway', '{"view":"week"}', 0)`).run()
+    expect(handle.sqlite.prepare(`select name from sqlite_master where name = 'preference_overrides'`).all()).toEqual([])
+
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(1)
+
+    expect(handle.sqlite.prepare('select display_id, state from display_state').all()).toEqual([{ display_id: 'hallway', state: '{"view":"week"}' }])
+    handle.sqlite.prepare(`insert into preference_overrides (scope, "values", updated_at) values ('shared', '{"min_step":10}', 0)`).run()
+    expect(handle.sqlite.prepare('select scope, "values" from preference_overrides').all()).toEqual([{ scope: 'shared', values: '{"min_step":10}' }])
   })
 
   it('checks scenes and the new special day rules once 0003 is applied', () => {

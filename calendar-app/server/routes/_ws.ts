@@ -1,13 +1,14 @@
 import type { ServerMessage } from '../../shared/display'
+import { displaySettings, photoSourcesOf } from '../settings/displaySettings'
 import { parseSocketQuery } from '../ws/query'
 import { getSocketHub } from '../ws/hub'
 
 // The WebSocket at `/_ws?display=<id>&role=display|remote`. A new connection
 // gets the display's whole state, the weather, the special days and the next
-// alarm (each null when there is none yet), then every `state.updated`,
-// `events.updated`, `weather.updated`, `special_days.updated` and
-// `alarm.updated` (the control, weather, special days and alarm plugins
-// connect the event bus to the hub).
+// alarm (each null when there is none yet) and the display's settings, then
+// every `state.updated`, `events.updated`, `weather.updated`,
+// `special_days.updated`, `alarm.updated` and `settings.updated` (the control,
+// weather, special days, alarm and settings plugins connect the event bus to the hub).
 // The display shows the state and the remote shows what the display is
 // showing, so both only listen.
 export default defineWebSocketHandler({
@@ -33,6 +34,12 @@ export default defineWebSocketHandler({
     peer.send(JSON.stringify(specialDays))
     const alarm: ServerMessage = { type: 'alarm.updated', alarm: useAlarm()?.get() ?? null }
     peer.send(JSON.stringify(alarm))
+    const settings: ServerMessage = {
+      type: 'settings.updated',
+      display_id: query.displayId,
+      settings: displaySettings(useSettings().config(), query.displayId, photoSourcesOf(usePhotos()?.configured() ?? [])),
+    }
+    peer.send(JSON.stringify(settings))
   },
 
   // Commands go through POST /api/displays/:id/commands, not the socket, so anything the client sends is ignored.

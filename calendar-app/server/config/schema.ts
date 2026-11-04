@@ -149,17 +149,18 @@ const schedule = z.strictObject({
   rules: z.array(scheduleRule).min(1, 'must have at least one rule'),
 }).transform(value => ({ ...value, name: value.name ?? value.id }))
 
-const display = z.strictObject({
-  id: slug,
-  name: text,
-  theme: z.enum(['light', 'dark']).default('light'),
-  month_style: z.enum(['soft', 'classic']).default('soft'),
-  month_return_minutes: z.number().int().min(1).max(1440).default(15),
-  week_start: z.enum(['monday', 'sunday']).default('monday'),
+// The fields of a display that can also be changed on the settings page (PR 5.6),
+// without their defaults. The page checks a saved change with these same
+// schemas, so the ranges and messages are the config's.
+export const displayFields = {
+  theme: z.enum(['light', 'dark']),
+  month_style: z.enum(['soft', 'classic']),
+  month_return_minutes: z.number().int().min(1).max(1440),
+  week_start: z.enum(['monday', 'sunday']),
   /** Shift the content in a slow orbit and move the photo frame's pill between corners, against burn-in (PR 5.3). */
-  burn_in: z.boolean().default(true),
+  burn_in: z.boolean(),
   /** What the night view shows under its clock (PR 5.2). `next_alarm` needs the top-level `alarm` block. */
-  night_text: z.enum(NIGHT_TEXTS).default('none'),
+  night_text: z.enum(NIGHT_TEXTS),
   /**
    * The hours the week view draws in full, `from` to `to` (PR 5.1). The hours
    * before `from` and from `to` on are folded into a thin band at the top and
@@ -169,7 +170,19 @@ const display = z.strictObject({
   week_hours: z.strictObject({
     from: z.number().int('must be a whole number').min(0, 'must be from 0 to 23').max(23, 'must be from 0 to 23'),
     to: z.number().int('must be a whole number').min(1, 'must be from 1 to 24').max(24, 'must be from 1 to 24'),
-  }).refine(hours => hours.from < hours.to, { message: 'week_hours.from must be before week_hours.to' }).default({ from: 7, to: 21 }),
+  }).refine(hours => hours.from < hours.to, { message: 'week_hours.from must be before week_hours.to' }),
+}
+
+const display = z.strictObject({
+  id: slug,
+  name: text,
+  theme: displayFields.theme.default('light'),
+  month_style: displayFields.month_style.default('soft'),
+  month_return_minutes: displayFields.month_return_minutes.default(15),
+  week_start: displayFields.week_start.default('monday'),
+  burn_in: displayFields.burn_in.default(true),
+  night_text: displayFields.night_text.default('none'),
+  week_hours: displayFields.week_hours.default({ from: 7, to: 21 }),
   /** Built-in schedules (PR 5.4): rules that change the view at set times. Each can be turned off from Home Assistant. */
   schedules: z.array(schedule).default([]),
 })
@@ -201,14 +214,29 @@ export const DEFAULT_BUTTON = button.parse({})
 
 const curveBrightness = z.number().int('must be a whole number').min(0, 'must be from 0 to 100').max(100, 'must be from 0 to 100')
 
+// The policy and photo fields that can also be changed on the settings page (PR 5.6), without their defaults.
+export const sharedFields = {
+  photo_interval_seconds: z.number().int().min(5),
+  off_after_minutes: z.number().int().min(1),
+  // A window from a time to the same time is either all day or never, and the two readings are opposite, so say which is meant by leaving the block out.
+  quiet_hours: z.strictObject({ from: time, to: time }).refine(value => value.from !== value.to, {
+    message: 'from and to must differ (leave quiet_hours out for no quiet hours)',
+    path: ['to'],
+  }),
+  // The brightness only moves once the curve says it should by this much, so a reading that hovers on a step doesn't make it flicker. Reaching either end of the curve is always allowed.
+  min_step: z.number().int().min(1).max(50),
+  // The time constant of the smoothing: how quickly the lux reading is followed. 0 follows each reading at once.
+  smoothing_seconds: z.number().min(0).max(600),
+  night_below_lux: z.number().positive(),
+  // Light again from here up. Left out, twice night_below_lux, so a room hovering around the threshold doesn't flip in and out of the night action.
+  night_above_lux: z.number().positive(),
+  night_action: z.enum(['none', 'night_view', 'screen_off']),
+}
+
 const policies = z.strictObject({
   auto_presence: z.strictObject({
-    off_after_minutes: z.number().int().min(1).default(10),
-    // A window from a time to the same time is either all day or never, and the two readings are opposite, so say which is meant by leaving the block out.
-    quiet_hours: z.strictObject({ from: time, to: time }).refine(value => value.from !== value.to, {
-      message: 'from and to must differ (leave quiet_hours out for no quiet hours)',
-      path: ['to'],
-    }).optional(),
+    off_after_minutes: sharedFields.off_after_minutes.default(10),
+    quiet_hours: sharedFields.quiet_hours.optional(),
   }).prefault({}),
   auto_brightness: z.strictObject({
     // Lux to brightness. It is read on a log scale between the points and flat beyond the ends, so two points are the least that make a curve.
@@ -218,14 +246,11 @@ const policies = z.strictObject({
         message: 'lux must go up from each point to the next',
       })
       .default([{ lux: 0, brightness: 30 }, { lux: 20, brightness: 60 }, { lux: 200, brightness: 100 }]),
-    // The brightness only moves once the curve says it should by this much, so a reading that hovers on a step doesn't make it flicker. Reaching either end of the curve is always allowed.
-    min_step: z.number().int().min(1).max(50).default(5),
-    // The time constant of the smoothing: how quickly the lux reading is followed. 0 follows each reading at once.
-    smoothing_seconds: z.number().min(0).max(600).default(30),
-    night_below_lux: z.number().positive().optional(),
-    // Light again from here up. Left out, twice night_below_lux, so a room hovering around the threshold doesn't flip in and out of the night action.
-    night_above_lux: z.number().positive().optional(),
-    night_action: z.enum(['none', 'night_view', 'screen_off']).default('none'),
+    min_step: sharedFields.min_step.default(5),
+    smoothing_seconds: sharedFields.smoothing_seconds.default(30),
+    night_below_lux: sharedFields.night_below_lux.optional(),
+    night_above_lux: sharedFields.night_above_lux.optional(),
+    night_action: sharedFields.night_action.default('none'),
   }).superRefine((value, ctx) => {
     if (value.night_action !== 'none' && value.night_below_lux === undefined) {
       ctx.addIssue({ code: 'custom', message: `is needed when night_action is ${value.night_action} (the room counts as dark below it)`, path: ['night_below_lux'] })
@@ -338,7 +363,7 @@ const immich = z.strictObject({
 // like a `file:` URL for an ICS source. A folder that doesn't exist is not a
 // config error (a mount may come up later); the photo service logs it.
 const photos = (baseDir: string) => z.strictObject({
-  interval_seconds: z.number().int().min(5).default(60),
+  interval_seconds: sharedFields.photo_interval_seconds.default(60),
   landscape_only: z.boolean().default(false),
   cache_max_mb: z.number().int().min(1).default(2048),
   immich: immich.optional(),

@@ -224,6 +224,11 @@ watch(socket.specialDays, (next) => {
   if (next !== undefined) specialDays.value = next
 })
 
+// The server sends this display's settings on every connect and again when the settings page changes them, so the theme, week start, week hours, burn-in and night text follow at once. The cache saves them with the rest (below).
+watch(socket.settings, (next) => {
+  if (next !== undefined) settings.value = next
+})
+
 // Tomorrow's art is loaded in the evening so the switch at midnight is instant. Not during a preview, which has no tomorrow.
 const evening = computed(() => timezone.value !== null && isEvening(now.value, timezone.value))
 useArtPreload(() => previewing.value ? [] : specialDays.value?.tomorrow_art ?? [], evening)

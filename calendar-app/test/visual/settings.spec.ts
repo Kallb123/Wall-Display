@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { displayStateSchema } from '../../shared/display'
-import type { CalendarStatus, ConnectionsStatus, DisplayStatus, PhotosSettingsStatus } from '../../shared/settings'
+import type { CalendarStatus, ConnectionsStatus, DisplayPreferences, DisplayStatus, PhotosSettingsStatus, PreferencesStatus, SharedPreferences } from '../../shared/settings'
 import { NOW, fontsReady } from './helpers'
 
 // The settings pages (architecture §7.6) at a laptop's size, in both of the
@@ -117,6 +117,49 @@ const photos: PhotosSettingsStatus = {
   ],
 }
 
+const hallwayPreferences: DisplayPreferences = {
+  theme: 'light',
+  month_style: 'soft',
+  week_start: 'monday',
+  month_return_minutes: 5,
+  week_hours: { from: 7, to: 21 },
+  burn_in: true,
+  night_text: 'none',
+}
+
+const sharedPreferences: SharedPreferences = {
+  photo_interval_seconds: 60,
+  off_after_minutes: 10,
+  quiet_hours: null,
+  night_action: 'none',
+  night_below_lux: null,
+  night_above_lux: null,
+  min_step: 5,
+  smoothing_seconds: 30,
+}
+
+// The kitchen has a few saved changes, so the Changed marks and Reset are in the shot.
+const preferences: PreferencesStatus = {
+  displays: [
+    { id: 'hallway', name: 'Hallway', values: hallwayPreferences, config: hallwayPreferences, changed: [] },
+    {
+      id: 'kitchen',
+      name: 'Kitchen',
+      values: { ...hallwayPreferences, theme: 'dark', month_style: 'classic', week_start: 'sunday', night_text: 'first_event' },
+      config: { ...hallwayPreferences, month_style: 'classic' },
+      changed: ['theme', 'week_start', 'night_text'],
+    },
+  ],
+  shared: {
+    values: { ...sharedPreferences, night_action: 'night_view', night_below_lux: 5, quiet_hours: { from: '22:00', to: '07:00' } },
+    config: sharedPreferences,
+    changed: ['quiet_hours', 'night_action', 'night_below_lux'],
+  },
+  photos_configured: true,
+  alarm_configured: true,
+  mqtt_configured: true,
+}
+
 /** Plays the settings API, with the clock frozen before the page loads. */
 async function playSettings(page: Page, status: ConnectionsStatus = connections, pinRequired = false, photosStatus: PhotosSettingsStatus = photos) {
   await page.clock.setFixedTime(NOW)
@@ -124,6 +167,7 @@ async function playSettings(page: Page, status: ConnectionsStatus = connections,
   await page.route('**/api/settings/displays', route => route.fulfill({ json: displays }))
   await page.route('**/api/settings/connections', route => route.fulfill({ json: status }))
   await page.route('**/api/settings/photos', route => route.fulfill({ json: photosStatus }))
+  await page.route('**/api/settings/preferences', route => route.fulfill({ json: preferences }))
   await page.route('**/api/remote', route => route.fulfill({ json: { pin_required: pinRequired } }))
 }
 
@@ -141,6 +185,7 @@ async function openDisplays(page: Page) {
   await playSettings(page, { ...connections, homeassistant: { configured: true, state: 'ok', error: null, checked_at: minutesAgo(1) } })
   await page.goto('/settings/displays')
   await expect(page.getByTestId('display-card')).toHaveCount(2)
+  await expect(page.getByTestId('shared-card')).toBeVisible()
   await expect(page.getByTestId('chip-homeassistant')).toContainText('Connected')
   await fontsReady(page)
 }

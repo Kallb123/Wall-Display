@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { effectScope } from 'vue'
+import { effectScope, nextTick, ref } from 'vue'
 import { useDisplaySocket } from '~/composables/useDisplaySocket'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -252,6 +252,74 @@ describe('useDisplaySocket photo.next and opens', () => {
 
     fake.onopen?.()
     expect(socket.opens.value).toBe(2)
+    scope.stop()
+  })
+})
+
+describe('useDisplaySocket settings', () => {
+  const settings = {
+    id: 'hallway',
+    name: 'Hallway',
+    theme: 'dark',
+    month_style: 'soft',
+    week_start: 'sunday',
+    timezone: 'Europe/London',
+    burn_in: false,
+    night_text: 'first_event',
+    week_hours: { from: 6, to: 22 },
+    photo_sources: ['local'],
+  }
+
+  beforeEach(() => {
+    FakeSocket.all = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('has not heard any until the server sends them', () => {
+    const { socket, scope } = open()
+
+    expect(socket.settings.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it('keeps the settings sent for its own display, and the newest after a change', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'settings.updated', display_id: 'hallway', settings })
+    expect(socket.settings.value).toEqual(settings)
+
+    fake.push({ type: 'settings.updated', display_id: 'hallway', settings: { ...settings, theme: 'light' } })
+    expect(socket.settings.value?.theme).toBe('light')
+    scope.stop()
+  })
+
+  it('ignores another display\'s, and a payload that is the wrong shape', () => {
+    const { socket, scope, fake } = open()
+    fake.push({ type: 'settings.updated', display_id: 'hallway', settings })
+
+    fake.push({ type: 'settings.updated', display_id: 'kitchen', settings: { ...settings, id: 'kitchen', theme: 'light' } })
+    fake.push({ type: 'settings.updated', display_id: 'hallway', settings: { ...settings, theme: 'purple' } })
+    fake.push({ type: 'settings.updated', display_id: 'hallway', settings: { ...settings, id: 'kitchen' } })
+    fake.push({ type: 'settings.updated', display_id: 'hallway', settings: null })
+
+    expect(socket.settings.value).toEqual(settings)
+    scope.stop()
+  })
+
+  it('forgets them when the display changes', async () => {
+    const id = ref<string | null>('hallway')
+    const scope = effectScope()
+    const socket = scope.run(() => useDisplaySocket(id))!
+    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings })
+
+    id.value = 'kitchen'
+    await nextTick()
+
+    expect(socket.settings.value).toBeUndefined()
     scope.stop()
   })
 })

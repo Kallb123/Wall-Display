@@ -9,7 +9,8 @@ import type { EventBus } from '../events/bus'
 // socket message and the wall fetches its next photo. A `photo.next` from
 // anywhere else (the `photo_next` command) restarts that display's timer, so a
 // skip is never followed straight away by a scheduled change. Leaving the photo
-// view stops the timer. Everything it touches comes in through the options, so a
+// view stops the timer. The interval can be changed while it runs
+// (`setIntervalSeconds`, from the settings page). Everything it touches comes in through the options, so a
 // test uses fake timers and a bus of its own.
 
 export interface PhotoRotationOptions {
@@ -27,12 +28,15 @@ export interface PhotoRotationOptions {
 export interface PhotoRotation {
   /** Whether a display's timer is running. For tests. */
   isRunning: (displayId: string) => boolean
+  /** Changes the interval: every running timer restarts with a whole new interval from now, and timers started later use it too. */
+  setIntervalSeconds: (seconds: number) => void
   /** Stops every timer and listens to the bus no more. */
   stop: () => void
 }
 
 export function startPhotoRotation(options: PhotoRotationOptions): PhotoRotation {
-  const { bus, intervalSeconds, getState, log = console } = options
+  const { bus, getState, log = console } = options
+  let intervalSeconds = options.intervalSeconds
   const known = new Set(options.displayIds)
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   let stopped = false
@@ -84,6 +88,10 @@ export function startPhotoRotation(options: PhotoRotationOptions): PhotoRotation
 
   return {
     isRunning: displayId => timers.has(displayId),
+    setIntervalSeconds(seconds) {
+      intervalSeconds = seconds
+      for (const displayId of [...timers.keys()]) arm(displayId)
+    },
     stop() {
       stopped = true
       for (const off of unsubscribe) off()

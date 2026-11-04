@@ -13,7 +13,10 @@ import type { DisplayControl } from './service'
 // whole policy off. The maths is in pure functions, tested on their own. The
 // policy has no timers: it reacts to a reading from the sensor and to a change
 // of the display's state, and everything it touches is injected, so a test uses
-// a fake bus and a fake control.
+// a fake bus and a fake control. The config can be replaced while it runs
+// (`setConfig`, from the settings page): the thresholds, action, step, smoothing
+// and curve apply from the next reading, and what the policy remembers (the view
+// to go back to, a screen it turned off) is kept, so getting light still undoes it.
 
 type AutoBrightnessConfig = PoliciesConfig['auto_brightness']
 type Curve = AutoBrightnessConfig['curve']
@@ -107,6 +110,8 @@ export interface BrightnessPolicyOptions {
 export interface BrightnessPolicy {
   /** What the sensor reads now, in lux (not negative). Every reading is followed, whether or not the display's auto brightness setting is on. */
   report: (displayId: string, lux: number) => void
+  /** Replaces the config, which applies from the next reading. What the policy remembers (the return view, a screen it turned off) is kept; with no `night_below_lux` any more, the room is no longer known to be dark or light. */
+  setConfig: (config: AutoBrightnessConfig) => void
   /** Stops listening to the bus. Later reports do nothing. */
   stop: () => void
 }
@@ -130,11 +135,8 @@ function formatLux(lux: number): string {
 }
 
 export function createBrightnessPolicy(options: BrightnessPolicyOptions): BrightnessPolicy {
-  const { config, control, bus, now = () => new Date(), log = console } = options
-  const smoothingMs = config.smoothing_seconds * 1000
-  const below = config.night_below_lux
-  // Left out, the room counts as light again at twice the dark threshold.
-  const above = config.night_above_lux ?? (below === undefined ? undefined : below * 2)
+  const { control, bus, now = () => new Date(), log = console } = options
+  let config = options.config
   const watches = new Map<string, Watch>(options.displays.map(id => [id, { smoothed: null, dark: null, seen: undefined, returnView: null, turnedOff: false }]))
   let stopped = false
 
@@ -233,6 +235,10 @@ export function createBrightnessPolicy(options: BrightnessPolicyOptions): Bright
       // A reading that is not a number would poison the smoothing for good.
       if (!watch || stopped || !Number.isFinite(lux) || lux < 0) return
       try {
+        const smoothingMs = config.smoothing_seconds * 1000
+        const below = config.night_below_lux
+        // Left out, the room counts as light again at twice the dark threshold.
+        const above = config.night_above_lux ?? (below === undefined ? undefined : below * 2)
         watch.smoothed = smoothLux(watch.smoothed, lux, now().getTime(), smoothingMs)
         const wasDark = watch.dark
         if (below !== undefined && above !== undefined) watch.dark = darkAfter(wasDark, watch.smoothed.value, below, above)
@@ -245,6 +251,13 @@ export function createBrightnessPolicy(options: BrightnessPolicyOptions): Bright
         else if (watch.dark === false && wasDark === true) gotLight(displayId, watch, state)
       } catch (error) {
         log.error(`[brightness] ${displayId}: could not act on the reading: ${describe(error)}`)
+      }
+    },
+
+    setConfig(next) {
+      config = next
+      if (next.night_below_lux === undefined) {
+        for (const watch of watches.values()) watch.dark = null
       }
     },
 

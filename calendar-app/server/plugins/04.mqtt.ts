@@ -9,7 +9,9 @@ import { lastSyncAt } from '../sources/store'
 // agent's button presses, its presence sensor and its light sensor in, and
 // Home Assistant's discovery configs. The presence and brightness policies
 // live here because the sensors' readings arrive over MQTT, and without the
-// block they have nothing to act on.
+// block they have nothing to act on. They are made from the effective config
+// (the YAML with the settings page's preferences on top), and take up a saved
+// change to the shared preferences at once.
 // It never waits for the broker, so a broker that is down doesn't delay the boot,
 // and without the block it does nothing.
 export default defineNitroPlugin(async (nitroApp) => {
@@ -21,7 +23,8 @@ export default defineNitroPlugin(async (nitroApp) => {
   await getMqttBridge()?.stop()
   setMqttBridge(undefined)
 
-  const config = useConfig()
+  const settings = useSettings()
+  const config = settings.config()
   if (!config.mqtt) {
     console.info('[mqtt] off: no mqtt block in the config')
     return
@@ -42,6 +45,12 @@ export default defineNitroPlugin(async (nitroApp) => {
     bus: useEventBus(),
   })
   setBrightnessPolicy(brightness)
+  const unsubscribe = useEventBus().on('settings.updated', ({ shared }) => {
+    if (!shared) return
+    const { policies } = settings.config()
+    presence.setConfig(policies.auto_presence)
+    brightness.setConfig(policies.auto_brightness)
+  })
   const bridge = createMqttBridge({
     config: config.mqtt,
     displays: config.displays,
@@ -62,6 +71,7 @@ export default defineNitroPlugin(async (nitroApp) => {
 
   // Publishes `offline` first, so Home Assistant sees the display go rather than wait for a timeout.
   nitroApp.hooks.hook('close', async () => {
+    unsubscribe()
     presence.stop()
     if (getPresencePolicy() === presence) setPresencePolicy(undefined)
     brightness.stop()

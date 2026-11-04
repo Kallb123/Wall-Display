@@ -182,6 +182,8 @@ PR S.1 shipped each special day with its whole look stored on it. PR S.1b adds *
 | 5.6 | Settings page v2 | M | The Displays tab becomes editable: theme, month style, default view, week start, month return timeout, photo interval and policy thresholds. These are stored in SQLite as overrides on top of `config.yaml`. Sources and secrets stay in YAML. |
 | 5.7 | Month view, Classic style | M | `month_style: classic`, from mocks 1a and 1b: ruled week rows with colour dots instead of tiles and initials, the today highlight as a rounded cell, and on the right the month title, a weather card (current conditions and a three-day forecast) and the next four days' events. It reuses the PR 1.6 layout engine unchanged, and shows special day tile art and takeovers like Soft. Playwright snapshots in light and dark. Drop this PR if Classic isn't wanted (architecture §12). |
 
+**Note on PR 5.6.** The preferences are the settings worth changing while the app runs, and each takes effect at once, with no restart: per display `theme`, `month_style`, `week_start`, `month_return_minutes`, `week_hours`, `burn_in` and `night_text`, and for every display the photo interval and the policies' thresholds (all of `auto_presence`, and `auto_brightness` but its `curve`). The default view was left out: the display state is stored, so a default view would only ever apply the first time a display starts, and changing it later would do nothing. See architecture §7.6.
+
 ---
 
 ## Backlog (not scheduled)

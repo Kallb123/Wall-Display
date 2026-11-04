@@ -185,30 +185,34 @@ export interface WeekHours {
 export const DEFAULT_WEEK_HOURS: WeekHours = { from: 7, to: 21 }
 
 /**
- * A display's settings from config: what `GET /api/displays` returns, and
- * what the page needs that the state does not hold. `timezone` is the config's
- * top-level time zone, which the wall shows its times in. No secrets.
+ * A display's settings: what `GET /api/displays` returns, and what the page
+ * needs that the state does not hold. They come from config, with any changes
+ * saved on the settings page's Displays tab on top (PR 5.6), and the server
+ * sends them again as `settings.updated` when those change. `timezone` is the
+ * config's top-level time zone, which the wall shows its times in. No secrets.
  */
-export interface DisplaySettings {
-  id: string
-  name: string
-  theme: Theme
-  month_style: 'soft' | 'classic'
-  week_start: 'monday' | 'sunday'
-  timezone: string
+export const displaySettingsSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  theme: z.enum(THEMES),
+  month_style: z.enum(['soft', 'classic']),
+  week_start: z.enum(['monday', 'sunday']),
+  timezone: z.string().min(1),
   /** Whether the wall shifts its content in a slow orbit and moves the photo frame's pill between corners, against burn-in (PR 5.3). */
-  burn_in: boolean
+  burn_in: z.boolean(),
   /** What the night view shows under its clock. */
-  night_text: NightText
+  night_text: z.enum(NIGHT_TEXTS),
   /** The hours the week view draws in full; earlier and later hours are folded into a band. */
-  week_hours: WeekHours
+  week_hours: z.object({ from: z.number().int().min(0).max(23), to: z.number().int().min(1).max(24) }),
   /**
    * The photo sources the server has set up, in the order a display falls back
    * to them (Immich, Google, folder). Empty with no `photos` block. The remote
    * disables the others. The same for every display.
    */
-  photo_sources: PhotoSource[]
-}
+  photo_sources: z.array(z.enum(PHOTO_SOURCES)),
+})
+
+export type DisplaySettings = z.output<typeof displaySettingsSchema>
 
 /** What the server sends down a socket. */
 export type ServerMessage =
@@ -221,6 +225,8 @@ export type ServerMessage =
   | { type: 'special_days.updated', special_days: SpecialDaysResolution | null }
   /** To every socket when the next alarm changes, and to a new socket on connect. Null when there is none (no `alarm` block, no alarm set, or no successful fetch yet). */
   | { type: 'alarm.updated', alarm: NextAlarm }
+  /** To the display's sockets when its settings change on the settings page (PR 5.6), and to a new socket on connect. The whole of them, as `GET /api/displays` has them. */
+  | { type: 'settings.updated', display_id: string, settings: DisplaySettings }
 
 // Months, as `YYYY-MM` keys. Done with `Intl` and arithmetic, never the
 // process's time zone. A month's index is year * 12 + (month - 1).

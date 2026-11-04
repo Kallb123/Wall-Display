@@ -25,6 +25,13 @@ export interface BusEvents {
   'special_days.updated': { specialDays: SpecialDaysResolution }
   /** The next alarm changed (or was first read). `alarm` is an ISO 8601 instant, or null for none. */
   'alarm.updated': { alarm: NextAlarm }
+  /**
+   * Preferences saved on the settings page changed what is in force (PR 5.6).
+   * `displayIds` are the displays whose own preferences changed; `shared` is
+   * true when the preferences every display shares (the photo interval and the
+   * policies) did. Read the new values from `useSettings().config()`.
+   */
+  'settings.updated': { displayIds: string[], shared: boolean }
 }
 
 export type BusHandler<Name extends keyof BusEvents> = (payload: BusEvents[Name]) => void

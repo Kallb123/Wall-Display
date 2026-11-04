@@ -1,24 +1,12 @@
-import { PHOTO_SOURCES } from '../../../shared/display'
 import type { DisplaySettings } from '../../../shared/display'
+import { displaySettings, photoSourcesOf } from '../../settings/displaySettings'
 
-// Every display's settings from config, so the page can pick its theme and
-// time zone. Only the fields the page needs: the rest of the config can hold secrets.
+// Every display's settings, so the page can pick its theme and time zone. They
+// are the config's with any change saved on the settings page on top, and only
+// the fields the page needs: the rest of the config can hold secrets.
 // `photo_sources` says which photo sources are set up (and so which the remote may offer), by name only.
 export default defineEventHandler((): DisplaySettings[] => {
-  const config = useConfig()
-  const configured = usePhotos()?.configured() ?? []
-  const photoSources = PHOTO_SOURCES.filter(source => configured.includes(source))
-
-  return config.displays.map(display => ({
-    id: display.id,
-    name: display.name,
-    theme: display.theme,
-    month_style: display.month_style,
-    week_start: display.week_start,
-    timezone: config.timezone,
-    burn_in: display.burn_in,
-    night_text: display.night_text,
-    week_hours: display.week_hours,
-    photo_sources: photoSources,
-  }))
+  const config = useSettings().config()
+  const photoSources = photoSourcesOf(usePhotos()?.configured() ?? [])
+  return config.displays.map(display => displaySettings(config, display.id, photoSources))
 })

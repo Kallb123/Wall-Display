@@ -192,3 +192,67 @@ describe('the photo rotation', () => {
     expect(rotation.isRunning('hallway')).toBe(false)
   })
 })
+
+describe('setIntervalSeconds', () => {
+  it('restarts a running timer with a whole new interval from now', () => {
+    const { emitted, setView, rotation } = setup()
+    setView('hallway', 'photo')
+    vi.advanceTimersByTime(50 * SECOND)
+
+    rotation.setIntervalSeconds(30)
+    vi.advanceTimersByTime(30 * SECOND - 1)
+    expect(emitted).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(emitted).toEqual(['hallway'])
+
+    // And the one after that is 30 seconds on, too.
+    vi.advanceTimersByTime(30 * SECOND)
+    expect(emitted).toEqual(['hallway', 'hallway'])
+  })
+
+  it('can lengthen the interval, pushing the next photo back', () => {
+    const { emitted, setView, rotation } = setup()
+    setView('hallway', 'photo')
+    vi.advanceTimersByTime(50 * SECOND)
+
+    rotation.setIntervalSeconds(120)
+    vi.advanceTimersByTime(119 * SECOND)
+    expect(emitted).toEqual([])
+    vi.advanceTimersByTime(SECOND)
+    expect(emitted).toEqual(['hallway'])
+  })
+
+  it('applies to timers started later, and leaves displays off the photo view without one', () => {
+    const { emitted, setView, rotation } = setup()
+
+    rotation.setIntervalSeconds(10)
+    expect(rotation.isRunning('hallway')).toBe(false)
+    setView('hallway', 'photo')
+    vi.advanceTimersByTime(10 * SECOND)
+
+    expect(emitted).toEqual(['hallway'])
+    expect(rotation.isRunning('kitchen')).toBe(false)
+  })
+
+  it('restarts every running display', () => {
+    const { emitted, setView, rotation } = setup()
+    setView('hallway', 'photo')
+    setView('kitchen', 'photo')
+    vi.advanceTimersByTime(40 * SECOND)
+
+    rotation.setIntervalSeconds(20)
+    vi.advanceTimersByTime(20 * SECOND)
+
+    expect(emitted.sort()).toEqual(['hallway', 'kitchen'])
+  })
+
+  it('does not start timers once stopped', () => {
+    const { rotation, setView } = setup()
+    setView('hallway', 'photo')
+    rotation.stop()
+
+    rotation.setIntervalSeconds(10)
+
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})

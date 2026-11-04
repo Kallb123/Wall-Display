@@ -1163,3 +1163,91 @@ describe('displays and stopping', () => {
     expect(control.applyCommand).toHaveBeenCalledWith('hallway', brightness(30))
   })
 })
+
+describe('setConfig', () => {
+  it('uses new thresholds from the next reading', () => {
+    const { policy, state } = setup({ config: { night_below_lux: 3, night_action: 'night_view' } })
+    policy.report('hallway', 5)
+    expect(state().view).toBe('month')
+
+    policy.setConfig({ curve: CURVE, min_step: 5, smoothing_seconds: 0, night_action: 'night_view', night_below_lux: 10 })
+    expect(state().view).toBe('month')
+    policy.report('hallway', 5)
+
+    expect(state().view).toBe('night')
+  })
+
+  it('uses a new action, a new step and new smoothing from the next reading', () => {
+    const { policy, state, appliedOf } = setup({ config: { night_below_lux: 3, night_action: 'night_view', min_step: 5 } })
+    policy.report('hallway', 200)
+    expect(state().brightness).toBe(100)
+
+    policy.setConfig({ curve: CURVE, min_step: 90, smoothing_seconds: 0, night_action: 'screen_off', night_below_lux: 3 })
+    policy.report('hallway', 1)
+
+    expect(state().screen).toBe('off')
+    // The curve gives 37 at 1 lx, a step of 63: enough for the old step of 5, not for the new 90.
+    expect(state().brightness).toBe(100)
+    expect(appliedOf('set_brightness')).toEqual([])
+    expect(state().view).toBe('month')
+  })
+
+  it('applies a new curve to the next reading', () => {
+    const { policy, state } = setup()
+    policy.report('hallway', 200)
+    expect(state().brightness).toBe(100)
+
+    policy.setConfig({ curve: [{ lux: 0, brightness: 10 }, { lux: 200, brightness: 50 }], min_step: 5, smoothing_seconds: 0, night_action: 'none' })
+    policy.report('hallway', 200)
+
+    expect(state().brightness).toBe(50)
+  })
+
+  it('keeps the remembered view, so getting light still undoes the night view', () => {
+    const { policy, state, change } = setup({ config: { night_below_lux: 3, night_action: 'night_view' } })
+    change(view('week'))
+    policy.report('hallway', 1)
+    expect(state().view).toBe('night')
+
+    policy.setConfig({ curve: CURVE, min_step: 5, smoothing_seconds: 0, night_action: 'screen_off', night_below_lux: 3 })
+    policy.report('hallway', 100)
+
+    expect(state().view).toBe('week')
+  })
+
+  it('keeps a screen it turned off, so getting light still turns it on', () => {
+    const { policy, state } = setup({ config: { night_below_lux: 3, night_action: 'screen_off' } })
+    policy.report('hallway', 1)
+    expect(state().screen).toBe('off')
+
+    policy.setConfig({ curve: CURVE, min_step: 5, smoothing_seconds: 0, night_action: 'none', night_below_lux: 3 })
+    policy.report('hallway', 100)
+
+    expect(state().screen).toBe('on')
+  })
+
+  it('forgets the room was dark when night_below_lux is removed, and takes no night action', () => {
+    const { policy, state, appliedOf } = setup({ config: { night_below_lux: 3, night_action: 'night_view' } })
+    policy.report('hallway', 1)
+    expect(state().view).toBe('night')
+
+    policy.setConfig({ curve: CURVE, min_step: 5, smoothing_seconds: 0, night_action: 'none' })
+    policy.report('hallway', 100)
+    policy.report('hallway', 0)
+
+    // Still on the night view: the policy no longer knows about dark or light, so it neither undoes nor redoes it.
+    expect(state().view).toBe('night')
+    expect(appliedOf('set_view')).toHaveLength(1)
+  })
+
+  it('starts judging dark again when a threshold is added back', () => {
+    const { policy, state } = setup()
+    policy.report('hallway', 1)
+    expect(state().view).toBe('month')
+
+    policy.setConfig({ curve: CURVE, min_step: 5, smoothing_seconds: 0, night_action: 'night_view', night_below_lux: 3 })
+    policy.report('hallway', 1)
+
+    expect(state().view).toBe('night')
+  })
+})

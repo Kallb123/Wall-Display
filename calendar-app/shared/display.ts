@@ -56,6 +56,13 @@ export const DEFAULT_PREVIEW_SECONDS = 60
 export const MIN_PREVIEW_SECONDS = 5
 export const MAX_PREVIEW_SECONDS = 600
 
+/**
+ * A built-in schedule's id (PR 5.4): lowercase letters, digits and hyphens, as
+ * the config's other ids. Unique within a display, and part of its MQTT topics.
+ */
+export const SCHEDULE_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
+export const scheduleIdSchema = z.string().regex(SCHEDULE_ID_PATTERN, 'must be lowercase letters, digits and hyphens, starting with a letter or digit')
+
 /** A month as `YYYY-MM`. */
 export type MonthKey = string
 
@@ -82,6 +89,20 @@ export const previewSchema = z.union([
   z.strictObject({ scene: z.string().min(1), until: z.iso.datetime() }),
 ])
 
+/**
+ * The schedule window that put the view on the wall (PR 5.4, architecture §7.8):
+ * the schedule's id, the rule's index in its `rules`, the view the rule shows,
+ * and the view to go back to when the window ends. It is null when no window
+ * is in charge, and goes as soon as the view changes to anything else, so a
+ * view chosen by hand is never undone.
+ */
+export const scheduleWindowSchema = z.strictObject({
+  schedule: scheduleIdSchema,
+  rule: z.number().int().min(0),
+  view: z.enum(VIEWS),
+  return_view: z.enum(VIEWS),
+})
+
 export const displayStateSchema = z.object({
   view: z.enum(VIEWS).default('month'),
   /** The pinned month, or null to follow the current month. */
@@ -100,10 +121,15 @@ export const displayStateSchema = z.object({
   overlay: overlaySchema.nullable().default(null),
   /** The special day or scene being previewed on the wall, or null. */
   preview: previewSchema.nullable().default(null),
+  /** The ids of this display's schedules that are turned off (from Home Assistant). A schedule not listed is on. Sorted, no repeats. */
+  schedules_off: z.array(scheduleIdSchema).default([]),
+  /** The schedule window in charge of the view, or null. Kept by the command handler. */
+  schedule: scheduleWindowSchema.nullable().default(null),
 })
 
 export type Overlay = z.output<typeof overlaySchema>
 export type Preview = z.output<typeof previewSchema>
+export type ScheduleWindow = z.output<typeof scheduleWindowSchema>
 export type DisplayState = z.output<typeof displayStateSchema>
 
 // Strict objects, so a typo in a command is rejected instead of ignored.
@@ -117,6 +143,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('set_photo_source'), photo_source: z.enum(PHOTO_SOURCES) }),
   z.strictObject({ type: z.literal('set_auto_presence'), auto_presence: z.boolean() }),
   z.strictObject({ type: z.literal('set_auto_brightness'), auto_brightness: z.boolean() }),
+  // Turns one of the display's built-in schedules on or off (PR 5.4). An id the display doesn't have is refused by the control service.
+  z.strictObject({ type: z.literal('set_schedule'), schedule: scheduleIdSchema, on: z.boolean() }),
   z.strictObject({
     type: z.literal('set_overlay'),
     // null clears the overlay.
@@ -142,7 +170,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       .max(MAX_PREVIEW_SECONDS, `must be from ${MIN_PREVIEW_SECONDS} to ${MAX_PREVIEW_SECONDS}`)
       .default(DEFAULT_PREVIEW_SECONDS),
   }).refine(command => (command.id === undefined) !== (command.scene === undefined), { message: 'needs exactly one of id and scene' }),
-], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
+], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_schedule, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
 
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']

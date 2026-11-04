@@ -1,6 +1,18 @@
 import { addMonths, currentMonth, displayStateSchema, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER } from '../../shared/display'
 import type { Command, DisplayState, MonthKey, View } from '../../shared/display'
 
+/**
+ * The commands only the schedule policy sends (PR 5.4): a schedule window
+ * starting or ending. They are not in `commandSchema`, so neither the HTTP API
+ * nor MQTT can send them. `rule` is the rule's index in the schedule's `rules`.
+ */
+export type ScheduleCommand =
+  | { type: 'schedule_start', schedule: string, rule: number, view: View }
+  | { type: 'schedule_end', schedule: string, rule: number }
+
+/** Every command the control service applies: the public ones, and the schedule policy's. */
+export type ControlCommand = Command | ScheduleCommand
+
 // What each command does to a display's state, and the rules that change it
 // with the passing of time (architecture §7.1). Pure: no I/O and no timers.
 // The clock comes in through the context, so a test sets it. The service
@@ -53,8 +65,51 @@ function setMonth(state: DisplayState, month: Extract<Command, { type: 'set_mont
  * drops the pinned month. `photo_next` and `refresh` change nothing here; the
  * service carries them out.
  */
-export function reduceCommand(state: DisplayState, command: Command, ctx: ControlContext): DisplayState {
-  return expireState(rememberView(state, apply(state, command, ctx)), ctx)
+export function reduceCommand(state: DisplayState, command: ControlCommand, ctx: ControlContext): DisplayState {
+  return expireState(releaseSchedule(rememberView(state, apply(state, command, ctx))), ctx)
+}
+
+/**
+ * Drops the schedule window once it no longer holds the wall: the view is not
+ * the one it put there (someone, or a policy, changed it), or its schedule has
+ * been turned off. Its end then changes nothing, so a manual choice lasts
+ * until the next rule boundary. Done for every command, like `rememberView`.
+ */
+function releaseSchedule(state: DisplayState): DisplayState {
+  const window = state.schedule
+  if (window === null) return state
+  return window.view !== state.view || state.schedules_off.includes(window.schedule) ? { ...state, schedule: null } : state
+}
+
+/**
+ * A schedule window starting: the wall shows the rule's view, and the window
+ * remembers where to go back to. A wall already on that view, with no window
+ * in charge, is left alone (someone chose it) and nothing is remembered. When
+ * another window is still in charge, the new one takes over its return view,
+ * so overlapping or back-to-back windows end on the view from before the first.
+ */
+function startSchedule(state: DisplayState, command: Extract<ScheduleCommand, { type: 'schedule_start' }>): DisplayState {
+  if (state.schedules_off.includes(command.schedule)) return state
+  const held = state.schedule !== null && state.schedule.view === state.view ? state.schedule : null
+  if (held === null && state.view === command.view) return state
+  return {
+    ...state,
+    view: command.view,
+    schedule: { schedule: command.schedule, rule: command.rule, view: command.view, return_view: held?.return_view ?? state.view },
+  }
+}
+
+/** A schedule window ending: back to the view from before it, but only if that window still holds the wall. */
+function endSchedule(state: DisplayState, command: Extract<ScheduleCommand, { type: 'schedule_end' }>): DisplayState {
+  const window = state.schedule
+  if (window === null || window.schedule !== command.schedule || window.rule !== command.rule) return state
+  return window.view === state.view ? { ...state, view: window.return_view, schedule: null } : { ...state, schedule: null }
+}
+
+/** `schedules_off` with `id` added or removed, sorted so equal sets compare equal. */
+function scheduleSwitched(off: readonly string[], id: string, on: boolean): string[] {
+  const rest = off.filter(other => other !== id)
+  return (on ? rest : [...rest, id]).sort()
 }
 
 /**
@@ -68,7 +123,7 @@ function rememberView(before: DisplayState, after: DisplayState): DisplayState {
   return view === null || view === after.last_calendar_view ? after : { ...after, last_calendar_view: view }
 }
 
-function apply(state: DisplayState, command: Command, ctx: ControlContext): DisplayState {
+function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext): DisplayState {
   switch (command.type) {
     case 'set_view': return { ...state, view: command.view }
     case 'next_view': return { ...state, view: viewAfter(state.view) }
@@ -79,6 +134,10 @@ function apply(state: DisplayState, command: Command, ctx: ControlContext): Disp
     case 'set_photo_source': return { ...state, photo_source: command.photo_source }
     case 'set_auto_presence': return { ...state, auto_presence: command.auto_presence }
     case 'set_auto_brightness': return { ...state, auto_brightness: command.auto_brightness }
+    // Turning a schedule off leaves the wall as it is; `releaseSchedule` forgets its window.
+    case 'set_schedule': return { ...state, schedules_off: scheduleSwitched(state.schedules_off, command.schedule, command.on) }
+    case 'schedule_start': return startSchedule(state, command)
+    case 'schedule_end': return endSchedule(state, command)
     case 'set_overlay': {
       const { overlay } = command
       if (overlay === null) return { ...state, overlay: null }

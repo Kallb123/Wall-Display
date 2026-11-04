@@ -26,5 +26,9 @@ export default defineEventHandler(async (event): Promise<DisplayState> => {
     if (command.scene !== undefined && !getScene(useDb(), command.scene)) throw createError({ statusCode: 404, statusMessage: 'Not Found', message: `Unknown scene "${command.scene}"` })
   }
 
+  if (command.type === 'set_schedule' && !control.hasSchedule(id, command.schedule)) {
+    throw createError({ statusCode: 404, statusMessage: 'Not Found', message: `Display "${id}" has no schedule "${command.schedule}"` })
+  }
+
   return control.applyCommand(id, command)
 })

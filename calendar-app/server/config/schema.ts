@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { NIGHT_TEXTS } from '../../shared/display'
+import { NIGHT_TEXTS, scheduleIdSchema, VIEWS } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -112,6 +112,43 @@ const calendar = (baseDir: string) => z.strictObject({
   source: z.discriminatedUnion('type', [icsSource(baseDir), homeassistantSource], { error: 'type must be "ics" or "homeassistant"' }),
 })
 
+/** The days a schedule rule's window can start on, Monday first. A rule's `days` is normalised to these. */
+export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+export type Weekday = (typeof WEEKDAYS)[number]
+
+const DAY_SETS: Record<'every_day' | 'weekdays' | 'weekends', Weekday[]> = {
+  every_day: [...WEEKDAYS],
+  weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+  weekends: ['sat', 'sun'],
+}
+
+// `every_day`, `weekdays`, `weekends`, or a list of day names. Always comes out as a list in week order with no repeats.
+const days = z.union([
+  z.enum(['every_day', 'weekdays', 'weekends']).transform(value => DAY_SETS[value]),
+  z.array(z.enum(WEEKDAYS, { error: 'must be mon, tue, wed, thu, fri, sat or sun' })).min(1, 'must list at least one day'),
+], { error: 'must be every_day, weekdays, weekends, or a list of days such as [mon, wed, fri]' })
+  .transform(list => WEEKDAYS.filter(day => list.includes(day)))
+
+// One window of a built-in schedule (PR 5.4): the wall shows `view` from `from` until `to`, in the config's time zone,
+// on the days listed. A window with `from` after `to` runs past midnight, and `days` names the day it starts.
+const scheduleRule = z.strictObject({
+  view: z.enum(VIEWS, { error: `must be one of ${VIEWS.join(', ')}` }),
+  from: time,
+  to: time,
+  days: days.default([...WEEKDAYS]),
+}).refine(value => value.from !== value.to, {
+  message: 'from and to must differ (a window from a time to the same time would be all day or never)',
+  path: ['to'],
+})
+
+// A named set of rules that Home Assistant can turn off as one (a switch per schedule).
+const schedule = z.strictObject({
+  id: scheduleIdSchema,
+  /** What Home Assistant calls the schedule's switch. Left out, the id. */
+  name: text.optional(),
+  rules: z.array(scheduleRule).min(1, 'must have at least one rule'),
+}).transform(value => ({ ...value, name: value.name ?? value.id }))
+
 const display = z.strictObject({
   id: slug,
   name: text,
@@ -133,6 +170,8 @@ const display = z.strictObject({
     from: z.number().int('must be a whole number').min(0, 'must be from 0 to 23').max(23, 'must be from 0 to 23'),
     to: z.number().int('must be a whole number').min(1, 'must be from 1 to 24').max(24, 'must be from 1 to 24'),
   }).refine(hours => hours.from < hours.to, { message: 'week_hours.from must be before week_hours.to' }).default({ from: 7, to: 21 }),
+  /** Built-in schedules (PR 5.4): rules that change the view at set times. Each can be turned off from Home Assistant. */
+  schedules: z.array(schedule).default([]),
 })
 
 /** What a gesture of the button can be set to (`button.single`, `double`, `long`). server/control/button.ts says what each does. */
@@ -385,8 +424,9 @@ export function createConfigSchema(baseDir: string) {
 type RawConfig = {
   people: { id: string, name: string, aliases: string[] }[]
   calendars: { id: string, person: string, rules: { people: string[] }[], source: { type: string } }[]
-  displays: { id: string, night_text: string }[]
+  displays: { id: string, night_text: string, schedules: { id: string, rules: { view: string }[] }[] }[]
   homeassistant?: unknown
+  photos?: unknown
   weather?: unknown
   alarm?: unknown
 }
@@ -396,17 +436,18 @@ type RawConfig = {
 function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
   const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', message, path })
 
-  const unique = (list: { id: string }[], key: 'people' | 'calendars' | 'displays') => {
+  const unique = (list: { id: string }[], path: (string | number)[]) => {
     const seen = new Map<string, number>()
+    const where = path.map((part, i) => typeof part === 'number' ? `[${part}]` : i === 0 ? part : `.${part}`).join('')
     list.forEach((item, index) => {
       const first = seen.get(item.id)
       if (first === undefined) seen.set(item.id, index)
-      else issue([key, index, 'id'], `duplicate id "${item.id}" (also used by ${key}[${first}])`)
+      else issue([...path, index, 'id'], `duplicate id "${item.id}" (also used by ${where}[${first}])`)
     })
   }
-  unique(config.people, 'people')
-  unique(config.calendars, 'calendars')
-  unique(config.displays, 'displays')
+  unique(config.people, ['people'])
+  unique(config.calendars, ['calendars'])
+  unique(config.displays, ['displays'])
 
   // Detection could not tell two people apart if they share a name or alias.
   const owners = new Map<string, string>()
@@ -452,6 +493,15 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
     if (display.night_text === 'next_alarm' && !config.alarm) {
       issue(['displays', index, 'night_text'], 'is next_alarm, but there is no "alarm" block (it needs the entity_id of the Home Assistant entity that holds the next alarm)')
     }
+    // Schedule ids name MQTT topics and Home Assistant switches, so they must be unique within the display.
+    unique(display.schedules, ['displays', index, 'schedules'])
+    display.schedules.forEach((schedule, scheduleIndex) => {
+      schedule.rules.forEach((rule, ruleIndex) => {
+        if (rule.view === 'photo' && !config.photos) {
+          issue(['displays', index, 'schedules', scheduleIndex, 'rules', ruleIndex, 'view'], 'is photo, but there is no "photos" block (the photo frame would have nothing to show)')
+        }
+      })
+    })
   })
 }
 
@@ -461,6 +511,8 @@ export type CalendarConfig = AppConfig['calendars'][number]
 export type CalendarSource = CalendarConfig['source']
 export type CalendarRule = CalendarConfig['rules'][number]
 export type DisplayConfig = AppConfig['displays'][number]
+export type ScheduleConfig = DisplayConfig['schedules'][number]
+export type ScheduleRule = ScheduleConfig['rules'][number]
 export type ButtonConfig = AppConfig['button']
 export type ButtonAction = ButtonConfig['single']
 export type PoliciesConfig = AppConfig['policies']

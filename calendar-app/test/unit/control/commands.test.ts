@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { displayStateSchema } from '../../../shared/display'
-import type { Command, DisplayState } from '../../../shared/display'
+import type { Command, DisplayState, View } from '../../../shared/display'
 import { defaultDisplayState, expireState, nextExpiry, reduceCommand } from '../../../server/control/commands'
-import type { ControlContext } from '../../../server/control/commands'
+import type { ControlCommand, ControlContext } from '../../../server/control/commands'
 
 // The rules for what each command does and what time takes away, with a clock
 // set by the test. Europe/London, while the process itself runs in Auckland.
@@ -472,5 +472,118 @@ describe('nextExpiry', () => {
 
     expect(nextExpiry(early, ctx())).toEqual(new Date('2026-10-28T12:05:00Z'))
     expect(nextExpiry(late, ctx())).toEqual(new Date(NOW.getTime() + RETURN_MINUTES * MINUTE))
+  })
+})
+
+describe('schedule windows', () => {
+  const start = (schedule: string, rule: number, view: View): ControlCommand => ({ type: 'schedule_start', schedule, rule, view })
+  const end = (schedule: string, rule: number): ControlCommand => ({ type: 'schedule_end', schedule, rule })
+  const run = (from: DisplayState, ...commands: ControlCommand[]) =>
+    commands.reduce((current, command) => reduceCommand(current, command, ctx()), from)
+
+  it('starts by showing the rule\'s view and remembering the one it replaced', () => {
+    expect(run(state({ view: 'month' }), start('mornings', 0, 'agenda'))).toMatchObject({
+      view: 'agenda',
+      schedule: { schedule: 'mornings', rule: 0, view: 'agenda', return_view: 'month' },
+    })
+  })
+
+  it('goes back to the remembered view when it ends', () => {
+    const next = run(state({ view: 'week' }), start('mornings', 0, 'agenda'), end('mornings', 0))
+
+    expect(next).toMatchObject({ view: 'week', schedule: null })
+  })
+
+  it('leaves a wall already on the rule\'s view alone, and so remembers nothing and does not move it at the end', () => {
+    const started = run(state({ view: 'agenda' }), start('mornings', 0, 'agenda'))
+
+    expect(started).toMatchObject({ view: 'agenda', schedule: null })
+    expect(run(started, end('mornings', 0)).view).toBe('agenda')
+  })
+
+  it('ignores a start for a schedule that is turned off', () => {
+    const off = state({ view: 'month', schedules_off: ['mornings'] })
+
+    expect(run(off, start('mornings', 0, 'agenda'))).toEqual(off)
+  })
+
+  it('lets a manual change end the window: its end then does nothing', () => {
+    const next = run(state({ view: 'month' }), start('mornings', 0, 'agenda'), { type: 'set_view', view: 'week' }, end('mornings', 0))
+
+    expect(next).toMatchObject({ view: 'week', schedule: null })
+  })
+
+  it('keeps the window when the view is set to the one it already shows', () => {
+    const next = run(state({ view: 'month' }), start('mornings', 0, 'agenda'), { type: 'set_view', view: 'agenda' })
+
+    expect(next.schedule).not.toBeNull()
+  })
+
+  it('ignores an end for another schedule or rule', () => {
+    const started = run(state({ view: 'month' }), start('mornings', 0, 'agenda'))
+
+    expect(run(started, end('daytime', 0))).toEqual(started)
+    expect(run(started, end('mornings', 1))).toEqual(started)
+  })
+
+  it('chains back-to-back windows, so the last end goes back to the view before the first', () => {
+    const second = run(state({ view: 'month' }), start('mornings', 0, 'agenda'), start('daytime', 0, 'photo'))
+
+    expect(second).toMatchObject({ view: 'photo', schedule: { schedule: 'daytime', view: 'photo', return_view: 'month' } })
+    // The first window's end now belongs to nobody.
+    expect(run(second, end('mornings', 0))).toEqual(second)
+    expect(run(second, end('daytime', 0))).toMatchObject({ view: 'month', schedule: null })
+  })
+
+  it('chains overlapping windows, whichever ends first', () => {
+    const both = run(state({ view: 'week' }), start('a', 0, 'agenda'), start('b', 0, 'photo'))
+
+    expect(run(both, end('a', 0))).toEqual(both)
+    expect(run(both, end('b', 0))).toMatchObject({ view: 'week', schedule: null })
+  })
+
+  it('does not chain onto a window a manual change already released', () => {
+    const next = run(state({ view: 'month' }), start('a', 0, 'agenda'), { type: 'set_view', view: 'week' }, start('b', 0, 'photo'))
+
+    expect(next.schedule).toMatchObject({ schedule: 'b', return_view: 'week' })
+  })
+
+  it('forgets the window when its schedule is turned off, leaving the wall as it is', () => {
+    const next = run(state({ view: 'month' }), start('mornings', 0, 'agenda'), { type: 'set_schedule', schedule: 'mornings', on: false })
+
+    expect(next).toMatchObject({ view: 'agenda', schedule: null, schedules_off: ['mornings'] })
+    expect(run(next, end('mornings', 0)).view).toBe('agenda')
+  })
+
+  it('keeps the window when another schedule is turned off', () => {
+    const next = run(state({ view: 'month' }), start('mornings', 0, 'agenda'), { type: 'set_schedule', schedule: 'other', on: false })
+
+    expect(next.schedule).not.toBeNull()
+  })
+
+  it('treats a policy changing the view, such as night_view, like a manual change', () => {
+    const next = run(state({ view: 'month' }), start('mornings', 0, 'agenda'), { type: 'set_view', view: 'photo' }, end('mornings', 0))
+
+    expect(next).toMatchObject({ view: 'photo', schedule: null })
+  })
+})
+
+describe('set_schedule', () => {
+  const set = (from: DisplayState, schedule: string, on: boolean) => reduceCommand(from, { type: 'set_schedule', schedule, on }, ctx())
+
+  it('turns a schedule off, keeping the list sorted without repeats', () => {
+    const next = set(set(set(state(), 'zebra', false), 'alpha', false), 'zebra', false)
+
+    expect(next.schedules_off).toEqual(['alpha', 'zebra'])
+  })
+
+  it('turns a schedule back on', () => {
+    expect(set(state({ schedules_off: ['alpha', 'zebra'] }), 'alpha', true).schedules_off).toEqual(['zebra'])
+  })
+
+  it('does nothing for a schedule that is already on', () => {
+    const before = state()
+
+    expect(set(before, 'alpha', true)).toEqual(before)
   })
 })

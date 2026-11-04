@@ -54,6 +54,7 @@ describe('defaults', () => {
       burn_in: true,
       night_text: 'none',
       week_hours: { from: 7, to: 21 },
+      schedules: [],
     })
   })
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Command, DisplayState } from '../../../shared/display'
-import { createDisplayControl, UnknownDisplayError } from '../../../server/control/service'
+import { createDisplayControl, UnknownDisplayError, UnknownScheduleError } from '../../../server/control/service'
 import type { DisplayControl } from '../../../server/control/service'
 import { loadDisplayState, saveDisplayState } from '../../../server/control/store'
 import { createEventBus } from '../../../server/events/bus'
@@ -16,7 +16,7 @@ const RETURN_MINUTES = 15
 const START = new Date('2026-10-28T12:00:00Z')
 
 const DISPLAYS = [
-  { id: 'hallway', month_return_minutes: RETURN_MINUTES },
+  { id: 'hallway', month_return_minutes: RETURN_MINUTES, schedules: [{ id: 'mornings' }, { id: 'daytime-photos' }] },
   { id: 'kitchen', month_return_minutes: 5 },
 ]
 
@@ -51,7 +51,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null,
+      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null,
     })
   })
 
@@ -412,18 +412,54 @@ describe('stopping', () => {
   })
 })
 
+describe('schedules', () => {
+  it('knows the schedules each display has', () => {
+    const { control } = setup()
+
+    expect(control.hasSchedule('hallway', 'mornings')).toBe(true)
+    expect(control.hasSchedule('hallway', 'evenings')).toBe(false)
+    expect(control.hasSchedule('kitchen', 'mornings')).toBe(false)
+    expect(control.hasSchedule('garage', 'mornings')).toBe(false)
+  })
+
+  it('turns a schedule off and on, storing and announcing each change', () => {
+    const { control, stateUpdates, handle } = setup()
+
+    expect(control.applyCommand('hallway', { type: 'set_schedule', schedule: 'mornings', on: false }).schedules_off).toEqual(['mornings'])
+    expect(loadDisplayState(handle.db, 'hallway')?.schedules_off).toEqual(['mornings'])
+    expect(control.applyCommand('hallway', { type: 'set_schedule', schedule: 'mornings', on: true }).schedules_off).toEqual([])
+    expect(stateUpdates).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses set_schedule for a schedule the display does not have, changing nothing', () => {
+    const { control, stateUpdates } = setup()
+
+    expect(() => control.applyCommand('hallway', { type: 'set_schedule', schedule: 'evenings', on: false })).toThrow(UnknownScheduleError)
+    expect(() => control.applyCommand('kitchen', { type: 'set_schedule', schedule: 'mornings', on: false })).toThrow('Display "kitchen" has no schedule "mornings"')
+    expect(stateUpdates).not.toHaveBeenCalled()
+  })
+
+  it('applies the policy\'s schedule commands, and announces the view change', () => {
+    const { control, stateUpdates } = setup()
+
+    expect(control.applyCommand('hallway', { type: 'schedule_start', schedule: 'mornings', rule: 0, view: 'agenda' })).toMatchObject({ view: 'agenda', schedule: { return_view: 'month' } })
+    expect(control.applyCommand('hallway', { type: 'schedule_end', schedule: 'mornings', rule: 0 })).toMatchObject({ view: 'month', schedule: null })
+    expect(stateUpdates).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('the store', () => {
   it('loads a document stored before last_calendar_view existed, with month for it', () => {
     const handle = migratedMemoryDb()
     const old = { view: 'photo', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null }
     handle.db.insert(displayState).values({ displayId: 'hallway', state: old as never, updatedAt: new Date() }).run()
 
-    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month' })
+    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', schedules_off: [], schedule: null })
   })
 
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, schedules_off: ['mornings'], schedule: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 

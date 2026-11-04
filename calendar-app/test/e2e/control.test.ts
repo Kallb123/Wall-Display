@@ -81,7 +81,7 @@ describe('display state, commands and the WebSocket', async () => {
   it('GET /api/displays/:id/state is the default state for a new display', async () => {
     const state = await $fetch<DisplayState>('/api/displays/hallway/state')
 
-    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null })
+    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null })
   })
 
   it('GET /api/displays/:id/state answers 404 for an unknown display', async () => {
@@ -114,6 +114,10 @@ describe('display state, commands and the WebSocket', async () => {
 
   it('POST /api/displays/:id/commands answers 404 for an unknown display', async () => {
     await expect(command('garage', { type: 'next_view' })).rejects.toMatchObject(reason(404, 'Unknown display "garage"'))
+  })
+
+  it('POST /api/displays/:id/commands answers 404 for set_schedule with a schedule the display does not have', async () => {
+    await expect(command('hallway', { type: 'set_schedule', schedule: 'nope', on: false })).rejects.toMatchObject(reason(404, 'has no schedule "nope"'))
   })
 
   it('GET /api/remote says no PIN is needed, and POST /api/remote/pin accepts anything', async () => {

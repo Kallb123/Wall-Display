@@ -7,8 +7,7 @@ import { buttonCommand } from '../control/button'
 import type { DisplayControl } from '../control/service'
 import type { EventBus } from '../events/bus'
 import { BIRTH_ONLINE, birthTopic, discoveryMessages } from './discovery'
-import { AVAILABILITY_TOPIC, buttonPayloadReason, COMMAND_TOPICS, illuminancePayloadReason, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseButtonPayload, parseCommandTopic, parseIlluminancePayload, parsePresencePayload, PI_BUTTON_TOPIC, PI_ILLUMINANCE_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, piScreenPayload, presencePayloadReason, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
-import type { StateTopic } from './topics'
+import { AVAILABILITY_TOPIC, buttonPayloadReason, COMMAND_TOPICS, illuminancePayloadReason, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseButtonPayload, parseCommandTopic, parseIlluminancePayload, parsePresencePayload, parseSchedulePayload, parseScheduleTopic, PI_BUTTON_TOPIC, PI_ILLUMINANCE_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, piScreenPayload, presencePayloadReason, schedulePayloads, scheduleTopic, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
 
 // Keeps each display's state on an MQTT broker and takes commands from it
 // (architecture §7.3, contracts/mqtt.json). MQTT allows one last will per
@@ -21,7 +20,8 @@ import type { StateTopic } from './topics'
 // commands, for its mmWave sensor on `pi/presence`, which it hands on to the
 // auto presence policy (control/presence.ts), and for its light sensor on
 // `pi/illuminance`, which it hands on to the auto brightness policy
-// (control/brightness.ts). This file decides when to connect, retry and publish; the topics
+// (control/brightness.ts). Each of a display's built-in schedules (architecture §7.8) has a
+// switch topic in each direction: `schedule/<id>/set` in, `schedule/<id>/state` out. This file decides when to connect, retry and publish; the topics
 // and payloads are in topics.ts and discovery.ts, and the MQTT client itself
 // is injected, so a test drives it with a fake and fake timers. A broker that
 // is missing or down never stops the app: nothing here throws or waits for it.
@@ -51,8 +51,8 @@ const connectWithMqttJs = (url: string, options: IClientOptions): MqttLink => mq
 
 export interface MqttBridgeOptions {
   config: MqttConfig
-  /** The displays in the config: each one gets a connection. The name is what Home Assistant calls the device when there is more than one display. */
-  displays: readonly { id: string, name: string }[]
+  /** The displays in the config: each one gets a connection. The name is what Home Assistant calls the device when there is more than one display. The schedules are the display's built-in ones: each gets a switch in Home Assistant and a pair of topics. */
+  displays: readonly { id: string, name: string, schedules?: readonly { id: string, name: string }[] }[]
   /** When the last calendar sync succeeded, for `last_sync/state`. Called on every check, so it should be cheap. Default: never synced. */
   lastSync?: () => Date | null
   /** Today's special day name, for `special_day/state`: `null` when there is none (published as empty) and `undefined` while that isn't known yet (not published). Called on every check, so it should be cheap. Default: not known. */
@@ -126,11 +126,13 @@ export function brokerName(url: string): string {
 interface Link {
   displayId: string
   displayName: string
+  /** The display's schedules, in config order. */
+  schedules: readonly { id: string, name: string }[]
   client: MqttLink | undefined
   state: MqttBridgeStatus['state']
   lastError: string | null
-  /** What this connection last published on each state topic (and on `last_sync/state`, `special_day/state` and `pi/screen/set`). Emptied on every connect, so a connect publishes everything. */
-  published: Map<StateTopic | typeof LAST_SYNC_TOPIC | typeof SPECIAL_DAY_TOPIC | typeof PI_SCREEN_TOPIC, string>
+  /** What this connection last published on each state topic (and on `last_sync/state`, `special_day/state`, `pi/screen/set` and each `schedule/<id>/state`). Emptied on every connect, so a connect publishes everything. */
+  published: Map<string, string>
   /** Connections that failed or dropped since the last one that lasted `STABLE_MS`. */
   failures: number
   /** When the current connection came up, in ms. */
@@ -155,9 +157,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     return message
   }
 
-  const links: Link[] = options.displays.map(({ id, name }) => ({
+  const links: Link[] = options.displays.map(({ id, name, schedules = [] }) => ({
     displayId: id,
     displayName: name,
+    schedules,
     client: undefined,
     state: 'connecting',
     lastError: null,
@@ -187,7 +190,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   function publishDiscovery(link: Link): void {
     const messages = discoveryMessages({
       prefix: config.discovery_prefix,
-      display: { id: link.displayId, name: link.displayName },
+      display: { id: link.displayId, name: link.displayName, schedules: link.schedules },
       displayCount: links.length,
     })
     for (const { topic, payload } of messages) send(link, topic, topic, payload)
@@ -225,9 +228,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       log.error(`[mqtt] ${link.displayId}: could not read the state: ${describe(error)}`)
       return
     }
-    const entries = [
-      ...Object.entries(statePayloads(state, now(), timeZone)) as [StateTopic, string][],
-      [PI_SCREEN_TOPIC, piScreenPayload(state)] as [typeof PI_SCREEN_TOPIC, string],
+    const entries: [string, string][] = [
+      ...Object.entries(statePayloads(state, now(), timeZone)),
+      ...Object.entries(schedulePayloads(state, link.schedules.map(schedule => schedule.id))),
+      [PI_SCREEN_TOPIC, piScreenPayload(state)],
       ...lastSyncEntry(link),
       ...specialDayEntry(link),
     ]
@@ -252,6 +256,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     publish(link, AVAILABILITY_TOPIC, ONLINE)
     if (config.discovery) publishDiscovery(link)
     const topics = [...COMMAND_TOPICS, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_ILLUMINANCE_TOPIC].map(suffix => topicFor(link.displayId, suffix))
+    // One wildcard rather than a topic per schedule: a switch published for an id the display doesn't have (a typo, or a
+    // schedule since removed from the config) then gets a warning, where a topic per schedule would drop it silently.
+    // Without schedules there is nothing to switch, so nothing is subscribed.
+    if (link.schedules.length > 0) topics.push(topicFor(link.displayId, scheduleTopic('+', 'set')))
     // Home Assistant's birth message is how it asks for the configs again after a restart.
     if (config.discovery) topics.push(birthTopic(config.discovery_prefix))
     client.subscribe(topics, { qos: 1 }, (error, granted) => {
@@ -348,6 +356,28 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
   }
 
+  /** A schedule's switch from Home Assistant. Retained messages are ignored like every other set topic's, and an id the display doesn't have is warned about and ignored. */
+  function onSchedule(link: Link, topic: string, scheduleId: string, payload: string, retained: boolean): void {
+    if (retained) {
+      log.warn(`[mqtt] ${link.displayId}: ignored the retained message on ${topic} (publish an empty retained message there to remove it)`)
+      return
+    }
+    if (!link.schedules.some(schedule => schedule.id === scheduleId)) {
+      log.warn(`[mqtt] ${link.displayId}: ignored a message: ${topic}: the display has no schedule ${JSON.stringify(scheduleId)}`)
+      return
+    }
+    const parsed = parseSchedulePayload(scheduleId, payload)
+    if (!parsed.ok) {
+      log.warn(`[mqtt] ${link.displayId}: ignored a message: ${parsed.reason}`)
+      return
+    }
+    try {
+      control.applyCommand(link.displayId, parsed.command)
+    } catch (error) {
+      log.error(`[mqtt] ${link.displayId}: could not apply the command from ${scheduleTopic(scheduleId, 'set')}: ${describe(error)}`)
+    }
+  }
+
   function onMessage(link: Link, topic: string, payload: Buffer, retained: boolean): void {
     if (config.discovery && topic === birthTopic(config.discovery_prefix)) {
       // A retained `online` is old news: the connect that subscribed has just published every config.
@@ -367,6 +397,11 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
     if (topic === topicFor(link.displayId, PI_ILLUMINANCE_TOPIC)) {
       onIlluminance(link, topic, payload.toString('utf8'), retained)
+      return
+    }
+    const parsedSchedule = parseScheduleTopic(topic)
+    if (parsedSchedule) {
+      if (parsedSchedule.displayId === link.displayId) onSchedule(link, topic, parsedSchedule.scheduleId, payload.toString('utf8'), retained)
       return
     }
     const parsedTopic = parseCommandTopic(topic)

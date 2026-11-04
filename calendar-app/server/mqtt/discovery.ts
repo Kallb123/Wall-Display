@@ -1,6 +1,6 @@
 import { PHOTO_SOURCES, SCREEN_STATES, VIEWS } from '../../shared/display'
-import { AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, OFFLINE, ONLINE, onOffPayload, SPECIAL_DAY_TOPIC, topicFor } from './topics'
-import type { CommandTopic, StateTopic } from './topics'
+import { AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, OFFLINE, ONLINE, onOffPayload, scheduleTopic, SPECIAL_DAY_TOPIC, topicFor } from './topics'
+import type { CommandTopic, ScheduleSuffix, StateTopic } from './topics'
 
 // What Home Assistant needs to show a display as a device (MQTT discovery,
 // architecture §7.3): one config message per entity. Pure: no I/O. client.ts
@@ -19,7 +19,8 @@ export interface DiscoveryMessage {
 export interface DiscoveryOptions {
   /** Home Assistant's discovery prefix, `homeassistant` unless the config says otherwise. */
   prefix: string
-  display: { id: string, name: string }
+  /** The schedules are the display's built-in ones (config order): each gets a switch. */
+  display: { id: string, name: string, schedules?: readonly { id: string, name: string }[] }
   /** How many displays the config has. With one the device is "Wall Calendar", and with more it is "Wall Calendar <display name>", so they can be told apart. */
   displayCount: number
 }
@@ -59,7 +60,7 @@ function switchPayloads(on: string, off: string): Record<string, string> {
   return { payload_on: on, payload_off: off, state_on: on, state_off: off }
 }
 
-function entitiesFor(topic: (suffix: KnownTopic) => string): Entity[] {
+function entitiesFor(topic: (suffix: KnownTopic | ScheduleSuffix) => string, schedules: readonly { id: string, name: string }[]): Entity[] {
   const [screenOn, screenOff] = SCREEN_STATES
   const [on, off] = [onOffPayload(true), onOffPayload(false)]
 
@@ -178,18 +179,29 @@ function entitiesFor(topic: (suffix: KnownTopic) => string): Entity[] {
       icon: 'mdi:party-popper',
       config: { state_topic: topic(SPECIAL_DAY_TOPIC) },
     },
+    // One switch per schedule. The topics are built from the id, so they are not `KnownTopic`s. The object id swaps
+    // hyphens for underscores, which Home Assistant allows in an entity id and a schedule id has instead of them.
+    ...schedules.map((schedule): Entity => ({
+      component: 'switch',
+      objectId: `schedule_${schedule.id.replaceAll('-', '_')}`,
+      name: `Schedule ${schedule.name}`,
+      icon: 'mdi:calendar-clock',
+      config: { command_topic: topic(scheduleTopic(schedule.id, 'set')), state_topic: topic(scheduleTopic(schedule.id, 'state')), ...switchPayloads(on, off), entity_category: 'config' },
+    })),
   ]
 }
 
 /**
  * Every discovery message for one display, in a fixed order: `<prefix>/<component>/wallcal_<display id>/<object id>/config`
  * with the config as JSON. Publish them retained, so Home Assistant has them even if it starts after the app.
- * Each entity goes offline with the app (the availability topic and its last will), and all share one device.
+ * A schedule removed from the config is not cleared: its switch stays in Home Assistant, unavailable or stale, until
+ * it is deleted there (an empty retained message on its config topic would do it, but the app doesn't remember
+ * which schedules it used to have). Each entity goes offline with the app (the availability topic and its last will), and all share one device.
  */
 export function discoveryMessages(options: DiscoveryOptions): DiscoveryMessage[] {
   const { prefix, display, displayCount } = options
   const node = `wallcal_${display.id}`
-  const topic = (suffix: KnownTopic): string => topicFor(display.id, suffix)
+  const topic = (suffix: KnownTopic | ScheduleSuffix): string => topicFor(display.id, suffix)
 
   const device = {
     identifiers: [node],
@@ -198,7 +210,7 @@ export function discoveryMessages(options: DiscoveryOptions): DiscoveryMessage[]
     model: 'Wall Calendar',
   }
 
-  return entitiesFor(topic).map((entity) => {
+  return entitiesFor(topic, display.schedules ?? []).map((entity) => {
     const config = {
       name: entity.name,
       unique_id: `${node}_${entity.objectId}`,

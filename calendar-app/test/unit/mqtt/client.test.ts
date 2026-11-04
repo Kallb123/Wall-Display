@@ -106,7 +106,9 @@ function emitSpecialDays(bus: EventBus): void {
   bus.emit('special_days.updated', { specialDays: { today: '2026-10-28', from: '2026-08-28', to: '2026-12-31', tiles: [], current: null, takeover: null } })
 }
 
-function setup(options: { displays?: string[], config?: MqttConfig, button?: ButtonConfig, presence?: { report: (displayId: string, present: boolean | null) => void }, brightness?: { report: (displayId: string, lux: number) => void }, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
+const SCHEDULES = [{ id: 'mornings', name: 'Morning agenda' }, { id: 'daytime-photos', name: 'Daytime photos' }]
+
+function setup(options: { displays?: string[], schedules?: Record<string, { id: string, name: string }[]>, config?: MqttConfig, button?: ButtonConfig, presence?: { report: (displayId: string, present: boolean | null) => void }, brightness?: { report: (displayId: string, lux: number) => void }, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
   const displays = options.displays ?? ['hallway']
   const bus = createEventBus()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -136,7 +138,7 @@ function setup(options: { displays?: string[], config?: MqttConfig, button?: But
   const bridge = createMqttBridge({
     config: options.config ?? CONFIG,
     // The name is the id with a capital: hallway is "Hallway".
-    displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) })),
+    displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1), schedules: options.schedules?.[id] })),
     lastSync: options.lastSync,
     specialDay: options.specialDay,
     timeZone: 'Europe/London',
@@ -1674,5 +1676,157 @@ describe('stop', () => {
     await bridge.stop()
 
     expect(client().payloadsOn('wallcal/hallway/availability')).toEqual(['online', 'offline'])
+  })
+})
+
+describe('schedules', () => {
+  const schedules = { hallway: SCHEDULES }
+
+  it('subscribes to the schedule switches with one wildcard, and only for a display that has schedules', () => {
+    const { client } = setup({ displays: ['hallway', 'kitchen'], schedules, config: { ...CONFIG, discovery: false } })
+
+    client('hallway').up()
+    client('kitchen').up()
+
+    expect(client('hallway').subscribed).toEqual([{ topics: [...OWN_TOPICS, 'wallcal/hallway/schedule/+/set'], qos: 1 }])
+    expect(client('kitchen').subscribed).toEqual([{ topics: OWN_TOPICS.map(topic => topic.replace('hallway', 'kitchen')), qos: 1 }])
+  })
+
+  it('publishes each schedule\'s state on connect, retained at QoS 1, after the other state', () => {
+    const { client } = setup({ schedules, config: { ...CONFIG, discovery: false } })
+
+    client().up()
+
+    const topics = client().published.map(message => message.topic)
+    expect(topics).toEqual([
+      'wallcal/hallway/availability',
+      ...STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`),
+      'wallcal/hallway/schedule/mornings/state',
+      'wallcal/hallway/schedule/daytime-photos/state',
+      'wallcal/hallway/pi/screen/set',
+    ])
+    expect(client().payloadsOn('wallcal/hallway/schedule/mornings/state')).toEqual(['ON'])
+    expect(client().published.filter(message => message.topic.includes('/schedule/')).every(message => message.qos === 1 && message.retain)).toBe(true)
+  })
+
+  it('publishes a switch for each schedule in the discovery configs', () => {
+    const { client } = setup({ schedules })
+
+    client().up()
+
+    const switches = client().published.filter(message => message.topic.startsWith('homeassistant/switch/wallcal_hallway/schedule_'))
+    expect(switches.map(message => message.topic)).toEqual([
+      'homeassistant/switch/wallcal_hallway/schedule_mornings/config',
+      'homeassistant/switch/wallcal_hallway/schedule_daytime_photos/config',
+    ])
+  })
+
+  it('turns a schedule off and on from its set topic, and publishes the state only when it changes', () => {
+    const { client, control } = setup({ schedules })
+    client().up()
+    client().clear()
+
+    client().message('wallcal/hallway/schedule/daytime-photos/set', 'OFF')
+
+    expect(control.applyCommand).toHaveBeenLastCalledWith('hallway', { type: 'set_schedule', schedule: 'daytime-photos', on: false })
+    expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([['wallcal/hallway/schedule/daytime-photos/state', 'OFF']])
+
+    client().clear()
+    client().message('wallcal/hallway/schedule/daytime-photos/set', 'OFF')
+    expect(client().published).toEqual([])
+
+    client().message('wallcal/hallway/schedule/daytime-photos/set', 'ON')
+    expect(control.applyCommand).toHaveBeenLastCalledWith('hallway', { type: 'set_schedule', schedule: 'daytime-photos', on: true })
+    expect(client().payloadsOn('wallcal/hallway/schedule/daytime-photos/state')).toEqual(['ON'])
+    expect(client().payloadsOn('wallcal/hallway/schedule/mornings/state')).toEqual([])
+  })
+
+  it('publishes the state again when something other than the topic turns a schedule off', () => {
+    const { client, control } = setup({ schedules })
+    client().up()
+    client().clear()
+
+    control.applyCommand('hallway', { type: 'set_schedule', schedule: 'mornings', on: false })
+
+    expect(client().payloadsOn('wallcal/hallway/schedule/mornings/state')).toEqual(['OFF'])
+  })
+
+  it('publishes every schedule\'s state again after a reconnect', () => {
+    const { client, control } = setup({ schedules })
+    client().up()
+    control.applyCommand('hallway', { type: 'set_schedule', schedule: 'mornings', on: false })
+    client().down()
+    client().clear()
+
+    client().up()
+
+    expect(client().payloadsOn('wallcal/hallway/schedule/mornings/state')).toEqual(['OFF'])
+    expect(client().payloadsOn('wallcal/hallway/schedule/daytime-photos/state')).toEqual(['ON'])
+  })
+
+  it('ignores a retained message on a set topic, with a warning', () => {
+    const { client, control, log } = setup({ schedules })
+    client().up()
+
+    client().message('wallcal/hallway/schedule/mornings/set', 'OFF', true)
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0]![0]).toContain('ignored the retained message on wallcal/hallway/schedule/mornings/set')
+  })
+
+  it('warns about a schedule the display does not have, and applies nothing', () => {
+    const { client, control, log } = setup({ schedules })
+    client().up()
+
+    client().message('wallcal/hallway/schedule/evenings/set', 'OFF')
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0]![0]).toBe('[mqtt] hallway: ignored a message: wallcal/hallway/schedule/evenings/set: the display has no schedule "evenings"')
+  })
+
+  it('warns about a payload that is not ON or OFF, quoting it, and applies nothing', () => {
+    const { client, control, log } = setup({ schedules })
+    client().up()
+
+    client().message('wallcal/hallway/schedule/mornings/set', 'on')
+    client().message('wallcal/hallway/schedule/mornings/set', '')
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn.mock.calls.map(call => call[0])).toEqual([
+      '[mqtt] hallway: ignored a message: schedule/mornings/set: must be ON or OFF (got "on")',
+      '[mqtt] hallway: ignored a message: schedule/mornings/set: must be ON or OFF (got "")',
+    ])
+  })
+
+  it('ignores another display\'s schedule topic, and topics that are not a schedule switch, without a word', () => {
+    const { client, control, log } = setup({ displays: ['hallway', 'kitchen'], schedules: { hallway: SCHEDULES, kitchen: SCHEDULES } })
+    client('hallway').up()
+
+    client('hallway').message('wallcal/kitchen/schedule/mornings/set', 'OFF')
+    client('hallway').message('wallcal/hallway/schedule/mornings/state', 'OFF')
+    client('hallway').message('wallcal/hallway/schedule/Mornings/set', 'OFF')
+    client('hallway').message('wallcal/hallway/schedule/mornings/set/extra', 'OFF')
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('logs a command the control refuses, and carries on', () => {
+    const { client, control, log } = setup({ schedules })
+    client().up()
+    control.applyCommand.mockImplementationOnce(() => { throw new Error('no such schedule') })
+
+    expect(() => client().message('wallcal/hallway/schedule/mornings/set', 'OFF')).not.toThrow()
+
+    expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not apply the command from schedule/mornings/set: no such schedule')
+  })
+
+  it('publishes no schedule topics and adds no switches for a display without schedules', () => {
+    const { client } = setup()
+    client().up()
+
+    expect(client().published.some(message => message.topic.includes('schedule'))).toBe(false)
   })
 })

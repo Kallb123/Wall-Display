@@ -359,6 +359,55 @@
         ""
       ]
     },
+    "schedule/{schedule_id}/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Turns one of the display's built-in schedules on or off (the schedule's rules stop or start changing the view). {schedule_id} is the schedule's id from the config, lowercase letters, digits and hyphens, and there is one topic for each schedule the display has. Upper case, as Home Assistant switches send it. A message for an id the display doesn't have is ignored.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ]
+        }
+      },
+      "examples": [
+        "ON",
+        "OFF"
+      ],
+      "invalid_examples": [
+        "on",
+        "true",
+        "1",
+        ""
+      ]
+    },
+    "schedule/{schedule_id}/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "Whether the schedule is on, for each schedule the display has.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ]
+        }
+      },
+      "examples": [
+        "ON",
+        "OFF"
+      ],
+      "invalid_examples": [
+        "on",
+        "true",
+        ""
+      ]
+    },
     "overlay/set": {
       "direction": "to_app",
       "retained": false,

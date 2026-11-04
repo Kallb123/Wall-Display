@@ -22,7 +22,7 @@ test('26 October to 1 November 2026, light theme', async ({ page }) => {
   await expect(page.locator('[data-testid="day-tile"][data-today="true"]')).toHaveAttribute('data-date', '2026-10-28')
   await expect(page.getByTestId('now-line')).toBeVisible()
   await expect(page.getByTestId('now-time')).toHaveText('09:41')
-  await expect(page.getByTestId('veil')).toHaveCount(2)
+  await expect(page.getByTestId('veil')).toHaveCount(1)
   await expect(page.locator('[data-kind="block"]:not([data-tracks="1"])').first()).toBeVisible()
   await expect(page).toHaveScreenshot('week-light.png')
 })

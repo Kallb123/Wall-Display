@@ -51,6 +51,9 @@ const layout = computed(() => weekLayout({
   events: props.events,
 }))
 
+/** How many days of the shown week are before today: the columns the veil covers. */
+const pastDays = computed(() => layout.value.days.filter(day => day.past).length)
+
 /** `26 October – 1 November` and `2026`, so the year can be muted as in the month's title. A title that spans two years keeps the first one in the text. */
 const title = computed(() => {
   const match = /^(.*) (\d{4})$/.exec(layout.value.title)
@@ -361,12 +364,11 @@ const BAND_SHOWN = 1
         </div>
       </div>
 
-      <!-- Last, so they are over the tiles and what is on them. -->
+      <!-- Last, so it is over the tiles and what is on them. One strip across the past days, as in the month, so the gaps between them (where a bar runs on) are veiled too. Past days always come first in the week. -->
       <div
-        v-for="day in layout.days.filter(candidate => candidate.past)"
-        :key="`veil-${day.date}`"
+        v-if="pastDays > 0"
         class="veil"
-        :style="{ gridColumn: day.column + 2 }"
+        :style="{ gridColumn: `2 / span ${pastDays}` }"
         data-testid="veil"
       />
     </div>

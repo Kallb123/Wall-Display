@@ -48,8 +48,10 @@ describe('WeekView', () => {
     expect(tiles.map(day => day.attributes('data-date'))).toEqual(['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01'])
     expect(tiles.filter(day => day.attributes('data-today') === 'true').map(day => day.attributes('data-date'))).toEqual(['2026-10-28'])
     expect(wrapper.find('[data-testid="today-number"]').text()).toBe('28')
-    // The days before today are veiled.
-    expect(wrapper.findAll('[data-testid="veil"]')).toHaveLength(2)
+    // The days before today are veiled, as one strip that covers the gap between them.
+    const veils = wrapper.findAll('[data-testid="veil"]')
+    expect(veils).toHaveLength(1)
+    expect(veils[0]!.attributes('style')).toContain('grid-column: 2 / span 2')
   })
 
   it('titles the week, with the year apart', async () => {

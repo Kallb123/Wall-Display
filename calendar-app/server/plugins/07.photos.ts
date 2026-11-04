@@ -11,7 +11,8 @@ import type { PhotoProvider } from '../photos/types'
 // missing source never delays the boot, and keeps the cache of rendered photos
 // that `GET /api/photos/next` hands out, and runs the rotation: while a display
 // is on the photo view, a timer tells it to move on every `interval_seconds`.
-// Without the block it does nothing and the photo frame has nothing to show.
+// The interval follows the settings page: a saved change restarts the running
+// timers with the new one. Without the block it does nothing and the photo frame has nothing to show.
 export default defineNitroPlugin((nitroApp) => {
   // A hot reload runs this again in the same process, so stop the old service first.
   getPhotos()?.stop()
@@ -19,7 +20,8 @@ export default defineNitroPlugin((nitroApp) => {
   getPhotoRotation()?.stop()
   setPhotoRotation(undefined)
 
-  const { photos } = useConfig()
+  const settings = useSettings()
+  const { photos } = settings.config()
   if (!photos) {
     console.info('[photos] off: no photos block in the config')
     return
@@ -52,14 +54,20 @@ export default defineNitroPlugin((nitroApp) => {
   const rotation = control
     ? startPhotoRotation({
         bus: useEventBus(),
-        displayIds: useConfig().displays.map(display => display.id),
+        displayIds: settings.config().displays.map(display => display.id),
         getState: displayId => control.getState(displayId),
         intervalSeconds: photos.interval_seconds,
       })
     : undefined
   setPhotoRotation(rotation)
+  // `photos` is not editable as a block, so it is still there; only the interval can change.
+  const unsubscribe = useEventBus().on('settings.updated', ({ shared }) => {
+    const interval = settings.config().photos?.interval_seconds
+    if (shared && interval !== undefined) rotation?.setIntervalSeconds(interval)
+  })
 
   nitroApp.hooks.hook('close', () => {
+    unsubscribe()
     service.stop()
     if (getPhotos() === service) setPhotos(undefined)
     rotation?.stop()

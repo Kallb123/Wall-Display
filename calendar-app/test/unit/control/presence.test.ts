@@ -598,3 +598,105 @@ describe('displays and stopping', () => {
     expect(log.error).toHaveBeenCalledWith('[presence] hallway: could not read the state: no such display')
   })
 })
+
+describe('setConfig', () => {
+  const quiet = { from: '22:00', to: '07:00' }
+
+  it('applies a longer limit to a wait already running, counted from when nobody was seen', () => {
+    const { policy, screen } = setup()
+    policy.report('hallway', false)
+    vi.advanceTimersByTime(6 * MINUTE)
+
+    policy.setConfig({ off_after_minutes: 20 })
+    vi.advanceTimersByTime(13 * MINUTE + 59_000)
+    expect(screen()).toBe('on')
+    vi.advanceTimersByTime(1000)
+
+    expect(screen()).toBe('off')
+  })
+
+  it('applies a shorter limit to the time left', () => {
+    const { policy, screen } = setup()
+    policy.report('hallway', false)
+    vi.advanceTimersByTime(4 * MINUTE)
+
+    policy.setConfig({ off_after_minutes: 6 })
+    vi.advanceTimersByTime(2 * MINUTE - 1)
+    expect(screen()).toBe('on')
+    vi.advanceTimersByTime(1)
+
+    expect(screen()).toBe('off')
+  })
+
+  it('turns the screen off promptly when the new limit has already passed', () => {
+    const { policy, screen, applied } = setup()
+    policy.report('hallway', false)
+    vi.advanceTimersByTime(8 * MINUTE)
+
+    policy.setConfig({ off_after_minutes: 5 })
+    expect(screen()).toBe('on')
+    vi.advanceTimersByTime(0)
+
+    expect(screen()).toBe('off')
+    expect(applied()).toEqual([['hallway', SCREEN_OFF]])
+  })
+
+  it('still holds the screen for quiet hours when the new limit has already passed', () => {
+    vi.setSystemTime(new Date('2026-12-02T21:55:00Z'))
+    const { policy, screen } = setup({ quiet, offAfter: 60 })
+    policy.report('hallway', false)
+    vi.advanceTimersByTime(10 * MINUTE)
+
+    policy.setConfig({ off_after_minutes: 5, quiet_hours: quiet })
+    vi.advanceTimersByTime(HOUR)
+    expect(screen()).toBe('on')
+  })
+
+  it('reads new quiet hours live: removing them lets a held screen go off at the next check', () => {
+    vi.setSystemTime(new Date('2026-12-02T21:55:00Z'))
+    const { policy, screen } = setup({ quiet })
+    policy.report('hallway', false)
+    vi.advanceTimersByTime(OFF_AFTER * MINUTE)
+    expect(screen()).toBe('on')
+
+    policy.setConfig({ off_after_minutes: OFF_AFTER })
+    vi.advanceTimersByTime(0)
+
+    expect(screen()).toBe('off')
+  })
+
+  it('applies new quiet hours to someone arriving at a dark screen', () => {
+    vi.setSystemTime(new Date('2026-12-02T23:00:00Z'))
+    const { policy, screen } = setup({ state: { screen: 'off' } })
+
+    policy.setConfig({ off_after_minutes: OFF_AFTER, quiet_hours: quiet })
+    policy.report('hallway', true)
+
+    expect(screen()).toBe('off')
+  })
+
+  it('uses the new limit for waits that start afterwards', () => {
+    const { policy, screen } = setup()
+    policy.setConfig({ off_after_minutes: 2 })
+
+    policy.report('hallway', false)
+    vi.advanceTimersByTime(2 * MINUTE)
+
+    expect(screen()).toBe('off')
+  })
+
+  it('does nothing for a display with someone there or nothing known, or once stopped', () => {
+    const { policy, screen, applied } = setup({ displays: ['hallway', 'kitchen'] })
+    policy.report('hallway', true)
+    policy.setConfig({ off_after_minutes: 1 })
+    vi.advanceTimersByTime(HOUR)
+    expect(screen()).toBe('on')
+
+    policy.report('kitchen', false)
+    policy.stop()
+    policy.setConfig({ off_after_minutes: 1 })
+    vi.advanceTimersByTime(HOUR)
+    expect(applied()).toEqual([])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})

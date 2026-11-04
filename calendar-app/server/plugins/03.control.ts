@@ -8,7 +8,8 @@ import { getSocketHub } from '../ws/hub'
 // which holds each display's state and runs its timers, then the built-in
 // schedules policy that changes views at set times, and connects the event bus
 // to the WebSocket hub: a state change goes to that display's sockets, changed
-// calendar events go to every socket.
+// calendar events go to every socket. It also follows the settings page: when
+// a display's month return timeout is saved, the control takes it up at once.
 export default defineNitroPlugin((nitroApp) => {
   // A hot reload runs this again in the same process, so stop the old control first.
   getSchedulePolicy()?.stop()
@@ -16,7 +17,9 @@ export default defineNitroPlugin((nitroApp) => {
   getDisplayControl()?.stop()
   setDisplayControl(undefined)
 
-  const config = useConfig()
+  // The effective config: the YAML with the preferences saved on the settings page on top.
+  const settings = useSettings()
+  const config = settings.config()
   const bus = useEventBus()
   const hub = getSocketHub()
 
@@ -35,6 +38,17 @@ export default defineNitroPlugin((nitroApp) => {
   setSchedulePolicy(schedulePolicy)
 
   const unsubscribe = [
+    bus.on('settings.updated', ({ displayIds }) => {
+      for (const displayId of displayIds) {
+        const display = settings.config().displays.find(candidate => candidate.id === displayId)
+        if (!display) continue
+        try {
+          control.updateDisplay(displayId, { month_return_minutes: display.month_return_minutes })
+        } catch (error) {
+          console.error(`[control] ${displayId}: could not apply the saved settings: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }),
     bus.on('state.updated', ({ displayId, state }) => {
       hub.sendToDisplay(displayId, { type: 'state.updated', display_id: displayId, state })
     }),

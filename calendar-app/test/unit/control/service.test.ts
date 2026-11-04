@@ -467,3 +467,78 @@ describe('the store', () => {
     expect(loadDisplayState(handle.db, 'kitchen')).toBeUndefined()
   })
 })
+
+describe('updateDisplay', () => {
+  it('re-arms the timer for a longer limit', () => {
+    const { control, stateUpdates } = setup()
+    control.applyCommand('hallway', setMonth('2026-12'))
+    stateUpdates.mockClear()
+
+    control.updateDisplay('hallway', { month_return_minutes: 30 })
+    vi.advanceTimersByTime(RETURN_MINUTES * MINUTE)
+    expect(stateUpdates).not.toHaveBeenCalled()
+    expect(control.getState('hallway').month).toBe('2026-12')
+
+    vi.advanceTimersByTime((30 - RETURN_MINUTES) * MINUTE)
+    expect(stateUpdates).toHaveBeenCalledTimes(1)
+    expect(control.getState('hallway').month).toBeNull()
+  })
+
+  it('re-arms the timer for a shorter limit, counted from when the month was pinned', () => {
+    const { control, stateUpdates } = setup()
+    control.applyCommand('hallway', setMonth('2026-12'))
+    vi.advanceTimersByTime(4 * MINUTE)
+    stateUpdates.mockClear()
+
+    control.updateDisplay('hallway', { month_return_minutes: 10 })
+    expect(stateUpdates).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(6 * MINUTE - 1)
+    expect(stateUpdates).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+
+    expect(stateUpdates).toHaveBeenCalledTimes(1)
+    expect(control.getState('hallway').month).toBeNull()
+  })
+
+  it('reverts at once a month pinned for longer than the new limit, storing and announcing it', () => {
+    const { control, handle, stateUpdates } = setup()
+    control.applyCommand('hallway', setMonth('2026-12'))
+    vi.advanceTimersByTime(10 * MINUTE)
+    stateUpdates.mockClear()
+
+    control.updateDisplay('hallway', { month_return_minutes: 5 })
+
+    expect(stateUpdates).toHaveBeenCalledTimes(1)
+    expect(stateUpdates).toHaveBeenCalledWith({ displayId: 'hallway', state: expect.objectContaining({ month: null, month_set_at: null }) })
+    expect(loadDisplayState(handle.db, 'hallway')!.month).toBeNull()
+  })
+
+  it('uses the new limit for a month pinned afterwards, and leaves other displays alone', () => {
+    const { control } = setup()
+    control.updateDisplay('hallway', { month_return_minutes: 1 })
+    control.applyCommand('hallway', setMonth('2026-12'))
+    control.applyCommand('kitchen', setMonth('2026-12'))
+
+    vi.advanceTimersByTime(MINUTE)
+    expect(control.getState('hallway').month).toBeNull()
+    expect(control.getState('kitchen').month).toBe('2026-12')
+    vi.advanceTimersByTime(4 * MINUTE)
+    expect(control.getState('kitchen').month).toBeNull()
+  })
+
+  it('changes nothing visible when no month is pinned', () => {
+    const { control, stateUpdates } = setup()
+    stateUpdates.mockClear()
+
+    control.updateDisplay('hallway', { month_return_minutes: 1 })
+
+    expect(stateUpdates).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('throws for an unknown display', () => {
+    const { control } = setup()
+
+    expect(() => control.updateDisplay('garage', { month_return_minutes: 5 })).toThrow(UnknownDisplayError)
+  })
+})

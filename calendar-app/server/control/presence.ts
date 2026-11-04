@@ -13,7 +13,10 @@ import type { DisplayControl } from './service'
 // them. HA's "Auto presence" switch (the display's `auto_presence` setting)
 // turns the whole policy off, and quiet hours leave the screen alone in both
 // directions. Everything it touches is injected, so a test uses a fake bus,
-// fake timers and a fake control.
+// fake timers and a fake control. The limit and the quiet hours can be changed
+// while it runs (`setConfig`, from the settings page): a wait already running is
+// worked out again from when nobody was last seen, so a lowered limit that has
+// already passed turns the screen off promptly (quiet hours permitting).
 
 type AutoPresenceConfig = PoliciesConfig['auto_presence']
 
@@ -62,6 +65,8 @@ export interface PresencePolicyOptions {
 export interface PresencePolicy {
   /** What the sensor says now: someone there, nobody, or `null` when it is not known (the retained value was cleared). A repeat of what it already said does nothing. */
   report: (displayId: string, present: boolean | null) => void
+  /** Replaces the config. A wait already running is re-armed against the new `off_after_minutes`, counted from when nobody was last seen (so it can fire at once, unless quiet hours hold it); quiet hours are read live at each check. */
+  setConfig: (config: AutoPresenceConfig) => void
   /** Cancels every timer and stops listening to the bus. Later reports do nothing. */
   stop: () => void
 }
@@ -77,8 +82,9 @@ interface Watch {
 }
 
 export function createPresencePolicy(options: PresencePolicyOptions): PresencePolicy {
-  const { config, timeZone, control, bus, now = () => new Date(), log = console } = options
-  const offAfterMs = config.off_after_minutes * MINUTE_MS
+  const { timeZone, control, bus, now = () => new Date(), log = console } = options
+  let config = options.config
+  let offAfterMs = config.off_after_minutes * MINUTE_MS
   const watches = new Map<string, Watch>(options.displays.map(id => [id, { present: null, offSince: null, seen: undefined, timer: undefined }]))
   let stopped = false
 
@@ -217,6 +223,20 @@ export function createPresencePolicy(options: PresencePolicyOptions): PresencePo
         someoneThere(displayId, watch)
       } else {
         nobodyThere(displayId, watch)
+      }
+    },
+
+    setConfig(next) {
+      config = next
+      offAfterMs = next.off_after_minutes * MINUTE_MS
+      if (stopped) return
+      for (const [displayId, watch] of watches) {
+        if (watch.present !== false) continue
+        try {
+          arm(displayId, watch, control.getState(displayId))
+        } catch (error) {
+          log.error(`[presence] ${displayId}: could not check the screen: ${describe(error)}`)
+        }
       }
     },
 

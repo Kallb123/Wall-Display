@@ -8,7 +8,10 @@ import { loadDisplayState, saveDisplayState } from './store'
 
 // Holds each display's state: applies commands, stores the result, tells the
 // rest of the app, and runs the timer that reverts a pinned month or clears
-// an overlay. The rules themselves are in commands.ts. Everything the service
+// an overlay. The rules themselves are in commands.ts. The month return timeout
+// can be changed while it runs (`updateDisplay`, from the settings page): a month
+// pinned for longer than the new limit reverts at once, and any other timer is
+// re-armed for the new limit, with no restart. Everything the service
 // touches comes in through the options, so a test uses fake timers and an
 // in-memory database.
 
@@ -35,6 +38,10 @@ export interface DisplayControl {
   hasSchedule: (displayId: string, scheduleId: string) => boolean
   /** Applies `command`, stores the new state, broadcasts it, and returns it. Throws `UnknownDisplayError`, and `UnknownScheduleError` for a `set_schedule` the display has no schedule for. */
   applyCommand: (displayId: string, command: ControlCommand) => DisplayState
+  /**
+   * Changes the display's month return timeout, which takes effect at once: the state is settled (a month pinned longer ago than the new limit reverts now, and is stored and broadcast like any other change) and the timer is re-armed for the new limit. Throws `UnknownDisplayError`.
+   */
+  updateDisplay: (displayId: string, update: { month_return_minutes: number }) => void
   /** Cancels every timer. Later commands still work, but nothing reverts on its own. */
   stop: () => void
 }
@@ -147,6 +154,13 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
         })
       }
       return states.get(displayId)!
+    },
+    updateDisplay(displayId, update) {
+      assertKnown(displayId)
+      monthReturnMinutes.set(displayId, update.month_return_minutes)
+      settle(displayId)
+      // A commit has re-armed it already; otherwise the timer still counts for the old limit.
+      schedule(displayId)
     },
     stop() {
       stopped = true

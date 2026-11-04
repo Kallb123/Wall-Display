@@ -454,7 +454,7 @@ The app holds one state document per display (multiple displays are supported vi
 - `schedule` is `null` unless a schedule window is in charge of the view. Then it is `{ "schedule": "mornings", "rule": 0, "view": "agenda", "return_view": "month" }`: the schedule's id, the index of its rule, the view the window put on the wall and the view to go back to at its end. The command handler drops it as soon as the view is anything but `view`, or the schedule is turned off (§7.8). A state stored before the field existed gets `null`.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
-- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `week_hours`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), live in config (and later in the settings page), not in this state.
+- Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `week_hours`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), are not in this state. They come from config, and the settings page's Displays tab can change them while the app runs, as preferences stored on top of the config (§7.6).
 
 Every input changes this state through the same command handler. Every change is broadcast to the display (WebSocket), to the remote page (WebSocket) and to HA (MQTT state topics). This keeps all inputs in sync.
 
@@ -625,7 +625,7 @@ It talks to the same command handler as MQTT, so it works even if HA is down. It
 | Calendars | Each calendar with its default person, whether name detection is on, source type, last sync and last error. "Refresh now". A list of recent events that fell back to the default person, with their titles, so you can add a rule or an alias. |
 | Photos | Read-only: each photo source with its mode or folder, photo and cached counts, last listing and last error; the cache size against `cache_max_mb`; the interval and `landscape_only`. "Refresh now" lists the sources again. The Google Photos picker flow (§5.3) is not built yet. |
 | Special days | The special days editor (below). |
-| Displays | Each display's live state, connection and per-display preferences. "Republish discovery". |
+| Displays | Each display's live state and connection, its preferences (editable), and the preferences every display shares (editable). "Republish discovery". |
 
 **Special days editor.** The left column has a **Days** / **Scenes** switch above its list.
 
@@ -646,9 +646,18 @@ On a day with a scene, each field shows the scene's value, marked "From Birthday
 
 A selected scene has the same art, lead, takeover, greeting and palette fields, without a date, plus the list of days that use it, each a link to that day. It has **Delete** (or **Copy into days and delete** when it is in use), **Duplicate**, **Preview on wall** and **Save**. Saving a scene says how many days it changes.
 
-Sources and secrets stay in YAML. Special days and scenes, and later the display preferences, are stored in SQLite and edited here. The PIN that protects the remote also protects every write route under `/api` used by the settings pages, uploads included (§7.5: one middleware guards every non-GET request there).
+**Preferences.** The Displays tab edits the settings that are worth changing while the app runs, without touching `config.yaml`:
 
-**Settings API.** The pages read four open routes, none of which carries a secret (no feed URL, Home Assistant URL or token, MQTT username or password, Immich API key or PIN), and use two writes. Their shapes are in `shared/settings.ts`:
+- for each display: `theme`, `month_style`, `week_start`, `month_return_minutes`, `week_hours`, `burn_in` and `night_text`;
+- for every display: the photo frame's `photos.interval_seconds`, and the policies' thresholds (§7.7): auto presence's `off_after_minutes` and `quiet_hours`, and auto brightness's `night_action`, `night_below_lux`, `night_above_lux`, `min_step` and `smoothing_seconds`. The brightness `curve` stays in YAML.
+
+A saved change is stored in SQLite (`preference_overrides`, one row per display and one shared row, holding only the changed keys) and is laid over the config: it wins over the YAML until it is reset, and the YAML file is never written. Each field shows whether it has a change, with **Reset** to go back to the config's value. The same rules as the config apply, including the ones that look across fields: a night action other than `none` needs `night_below_lux`, `night_above_lux` must be above it, quiet hours' times must differ, `night_text: next_alarm` needs the `alarm` block, and the photo interval needs the `photos` block. A stored change that no longer fits the config (say the `alarm` block has gone) is ignored with a warning in the log, never a failed start.
+
+Every preference takes effect at once, with no restart. The display's page gets its new settings over the socket (`settings.updated`) and redraws, so the theme, week start, week hours, burn-in shifting and night text change on the wall straight away. A new `month_return_minutes` counts from when the month was pinned, so a month pinned longer ago than the new limit goes back at once. A new photo interval restarts the wait on a display that is showing photos. A new `off_after_minutes` applies to a wait already running, counted from when the room went empty. The brightness settings apply from the next reading, and the policy keeps what it remembered, so a wall it put on the night view still comes back when the room is light. The default view is not a preference: the state is stored, so a display only starts from a default once, the first time.
+
+Sources and secrets stay in YAML, as do ids, people, calendars, schedules, the button and MQTT. Special days and scenes, and the preferences, are stored in SQLite and edited here. The PIN that protects the remote also protects every write route under `/api` used by the settings pages, uploads included (§7.5: one middleware guards every non-GET request there).
+
+**Settings API.** The pages read five open routes, none of which carries a secret (no feed URL, Home Assistant URL or token, MQTT username or password, Immich API key or PIN), and use four writes. Their shapes are in `shared/settings.ts`:
 
 - `GET /api/settings/calendars` has each calendar's default person, detection setting, source type, last attempt, last success, last error and event count, from the config and `sync_status`. A calendar that hasn't been tried yet shows nulls. `fallbacks` lists the events that fell back to the default person. `matchedBy` (§3.3) isn't stored, so it is worked out on read: the server takes the calendar's events from 30 days back to 30 days ahead whose stored people are exactly the default person, runs detection on their title and description again, and keeps those that no name or rule matched. A recurring event's instances are grouped by `uid` into one entry with a count, and the 20 nearest to now are returned. It is empty when `detect_people` is `false`.
 - `GET /api/settings/displays` has each display's state, its open sockets by role (`display`, `remote`) and its MQTT link (`off` when there is no `mqtt` block).
@@ -656,6 +665,8 @@ Sources and secrets stay in YAML. Special days and scenes, and later the display
 - `GET /api/settings/photos` has `{ configured: false }` with no `photos` block, otherwise each running photo source (Immich's mode and host only, or the local folder's path, with its pool and cached counts, last successful listing and last error, from `PhotoService.status()`), the cache's bytes against its cap, `interval_seconds`, `landscape_only` and whether a `google` block is being ignored.
 - `POST /api/settings/photos/refresh` ("Refresh now" on the Photos tab) lists every source again, waits, and answers with the same shape. It answers 409 if there is no `photos` block.
 - `POST /api/settings/discovery` ("Republish discovery") publishes the discovery configs again on every connection that is up. It answers 409 if MQTT isn't set up or discovery is off.
+- `GET /api/settings/preferences` has each display's preferences and the shared ones, each as `values` (in force), `config` (what the YAML says) and `changed` (the keys with a saved change), and whether the config has the `photos`, `alarm` and `mqtt` blocks the choices depend on.
+- `PUT /api/settings/preferences/displays/:id` and `PUT /api/settings/preferences/shared` take `{ "set": { … }, "reset": [ … ] }`: values to save, and keys to go back to the config's. They answer with the same shape as the GET. A refused value is a 400 whose `data.fields` has a message per key, and nothing is saved; an unknown display is a 404.
 
 ### 7.7 Built-in policies (work without HA)
 
@@ -682,6 +693,8 @@ These run in the app and each has an HA switch to turn it off. Schedules (§7.8)
   - **While it is on, it owns the brightness.** A brightness set by hand is put back at the next reading, unless it is within `min_step` of the curve. With no readings (the agent is offline, or `sensors.light` is off) nothing changes: the policy has no timers and holds the wall as it was.
 
   The policy applies `set_brightness`, `set_view` and `set_screen` through the same command handler as every other input. It is in `server/control/brightness.ts`. Every view or screen change it makes is logged with the lux that caused it; brightness changes are not, because there would be one every few minutes at dusk. It needs the Pi agent with the light sensor on (`sensors.light`). The HA "Auto brightness" switch turns it off.
+
+The thresholds above (`off_after_minutes`, `quiet_hours`, and every auto brightness setting but the `curve`) can also be changed on the settings page's Displays tab while the app runs (§7.6).
 
 More complex logic, such as "only when someone is home", "not during a film" or tying in with lights, belongs in HA automations. Turn the built-in policy off when HA takes over.
 

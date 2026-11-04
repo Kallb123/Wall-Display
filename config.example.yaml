@@ -79,6 +79,10 @@ weather:
 #   poll_seconds: 300 # default 300; at least 30
 
 # One entry per screen. Open /display?id=hallway on it.
+# theme, month_style, month_return_minutes, week_start, week_hours, burn_in and
+# night_text can also be changed on the /settings Displays tab while the app
+# runs. A change made there is stored in the database on top of this file and
+# wins over it until you press Reset there; this file is never written.
 displays:
   - id: hallway
     name: Hallway
@@ -136,7 +140,9 @@ button:
 remote:
   pin: !secret remote_pin
 
-# Built-in policies. Each can also be switched off from Home Assistant.
+# Built-in policies. Each can also be switched off from Home Assistant. Their
+# thresholds (everything here but the brightness curve) can also be changed on
+# the /settings Displays tab, like the display settings above.
 policies:
   # Needs the Pi agent's presence sensor (sensors.presence in the agent's
   # config), which publishes pi/presence. Presence turns the screen on; nobody
@@ -208,7 +214,7 @@ mqtt:
 # over a blurred copy of themselves) and kept in photos/ in the data folder, so
 # the wall only decodes one image and keeps rotating if a source is down.
 photos:
-  interval_seconds: 60 # at least 5; how long each photo stays while a display is on the photo view
+  interval_seconds: 60 # at least 5; how long each photo stays while a display is on the photo view (also on the /settings Displays tab)
   landscape_only: false # true leaves portrait photos out of the rotation
   cache_max_mb: 2048 # size cap of the rendered photos; the ones shown longest ago go first
   immich: # photos from Immich. Previews only (thumbnail?size=preview), never the originals

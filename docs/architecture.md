@@ -440,6 +440,8 @@ The app holds one state document per display (multiple displays are supported vi
   "brightness": 80,
   "auto_presence": true,
   "auto_brightness": true,
+  "schedules_off": [],
+  "schedule": null,
   "overlay": null,
   "preview": null
 }
@@ -448,6 +450,8 @@ The app holds one state document per display (multiple displays are supported vi
 - `month` is `null` when the month view follows the current month, which is the normal case. Otherwise it is a pinned month such as `"2026-12"`, limited to 12 months either side of today. A pinned month goes back to `null` when the view changes away from `month`, when someone picks the current month, and after `month_return_minutes` with no month change (default 15, set per display). So the wall never stays stuck on another month.
 - `month_set_at` is the time (an ISO 8601 instant) the pinned month was last set. `month_return_minutes` counts from it, and it is `null` whenever `month` is. Every `set_month` that pins a month restarts the count, even for the month already shown. `set_month` also switches the view to `month`, since a month only means something there.
 - `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
+- `schedules_off` lists the ids of the display's schedules that are turned off (§7.8), sorted. It is empty when every schedule is on. A state stored before the field existed gets `[]`.
+- `schedule` is `null` unless a schedule window is in charge of the view. Then it is `{ "schedule": "mornings", "rule": 0, "view": "agenda", "return_view": "month" }`: the schedule's id, the index of its rule, the view the window put on the wall and the view to go back to at its end. The command handler drops it as soon as the view is anything but `view`, or the schedule is turned off (§7.8). A state stored before the field existed gets `null`.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
 - Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `week_hours`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), live in config (and later in the settings page), not in this state.
@@ -464,7 +468,7 @@ Every input changes this state through the same command handler. Every change is
 | Physical button | `pi-agent` → MQTT event → app button mapping (see §7.4) |
 | mmWave presence | `pi-agent` → MQTT (`pi/presence`) → app presence policy (§7.7) and/or HA automations |
 | Ambient light | `pi-agent` → MQTT (`pi/illuminance`) → app auto-brightness policy (§7.7) and/or HA automations |
-| Built-in schedule | App-side rules, for example "agenda 06:30–09:00". Optional. HA can do this too. |
+| Built-in schedule | App-side rules, for example "agenda 06:30–09:00" (§7.8). Optional. HA can do this too. |
 
 ### 7.3 MQTT topics
 
@@ -482,6 +486,7 @@ The base is `wallcal/<display_id>/`.
 | `…/brightness/set` / `state` | ↔ | `0`–`100` |
 | `…/auto_presence/set` / `state` | ↔ | `ON` \| `OFF` |
 | `…/auto_brightness/set` / `state` | ↔ | `ON` \| `OFF` |
+| `…/schedule/<schedule_id>/set` / `state` | ↔ | `ON` \| `OFF`: whether the schedule is on. There is one pair for each schedule in the display's config (§7.8). |
 | `…/overlay/set` | → app | JSON `{ "text": "Bins out tonight", "icon": "trash", "ttl": 3600 }`, or empty to clear |
 | `…/overlay/state` | app → | the overlay's text, or empty when there is none, because it expired or was cleared (retained). The icon and the time left are not published. |
 | `…/photo/next` | → app | (any) |
@@ -515,6 +520,7 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | Brightness | `number` (slider) |
 | Auto presence | `switch` |
 | Auto brightness | `switch` |
+| Schedule <name> | `switch`, one for each schedule in the display's config (§7.8). Turns the schedule on or off. Config category. |
 | Message | `text` (sets the overlay banner, and empties when the banner expires or is cleared) |
 | Next photo | `button` |
 | Refresh calendars | `button` |
@@ -530,6 +536,8 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | Illuminance | `sensor` (lx) |
 | Panel power | `binary_sensor` (actual state, if detectable) |
 | CPU temperature, uptime | diagnostic sensors |
+
+Removing a schedule from the config leaves its switch in HA until you delete it there.
 
 The app also reads HA's REST API, but only for `homeassistant` calendar sources. It also reads a `weather` entity for the weather shown in the month view's side panel, the agenda and the photo frame pill. The server polls it, keeps the last good snapshot and sends changes as `weather.updated`. Without one, those views leave the weather out.
 
@@ -651,7 +659,7 @@ Sources and secrets stay in YAML. Special days and scenes, and later the display
 
 ### 7.7 Built-in policies (work without HA)
 
-These run in the app and each has an HA switch to turn it off:
+These run in the app and each has an HA switch to turn it off. Schedules (§7.8) work the same way, and have their own section:
 
 - **Auto presence.** The app reads `…/pi/presence` and keeps, for each display, whether someone is there (`ON`), nobody is (`OFF`) or it doesn't know (nothing yet, or an empty retained message). The Pi publishes it retained, and the app accepts the retained value, which is how it learns the current state when it connects. The rules, which apply only while `auto_presence` is on:
   - **Presence goes ON.** The wait for the screen to go off is cancelled. If the screen is `off` and it isn't quiet hours, the screen is turned on. A repeated `ON` does nothing.
@@ -676,6 +684,39 @@ These run in the app and each has an HA switch to turn it off:
   The policy applies `set_brightness`, `set_view` and `set_screen` through the same command handler as every other input. It is in `server/control/brightness.ts`. Every view or screen change it makes is logged with the lux that caused it; brightness changes are not, because there would be one every few minutes at dusk. It needs the Pi agent with the light sensor on (`sensors.light`). The HA "Auto brightness" switch turns it off.
 
 More complex logic, such as "only when someone is home", "not during a film" or tying in with lights, belongs in HA automations. Turn the built-in policy off when HA takes over.
+
+### 7.8 Built-in schedules
+
+A display can have schedules: rules that put a view on the wall for part of the day, such as the agenda from 06:30 to 09:00, or the photo frame from 10:00 to 16:00 on weekdays. They run in the app, so they work without MQTT and without HA. Each schedule has an HA switch to turn it off (§7.4).
+
+```yaml
+displays:
+  - id: hallway
+    schedules:
+      - id: mornings
+        name: Morning agenda
+        rules:
+          - { view: agenda, from: "06:30", to: "09:00" }
+      - id: daytime-photos
+        name: Daytime photos
+        rules:
+          - { view: photo, from: "10:00", to: "16:00", days: weekdays }
+```
+
+- **Config.** A schedule has an `id` (a slug, unique within the display), an optional `name` (the id if left out, and the name HA shows) and a list of `rules`. A rule has a `view` (`month`, `week`, `agenda`, `photo` or `night`), `from` and `to` as `"HH:MM"`, and `days`. A `photo` rule needs the `photos` block, as everywhere else.
+- **Days.** `days` is `every_day` (the default), `weekdays`, `weekends`, or a list of `mon` to `sun`. It is stored as a list in week order.
+- **Past midnight.** `from` and `to` must differ. If `from` is later than `to`, the window runs past midnight, such as 22:00 to 06:00, and `days` names the day it starts. So `days: [fri]` with 22:00 to 06:00 runs from Friday 22:00 to Saturday 06:00.
+- **Time zone.** Times are wall-clock times in the config's `timezone` (Europe/London by default), the same as the quiet hours in §7.7. A time the clocks skip on a DST change day moves forward by the gap, and a time that is shown twice is the first one. An occurrence whose end is then not after its start is skipped.
+- **Edge-triggered.** The policy acts only at a window's start and end. Between them it never touches the wall, so a view chosen by hand, from the remote, HA or the button, lasts until the next boundary.
+- **Start.** The wall goes to the rule's `view`, and the state keeps the view it left as `return_view`. If the wall is already on that view, nothing changes and nothing is remembered, because someone chose it.
+- **End.** The wall goes back to `return_view`, but only if the window still holds it, which means nobody has changed the view since it started. If someone has, the wall is left as it is.
+- **Same instant.** Starts are applied before ends, then in config order (the schedules in order, and each one's rules in order). So agenda from 06:30 to 09:00 followed by photos from 09:00 to 16:00 goes from the agenda straight to the photo frame, and the end at 16:00 returns to the view from before 06:30. Overlapping windows chain the same way: a window that starts while another holds the wall takes over its `return_view`, and the first window's end then does nothing, because it no longer holds the wall.
+- **Turned off.** A schedule that is off has its boundaries skipped, and turning it off leaves the wall as it is: a window that is showing stays on its view until someone changes it, and it won't go back. Turning it on again does nothing until its next start. A schedule is turned off with its HA switch, or with `{ "type": "set_schedule", "schedule": "mornings", "on": false }` on the HTTP API. An id the display doesn't have is a 404. The start and end the policy applies are internal: neither the API nor MQTT can send them.
+- **Restart.** A start that came while the app was down is not caught up, so a view someone chose before the restart isn't undone. A window that was showing when the app stopped is looked at again at start. If its rule has gone from the config (the schedule or the rule is missing, or the rule's view differs), or its window is no longer in progress, it is ended at once, so the wall never stays on a scheduled view because the app was down at the end.
+- **Auto brightness.** The night view of `auto_brightness` (§7.7) and a schedule both change the view. Whichever changes it later wins, and each treats the other's change as a change by someone else: a schedule's start while it is dark replaces the night view, and the policy forgets the view it remembered. The end of a window that the night view replaced does nothing.
+- **Logging.** Every switch the policy makes is logged at info, such as `[schedule] hallway: Morning agenda (06:30–09:00) starts, so the wall shows agenda` and `[schedule] hallway: Morning agenda (06:30–09:00) ends, so the wall goes back to month`. A boundary that doesn't change the view isn't logged.
+
+The policy is in `server/control/schedule.ts` and applies its changes through the same command handler as every other input. Anything the rules can't say belongs in HA automations (see the Home Assistant guide). Turn the schedule off when HA takes over.
 
 ## 8. Raspberry Pi
 
@@ -777,7 +818,7 @@ wall-display/
 │   │   ├── special-days/        # resolve.ts, art.ts (uploads, sanitising), midnight.ts
 │   │   ├── weather/             # HA weather entity + forecast cache
 │   │   ├── alarm/               # HA next-alarm entity, polled
-│   │   ├── control/             # state.ts, commands.ts, policies.ts
+│   │   ├── control/             # state.ts, commands.ts, policies.ts, schedule.ts
 │   │   ├── mqtt/                # client.ts, discovery.ts
 │   │   └── db/                  # Drizzle schema + migrations
 │   ├── shared/                  # types and pure logic used by client and server (month-layout.ts, special-days.ts)

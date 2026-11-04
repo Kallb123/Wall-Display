@@ -89,6 +89,26 @@ displays:
     burn_in: true # default true; slowly shift the content and move the photo frame's clock between corners, against burn-in
     night_text: first_event # none (default) | first_event | next_alarm; the line under the night view's clock. next_alarm needs the alarm block above
     week_hours: { from: 7, to: 21 } # the hours the week view draws in full (whole hours, from 0-23 to 1-24); earlier and later hours are folded into a thin band
+    # Optional built-in schedules: rules that put a view on the wall for part of
+    # the day. Each schedule has an id (letters, digits, - and _), an optional
+    # name (default: the id) and rules. A rule is a view, from and to ("HH:MM",
+    # in `timezone`, which must differ) and days. days is every_day (default),
+    # weekdays, weekends or a list such as [mon, wed, fri]. from later than to
+    # wraps past midnight, and days is then the day the window starts. A rule
+    # that needs the photo frame (view: photo) needs the photos block below.
+    # The rules act only at their start and end: at the end the wall goes back to
+    # the view from before the window (if nobody has changed it), and a view
+    # chosen by hand lasts until the next start or end. Each schedule gets a
+    # switch in Home Assistant ("Schedule <name>") to turn it off, for a holiday.
+    schedules:
+      - id: mornings
+        name: Morning agenda
+        rules:
+          - { view: agenda, from: "06:30", to: "09:00" }
+      - id: daytime-photos
+        name: Daytime photos
+        rules:
+          - { view: photo, from: "10:00", to: "16:00", days: weekdays }
 
 # What the physical button does (the Pi agent's button: sensors.button in the
 # agent's config). Each gesture is one of:

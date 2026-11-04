@@ -113,6 +113,7 @@ The entities use names relative to the device, so HA normally generates the IDs 
 | Brightness | `number.wall_calendar_brightness` | A 0–100 % slider. It dims the page with an overlay. It is not the panel's backlight. |
 | Auto presence | `switch.wall_calendar_auto_presence` | Turns the built-in presence policy on or off. Config category. Turn it off when a Home Assistant automation takes over the screen, so the two don't fight (see [Presence, driven by an automation](#presence-driven-by-an-automation-needs-the-pi-agent)). |
 | Auto brightness | `switch.wall_calendar_auto_brightness` | Turns the built-in brightness policy on or off. Config category. Turn it off when a Home Assistant automation sets the brightness, so the two don't fight (see [Brightness, driven by an automation](#brightness-driven-by-an-automation-needs-the-pi-agent)). |
+| Schedule <name> | `switch.wall_calendar_schedule_morning_agenda` | One for each schedule in the display's config, for a schedule named "Morning agenda". Turns that schedule on or off. Config category. The entity ID follows the schedule's name, and the object ID the app publishes follows its `id` (`schedule_daytime_photos` for `daytime-photos`). Turning a schedule off leaves the wall as it is. Removing a schedule from the config leaves its switch in HA until you delete it there (see [Schedules, driven by automations](#schedules-driven-by-automations)). |
 | Message | `text.wall_calendar_message` | Shows a banner on the wall (up to 200 characters). Text only: no icon, and no time limit, so it stays until cleared. Clear the box to remove it. The box empties by itself when the message runs out or is cleared elsewhere. |
 | Next photo | `button.wall_calendar_next_photo` | Shows the next photo at once and starts the wait for the one after it again, so a skip is never followed straight away by a scheduled change. Does nothing visible unless the wall is on the `photo` view. |
 | Refresh calendars | `button.wall_calendar_refresh_calendars` | Syncs every calendar now. |
@@ -447,6 +448,43 @@ The app has its own brightness policy (`policies.auto_brightness`): it follows t
 This runs a straight line from 30 % in the dark to 100 % at 200 lx. Change the numbers to suit the room. Unlike the built-in policy it doesn't smooth the readings, so a passing shadow dims the wall for a moment. A `filter` sensor (the Filter integration) with the `lowpass` filter on the illuminance sensor gives a smoother one to use instead. If the Pi agent goes offline the sensor becomes unavailable, the condition stops the automation, and the brightness stays as it was.
 
 Leaving the Auto brightness switch on as well means both act, and the app puts its own value back at the next reading.
+
+### Schedules, driven by automations
+
+The app has its own schedules (`schedules` under a display, see `config.example.yaml`): a view such as the agenda from 06:30 to 09:00, put on the wall at the start and taken off at the end. Each schedule has a switch, so an automation can turn one off when it shouldn't run, for example while the house is empty or on holiday.
+
+```yaml
+- alias: Wall calendar – morning agenda follows the holiday switch
+  triggers:
+    - trigger: state
+      entity_id: input_boolean.on_holiday
+  actions:
+    - action: "switch.turn_{{ 'off' if is_state('input_boolean.on_holiday', 'on') else 'on' }}"
+      target:
+        entity_id: switch.wall_calendar_schedule_morning_agenda
+```
+
+Turning a schedule off leaves the wall as it is, and turning it on does nothing until its next start. The switch is also the `set_schedule` command on the HTTP API.
+
+To replace the built-in schedules with your own, remove them from the config (or turn their switches off) and use time-triggered automations that set the view:
+
+```yaml
+- alias: Wall calendar – agenda in the morning
+  triggers:
+    - trigger: time
+      at: "06:30:00"
+  conditions:
+    - condition: time
+      weekday: [mon, tue, wed, thu, fri]
+  actions:
+    - action: select.select_option
+      target:
+        entity_id: select.wall_calendar_view
+      data:
+        option: agenda
+```
+
+An automation sets the view and nothing more. It doesn't go back to the view from before, so add a second one at 09:00 for that. The built-in schedule remembers that view for you.
 
 ## Dashboard
 

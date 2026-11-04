@@ -1,13 +1,18 @@
 import { createDisplayControl } from '../control/service'
 import { getDisplayControl, setDisplayControl } from '../control/state'
+import { createSchedulePolicy } from '../control/schedule'
+import { getSchedulePolicy, setSchedulePolicy } from '../control/schedule-state'
 import { getSocketHub } from '../ws/hub'
 
 // Runs after the sync plugin (the 03 prefix). It starts the display control,
-// which holds each display's state and runs its timers, and connects the
-// event bus to the WebSocket hub: a state change goes to that display's
-// sockets, changed calendar events go to every socket.
+// which holds each display's state and runs its timers, then the built-in
+// schedules policy that changes views at set times, and connects the event bus
+// to the WebSocket hub: a state change goes to that display's sockets, changed
+// calendar events go to every socket.
 export default defineNitroPlugin((nitroApp) => {
   // A hot reload runs this again in the same process, so stop the old control first.
+  getSchedulePolicy()?.stop()
+  setSchedulePolicy(undefined)
   getDisplayControl()?.stop()
   setDisplayControl(undefined)
 
@@ -24,6 +29,10 @@ export default defineNitroPlugin((nitroApp) => {
     refresh: () => Promise.all([useSyncScheduler().refreshAll(), useWeather()?.refresh(), useAlarm()?.refresh()]),
   })
   setDisplayControl(control)
+
+  // Built-in schedules (§7.8) work without MQTT: they only need the control.
+  const schedulePolicy = createSchedulePolicy({ displays: config.displays, timeZone: config.timezone, control })
+  setSchedulePolicy(schedulePolicy)
 
   const unsubscribe = [
     bus.on('state.updated', ({ displayId, state }) => {
@@ -43,6 +52,8 @@ export default defineNitroPlugin((nitroApp) => {
   // which never touch it.
   nitroApp.hooks.hook('close', () => {
     for (const off of unsubscribe) off()
+    schedulePolicy.stop()
+    if (getSchedulePolicy() === schedulePolicy) setSchedulePolicy(undefined)
     control.stop()
     if (getDisplayControl() === control) setDisplayControl(undefined)
   })

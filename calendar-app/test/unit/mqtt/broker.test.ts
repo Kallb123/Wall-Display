@@ -105,7 +105,7 @@ async function until(what: string, check: () => boolean, deadlineMs = DEADLINE_M
   }
 }
 
-function setup(url: string, options: { displays?: string[], config?: Partial<MqttConfig> } = {}) {
+function setup(url: string, options: { displays?: string[], schedules?: { id: string, name: string }[], config?: Partial<MqttConfig> } = {}) {
   const displays = options.displays ?? ['hallway']
   const bus = createEventBus()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -121,7 +121,7 @@ function setup(url: string, options: { displays?: string[], config?: Partial<Mqt
   }
   const bridge = createMqttBridge({
     config: { url, client_id: 'wallcal', discovery: true, discovery_prefix: 'homeassistant', ...options.config },
-    displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) })),
+    displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1), schedules: options.schedules })),
     timeZone: 'Europe/London',
     control,
     bus,
@@ -221,6 +221,33 @@ describe('the bridge and a broker', () => {
     expect(states.get('hallway')!.view).toBe('agenda')
     await until('the new state', () => ha.received.length === 2)
     expect(ha.received[1]).toEqual({ topic: 'wallcal/hallway/view/state', payload: 'agenda', retain: false })
+  })
+
+  it('turns a schedule off and on from its switch topic, and keeps its state on the broker, retained', async () => {
+    const broker = await startBroker()
+    const { control, states } = setup(broker.url, { schedules: [{ id: 'daytime-photos', name: 'Daytime photos' }] })
+    await until('the state to be published', () => allPublished(broker))
+    const ha = await probe(broker, 'wallcal/hallway/schedule/daytime-photos/state')
+    await until('the current state', () => ha.received.length === 1)
+    expect(ha.received[0]).toEqual({ topic: 'wallcal/hallway/schedule/daytime-photos/state', payload: 'ON', retain: true })
+
+    await ha.client.publishAsync('wallcal/hallway/schedule/daytime-photos/set', 'OFF', { qos: 1 })
+
+    await until('the command', () => control.applyCommand.mock.calls.length === 1)
+    expect(control.applyCommand).toHaveBeenCalledWith('hallway', { type: 'set_schedule', schedule: 'daytime-photos', on: false })
+    expect(states.get('hallway')!.schedules_off).toEqual(['daytime-photos'])
+    await until('OFF', () => ha.received.length === 2)
+    expect(ha.received[1]).toEqual({ topic: 'wallcal/hallway/schedule/daytime-photos/state', payload: 'OFF', retain: false })
+
+    // A subscriber that joins later is told the current state.
+    const late = await probe(broker, 'wallcal/hallway/schedule/+/state')
+    await until('the retained state', () => late.received.length === 1)
+    expect(late.received[0]).toEqual({ topic: 'wallcal/hallway/schedule/daytime-photos/state', payload: 'OFF', retain: true })
+
+    await ha.client.publishAsync('wallcal/hallway/schedule/daytime-photos/set', 'ON', { qos: 1 })
+    await until('ON', () => ha.received.length === 3)
+    expect(ha.received[2]!.payload).toBe('ON')
+    expect(states.get('hallway')!.schedules_off).toEqual([])
   })
 
   it('answers a command for each display on its own connection, and no other display\'s', async () => {

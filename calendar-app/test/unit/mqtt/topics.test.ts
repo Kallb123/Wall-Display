@@ -12,11 +12,17 @@ import {
   parseCommandTopic,
   parseIlluminancePayload,
   parsePresencePayload,
+  parseSchedulePayload,
+  parseScheduleTopic,
   PI_BUTTON_TOPIC,
   PI_ILLUMINANCE_TOPIC,
   PI_PRESENCE_TOPIC,
   illuminancePayloadReason,
   presencePayloadReason,
+  SCHEDULE_SET_TEMPLATE,
+  SCHEDULE_STATE_TEMPLATE,
+  schedulePayloads,
+  scheduleTopic,
   statePayloads,
   topicFor,
 } from '../../../server/mqtt/topics'
@@ -395,5 +401,79 @@ describe('statePayloads', () => {
 
     expect(statePayloads(state(), before, 'Europe/London')['month/state']).toBe('2026-12')
     expect(statePayloads(state(), after, 'Europe/London')['month/state']).toBe('2027-01')
+  })
+})
+
+describe('the schedule topics', () => {
+  it('names the templates as the contract does, and fills in an id', () => {
+    expect(SCHEDULE_SET_TEMPLATE).toBe('schedule/{schedule_id}/set')
+    expect(SCHEDULE_STATE_TEMPLATE).toBe('schedule/{schedule_id}/state')
+    expect(scheduleTopic('daytime-photos', 'set')).toBe('schedule/daytime-photos/set')
+    expect(scheduleTopic('daytime-photos', 'state')).toBe('schedule/daytime-photos/state')
+    expect(topicFor('hallway', scheduleTopic('mornings', 'set'))).toBe('wallcal/hallway/schedule/mornings/set')
+  })
+
+  it('is not one of the fixed command topics', () => {
+    expect(parseCommandTopic('wallcal/hallway/schedule/mornings/set')).toBeNull()
+  })
+})
+
+describe('parseScheduleTopic', () => {
+  it('gives the display id and the schedule id', () => {
+    expect(parseScheduleTopic('wallcal/hallway/schedule/mornings/set')).toEqual({ displayId: 'hallway', scheduleId: 'mornings' })
+    expect(parseScheduleTopic('wallcal/kitchen/schedule/daytime-photos/set')).toEqual({ displayId: 'kitchen', scheduleId: 'daytime-photos' })
+    expect(parseScheduleTopic('wallcal/hallway/schedule/7am/set')).toEqual({ displayId: 'hallway', scheduleId: '7am' })
+  })
+
+  it.each([
+    'wallcal/hallway/schedule/mornings/state',
+    'wallcal/hallway/schedule/mornings',
+    'wallcal/hallway/schedule/mornings/set/more',
+    'wallcal/hallway/schedule//set',
+    'wallcal/hallway/schedule/Mornings/set',
+    'wallcal/hallway/schedule/-mornings/set',
+    'wallcal/hallway/schedule/morn ings/set',
+    'wallcal/hallway/schedule/+/set',
+    'wallcal//schedule/mornings/set',
+    'wallcal/hallway/schedules/mornings/set',
+    'other/hallway/schedule/mornings/set',
+    'schedule/mornings/set',
+  ])('is null for %s', (topic) => {
+    expect(parseScheduleTopic(topic)).toBeNull()
+  })
+})
+
+describe('parseSchedulePayload', () => {
+  it('turns ON and OFF into set_schedule', () => {
+    expect(parseSchedulePayload('mornings', 'ON')).toEqual({ ok: true, command: { type: 'set_schedule', schedule: 'mornings', on: true } })
+    expect(parseSchedulePayload('daytime-photos', 'OFF')).toEqual({ ok: true, command: { type: 'set_schedule', schedule: 'daytime-photos', on: false } })
+  })
+
+  it.each(['on', 'off', 'On', 'true', '1', '', ' ON', 'ON\n', 'toggle'])('rejects %j', (payload) => {
+    expect(parseSchedulePayload('mornings', payload)).toMatchObject({ ok: false })
+  })
+
+  it('has a reason that names the topic and quotes the payload, cut at 60 characters, on one line', () => {
+    const short = parseSchedulePayload('mornings', 'yes')
+    const long = parseSchedulePayload('mornings', `${'x'.repeat(80)}\n\u001b[31m`)
+
+    expect(short).toEqual({ ok: false, reason: 'schedule/mornings/set: must be ON or OFF (got "yes")' })
+    if (long.ok) throw new Error('accepted')
+    expect(long.reason).toBe(`schedule/mornings/set: must be ON or OFF (got "${'x'.repeat(60)}…")`)
+    expect(long.reason).not.toContain('\n')
+  })
+})
+
+describe('schedulePayloads', () => {
+  it('gives each configured schedule ON unless it is in schedules_off', () => {
+    expect(schedulePayloads(state({ schedules_off: ['daytime-photos'] }), ['mornings', 'daytime-photos'])).toEqual({
+      'schedule/mornings/state': 'ON',
+      'schedule/daytime-photos/state': 'OFF',
+    })
+  })
+
+  it('gives nothing for a display without schedules, and leaves out an id that is no longer configured', () => {
+    expect(schedulePayloads(state(), [])).toEqual({})
+    expect(schedulePayloads(state({ schedules_off: ['gone'] }), ['mornings'])).toEqual({ 'schedule/mornings/state': 'ON' })
   })
 })

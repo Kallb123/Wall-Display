@@ -1,9 +1,9 @@
-import type { Command, DisplayState } from '../../shared/display'
+import type { DisplayState } from '../../shared/display'
 import type { DisplayConfig } from '../config/schema'
 import type { Db } from '../db/client'
 import type { EventBus } from '../events/bus'
 import { defaultDisplayState, expireState, nextExpiry, reduceCommand } from './commands'
-import type { ControlContext } from './commands'
+import type { ControlCommand, ControlContext } from './commands'
 import { loadDisplayState, saveDisplayState } from './store'
 
 // Holds each display's state: applies commands, stores the result, tells the
@@ -14,8 +14,8 @@ import { loadDisplayState, saveDisplayState } from './store'
 
 export interface DisplayControlOptions {
   db: Db
-  /** The displays in the config: the only ids that have state. */
-  displays: readonly Pick<DisplayConfig, 'id' | 'month_return_minutes'>[]
+  /** The displays in the config: the only ids that have state. `schedules` are the only ids `set_schedule` accepts (none if left out). */
+  displays: readonly (Pick<DisplayConfig, 'id' | 'month_return_minutes'> & { schedules?: readonly { id: string }[] })[]
   /** The display time zone, which decides what the current month is. */
   timeZone: string
   bus: EventBus
@@ -31,8 +31,10 @@ export interface DisplayControl {
   hasDisplay: (displayId: string) => boolean
   /** The current state. Throws `UnknownDisplayError` for an id that isn't in the config. */
   getState: (displayId: string) => DisplayState
-  /** Applies `command`, stores the new state, broadcasts it, and returns it. Throws `UnknownDisplayError`. */
-  applyCommand: (displayId: string, command: Command) => DisplayState
+  /** Whether the display has a built-in schedule with this id. False for an unknown display. */
+  hasSchedule: (displayId: string, scheduleId: string) => boolean
+  /** Applies `command`, stores the new state, broadcasts it, and returns it. Throws `UnknownDisplayError`, and `UnknownScheduleError` for a `set_schedule` the display has no schedule for. */
+  applyCommand: (displayId: string, command: ControlCommand) => DisplayState
   /** Cancels every timer. Later commands still work, but nothing reverts on its own. */
   stop: () => void
 }
@@ -44,12 +46,20 @@ export class UnknownDisplayError extends Error {
   }
 }
 
+export class UnknownScheduleError extends Error {
+  constructor(readonly displayId: string, readonly scheduleId: string) {
+    super(`Display "${displayId}" has no schedule "${scheduleId}"`)
+    this.name = 'UnknownScheduleError'
+  }
+}
+
 /** The longest one timer waits. A timer can't be longer than about 24.8 days, and re-arming daily costs nothing. */
 export const MAX_TIMER_MS = 24 * 60 * 60 * 1000
 
 export function createDisplayControl(options: DisplayControlOptions): DisplayControl {
   const { db, timeZone, bus, refresh, now = () => new Date(), log = console } = options
   const monthReturnMinutes = new Map(options.displays.map(display => [display.id, display.month_return_minutes]))
+  const scheduleIds = new Map(options.displays.map(display => [display.id, new Set((display.schedules ?? []).map(schedule => schedule.id))]))
   const states = new Map<string, DisplayState>()
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   let stopped = false
@@ -120,12 +130,14 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
 
   return {
     hasDisplay: displayId => monthReturnMinutes.has(displayId),
+    hasSchedule: (displayId, scheduleId) => scheduleIds.get(displayId)?.has(scheduleId) ?? false,
     getState(displayId) {
       assertKnown(displayId)
       return settle(displayId)
     },
     applyCommand(displayId, command) {
       assertKnown(displayId)
+      if (command.type === 'set_schedule' && !scheduleIds.get(displayId)!.has(command.schedule)) throw new UnknownScheduleError(displayId, command.schedule)
       commit(displayId, reduceCommand(settle(displayId), command, contextFor(displayId)))
 
       if (command.type === 'photo_next') bus.emit('photo.next', { displayId })

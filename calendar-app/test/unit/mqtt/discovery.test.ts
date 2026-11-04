@@ -308,3 +308,60 @@ describe('the birth topic', () => {
     expect(BIRTH_ONLINE).toBe('online')
   })
 })
+
+describe('schedule switches', () => {
+  const schedules = [{ id: 'mornings', name: 'Morning agenda' }, { id: 'daytime-photos', name: 'Daytime photos' }]
+  const withSchedules = parse(discoveryMessages({ prefix: 'homeassistant', display: { ...hallway, schedules }, displayCount: 1 }))
+  const added = withSchedules.slice(parsed.length)
+
+  it('adds one switch per schedule after the display\'s other entities, and changes none of them', () => {
+    expect(withSchedules.slice(0, parsed.length)).toEqual(parsed)
+    expect(added.map(message => message.topic)).toEqual([
+      'homeassistant/switch/wallcal_hallway/schedule_mornings/config',
+      'homeassistant/switch/wallcal_hallway/schedule_daytime_photos/config',
+    ])
+  })
+
+  it('adds nothing for a display with no schedules, or an empty list', () => {
+    expect(parse(discoveryMessages({ prefix: 'homeassistant', display: { ...hallway, schedules: [] }, displayCount: 1 }))).toEqual(parsed)
+  })
+
+  it('names each switch after the schedule, in the config category with a calendar icon', () => {
+    expect(added.map(message => message.config.name)).toEqual(['Schedule Morning agenda', 'Schedule Daytime photos'])
+    for (const { config } of added) expect(config).toMatchObject({ icon: 'mdi:calendar-clock', entity_category: 'config' })
+  })
+
+  it('has a unique id made of the display id and the object id, which has no hyphens', () => {
+    expect(added.map(message => message.config.unique_id)).toEqual(['wallcal_hallway_schedule_mornings', 'wallcal_hallway_schedule_daytime_photos'])
+    expect(new Set(withSchedules.map(message => message.config.unique_id)).size).toBe(withSchedules.length)
+  })
+
+  it('sends ON and OFF to the schedule\'s set topic and reads them from its state topic, as the contract says', () => {
+    for (const [index, { config }] of added.entries()) {
+      const id = schedules[index]!.id
+
+      expect(config.command_topic).toBe(`wallcal/hallway/schedule/${id}/set`)
+      expect(config.state_topic).toBe(`wallcal/hallway/schedule/${id}/state`)
+      expect(contract.topics['schedule/{schedule_id}/set']!.direction).toBe('to_app')
+      expect(contract.topics['schedule/{schedule_id}/state']!.direction).toBe('from_app')
+      expect(config).toMatchObject({ payload_on: 'ON', payload_off: 'OFF', state_on: 'ON', state_off: 'OFF' })
+      for (const key of ['payload_on', 'payload_off']) expect(accepts('schedule/{schedule_id}/set', config[key] as string), key).toBe(true)
+      for (const key of ['state_on', 'state_off']) expect(accepts('schedule/{schedule_id}/state', config[key] as string), key).toBe(true)
+    }
+  })
+
+  it('goes offline with the app and belongs to the display\'s device, like every other entity', () => {
+    for (const { config } of added) {
+      expect(config.availability_topic).toBe('wallcal/hallway/availability')
+      expect(config.device.identifiers).toEqual(['wallcal_hallway'])
+      expect(config.qos).toBe(1)
+    }
+  })
+
+  it('keeps one display\'s schedules out of another\'s topics and ids', () => {
+    const kitchen = parse(discoveryMessages({ prefix: 'homeassistant', display: { id: 'kitchen', name: 'Kitchen', schedules }, displayCount: 2 }))
+
+    expect(kitchen.slice(-2).map(message => message.config.unique_id)).toEqual(['wallcal_kitchen_schedule_mornings', 'wallcal_kitchen_schedule_daytime_photos'])
+    expect(kitchen.at(-1)!.config.command_topic).toBe('wallcal/kitchen/schedule/daytime-photos/set')
+  })
+})

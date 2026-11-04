@@ -380,3 +380,117 @@ describe('error reporting', () => {
     expect(message).toContain('WALLCAL_CONFIG_DIR')
   })
 })
+
+describe('schedules', () => {
+  const rule = (extra: Raw = {}) => ({ view: 'agenda', from: '06:30', to: '09:00', ...extra })
+  const schedule = (extra: Raw = {}) => ({ id: 'mornings', rules: [rule()], ...extra })
+
+  async function schedulesOf(schedules: unknown[]) {
+    const raw = minimalConfig()
+    raw.displays[0].schedules = schedules
+    return (await load({ config: raw })).config.displays[0]!.schedules
+  }
+
+  it('is empty by default, and the name defaults to the id', async () => {
+    expect((await load({ config: minimalConfig() })).config.displays[0]!.schedules).toEqual([])
+    const [only] = await schedulesOf([schedule()])
+
+    expect(only).toMatchObject({ id: 'mornings', name: 'mornings' })
+  })
+
+  it('keeps a name that is given', async () => {
+    expect((await schedulesOf([schedule({ name: 'Morning agenda' })]))[0]!.name).toBe('Morning agenda')
+  })
+
+  it('runs every day unless told otherwise', async () => {
+    expect((await schedulesOf([schedule()]))[0]!.rules[0]!.days).toEqual(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])
+  })
+
+  it.each([
+    ['every_day', ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']],
+    ['weekdays', ['mon', 'tue', 'wed', 'thu', 'fri']],
+    ['weekends', ['sat', 'sun']],
+    [['sun', 'mon', 'wed', 'mon'], ['mon', 'wed', 'sun']],
+  ])('takes days as %j and normalises it to a list in week order', async (days, expected) => {
+    const [only] = await schedulesOf([schedule({ rules: [rule({ days })] })])
+
+    expect(only!.rules[0]!.days).toEqual(expected)
+  })
+
+  it('refuses days that are not a set name or a list of days', async () => {
+    for (const days of ['mondays', [], ['funday']]) {
+      const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ days })] })] })
+
+      expect(message).toContain('displays[0].schedules[0].rules[0].days')
+    }
+  })
+
+  it('takes a window that runs past midnight', async () => {
+    expect((await schedulesOf([schedule({ rules: [rule({ from: '22:00', to: '02:00' })] })]))[0]!.rules[0]).toMatchObject({ from: '22:00', to: '02:00' })
+  })
+
+  it('refuses a window whose from equals its to', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ from: '09:00', to: '09:00' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0]')
+  })
+
+  it('refuses a time that is not HH:MM', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ from: '25:00' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].from')
+  })
+
+  it('refuses a schedule id used twice on one display, naming the path', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule(), schedule()] })
+
+    expect(message).toContain('displays[0].schedules[1].id: duplicate id "mornings"')
+  })
+
+  it('allows the same schedule id on two displays', async () => {
+    const raw = minimalConfig()
+    raw.displays = [{ id: 'hallway', name: 'Hallway', schedules: [schedule()] }, { id: 'kitchen', name: 'Kitchen', schedules: [schedule()] }]
+
+    const { config } = await load({ config: raw })
+
+    expect(config.displays.map(display => display.schedules[0]!.id)).toEqual(['mornings', 'mornings'])
+  })
+
+  it('refuses an id that is not a slug', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ id: 'Morning Agenda' })] })
+
+    expect(message).toContain('displays[0].schedules[0].id')
+  })
+
+  it('refuses a photo rule without a photos block, naming the rule', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ view: 'photo' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].view: is photo, but there is no "photos" block')
+  })
+
+  it('takes a photo rule with a photos block', async () => {
+    const raw = minimalConfig()
+    raw.photos = { immich: { url: 'http://immich.local', api_key: 'k' } }
+    raw.displays[0].schedules = [schedule({ rules: [rule({ view: 'photo' })] })]
+
+    expect((await load({ config: raw })).config.displays[0]!.schedules[0]!.rules[0]!.view).toBe('photo')
+  })
+
+  it('refuses a view that does not exist', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ view: 'clock' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].view: must be one of')
+  })
+
+  it('refuses a schedule with no rules', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules: must have at least one rule')
+  })
+
+  it('refuses an unknown key in a rule', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ day: 'mon' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].day: unknown setting')
+  })
+})

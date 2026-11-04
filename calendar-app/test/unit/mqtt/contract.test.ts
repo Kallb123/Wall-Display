@@ -17,11 +17,17 @@ import {
   parseCommandPayload,
   parseIlluminancePayload,
   parsePresencePayload,
+  parseSchedulePayload,
+  parseScheduleTopic,
   PI_BUTTON_TOPIC,
   PI_ILLUMINANCE_TOPIC,
   PI_PRESENCE_TOPIC,
   PI_SCREEN_TOPIC,
   piScreenPayload,
+  SCHEDULE_SET_TEMPLATE,
+  SCHEDULE_STATE_TEMPLATE,
+  schedulePayloads,
+  scheduleTopic,
   SPECIAL_DAY_TOPIC,
   specialDayPayload,
   STATE_TOPICS,
@@ -128,12 +134,12 @@ describe('the contract file', () => {
 })
 
 describe('the topics', () => {
-  it('has the app\'s command topics, and only those, going to the app', () => {
-    expect(namesWhere(topic => topic.direction === 'to_app')).toEqual(sorted(COMMAND_TOPICS))
+  it('has the app\'s command topics and the schedule switch template, and only those, going to the app', () => {
+    expect(namesWhere(topic => topic.direction === 'to_app')).toEqual(sorted([...COMMAND_TOPICS, SCHEDULE_SET_TEMPLATE]))
   })
 
   it('has the app\'s state, availability, last sync and special day topics going out of the app, and only those', () => {
-    const published = [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]
+    const published = [...STATE_TOPICS, SCHEDULE_STATE_TEMPLATE, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]
 
     expect(namesWhere(topic => topic.direction === 'from_app')).toEqual(sorted(published))
   })
@@ -155,8 +161,8 @@ describe('the topics', () => {
   })
 
   it('retains state, availability, last sync and special day, and does not retain commands', () => {
-    for (const name of [...STATE_TOPICS, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
-    for (const name of COMMAND_TOPICS) expect(contract.topics[name]!.retained, name).toBe(false)
+    for (const name of [...STATE_TOPICS, SCHEDULE_STATE_TEMPLATE, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
+    for (const name of [...COMMAND_TOPICS, SCHEDULE_SET_TEMPLATE]) expect(contract.topics[name]!.retained, name).toBe(false)
   })
 })
 
@@ -212,6 +218,45 @@ describe('command payloads', () => {
     for (const payload of extra[name as CommandTopic]) {
       const accepted = parseCommandPayload(name as CommandTopic, payload).ok
       expect(accepted, `${name} ${JSON.stringify(payload)}`).toBe(contractAccepts(name, payload))
+    }
+  })
+})
+
+describe('the schedule topics', () => {
+  const setName = SCHEDULE_SET_TEMPLATE
+  const stateName = SCHEDULE_STATE_TEMPLATE
+
+  it('are filled in with an id the way the contract\'s template says', () => {
+    for (const [template, kind] of [[setName, 'set'], [stateName, 'state']] as const) {
+      expect(template).toContain('{schedule_id}')
+      expect(template.replace('{schedule_id}', 'daytime-photos')).toBe(scheduleTopic('daytime-photos', kind))
+    }
+  })
+
+  it('has a topic that parses back to the id it was made from', () => {
+    for (const id of ['mornings', 'daytime-photos', '7am', 'a']) {
+      expect(parseScheduleTopic(`wallcal/hallway/${scheduleTopic(id, 'set')}`)).toEqual({ displayId: 'hallway', scheduleId: id })
+    }
+  })
+
+  it('takes ON and OFF on the set topic, and the app parses every example and rejects every invalid example', () => {
+    const topic = contract.topics[setName]!
+
+    for (const payload of topic.examples) expect(parseSchedulePayload('mornings', payload), `example ${JSON.stringify(payload)}`).toMatchObject({ ok: true })
+    for (const payload of topic.invalid_examples) expect(parseSchedulePayload('mornings', payload), `invalid example ${JSON.stringify(payload)}`).toMatchObject({ ok: false })
+    for (const payload of ['ON', 'OFF', 'On', 'oFF', 'yes', 'ON\n', ' ON', '']) {
+      expect(parseSchedulePayload('mornings', payload).ok, JSON.stringify(payload)).toBe(contractAccepts(setName, payload))
+    }
+  })
+
+  it('publishes a payload that passes the state topic\'s schema for every schedule, on and off', () => {
+    const ids = ['mornings', 'daytime-photos']
+
+    for (const schedules_off of [[], ['mornings'], ['daytime-photos'], ids]) {
+      const payloads = schedulePayloads({ ...defaultDisplayState(), schedules_off }, ids)
+
+      expect(Object.keys(payloads)).toEqual(ids.map(id => scheduleTopic(id, 'state')))
+      for (const payload of Object.values(payloads)) expect(contractAccepts(stateName, payload), payload).toBe(true)
     }
   })
 })

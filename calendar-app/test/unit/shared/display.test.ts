@@ -15,6 +15,8 @@ describe('the display state schema', () => {
       auto_brightness: true,
       overlay: null,
       preview: null,
+      schedules_off: [],
+      schedule: null,
     })
   })
 
@@ -104,6 +106,7 @@ describe('the command schema', () => {
     [{ type: 'set_auto_presence', auto_presence: true }],
     [{ type: 'set_auto_brightness', auto_brightness: false }],
     [{ type: 'set_auto_brightness', auto_brightness: true }],
+    [{ type: 'set_schedule', schedule: 'daytime-photos', on: false }],
     [{ type: 'set_overlay', overlay: { text: 'Bins out tonight' } }],
     [{ type: 'set_overlay', overlay: { text: 'Bins out tonight', icon: 'trash', ttl: 3600 } }],
     [{ type: 'set_overlay', overlay: null }],
@@ -140,6 +143,10 @@ describe('the command schema', () => {
     ['auto_presence missing', { type: 'set_auto_presence' }],
     ['a misspelt auto_presence', { type: 'set_auto_presence', auto_presense: true }],
     ['auto_brightness as a number', { type: 'set_auto_brightness', auto_brightness: 1 }],
+    ['a set_schedule without on', { type: 'set_schedule', schedule: 'mornings' }],
+    ['a set_schedule with a bad id', { type: 'set_schedule', schedule: 'Morning Agenda', on: true }],
+    ['the internal schedule_start', { type: 'schedule_start', schedule: 'mornings', rule: 0, view: 'agenda' }],
+    ['the internal schedule_end', { type: 'schedule_end', schedule: 'mornings', rule: 0 }],
     ['an extra key on set_auto_brightness', { type: 'set_auto_brightness', auto_brightness: true, brightness: 50 }],
     ['a zero ttl', { type: 'set_overlay', overlay: { text: 'Hi', ttl: 0 } }],
     ['a ttl over a week', { type: 'set_overlay', overlay: { text: 'Hi', ttl: 604801 } }],

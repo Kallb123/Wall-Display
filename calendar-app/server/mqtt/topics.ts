@@ -1,4 +1,4 @@
-import { commandSchema, currentMonth } from '../../shared/display'
+import { commandSchema, currentMonth, scheduleIdSchema } from '../../shared/display'
 import type { Command, DisplayState } from '../../shared/display'
 
 // The topics the app uses and what their payloads mean (architecture §7.3).
@@ -58,6 +58,12 @@ export const PI_PRESENCE_TOPIC = 'pi/presence'
 /** How bright the room is, in lux, from the Pi agent's light sensor: a non-negative number as text, such as `12.5`. Under `pi/` like the button and presence, and not a command topic: the `policies.auto_brightness` rules decide what it does. A reading is a measurement, so it is not retained: one replayed to a late subscriber is stale, and worse than none. The agent sends one when the light changes and at least every 30 seconds. */
 export const PI_ILLUMINANCE_TOPIC = 'pi/illuminance'
 
+/** The topic name of a schedule's switch command, as contracts/mqtt.json writes it. There is one per schedule in the display's config, so it is a template and not one of `COMMAND_TOPICS`. The payload is `ON` or `OFF`, and `set_schedule` is the command it becomes. */
+export const SCHEDULE_SET_TEMPLATE = 'schedule/{schedule_id}/set'
+
+/** The topic name of a schedule's state, as contracts/mqtt.json writes it. Retained, and a template like `SCHEDULE_SET_TEMPLATE`, so not one of `STATE_TOPICS`. */
+export const SCHEDULE_STATE_TEMPLATE = 'schedule/{schedule_id}/state'
+
 /** `online` while connected. The broker publishes `offline` if the app dies (the last will). */
 export const AVAILABILITY_TOPIC = 'availability'
 export const ONLINE = 'online'
@@ -79,6 +85,26 @@ export function parseCommandTopic(topic: string): { displayId: string, suffix: C
   if (root !== TOPIC_ROOT || !displayId) return null
   const suffix = rest.join('/')
   return isCommandTopic(suffix) ? { displayId, suffix } : null
+}
+
+/** A schedule topic's suffix, such as `schedule/mornings/set`. */
+export type ScheduleSuffix = `schedule/${string}/${'set' | 'state'}`
+
+/** What stands for the schedule id in a template topic name. */
+const SCHEDULE_ID_PLACEHOLDER = '{schedule_id}'
+
+/** The topic suffix of one of the two schedule templates, filled in: `scheduleTopic('mornings', 'set')` is `schedule/mornings/set`. Goes in `topicFor` like any other suffix. */
+export function scheduleTopic(scheduleId: string, kind: 'set' | 'state'): ScheduleSuffix {
+  return (kind === 'set' ? SCHEDULE_SET_TEMPLATE : SCHEDULE_STATE_TEMPLATE).replace(SCHEDULE_ID_PLACEHOLDER, scheduleId) as ScheduleSuffix
+}
+
+/** The display id and schedule id of a full `wallcal/<display id>/schedule/<schedule id>/set` topic, or null if it isn't one. An id that is not a schedule id (upper case, say) is not one either, so it is never looked up. */
+export function parseScheduleTopic(topic: string): { displayId: string, scheduleId: string } | null {
+  const parts = topic.split('/')
+  if (parts.length !== 5) return null
+  const [root, displayId, kind, scheduleId = '', verb] = parts
+  if (root !== TOPIC_ROOT || !displayId || kind !== 'schedule' || verb !== 'set') return null
+  return scheduleIdSchema.safeParse(scheduleId).success ? { displayId, scheduleId } : null
 }
 
 function isCommandTopic(suffix: string): suffix is CommandTopic {
@@ -176,6 +202,12 @@ export function parseCommandPayload(suffix: CommandTopic, payload: string): Pars
   return { ok: true, command: parsed.data }
 }
 
+/** Turns a schedule's `set` payload into a `set_schedule` command: `ON` turns the schedule on and `OFF` off, exactly, like the policies' switches. `reason` is safe to log, like `parseCommandPayload`'s: it names the topic as the contract does and quotes at most 60 characters of the payload. */
+export function parseSchedulePayload(scheduleId: string, payload: string): ParsedMessage {
+  if (payload !== 'ON' && payload !== 'OFF') return { ok: false, reason: `${scheduleTopic(scheduleId, 'set')}: must be ON or OFF (got ${quote(payload)})` }
+  return { ok: true, command: { type: 'set_schedule', schedule: scheduleId, on: ON_OFF[payload] } }
+}
+
 /** The gesture a `pi/button` payload names, or null for anything else. An exact match, like the contract: `Single` and `single ` are not gestures. */
 export function parseButtonPayload(payload: string): ButtonGesture | null {
   return (BUTTON_GESTURES as readonly string[]).includes(payload) ? payload as ButtonGesture : null
@@ -213,6 +245,11 @@ export function statePayloads(state: DisplayState, now: Date, timeZone: string):
     'auto_brightness/state': onOffPayload(state.auto_brightness),
     'overlay/state': state.overlay?.text ?? '',
   }
+}
+
+/** The payload of each schedule's `schedule/<id>/state`, keyed by that topic's suffix: `ON` unless the id is in `state.schedules_off`. `scheduleIds` are the schedules in the display's config, so an id left in `schedules_off` after it was removed from the config is not published. */
+export function schedulePayloads(state: DisplayState, scheduleIds: readonly string[]): Record<string, string> {
+  return Object.fromEntries(scheduleIds.map(id => [scheduleTopic(id, 'state'), onOffPayload(!state.schedules_off.includes(id))]))
 }
 
 /** What `last_sync/state` carries: an ISO 8601 UTC instant, such as `2026-10-28T12:00:00.000Z`. */

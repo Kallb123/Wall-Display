@@ -5,7 +5,7 @@ import { loadConfig } from '../../../server/config/load'
 import { expandIcs } from '../../../server/sources/ics/expand'
 import { syncWindow } from '../../../server/sources/time'
 import { createPeopleResolver, DETECTION_VERSION, htmlToText, resolvePeople } from '../../../shared/people'
-import type { DetectableEvent, DetectionCalendar } from '../../../shared/people'
+import type { DetectableEvent, DetectionCalendar, DetectionGroup } from '../../../shared/people'
 
 // The family from config.dev.yaml: Mum/Sarah/Mummy, Dad/Tom/Daddy, Isla, Theo,
 // Poppy/Pops, and Household/Family/All (id "home"), with its keyword rules.
@@ -26,6 +26,19 @@ const withRules = (overrides: Partial<DetectionCalendar> = {}) => calendar({ rul
 function resolve(title: string, description: string | null = null, overrides: Partial<DetectionCalendar> = {}) {
   return resolvePeople({ title, description }, calendar(overrides), PEOPLE)
 }
+
+// Groups are defined here, so the tests do not depend on what config.dev.yaml has.
+const GROUPS: DetectionGroup[] = [
+  { id: 'kids', name: 'Kids', aliases: ['Children', 'Little ones'], people: ['isla', 'theo', 'poppy'] },
+  { id: 'boys', name: 'Boys', aliases: [], people: ['theo', 'dad'] },
+]
+
+function resolveWithGroups(title: string, description: string | null = null, overrides: Partial<DetectionCalendar> = {}) {
+  return resolvePeople({ title, description }, calendar(overrides), PEOPLE, GROUPS)
+}
+
+const idsWithGroups = (title: string, description: string | null = null, overrides: Partial<DetectionCalendar> = {}) =>
+  resolveWithGroups(title, description, overrides).personIds
 
 const idsOf = (title: string, description: string | null = null, overrides: Partial<DetectionCalendar> = {}) =>
   resolve(title, description, overrides).personIds
@@ -211,8 +224,8 @@ describe('names', () => {
   })
 
   it('does not take a name from the middle of a title by default', () => {
-    expect(idsOf('Dentist for Theo')).toEqual(['home'])
-    expect(idsOf('Dentist for Theo', null, { detect_people: 'anywhere' })).toEqual(['theo'])
+    expect(idsOf('Dentist with Theo')).toEqual(['home'])
+    expect(idsOf('Dentist with Theo', null, { detect_people: 'anywhere' })).toEqual(['theo'])
   })
 
   it('needs a delimiter, a space or the end of the line after the names', () => {
@@ -363,7 +376,7 @@ describe('strip_names', () => {
 
   it('does not strip a name found only in the description, or only mid-title', () => {
     expect(resolve('Swimming', 'Who: Theo', strip).displayTitle).toBe('Swimming')
-    expect(resolve('Dentist for Theo', null, { ...strip, detect_people: 'anywhere' })).toMatchObject({ personIds: ['theo'], displayTitle: 'Dentist for Theo' })
+    expect(resolve('Dentist with Theo', null, { ...strip, detect_people: 'anywhere' })).toMatchObject({ personIds: ['theo'], displayTitle: 'Dentist with Theo' })
   })
 
   it('in anywhere mode strips a prefix at the start of the title and nothing else', () => {
@@ -378,6 +391,231 @@ describe('strip_names', () => {
 
   it('removes only the prefix, not a later mention', () => {
     expect(resolve('Theo: Swimming with Theo', null, strip).displayTitle).toBe('Swimming with Theo')
+  })
+})
+
+describe('the "for" form', () => {
+  it.each([
+    ['Haircut for Theo', ['theo']],
+    ['Haircut for Isla and Theo', ['isla', 'theo']],
+    ['Haircut for Mum, Dad & Theo', ['mum', 'dad', 'theo']],
+    ['Haircut for Isla + Theo', ['isla', 'theo']],
+    ['Haircut for Isla/Theo', ['isla', 'theo']],
+    ['Haircut for Theo (Barbers)', ['theo']],
+    ['Haircut for Theo - 3pm', ['theo']],
+    ['Haircut for Theo – 3pm', ['theo']],
+    ['Haircut for Theo: 3pm', ['theo']],
+    ['Haircut for Theo, then lunch', ['theo']],
+    ['Haircut (for Theo)', ['theo']],
+    ['[Haircut for Theo]', ['theo']],
+    ['Haircut for Theo.', ['theo']],
+    ['Cake for Mum!', ['mum']],
+    ['Cake for Mum?', ['mum']],
+    ['Cake for  Mum   ', ['mum']],
+    ['HAIRCUT FOR THEO', ['theo']],
+    ['For Theo and Isla', ['theo', 'isla']],
+    ['for Sarah', ['mum']],
+    ['Cake for Mum, for Dad', ['mum', 'dad']],
+    ['Cake for Mum for Dad', ['dad']],
+  ])('finds the people in: %s', (title, people) => {
+    const resolved = resolve(title)
+
+    expect(resolved.personIds).toEqual(people)
+    expect(resolved.matchedBy).toBe('name')
+  })
+
+  it.each([
+    ['Present for Theodore'],
+    ['Shopping for Mum\'s birthday'],
+    ['Shopping for Mum’s birthday'],
+    ['Cake for Mum to collect'],
+    ['Haircut for Theo and friends'],
+    ['Haircut for everyone'],
+    ['Therefore Theo'],
+    ['Wait for: Theo'],
+        ['Haircut before Theo'],
+  ])('does not find a person in: %s', (title) => {
+    expect(idsOf(title)).toEqual(['home'])
+  })
+
+  it('finds it in a description line as well, after the title', () => {
+    expect(idsOf('Appointment', 'Bring a coat\nHaircut for Theo (Barbers)')).toEqual(['theo'])
+    expect(idsOf('Appointment', 'Cake for Mum to collect')).toEqual(['home'])
+  })
+
+  it('still reads "For: Theo" as the label form, once', () => {
+    expect(idsOf('For: Theo')).toEqual(['theo'])
+    expect(idsOf('Haircut', 'for : Mum - Barbers')).toEqual(['mum'])
+    expect(resolve('For: Theo', null, { strip_names: true }).displayTitle).toBe('For: Theo')
+  })
+
+  it('merges the people of a prefix and of a "for" clause, prefix first, and drops duplicates', () => {
+    expect(idsOf('Mum: Cake for Dad')).toEqual(['mum', 'dad'])
+    expect(idsOf('Mum: Cake for Mum and Dad')).toEqual(['mum', 'dad'])
+  })
+
+  it('merges the title and the description, title first', () => {
+    expect(idsOf('Isla: Party for Theo', 'Present for Mum')).toEqual(['isla', 'theo', 'mum'])
+    expect(idsOf('Haircut for Theo', 'Who: Isla')).toEqual(['theo', 'isla'])
+    expect(idsOf('Party', 'Who: Isla\nCake for Dad')).toEqual(['isla', 'dad'])
+  })
+
+  it('is ignored when only the title or only the description is checked, as for prefixes', () => {
+    expect(idsOf('Haircut for Theo', null, { detect_in: ['description'] })).toEqual(['home'])
+    expect(idsOf('Haircut', 'Haircut for Theo', { detect_in: ['title'] })).toEqual(['home'])
+  })
+
+  it('is ignored when names are switched off', () => {
+    expect(idsOf('Haircut for Theo', null, { detect_people: false })).toEqual(['home'])
+  })
+
+  it('beats the keyword rules', () => {
+    const resolved = resolve('Swimming for Isla', null, { rules: FAMILY.rules })
+
+    expect(resolved.personIds).toEqual(['isla'])
+    expect(resolved.matchedBy).toBe('name')
+  })
+
+  it('finds every name in anywhere mode, "for" or not', () => {
+    expect(idsOf('Cake for Mum to collect', null, { detect_people: 'anywhere' })).toEqual(['mum'])
+  })
+})
+
+describe('the optional "the" before a name', () => {
+  it('is allowed before each item of a list, in every form', () => {
+    expect(idsWithGroups('The boys: football')).toEqual(['theo', 'dad'])
+    expect(idsWithGroups('[the boys] football')).toEqual(['theo', 'dad'])
+    expect(idsWithGroups('Who: the kids and the boys')).toEqual(['isla', 'theo', 'poppy', 'dad'])
+    expect(idsWithGroups('Party for the boys')).toEqual(['theo', 'dad'])
+    expect(idsWithGroups('Party for Isla and the boys')).toEqual(['isla', 'theo', 'dad'])
+  })
+
+  it('works before a person too, and is a whole word', () => {
+    expect(idsOf('The Mum: Pilates')).toEqual(['mum'])
+    expect(idsOf('Party for the Theo')).toEqual(['theo'])
+    expect(idsOf('Party for bathe Theo')).toEqual(['home'])
+    expect(idsOf('Party for them Theo')).toEqual(['home'])
+  })
+})
+
+describe('groups', () => {
+  it('expands a group named in any prefix form to its members, in order', () => {
+    expect(idsWithGroups('Kids: Swimming')).toEqual(['isla', 'theo', 'poppy'])
+    expect(idsWithGroups('[Kids] Swimming')).toEqual(['isla', 'theo', 'poppy'])
+    expect(idsWithGroups('Swimming', 'Who: Kids')).toEqual(['isla', 'theo', 'poppy'])
+    expect(idsWithGroups('Swimming', 'For: Kids')).toEqual(['isla', 'theo', 'poppy'])
+    expect(resolveWithGroups('Kids: Swimming').matchedBy).toBe('name')
+  })
+
+  it('knows a group by its aliases, ignoring case', () => {
+    expect(idsWithGroups('Children: Swimming')).toEqual(['isla', 'theo', 'poppy'])
+    expect(idsWithGroups('LITTLE   ONES: Swimming')).toEqual(['isla', 'theo', 'poppy'])
+    expect(idsWithGroups('Party for the little ones')).toEqual(['isla', 'theo', 'poppy'])
+  })
+
+  it('works in the "for" form', () => {
+    expect(idsWithGroups('Event for the boys')).toEqual(['theo', 'dad'])
+    expect(idsWithGroups('Event for the Boys (Hall)')).toEqual(['theo', 'dad'])
+    expect(idsWithGroups('Event for Boys to collect')).toEqual(['home'])
+  })
+
+  it('mixes with people and drops duplicates, keeping the first place', () => {
+    expect(idsWithGroups('Mum & Kids: Picnic')).toEqual(['mum', 'isla', 'theo', 'poppy'])
+    expect(idsWithGroups('Theo, Kids: Picnic')).toEqual(['theo', 'isla', 'poppy'])
+    expect(idsWithGroups('Kids & Boys: Picnic')).toEqual(['isla', 'theo', 'poppy', 'dad'])
+    expect(idsWithGroups('Dad: Picnic for the kids', 'Who: Boys')).toEqual(['dad', 'isla', 'theo', 'poppy'])
+  })
+
+  it('is found anywhere in anywhere mode', () => {
+    expect(idsWithGroups('Picnic with the kids and Mum', null, { detect_people: 'anywhere' })).toEqual(['isla', 'theo', 'poppy', 'mum'])
+    expect(idsWithGroups('Picnic with the kids', null)).toEqual(['home'])
+  })
+
+  it('is not found inside another word, and is ignored when names are switched off', () => {
+    expect(idsWithGroups('Kidsville: Fun')).toEqual(['home'])
+    expect(idsWithGroups('Kids: Fun', null, { detect_people: false })).toEqual(['home'])
+  })
+
+  it('is not known to a resolver built without groups', () => {
+    expect(idsOf('Kids: Swimming')).toEqual(['home'])
+  })
+
+  it('lets a person keep a term a group also lists', () => {
+    const groups = [{ id: 'g', name: 'Theo', aliases: ['Gang'], people: ['mum'] }]
+    const resolver = createPeopleResolver(calendar(), PEOPLE, groups)
+
+    expect(resolver({ title: 'Theo: Swimming', description: null }).personIds).toEqual(['theo'])
+    expect(resolver({ title: 'Gang: Swimming', description: null }).personIds).toEqual(['mum'])
+  })
+
+  it('expands group ids in keyword rules', () => {
+    const rules = [{ match: 'picnic', people: ['kids', 'mum'] }, { match: 'football', people: ['boys'] }]
+
+    expect(resolveWithGroups('Picnic', null, { rules })).toEqual({ personIds: ['isla', 'theo', 'poppy', 'mum'], displayTitle: 'Picnic', matchedBy: 'rule' })
+    expect(idsWithGroups('Picnic football', null, { rules })).toEqual(['isla', 'theo', 'poppy', 'mum', 'dad'])
+  })
+
+  it('still lets names beat a rule with groups', () => {
+    expect(idsWithGroups('Picnic for Mum', null, { rules: [{ match: 'picnic', people: ['kids'] }] })).toEqual(['mum'])
+  })
+
+  it('gives resolvePeople and createPeopleResolver the same answer', () => {
+    const event = { title: 'Event for the boys', description: null }
+
+    expect(createPeopleResolver(calendar(), PEOPLE, GROUPS)(event)).toEqual(resolvePeople(event, calendar(), PEOPLE, GROUPS))
+  })
+})
+
+describe('strip_names with a "for" clause', () => {
+  const strip = { strip_names: true }
+  const shown = (title: string, overrides: Partial<DetectionCalendar> = {}) => resolveWithGroups(title, null, { ...strip, ...overrides }).displayTitle
+
+  it('removes a clause that runs to the end of the title', () => {
+    expect(shown('Haircut for Isla and Theo')).toBe('Haircut')
+    expect(shown('Haircut for Mum, Dad & Theo')).toBe('Haircut')
+    expect(shown('Cake for Mum!')).toBe('Cake')
+    expect(shown('Cake for Mum.  ')).toBe('Cake')
+    expect(shown('Party for the boys')).toBe('Party')
+    expect(shown('Soft play, for Poppy')).toBe('Soft play')
+  })
+
+  it('combines with a prefix strip', () => {
+    expect(shown('[Isla] Party for Theo')).toBe('Party')
+    expect(shown('Mum: Cake for Dad')).toBe('Cake')
+  })
+
+  it('leaves a clause that does not run to the end', () => {
+    expect(shown('Haircut for Theo (Barbers)')).toBe('Haircut for Theo (Barbers)')
+    expect(shown('Haircut for Theo - 3pm')).toBe('Haircut for Theo - 3pm')
+    expect(shown('Mum: Haircut for Theo (Barbers)')).toBe('Haircut for Theo (Barbers)')
+  })
+
+  it('removes only the clause at the end when there are two', () => {
+    expect(shown('Cake for Mum for Dad')).toBe('Cake for Mum')
+  })
+
+  it('keeps the full title when nothing worth showing is left', () => {
+    expect(shown('For Theo and Isla')).toBe('For Theo and Isla')
+    expect(shown('For Theo!')).toBe('For Theo!')
+    expect(shown('Mum: for Dad')).toBe('Mum: for Dad')
+  })
+
+  it('still strips the clause when the prefix is dangling, but not the prefix', () => {
+    expect(shown('Theo and friends party for Isla')).toBe('Theo and friends party')
+  })
+
+  it('keeps the title when strip_names is off, and when names are off or the title is not checked', () => {
+    expect(shown('Haircut for Theo', { strip_names: false })).toBe('Haircut for Theo')
+    expect(shown('Haircut for Theo', { detect_people: false })).toBe('Haircut for Theo')
+    expect(shown('Haircut for Theo', { detect_in: ['description'] })).toBe('Haircut for Theo')
+  })
+
+  it('does not strip a clause found only in the description', () => {
+    expect(resolveWithGroups('Haircut', 'Cake for Mum', strip).displayTitle).toBe('Haircut')
+  })
+
+  it('strips a trailing clause in anywhere mode too', () => {
+    expect(shown('Haircut for Theo', { detect_people: 'anywhere' })).toBe('Haircut')
   })
 })
 
@@ -402,7 +640,7 @@ describe('createPeopleResolver and resolvePeople', () => {
   })
 
   it('has a detection version to bump', () => {
-    expect(DETECTION_VERSION).toBeGreaterThanOrEqual(1)
+    expect(DETECTION_VERSION).toBeGreaterThanOrEqual(2)
   })
 })
 

@@ -84,9 +84,17 @@ const person = z.strictObject({
   initial: value.initial ?? [...value.name][0]!.toUpperCase(),
 }))
 
+// A named set of people ("the kids"). An event for the group is for each member.
+const group = z.strictObject({
+  id: slug,
+  name: text,
+  aliases: z.array(text).default([]),
+  people: z.array(text).min(1, 'must list at least one person id'),
+})
+
 const rule = z.strictObject({
   match: rulePattern,
-  people: z.array(text).min(1, 'must list at least one person id'),
+  people: z.array(text).min(1, 'must list at least one person or group id'),
 })
 
 const icsSource = (baseDir: string) => z.strictObject({
@@ -430,6 +438,7 @@ export function createConfigSchema(baseDir: string) {
   return z.strictObject({
     timezone: timezone.default('Europe/London'),
     people: z.array(person).min(1, 'at least one person is required'),
+    groups: z.array(group).default([]),
     calendars: z.array(calendar(baseDir)).default([]),
     homeassistant: z.strictObject({ url: httpUrl, token: text }).optional(),
     displays: z.array(display).min(1, 'at least one display is required'),
@@ -448,6 +457,7 @@ export function createConfigSchema(baseDir: string) {
 
 type RawConfig = {
   people: { id: string, name: string, aliases: string[] }[]
+  groups: { id: string, name: string, aliases: string[], people: string[] }[]
   calendars: { id: string, person: string, rules: { people: string[] }[], source: { type: string } }[]
   displays: { id: string, night_text: string, schedules: { id: string, rules: { view: string }[] }[] }[]
   homeassistant?: unknown
@@ -471,35 +481,52 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
     })
   }
   unique(config.people, ['people'])
+  unique(config.groups, ['groups'])
   unique(config.calendars, ['calendars'])
   unique(config.displays, ['displays'])
 
-  // Detection could not tell two people apart if they share a name or alias.
+  // Detection could not tell two people (or a person and a group) apart if they share a name or alias.
   const owners = new Map<string, string>()
-  config.people.forEach((person, index) => {
-    const terms: [string, (string | number)[]][] = [
-      [person.name, ['people', index, 'name']],
-      ...person.aliases.map((alias, i): [string, (string | number)[]] => [alias, ['people', index, 'aliases', i]]),
-    ]
-    for (const [term, path] of terms) {
-      const key = term.toLowerCase()
-      const owner = owners.get(key)
-      if (owner === undefined) owners.set(key, person.id)
-      else if (owner !== person.id) {
-        issue(path, `"${term}" is already a name or alias of person "${owner}" (names and aliases must be unique, ignoring case, so events can be matched to one person)`)
+  const claimTerms = (kind: 'person' | 'group', section: 'people' | 'groups', list: { id: string, name: string, aliases: string[] }[]) => {
+    list.forEach((item, index) => {
+      const terms: [string, (string | number)[]][] = [
+        [item.name, [section, index, 'name']],
+        ...item.aliases.map((alias, i): [string, (string | number)[]] => [alias, [section, index, 'aliases', i]]),
+      ]
+      for (const [term, path] of terms) {
+        const key = term.toLowerCase()
+        const owner = owners.get(key)
+        if (owner === undefined) owners.set(key, `${kind} "${item.id}"`)
+        else if (owner !== `${kind} "${item.id}"`) {
+          issue(path, `"${term}" is already a name or alias of ${owner} (names and aliases must be unique, ignoring case, so events can be matched to one person or group)`)
+        }
       }
-    }
-  })
+    })
+  }
+  claimTerms('person', 'people', config.people)
 
   const personIds = new Set(config.people.map(person => person.id))
+  config.groups.forEach((group, index) => {
+    if (personIds.has(group.id)) {
+      issue(['groups', index, 'id'], `"${group.id}" is already the id of a person (person and group ids must differ, as a rule can list either)`)
+    }
+    group.people.forEach((id, i) => {
+      if (!personIds.has(id)) {
+        issue(['groups', index, 'people', i], `unknown person "${id}" (must be the id of an entry in people)`)
+      }
+    })
+  })
+  claimTerms('group', 'groups', config.groups)
+
+  const groupIds = new Set(config.groups.map(group => group.id))
   config.calendars.forEach((calendar, index) => {
     if (!personIds.has(calendar.person)) {
       issue(['calendars', index, 'person'], `unknown person "${calendar.person}" (must be the id of an entry in people)`)
     }
     calendar.rules.forEach((rule, ruleIndex) => {
       rule.people.forEach((id, i) => {
-        if (!personIds.has(id)) {
-          issue(['calendars', index, 'rules', ruleIndex, 'people', i], `unknown person "${id}" (must be the id of an entry in people)`)
+        if (!personIds.has(id) && !groupIds.has(id)) {
+          issue(['calendars', index, 'rules', ruleIndex, 'people', i], `unknown person "${id}" (must be the id of an entry in people or groups)`)
         }
       })
     })
@@ -532,6 +559,7 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
 
 export type AppConfig = z.output<ReturnType<typeof createConfigSchema>>
 export type Person = AppConfig['people'][number]
+export type Group = AppConfig['groups'][number]
 export type CalendarConfig = AppConfig['calendars'][number]
 export type CalendarSource = CalendarConfig['source']
 export type CalendarRule = CalendarConfig['rules'][number]

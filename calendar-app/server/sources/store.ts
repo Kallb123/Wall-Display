@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm'
 import { createPeopleResolver, DETECTION_VERSION } from '../../shared/people'
 import type { ResolvedPeople } from '../../shared/people'
-import type { CalendarConfig, Person } from '../config/schema'
+import type { CalendarConfig, Group, Person } from '../config/schema'
 import type { Db } from '../db/client'
 import { calendars, events, syncStatus } from '../db/schema'
 import type { NewEventRow } from '../db/schema'
@@ -29,13 +29,13 @@ const DELETE_CHUNK = 500
  * something to point at. Updates the row when the config changed, and never
  * deletes it (that would take the events with it).
  */
-export function ensureCalendarRow(db: Db, calendar: CalendarConfig, people: readonly Person[]): void {
+export function ensureCalendarRow(db: Db, calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = []): void {
   const values = {
     id: calendar.id,
     name: calendar.name ?? calendar.id,
     personId: calendar.person,
     sourceType: calendar.source.type,
-    configHash: configHash(calendar, people),
+    configHash: configHash(calendar, people, groups),
   }
   db.insert(calendars).values(values).onConflictDoUpdate({
     target: calendars.id,
@@ -54,12 +54,14 @@ export function ensureCalendarRow(db: Db, calendar: CalendarConfig, people: read
  * A fingerprint of what decides who a calendar's events are for: the
  * calendar's detection settings and rules, the people's ids, names and aliases
  * (not their colours or initials, which change how an event looks and not who
- * it is for) and the version of the detection algorithm.
+ * it is for), the groups' ids, names, aliases and members, and the version of
+ * the detection algorithm.
  */
-export function configHash(calendar: CalendarConfig, people: readonly Person[]): string {
+export function configHash(calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = []): string {
   const parts = {
     detection: DETECTION_VERSION,
     people: people.map(person => ({ id: person.id, name: person.name, aliases: person.aliases })),
+    groups: groups.map(group => ({ id: group.id, name: group.name, aliases: group.aliases, people: group.people })),
     person: calendar.person,
     detect_people: calendar.detect_people,
     detect_in: calendar.detect_in,
@@ -174,13 +176,13 @@ export interface ReresolveResult {
 
 /**
  * Runs person detection again over a calendar's stored events, for when the
- * people or rules in the config have changed. The title and description are
+ * people, groups or rules in the config have changed. The title and description are
  * stored, so no fetch is needed. Only rows whose answer differs are written, and
  * the calendar's hash is updated in the same transaction, so a crash half way
  * leaves it to be done again at the next boot.
  */
-export function reresolveStoredEvents(db: Db, calendar: CalendarConfig, people: readonly Person[]): ReresolveResult {
-  const resolve = createPeopleResolver(calendar, people)
+export function reresolveStoredEvents(db: Db, calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = []): ReresolveResult {
+  const resolve = createPeopleResolver(calendar, people, groups)
   return db.transaction((tx) => {
     const stored = tx.select({
       id: events.id,
@@ -197,7 +199,7 @@ export function reresolveStoredEvents(db: Db, calendar: CalendarConfig, people: 
       tx.update(events).set({ personIds, displayTitle }).where(and(eq(events.id, row.id), eq(events.calendarId, calendar.id))).run()
       changed++
     }
-    tx.update(calendars).set({ configHash: configHash(calendar, people) }).where(eq(calendars.id, calendar.id)).run()
+    tx.update(calendars).set({ configHash: configHash(calendar, people, groups) }).where(eq(calendars.id, calendar.id)).run()
     return { checked: stored.length, changed }
   })
 }
@@ -216,14 +218,14 @@ export interface CalendarRowsResult {
  * longer configured (their events and sync status go with them), so a removed
  * calendar stops showing on the wall.
  */
-export function syncCalendarRows(db: Db, configured: readonly CalendarConfig[], people: readonly Person[]): CalendarRowsResult {
+export function syncCalendarRows(db: Db, configured: readonly CalendarConfig[], people: readonly Person[], groups: readonly Group[] = []): CalendarRowsResult {
   const reresolved: CalendarRowsResult['reresolved'] = []
   for (const calendar of configured) {
     const row = db.select({ configHash: calendars.configHash }).from(calendars).where(eq(calendars.id, calendar.id)).get()
-    if (row && row.configHash !== configHash(calendar, people)) {
-      reresolved.push({ calendarId: calendar.id, ...reresolveStoredEvents(db, calendar, people) })
+    if (row && row.configHash !== configHash(calendar, people, groups)) {
+      reresolved.push({ calendarId: calendar.id, ...reresolveStoredEvents(db, calendar, people, groups) })
     }
-    ensureCalendarRow(db, calendar, people)
+    ensureCalendarRow(db, calendar, people, groups)
   }
 
   const keep = new Set(configured.map(calendar => calendar.id))

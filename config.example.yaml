@@ -29,6 +29,14 @@ people:
   - { id: poppy, name: Poppy, colour: "#9A7BC4", aliases: [Pops] }
   - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
 
+# Optional. A group is a name for several people: "Party for the kids" is then
+# for Isla, Theo and Poppy. A group's name and aliases match like a person's,
+# and share the uniqueness rule with them (no clashes with people or other
+# groups, ignoring case). "people" lists person ids; a group id must differ from
+# every person id. A calendar rule's "people" may list a group id too.
+groups:
+  - { id: kids, name: Kids, aliases: [Children], people: [isla, theo, poppy] }
+
 calendars:
   # One shared calendar for the whole family. Who an event is for comes from its
   # title or description ("Who: Theo"), so titles can stay clean in Google Calendar.

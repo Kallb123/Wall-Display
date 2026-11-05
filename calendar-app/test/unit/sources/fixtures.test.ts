@@ -298,7 +298,7 @@ describe('config.dev.yaml', () => {
     const run = async () => {
       const results = []
       for (const calendar of config.calendars) {
-        results.push(await syncIcsCalendar({ db, calendar, people: config.people, timeZone: config.timezone, sync: config.sync, now: TODAY }))
+        results.push(await syncIcsCalendar({ db, calendar, people: config.people, groups: config.groups, timeZone: config.timezone, sync: config.sync, now: TODAY }))
       }
       return results
     }
@@ -317,7 +317,7 @@ describe('config.dev.yaml', () => {
     const config = loadConfig({ configFile: join(APP_DIR, 'config.dev.yaml'), env: {} })
     const { db } = migratedMemoryDb()
     for (const calendar of config.calendars) {
-      await syncIcsCalendar({ db, calendar, people: config.people, timeZone: config.timezone, sync: config.sync, now: TODAY })
+      await syncIcsCalendar({ db, calendar, people: config.people, groups: config.groups, timeZone: config.timezone, sync: config.sync, now: TODAY })
     }
 
     const rows = db.select().from(eventsTable).all()

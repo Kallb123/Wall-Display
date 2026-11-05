@@ -19,6 +19,16 @@ describe('defaults', () => {
     expect(config.people[0]!.initial).toBe('Z')
   })
 
+  it('has no groups unless given, and fills in a group\'s aliases', async () => {
+    expect((await load({ config: minimalConfig() })).config.groups).toEqual([])
+
+    const raw = minimalConfig()
+    raw.groups = [{ id: 'kids', name: 'Kids', people: ['theo'] }]
+    const { config } = await load({ config: raw })
+
+    expect(config.groups).toEqual([{ id: 'kids', name: 'Kids', aliases: [], people: ['theo'] }])
+  })
+
   it('fills in calendars', async () => {
     const { config } = await load({ config: minimalConfig() })
 

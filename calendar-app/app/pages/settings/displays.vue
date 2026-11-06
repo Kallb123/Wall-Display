@@ -244,6 +244,8 @@ function overlayOf(display: DisplayStatus) {
         </section>
       </div>
 
+      <SettingsOpenOnDevice :id="display.id" :name="display.name" />
+
       <section v-if="entryFor(display.id)" class="panel" aria-label="Preferences" data-testid="display-preferences">
         <h3 class="subhead">
           Preferences

@@ -266,3 +266,18 @@ export function providerChip(provider: Pick<PhotoProviderSettings, 'last_success
   if (provider.last_success_at) return { label: 'Working', tone: 'ok', detail: null }
   return { label: 'Not listed yet', tone: 'warn', detail: null }
 }
+
+/** The address of a display's page, for another device to open (`/display?id=…`). */
+export function displayLink(origin: string, id: string): string {
+  return `${origin}/display?id=${encodeURIComponent(id)}`
+}
+
+/**
+ * Whether a browser would offer to install the display as an app from this
+ * page: it needs a secure context, which is HTTPS or `localhost` (and so its
+ * loopback addresses), not plain HTTP to a name or an address on the network.
+ */
+export function canOfferInstall(location: Pick<Location, 'protocol' | 'hostname'>): boolean {
+  if (location.protocol === 'https:') return true
+  return ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+}

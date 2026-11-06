@@ -184,6 +184,7 @@ describe('command payloads', () => {
   const extra: Record<CommandTopic, string[]> = {
     'view/set': ['week', 'photo', 'MONTH', 'next ', ' next', 'm'],
     'month/set': ['2026-01', '2026-12', '1999-12', '0000-01', '9999-12', '2026-10-01', '2026-ab', ' 2026-10', 'PREV'],
+    'week/set': ['2026-01-01', '2026-12-31', '0000-01-01', '9999-12-31', '2026-13-01', '2026-00-10', '2026-10-32', '2026-10-00', '2026-1-01', '2026-10-1', ' 2026-10-01', '2026-10-01 ', 'NEXT'],
     'screen/set': ['on', 'off', 'On', 'OFF', 'standby', '0'],
     'photo_source/set': ['immich', 'google', 'local', 'LOCAL', 'photos'],
     'brightness/set': ['0', '1', '9', '10', '99', '100', '0.0', '100.0', '99.00', '100.1', '101.0', '0100', '1000', '-0', '1.', '1.05', ' 5', '5 ', '٥'],
@@ -332,6 +333,7 @@ describe('state payloads', () => {
     ['brightness 0', { ...defaultDisplayState(), brightness: 0 }],
     ['brightness 7', { ...defaultDisplayState(), brightness: 7 }],
     ['brightness 100', { ...defaultDisplayState(), brightness: 100 }],
+    ['a pinned week', { ...defaultDisplayState(), view: 'week', week: '2027-10-04', week_set_at: NOW.toISOString() }],
     ['a pinned month', { ...defaultDisplayState(), month: '2027-10', month_set_at: NOW.toISOString() }],
     ['both policies off', { ...defaultDisplayState(), auto_presence: false, auto_brightness: false }],
     ['only presence off', { ...defaultDisplayState(), auto_presence: false }],
@@ -342,7 +344,7 @@ describe('state payloads', () => {
 
   it.each(states)('%s: every payload passes its topic\'s schema', (_, state) => {
     for (const timeZone of ['Europe/London', 'Pacific/Auckland']) {
-      const payloads = statePayloads(state, NOW, timeZone)
+      const payloads = statePayloads(state, NOW, timeZone, 'monday')
 
       for (const topic of STATE_TOPICS as readonly StateTopic[]) {
         expect(contractAccepts(topic, payloads[topic]), `${topic} ${JSON.stringify(payloads[topic])}`).toBe(true)
@@ -351,7 +353,7 @@ describe('state payloads', () => {
   })
 
   it('has a payload for exactly the state topics', () => {
-    expect(sorted(Object.keys(statePayloads(defaultDisplayState(), NOW, 'Europe/London')))).toEqual(sorted(STATE_TOPICS))
+    expect(sorted(Object.keys(statePayloads(defaultDisplayState(), NOW, 'Europe/London', 'monday')))).toEqual(sorted(STATE_TOPICS))
   })
 
   it('says online and offline as the contract does', () => {
@@ -362,14 +364,14 @@ describe('state payloads', () => {
   it('shows the overlay\'s text, and nothing once there is no overlay', () => {
     const shown = { ...defaultDisplayState(), overlay: { text: 'Back at 6', icon: null, until: null } }
 
-    expect(statePayloads(shown, NOW, 'Europe/London')['overlay/state']).toBe('Back at 6')
-    expect(statePayloads(defaultDisplayState(), NOW, 'Europe/London')['overlay/state']).toBe('')
+    expect(statePayloads(shown, NOW, 'Europe/London', 'monday')['overlay/state']).toBe('Back at 6')
+    expect(statePayloads(defaultDisplayState(), NOW, 'Europe/London', 'monday')['overlay/state']).toBe('')
     expect(contractAccepts('overlay/state', '')).toBe(true)
   })
 
   it('shows the same settings that the matching command sets', () => {
     // A set followed by the state it publishes, as a round trip through the contract's own examples.
-    expect(statePayloads({ ...defaultDisplayState(), brightness: 50 }, NOW, 'Europe/London')['brightness/state']).toBe('50')
+    expect(statePayloads({ ...defaultDisplayState(), brightness: 50 }, NOW, 'Europe/London', 'monday')['brightness/state']).toBe('50')
     expect(parseCommandPayload('brightness/set', '50.0')).toMatchObject({ ok: true, command: { brightness: 50 } })
   })
 })

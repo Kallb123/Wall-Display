@@ -112,8 +112,9 @@ function setup(url: string, options: { displays?: string[], schedules?: { id: st
   const states = new Map(displays.map(id => [id, defaultDisplayState()]))
   const control = {
     getState: (displayId: string): DisplayState => states.get(displayId)!,
+    weekStartOf: vi.fn((): 'monday' | 'sunday' => 'monday'),
     applyCommand: vi.fn((displayId: string, command: Command): DisplayState => {
-      const next = reduceCommand(states.get(displayId)!, command, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15 })
+      const next = reduceCommand(states.get(displayId)!, command, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15, weekStart: 'monday' })
       states.set(displayId, next)
       bus.emit('state.updated', { displayId, state: next })
       return next

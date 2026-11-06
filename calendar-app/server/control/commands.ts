@@ -1,5 +1,5 @@
-import { addMonths, currentMonth, displayStateSchema, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER } from '../../shared/display'
-import type { Command, DisplayState, MonthKey, View } from '../../shared/display'
+import { addMonths, addWeeks, currentMonth, currentWeek, displayStateSchema, firstDayOfWeek, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../shared/display'
+import type { Command, DisplayState, MonthKey, View, WeekKey } from '../../shared/display'
 
 /**
  * The commands only the schedule policy sends (PR 5.4): a schedule window
@@ -24,6 +24,8 @@ export interface ControlContext {
   timeZone: string
   /** The display's `month_return_minutes`. */
   monthReturnMinutes: number
+  /** The display's `week_start`, which decides the first day of a week. */
+  weekStart: 'monday' | 'sunday'
 }
 
 const MINUTE_MS = 60_000
@@ -57,6 +59,32 @@ function setMonth(state: DisplayState, month: Extract<Command, { type: 'set_mont
   return clamped === current
     ? { ...state, view: 'month', month: null, month_set_at: null }
     : { ...state, view: 'month', month: clamped, month_set_at: ctx.now.toISOString() }
+}
+
+function isWeekView(view: View): boolean {
+  return (WEEK_VIEWS as readonly View[]).includes(view)
+}
+
+/** Where a `set_week` command points, before the clamp. */
+function targetWeek(state: DisplayState, week: Extract<Command, { type: 'set_week' }>['week'], current: WeekKey, ctx: ControlContext): WeekKey {
+  switch (week) {
+    case 'current': return current
+    case 'prev': return addWeeks(state.week ?? current, -1)
+    case 'next': return addWeeks(state.week ?? current, 1)
+    default: return firstDayOfWeek(week, ctx.weekStart)
+  }
+}
+
+function setWeek(state: DisplayState, week: Extract<Command, { type: 'set_week' }>['week'], ctx: ControlContext): DisplayState {
+  const current = currentWeek(ctx.now, ctx.timeZone, ctx.weekStart)
+  const target = targetWeek(state, week, current, ctx)
+  const clamped = addWeeks(current, Math.max(-WEEK_RANGE, Math.min(WEEK_RANGE, weekDiff(current, target))))
+  // A week only means something in a week view, so asking for one shows it, unless a view that follows it is already up.
+  // Every pick restarts the return clock, even the same week again: someone is browsing.
+  const view = isWeekView(state.view) ? state.view : 'week'
+  return clamped === current
+    ? { ...state, view, week: null, week_set_at: null }
+    : { ...state, view, week: clamped, week_set_at: ctx.now.toISOString() }
 }
 
 /**
@@ -129,6 +157,7 @@ function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext
     case 'next_view': return { ...state, view: viewAfter(state.view) }
     case 'toggle_photo': return { ...state, view: state.view === 'photo' ? state.last_calendar_view : 'photo' }
     case 'set_month': return setMonth(state, command.month, ctx)
+    case 'set_week': return setWeek(state, command.week, ctx)
     case 'set_screen': return { ...state, screen: command.screen }
     case 'set_brightness': return { ...state, brightness: command.brightness }
     case 'set_photo_source': return { ...state, photo_source: command.photo_source }
@@ -161,11 +190,21 @@ function monthReturnsAt(state: DisplayState, ctx: ControlContext): Date | null {
   return new Date(Date.parse(state.month_set_at) + ctx.monthReturnMinutes * MINUTE_MS)
 }
 
+/** When the pinned week goes back to following the current one, or null if nothing is pinned. One setting times both: how long a browsed month or week stays. */
+function weekReturnsAt(state: DisplayState, ctx: ControlContext): Date | null {
+  if (state.week === null || state.week_set_at === null) return null
+  return new Date(Date.parse(state.week_set_at) + ctx.monthReturnMinutes * MINUTE_MS)
+}
+
 /**
  * Applies the rules that depend on time and on the view:
  * - a pinned month goes when the view is not `month`, after `month_return_minutes`,
  *   when it has become the current month (the calendar rolled over) and when it
  *   has fallen out of the 12-month range;
+ * - a pinned week goes when the view is not a week view, after
+ *   `month_return_minutes` (one setting for months and weeks), when it has
+ *   become the current week and when it is more than 52 weeks out; if the
+ *   display's week start changed, it is moved to the first day of its week;
  * - an overlay goes at its `until`;
  * - a special day preview goes at its `until`.
  *
@@ -188,6 +227,22 @@ export function expireState(state: DisplayState, ctx: ControlContext): DisplaySt
     if (stale) next = { ...next, month: null, month_set_at: null }
   }
 
+  if (state.week === null) {
+    if (state.week_set_at !== null) next = { ...next, week_set_at: null }
+  } else {
+    const returnsAt = weekReturnsAt(state, ctx)
+    const current = currentWeek(ctx.now, ctx.timeZone, ctx.weekStart)
+    // The week start is a setting that can change: keep the pin on a first day.
+    const week = firstDayOfWeek(state.week, ctx.weekStart)
+    const stale = !isWeekView(state.view)
+      || returnsAt === null
+      || ctx.now.getTime() >= returnsAt.getTime()
+      || week === current
+      || Math.abs(weekDiff(current, week)) > WEEK_RANGE
+    if (stale) next = { ...next, week: null, week_set_at: null }
+    else if (week !== state.week) next = { ...next, week }
+  }
+
   if (state.overlay?.until != null && ctx.now.getTime() >= Date.parse(state.overlay.until)) {
     next = { ...next, overlay: null }
   }
@@ -201,13 +256,15 @@ export function expireState(state: DisplayState, ctx: ControlContext): DisplaySt
 
 /**
  * When `expireState` will next change something, or null if it won't without
- * a command. The midnight rollover is left out: a pinned month goes back
+ * a command. The midnight rollover is left out: a pinned month or week goes back
  * within `month_return_minutes` anyway, and every read runs `expireState`.
  */
 export function nextExpiry(state: DisplayState, ctx: ControlContext): Date | null {
   const times: number[] = []
   const returnsAt = monthReturnsAt(state, ctx)
   if (returnsAt !== null) times.push(returnsAt.getTime())
+  const weekReturns = weekReturnsAt(state, ctx)
+  if (weekReturns !== null) times.push(weekReturns.getTime())
   if (state.overlay?.until != null) times.push(Date.parse(state.overlay.until))
   if (state.preview !== null) times.push(Date.parse(state.preview.until))
   return times.length === 0 ? null : new Date(Math.min(...times))

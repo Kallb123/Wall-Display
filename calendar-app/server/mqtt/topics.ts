@@ -1,4 +1,4 @@
-import { commandSchema, currentMonth, scheduleIdSchema } from '../../shared/display'
+import { commandSchema, currentMonth, currentWeek, scheduleIdSchema } from '../../shared/display'
 import type { Command, DisplayState } from '../../shared/display'
 
 // The topics the app uses and what their payloads mean (architecture §7.3).
@@ -12,6 +12,7 @@ export const TOPIC_ROOT = 'wallcal'
 export const COMMAND_TOPICS = [
   'view/set',
   'month/set',
+  'week/set',
   'screen/set',
   'photo_source/set',
   'brightness/set',
@@ -27,6 +28,7 @@ export type CommandTopic = (typeof COMMAND_TOPICS)[number]
 export const STATE_TOPICS = [
   'view/state',
   'month/state',
+  'week/state',
   'screen/state',
   'photo_source/state',
   'brightness/state',
@@ -144,6 +146,7 @@ function candidateFor(suffix: CommandTopic, payload: string): Candidate {
   switch (suffix) {
     case 'view/set': return { command: payload === 'next' ? { type: 'next_view' } : { type: 'set_view', view: payload } }
     case 'month/set': return { command: { type: 'set_month', month: payload } }
+    case 'week/set': return { command: { type: 'set_week', week: payload } }
     case 'screen/set': return { command: { type: 'set_screen', screen: payload } }
     case 'photo_source/set': return { command: { type: 'set_photo_source', photo_source: payload } }
     case 'brightness/set':
@@ -233,11 +236,12 @@ export function parseIlluminancePayload(payload: string): number | null {
 /** `ON` or `OFF`, as the auto_presence and auto_brightness topics carry a setting. */
 export const onOffPayload = (value: boolean): string => value ? 'ON' : 'OFF'
 
-/** Every state topic's payload for `state`. `month/state` is the month the month view shows, so it is the current month in `timeZone` at `now` when nothing is pinned. `overlay/state` is the overlay's text, or empty when none is shown (it has expired, or been cleared), so Home Assistant's message box empties with it. */
-export function statePayloads(state: DisplayState, now: Date, timeZone: string): Record<StateTopic, string> {
+/** Every state topic's payload for `state`. `month/state` is the month the month view shows, so it is the current month in `timeZone` at `now` when nothing is pinned. `week/state` is the first day of the week the week view shows, the current week by the display's `weekStart` when nothing is pinned. `overlay/state` is the overlay's text, or empty when none is shown (it has expired, or been cleared), so Home Assistant's message box empties with it. */
+export function statePayloads(state: DisplayState, now: Date, timeZone: string, weekStart: 'monday' | 'sunday'): Record<StateTopic, string> {
   return {
     'view/state': state.view,
     'month/state': state.month ?? currentMonth(now, timeZone),
+    'week/state': state.week ?? currentWeek(now, timeZone, weekStart),
     'screen/state': state.screen,
     'photo_source/state': state.photo_source,
     'brightness/state': String(state.brightness),

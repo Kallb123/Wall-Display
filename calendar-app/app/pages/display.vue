@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { currentMonth, DEFAULT_WEEK_HOURS, displayStateSchema } from '../../shared/display'
+import { currentMonth, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
 import { specialDayArtUrl } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
@@ -156,8 +156,11 @@ const shownMonth = computed(() => {
   return previewed ?? state.value.month ?? currentMonth(now.value, timezone.value)
 })
 
-// The week view shows the week of today, or of the previewed date while a preview runs. Either is inside the month grid that is already fetched, so it needs no request of its own.
-const weekOf = computed(() => (previewing.value ? previewDays.value?.today : null) ?? today.value)
+// The week view shows the previewed date's week while a preview runs, else the week the server pinned in `state.week`, else today's.
+const weekOf = computed(() => (previewing.value ? previewDays.value?.today : null) ?? state.value.week ?? today.value)
+
+// The week's first day, which is what the events are fetched for. A pinned week can be far from the month grid, so it may need a request of its own.
+const shownWeek = computed(() => settings.value && weekOf.value ? firstDayOfWeek(weekOf.value, settings.value.week_start) : null)
 
 /** The takeover in force, which sets the palette, the art behind the view and the greeting. */
 const takeover = computed(() => takeoverInForce({
@@ -225,13 +228,13 @@ const viewProps = computed<ViewProps | null>(() => {
 // A slow answer to an old request must not replace a newer one.
 let loadCount = 0
 
-/** Fetches what the shown month and the next days need, and keeps the last good events if that fails. */
+/** Fetches what the shown month, the shown week and the next days need, and keeps the last good events if that fails. */
 async function loadEvents() {
   if (!shownMonth.value || !today.value) return
   const id = ++loadCount
   try {
     const responses = await Promise.all(
-      displayEventRanges(shownMonth.value, today.value).map(range => $fetch<EventsResponse>('/api/events', { query: range })),
+      displayEventRanges(shownMonth.value, today.value, shownWeek.value ?? undefined).map(range => $fetch<EventsResponse>('/api/events', { query: range })),
     )
     if (id !== loadCount) return
     // The ranges can overlap, so the same event may come twice.
@@ -251,8 +254,8 @@ watch(socket.weather, (next) => {
   if (next !== undefined) weather.value = next
 })
 
-// The settings arriving, the month changing and midnight passing each change what to ask for.
-watch([shownMonth, today], () => void loadEvents(), { immediate: true })
+// The settings arriving, the month or week changing and midnight passing each change what to ask for.
+watch([shownMonth, shownWeek, today], () => void loadEvents(), { immediate: true })
 
 // Likewise the next alarm (null for none).
 watch(socket.alarm, (next) => {

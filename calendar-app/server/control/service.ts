@@ -7,9 +7,9 @@ import type { ControlCommand, ControlContext } from './commands'
 import { loadDisplayState, saveDisplayState } from './store'
 
 // Holds each display's state: applies commands, stores the result, tells the
-// rest of the app, and runs the timer that reverts a pinned month or clears
+// rest of the app, and runs the timer that reverts a pinned month or week or clears
 // an overlay. The rules themselves are in commands.ts. The month return timeout
-// can be changed while it runs (`updateDisplay`, from the settings page): a month
+// and the week start can be changed while it runs (`updateDisplay`, from the settings page): a month
 // pinned for longer than the new limit reverts at once, and any other timer is
 // re-armed for the new limit, with no restart. Everything the service
 // touches comes in through the options, so a test uses fake timers and an
@@ -18,7 +18,7 @@ import { loadDisplayState, saveDisplayState } from './store'
 export interface DisplayControlOptions {
   db: Db
   /** The displays in the config: the only ids that have state. `schedules` are the only ids `set_schedule` accepts (none if left out). */
-  displays: readonly (Pick<DisplayConfig, 'id' | 'month_return_minutes'> & { schedules?: readonly { id: string }[] })[]
+  displays: readonly (Pick<DisplayConfig, 'id' | 'month_return_minutes' | 'week_start'> & { schedules?: readonly { id: string }[] })[]
   /** The display time zone, which decides what the current month is. */
   timeZone: string
   bus: EventBus
@@ -38,10 +38,12 @@ export interface DisplayControl {
   hasSchedule: (displayId: string, scheduleId: string) => boolean
   /** Applies `command`, stores the new state, broadcasts it, and returns it. Throws `UnknownDisplayError`, and `UnknownScheduleError` for a `set_schedule` the display has no schedule for. */
   applyCommand: (displayId: string, command: ControlCommand) => DisplayState
+  /** The display's current `week_start`, as the settings page last set it. Throws `UnknownDisplayError`. */
+  weekStartOf: (displayId: string) => 'monday' | 'sunday'
   /**
-   * Changes the display's month return timeout, which takes effect at once: the state is settled (a month pinned longer ago than the new limit reverts now, and is stored and broadcast like any other change) and the timer is re-armed for the new limit. Throws `UnknownDisplayError`.
+   * Changes the display's month return timeout and week start, which takes effect at once: the state is settled (a month or week pinned longer ago than the new limit reverts now, a pinned week moves to the first day of its week, and the change is stored and broadcast like any other) and the timer is re-armed for the new limit. Throws `UnknownDisplayError`.
    */
-  updateDisplay: (displayId: string, update: { month_return_minutes: number }) => void
+  updateDisplay: (displayId: string, update: { month_return_minutes: number, week_start: 'monday' | 'sunday' }) => void
   /** Cancels every timer. Later commands still work, but nothing reverts on its own. */
   stop: () => void
 }
@@ -66,13 +68,14 @@ export const MAX_TIMER_MS = 24 * 60 * 60 * 1000
 export function createDisplayControl(options: DisplayControlOptions): DisplayControl {
   const { db, timeZone, bus, refresh, now = () => new Date(), log = console } = options
   const monthReturnMinutes = new Map(options.displays.map(display => [display.id, display.month_return_minutes]))
+  const weekStarts = new Map(options.displays.map(display => [display.id, display.week_start]))
   const scheduleIds = new Map(options.displays.map(display => [display.id, new Set((display.schedules ?? []).map(schedule => schedule.id))]))
   const states = new Map<string, DisplayState>()
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   let stopped = false
 
   function contextFor(displayId: string): ControlContext {
-    return { now: now(), timeZone, monthReturnMinutes: monthReturnMinutes.get(displayId)! }
+    return { now: now(), timeZone, monthReturnMinutes: monthReturnMinutes.get(displayId)!, weekStart: weekStarts.get(displayId)! }
   }
 
   function assertKnown(displayId: string): void {
@@ -137,6 +140,10 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
 
   return {
     hasDisplay: displayId => monthReturnMinutes.has(displayId),
+    weekStartOf(displayId) {
+      assertKnown(displayId)
+      return weekStarts.get(displayId)!
+    },
     hasSchedule: (displayId, scheduleId) => scheduleIds.get(displayId)?.has(scheduleId) ?? false,
     getState(displayId) {
       assertKnown(displayId)
@@ -158,6 +165,7 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
     updateDisplay(displayId, update) {
       assertKnown(displayId)
       monthReturnMinutes.set(displayId, update.month_return_minutes)
+      weekStarts.set(displayId, update.week_start)
       settle(displayId)
       // A commit has re-armed it already; otherwise the timer still counts for the old limit.
       schedule(displayId)

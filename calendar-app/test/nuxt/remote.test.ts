@@ -59,6 +59,7 @@ function apply(command: Command): DisplayState {
   if (command.type === 'set_screen') state = stateWith({ ...state, screen: command.screen })
   if (command.type === 'set_photo_source') state = stateWith({ ...state, photo_source: command.photo_source })
   if (command.type === 'set_month') state = stateWith({ ...state, view: 'month', month: command.month === 'current' ? null : command.month })
+  if (command.type === 'set_week') state = stateWith({ ...state, view: 'week', week: command.week === 'current' ? null : command.week })
   if (command.type === 'set_brightness') state = stateWith({ ...state, brightness: command.brightness })
   if (command.type === 'set_overlay') {
     const { overlay } = command
@@ -416,6 +417,85 @@ describe('the remote page', () => {
 
       expect(sent()).toEqual([{ type: 'set_month', month: 'current' }])
       expect(wrapper.find('[data-testid="month-current"]').exists()).toBe(false)
+    })
+  })
+
+  describe('the week picker', () => {
+    const SET_AT = '2026-10-28T09:41:00.000Z'
+
+    it('shows only in the week view', async () => {
+      const { wrapper } = await mountRemote({ view: 'month' })
+      expect(wrapper.find('[data-testid="week-picker"]').exists()).toBe(false)
+
+      const week = await mountRemote({ view: 'week' })
+      expect(week.wrapper.find('[data-testid="week-picker"]').exists()).toBe(true)
+      expect(week.wrapper.find('[data-testid="month-picker"]').exists()).toBe(false)
+    })
+
+    it('offers 105 weeks, each named by its first day, and shows the pinned one, or this week', async () => {
+      const { wrapper, socket } = await mountRemote({ view: 'week' })
+      const select = wrapper.find<HTMLSelectElement>('[data-testid="week-select"]')
+      const options = select.findAll('option')
+
+      expect(options).toHaveLength(105)
+      expect(options[0]!.element.value).toBe('2025-10-27')
+      expect(options[52]!.element.value).toBe('2026-10-26')
+      expect(select.element.value).toBe('2026-10-26')
+
+      socket!.push(stateWith({ view: 'week', week: '2027-03-01', week_set_at: SET_AT }))
+      await flushPromises()
+
+      expect(select.element.value).toBe('2027-03-01')
+    })
+
+    it('sends set_week for a pick, and current for the current week', async () => {
+      const { wrapper } = await mountRemote({ view: 'week' })
+
+      await wrapper.find('[data-testid="week-select"]').setValue('2027-03-01')
+      await flushPromises()
+      await wrapper.find('[data-testid="week-select"]').setValue('2026-10-26')
+      await flushPromises()
+
+      expect(sent()).toEqual([
+        { type: 'set_week', week: '2027-03-01' },
+        { type: 'set_week', week: 'current' },
+      ])
+    })
+
+    it('has arrows that send prev and next, and stop at 52 weeks either side', async () => {
+      const { wrapper, socket } = await mountRemote({ view: 'week' })
+
+      await wrapper.find('[data-testid="week-prev"]').trigger('click')
+      await flushPromises()
+      await wrapper.find('[data-testid="week-next"]').trigger('click')
+      await flushPromises()
+      expect(sent()).toEqual([{ type: 'set_week', week: 'prev' }, { type: 'set_week', week: 'next' }])
+
+      socket!.push(stateWith({ view: 'week', week: '2025-10-27', week_set_at: SET_AT }))
+      await flushPromises()
+      expect(wrapper.find('[data-testid="week-prev"]').attributes('disabled')).toBeDefined()
+      expect(wrapper.find('[data-testid="week-next"]').attributes('disabled')).toBeUndefined()
+
+      socket!.push(stateWith({ view: 'week', week: '2027-10-25', week_set_at: SET_AT }))
+      await flushPromises()
+      expect(wrapper.find('[data-testid="week-prev"]').attributes('disabled')).toBeUndefined()
+      expect(wrapper.find('[data-testid="week-next"]').attributes('disabled')).toBeDefined()
+    })
+
+    it('offers the way back only when another week is pinned', async () => {
+      const { wrapper, socket } = await mountRemote({ view: 'week' })
+      expect(wrapper.find('[data-testid="week-current"]').exists()).toBe(false)
+
+      socket!.push(stateWith({ view: 'week', week: '2026-12-07', week_set_at: SET_AT }))
+      await flushPromises()
+      const back = wrapper.find('[data-testid="week-current"]')
+      expect(back.text()).toBe('Back to this week')
+
+      await back.trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_week', week: 'current' }])
+      expect(wrapper.find('[data-testid="week-current"]').exists()).toBe(false)
     })
   })
 

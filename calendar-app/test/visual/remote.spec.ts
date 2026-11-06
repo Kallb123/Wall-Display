@@ -322,3 +322,19 @@ async function recordCommands(page: Page) {
   })
   return sent
 }
+
+test('shows the week picker, and the way back, for a pinned week', async ({ page }) => {
+  await openRemote(page, { view: 'week', week: '2027-03-01', week_set_at: '2026-10-28T09:41:00.000Z' })
+
+  await expect(page.getByTestId('month-picker')).toHaveCount(0)
+  await expect(page.getByTestId('week-select')).toHaveValue('2027-03-01')
+  await expect(page.getByTestId('week-current')).toHaveText('Back to this week')
+  await expect(page).toHaveScreenshot('week-pinned.png', { fullPage: true })
+})
+
+test('shows this week in the picker, with no way back, when none is pinned', async ({ page }) => {
+  await openRemote(page, { view: 'week' })
+
+  await expect(page.getByTestId('week-select')).toHaveValue('2026-10-26')
+  await expect(page.getByTestId('week-current')).toHaveCount(0)
+})

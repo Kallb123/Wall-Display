@@ -2,13 +2,14 @@
 import { ImageIcon, Plus } from 'lucide-vue-next'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import type { SpecialDay, SpecialDayScene } from '../../../shared/special-days'
-import { dateChip, daySummary, daysUsing, usedByLabel } from '~/utils/specialDayEditor'
+import { dateChip, daySummary, daysUsing, lacksPortraitArt, usedByLabel } from '~/utils/specialDayEditor'
 
 // The left-hand column of the special days page: a switch between the days and
 // the scenes, the list for the one chosen, and a button to add to it. Choosing
 // a row, adding and switching are asked of the page, which decides whether
 // unsaved changes allow it. The row being edited carries a dot while it has
-// changes that are not saved.
+// changes that are not saved. A day that takes over with full-screen art but
+// has no portrait cut of it says so, as a portrait wall shows none of it.
 
 const props = defineProps<{
   mode: 'days' | 'scenes'
@@ -79,6 +80,12 @@ const adding = computed(() => props.selected !== null && props.selected.id === n
           <span class="text">
             <span class="name">{{ day.name }}</span>
             <span class="summary">{{ daySummary(day, scenes) }}</span>
+            <span
+              v-if="lacksPortraitArt(day, scenes)"
+              class="no-portrait"
+              title="This day takes over with full-screen art but has no portrait art, so a portrait wall shows its palette and greeting without the picture."
+              data-testid="no-portrait"
+            >No portrait art</span>
           </span>
           <span v-if="dirty && isSelected('day', day.id)" class="dot" role="img" aria-label="Unsaved changes" data-testid="row-unsaved" />
         </button>
@@ -294,6 +301,21 @@ button.row:hover {
   color: var(--muted);
   font-size: 14px;
   font-weight: 600;
+}
+
+.no-portrait {
+  align-self: flex-start;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.row.current .no-portrait {
+  background: color-mix(in oklch, var(--muted) 14%, var(--surface));
 }
 
 .dot {

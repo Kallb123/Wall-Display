@@ -8,22 +8,28 @@ import { upperFirst } from './specialDayEditor'
 // and the words for an upload that failed. The server checks the file again and
 // has the last word; this only saves the wait. Pure: no Nuxt or Vue imports.
 
-/** Where an upload goes: a tile (days and scenes), full-screen art (both) or the extra layer (days only). */
-export type ArtSlot = 'tile' | 'full' | 'extra'
+/**
+ * Where an upload goes: a tile (days and scenes), full-screen art (both), the
+ * extra layer (days only), or the portrait cut of either art (1440×2560, for a
+ * portrait wall; the portrait extra layer is a day's only).
+ */
+export type ArtSlot = 'tile' | 'full' | 'extra' | 'full-portrait' | 'extra-portrait'
 
 /** How each slot is named in messages. */
 export const ART_SLOT_LABELS: Record<ArtSlot, string> = {
   tile: 'Tile art',
   full: 'Full-screen art',
   extra: 'Extra layer',
+  'full-portrait': 'Portrait art',
+  'extra-portrait': 'Portrait extra layer',
 }
 
 const MB = 1024 * 1024
 
 // The same as ART_LIMITS in server/special-days/art-errors.ts, which the app can't import. A test holds them together.
-const LIMITS: Record<ArtSlot, number> = { tile: 2 * MB, full: 20 * MB, extra: 20 * MB }
+const LIMITS: Record<ArtSlot, number> = { 'tile': 2 * MB, 'full': 20 * MB, 'extra': 20 * MB, 'full-portrait': 20 * MB, 'extra-portrait': 20 * MB }
 
-/** What the tile and the extra layer take: files that keep their transparency and stay sharp at any size. */
+/** What the tile and the extra layers take: files that keep their transparency and stay sharp at any size. */
 const GRAPHIC_TYPES: ReadonlySet<string> = new Set(['image/png', 'image/webp', 'image/svg+xml'])
 
 /** The type for a file name's ending, for a file the browser gave no type. Empty if it isn't an image the server reads. */
@@ -55,15 +61,16 @@ const megabytes = (bytes: number): string => (Math.ceil(bytes / MB * 10) / 10).t
  * Why the file can't be uploaded to the slot, or null if it can: `Tile art must
  * be a PNG, WebP or SVG`, `Tile art must be 2 MB or smaller (this one is 3.4 MB)`.
  * The tile takes a PNG, WebP or SVG up to 2 MB, and the extra layer the same
- * up to 20 MB. Full-screen art takes any image up to 20 MB (the server reads
- * the others, and says if it can't). A file the browser gave no type is judged
+ * up to 20 MB. Full-screen art, landscape or portrait, takes any image up to
+ * 20 MB (the server reads the others, and says if it can't). A file the browser gave no type is judged
  * by its ending.
  */
 export function artFileProblem(slot: ArtSlot, file: Pick<File, 'name' | 'type' | 'size'>): string | null {
   const label = ART_SLOT_LABELS[slot]
   const type = typeOf(file)
-  if (slot === 'full' ? !type.startsWith('image/') : !GRAPHIC_TYPES.has(type)) {
-    return slot === 'full' ? `${label} must be an image` : `${label} must be a PNG, WebP or SVG`
+  const anyImage = slot === 'full' || slot === 'full-portrait'
+  if (anyImage ? !type.startsWith('image/') : !GRAPHIC_TYPES.has(type)) {
+    return anyImage ? `${label} must be an image` : `${label} must be a PNG, WebP or SVG`
   }
   if (file.size === 0) return `${label} is empty`
   if (file.size > LIMITS[slot]) return `${label} must be ${LIMITS[slot] / MB} MB or smaller (this one is ${megabytes(file.size)} MB)`

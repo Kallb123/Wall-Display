@@ -46,7 +46,7 @@ const emit = defineEmits<{
   'duplicate': []
   'preview': []
   'upload': [slot: ArtSlot, file: File]
-  'clear-art': [slot: ArtSlot]
+  'clear-art': [slots: ArtSlot[]]
   'open-day': [id: string]
 }>()
 
@@ -158,7 +158,7 @@ const running = (action: string) => props.busy === action
         :hint="saved === null ? 'Save the scene first to add art' : 'PNG, WebP or SVG, up to 2 MB'"
         :clearable="saved?.tile_art != null"
         @file="emit('upload', 'tile', $event)"
-        @clear="emit('clear-art', 'tile')"
+        @clear="emit('clear-art', ['tile'])"
       />
 
       <div class="sd-field">
@@ -206,19 +206,34 @@ const running = (action: string) => props.busy === action
       </p>
 
       <div class="takeover-body" :class="{ faded: !draft.takeover }" :inert="draft.takeover ? undefined : true" data-testid="takeover-body">
-        <SpecialDaysArtDrop
-          label="Full-screen art"
-          art-slot="full"
-          :art="saved?.full_art ?? null"
-          aspect="wide"
-          :progress="uploads.full?.progress ?? null"
-          :error="uploads.full?.error ?? null"
-          :disabled="saved === null"
-          :hint="saved === null ? 'Save the scene first to add art' : 'Any picture, up to 20 MB'"
-          :clearable="saved?.full_art != null"
-          @file="emit('upload', 'full', $event)"
-          @clear="emit('clear-art', 'full')"
-        />
+        <div class="art-pair">
+          <SpecialDaysArtDrop
+            label="Full-screen art"
+            art-slot="full"
+            :art="saved?.full_art ?? null"
+            aspect="wide"
+            :progress="uploads.full?.progress ?? null"
+            :error="uploads.full?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the scene first to add art' : 'Any picture, up to 20 MB'"
+            :clearable="saved?.full_art != null"
+            @file="emit('upload', 'full', $event)"
+            @clear="emit('clear-art', ['full'])"
+          />
+          <SpecialDaysArtDrop
+            label="Portrait art"
+            art-slot="full-portrait"
+            :art="saved?.full_art_portrait ?? null"
+            aspect="tall"
+            :progress="uploads['full-portrait']?.progress ?? null"
+            :error="uploads['full-portrait']?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the scene first to add art' : 'For a portrait wall, up to 20 MB'"
+            :clearable="saved?.full_art_portrait != null"
+            @file="emit('upload', 'full-portrait', $event)"
+            @clear="emit('clear-art', ['full-portrait'])"
+          />
+        </div>
 
         <div class="sd-field">
           <label for="scene-greeting" class="sd-label">Greeting</label>
@@ -330,6 +345,14 @@ const running = (action: string) => props.busy === action
   flex-direction: column;
   gap: 20px;
   transition: opacity 0.2s ease;
+}
+
+/* A landscape drop and its portrait cut side by side, wrapping under each other on a narrow screen. */
+.art-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 24px;
 }
 
 /* Off: still there, so a greeting or a picture is not lost by flicking the switch, but not for using. */

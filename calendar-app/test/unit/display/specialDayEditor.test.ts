@@ -16,6 +16,7 @@ import {
   draftLook,
   fieldOrigin,
   greetingPreview,
+  lacksPortraitArt,
   leadLabel,
   newDayDraft,
   newSceneDraft,
@@ -44,6 +45,7 @@ const scene = (changes: Partial<SpecialDayScene> = {}): SpecialDayScene => ({
   tile_art: 'birthday-tile.webp',
   takeover: true,
   full_art: 'birthday-full.webp',
+  full_art_portrait: null,
   greeting: 'Happy {nth} birthday, {who}!',
   palette: 'frost',
   updated_at: '2026-10-01T09:00:00.000Z',
@@ -65,9 +67,11 @@ const day = (changes: Partial<SpecialDay> = {}): SpecialDay => ({
   tile_art: null,
   takeover: null,
   full_art: null,
+  full_art_portrait: null,
   greeting: null,
   palette: null,
   extra_art: null,
+  extra_art_portrait: null,
   updated_at: '2026-10-02T09:00:00.000Z',
   ...changes,
 })
@@ -112,14 +116,14 @@ describe('drafts', () => {
       day({ lead: 'month', takeover: false, palette: 'sage' }),
     ]
     for (const original of stored) {
-      const { id: _id, tile_art: _tile, full_art: _full, extra_art: _extra, updated_at: _updated, ...fields } = original
+      const { id: _id, tile_art: _tile, full_art: _full, full_art_portrait: _portrait, extra_art: _extra, extra_art_portrait: _extraPortrait, updated_at: _updated, ...fields } = original
       expect(dayBody(dayDraftFrom(original))).toEqual(fields)
     }
   })
 
   it('makes the body a scene was stored from', () => {
     for (const original of [scene(), scene({ lead: 'days', lead_days: 3, greeting: null, takeover: false, palette: 'sage' })]) {
-      const { id: _id, tile_art: _tile, full_art: _full, updated_at: _updated, ...fields } = original
+      const { id: _id, tile_art: _tile, full_art: _full, full_art_portrait: _portrait, updated_at: _updated, ...fields } = original
       expect(sceneBody(sceneDraftFrom(original))).toEqual(fields)
     }
   })
@@ -356,6 +360,8 @@ describe('fieldOrigin', () => {
     expect(fieldOrigin(draft, { ...islaOnBirthday, tile_art: 'own.png' }, 'tile_art')).toBe('own')
     expect(fieldOrigin(draft, { ...islaOnBirthday, full_art: 'own.webp' }, 'full_art')).toBe('own')
     expect(fieldOrigin(draft, { ...islaOnBirthday, full_art: 'own.webp' }, 'tile_art')).toBe('scene')
+    // The portrait cut goes with the full-screen art, so either one is the day's own.
+    expect(fieldOrigin(draft, { ...islaOnBirthday, full_art_portrait: 'own-tall.webp' }, 'full_art')).toBe('own')
     // A day not saved yet has no art of its own.
     expect(fieldOrigin(draft, null, 'tile_art')).toBe('scene')
   })
@@ -436,7 +442,7 @@ describe('withScene', () => {
 
 describe('draftLook', () => {
   it('uses the defaults for a day with nothing set and no scene', () => {
-    expect(draftLook(newDayDraft(TODAY), null, null)).toEqual({ lead: 'day', lead_days: null, tile_art: null, takeover: false, full_art: null, greeting: null, palette: 'warm' })
+    expect(draftLook(newDayDraft(TODAY), null, null)).toEqual({ lead: 'day', lead_days: null, tile_art: null, takeover: false, full_art: null, full_art_portrait: null, greeting: null, palette: 'warm' })
   })
 
   it('takes the draft\'s own values over the scene\'s, and the scene\'s for the rest', () => {
@@ -447,6 +453,7 @@ describe('draftLook', () => {
       tile_art: 'birthday-tile.webp',
       takeover: true,
       full_art: 'birthday-full.webp',
+      full_art_portrait: null,
       greeting: 'Happy {nth} birthday, {who}!',
       palette: 'night',
     })
@@ -455,6 +462,16 @@ describe('draftLook', () => {
   it('uses the saved day\'s own art', () => {
     const saved = { ...islaOnBirthday, tile_art: 'own.png' }
     expect(draftLook(dayDraftFrom(saved), saved, scene())).toMatchObject({ tile_art: 'own.png', full_art: 'birthday-full.webp' })
+  })
+
+  it('takes the full-screen art and its portrait cut from the same place', () => {
+    const withPortrait = scene({ full_art_portrait: 'birthday-tall.webp' })
+    expect(draftLook(dayDraftFrom(islaOnBirthday), islaOnBirthday, withPortrait)).toMatchObject({ full_art: 'birthday-full.webp', full_art_portrait: 'birthday-tall.webp' })
+    // A day with a picture of its own never borrows the scene's portrait cut of another.
+    const own = { ...islaOnBirthday, full_art: 'own.webp' }
+    expect(draftLook(dayDraftFrom(own), own, withPortrait)).toMatchObject({ full_art: 'own.webp', full_art_portrait: null })
+    const ownPortrait = { ...islaOnBirthday, full_art_portrait: 'own-tall.webp' }
+    expect(draftLook(dayDraftFrom(ownPortrait), ownPortrait, withPortrait)).toMatchObject({ full_art: null, full_art_portrait: 'own-tall.webp' })
   })
 
   it('reads lead days that are not a number as none', () => {
@@ -622,6 +639,11 @@ describe('daySummary', () => {
     expect(daySummary(day({ scene_id: 'birthday', tile_art: 'a.png', full_art: 'b.webp', takeover: false, greeting: 'Hi' }), scenes)).toBe('Birthday scene · 4 changes')
   })
 
+  it('counts the full-screen art and its portrait cut as one change', () => {
+    expect(daySummary(day({ scene_id: 'birthday', full_art_portrait: 'a-tall.webp' }), scenes)).toBe('Birthday scene · 1 change')
+    expect(daySummary(day({ scene_id: 'birthday', full_art: 'a.webp', full_art_portrait: 'a-tall.webp' }), scenes)).toBe('Birthday scene · 1 change')
+  })
+
   it('adds the extra layer', () => {
     expect(daySummary(day({ scene_id: 'birthday', extra_art: 'seven.png' }), scenes)).toBe('Birthday scene · extra layer')
     expect(daySummary(day({ scene_id: 'birthday', palette: 'night', extra_art: 'seven.png' }), scenes)).toBe('Birthday scene · 1 change · extra layer')
@@ -639,6 +661,33 @@ describe('daySummary', () => {
   it('treats a scene that no longer exists as no scene', () => {
     expect(daySummary(day({ scene_id: 'gone', takeover: true }), scenes)).toBe('Every year · full screen')
     expect(daySummary(day({ scene_id: 'birthday' }), [])).toBe('Every year')
+  })
+})
+
+describe('lacksPortraitArt', () => {
+  const withPortrait = scene({ full_art_portrait: 'birthday-tall.webp' })
+  const scenes = [scene({ id: 'plain' }), { ...withPortrait, id: 'tall' }]
+
+  it('marks a day that takes over with full-screen art and no portrait cut', () => {
+    expect(lacksPortraitArt(day({ takeover: true, full_art: 'a.webp' }), scenes)).toBe(true)
+    expect(lacksPortraitArt(day({ scene_id: 'plain' }), scenes)).toBe(true)
+  })
+
+  it('does not mark one that has a portrait cut, its own or its scene\'s', () => {
+    expect(lacksPortraitArt(day({ takeover: true, full_art: 'a.webp', full_art_portrait: 'a-tall.webp' }), scenes)).toBe(false)
+    expect(lacksPortraitArt(day({ scene_id: 'tall' }), scenes)).toBe(false)
+  })
+
+  it('goes by the day\'s picture when it has one, not its scene\'s portrait cut', () => {
+    expect(lacksPortraitArt(day({ scene_id: 'tall', full_art: 'own.webp' }), scenes)).toBe(true)
+    expect(lacksPortraitArt(day({ scene_id: 'plain', full_art_portrait: 'own-tall.webp' }), scenes)).toBe(false)
+  })
+
+  it('does not mark a day with no takeover or no full-screen art', () => {
+    expect(lacksPortraitArt(day({ takeover: false, full_art: 'a.webp' }), scenes)).toBe(false)
+    expect(lacksPortraitArt(day({ takeover: true }), scenes)).toBe(false)
+    expect(lacksPortraitArt(day({ scene_id: 'plain', takeover: false }), scenes)).toBe(false)
+    expect(lacksPortraitArt(day({ scene_id: 'gone' }), scenes)).toBe(false)
   })
 })
 

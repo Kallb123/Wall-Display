@@ -10,7 +10,7 @@ const file = (name: string, type: string, size = 1000) => ({ name, type, size })
 
 describe('ART_SLOT_LABELS', () => {
   it('names the slots', () => {
-    expect(ART_SLOT_LABELS).toEqual({ tile: 'Tile art', full: 'Full-screen art', extra: 'Extra layer' })
+    expect(ART_SLOT_LABELS).toEqual({ 'tile': 'Tile art', 'full': 'Full-screen art', 'extra': 'Extra layer', 'full-portrait': 'Portrait art', 'extra-portrait': 'Portrait extra layer' })
   })
 })
 
@@ -37,6 +37,14 @@ describe('artFileProblem', () => {
     expect(artFileProblem('full', file('a.heic', 'image/heic'))).toBeNull()
     expect(artFileProblem('full', file('a.pdf', 'application/pdf'))).toBe('Full-screen art must be an image')
     expect(artFileProblem('full', file('a.mp4', 'video/mp4'))).toBe('Full-screen art must be an image')
+  })
+
+  it('treats the portrait cuts as their landscape slots: any image for the art, a PNG, WebP or SVG for the extra layer', () => {
+    expect(artFileProblem('full-portrait', file('a.jpg', 'image/jpeg'))).toBeNull()
+    expect(artFileProblem('full-portrait', file('a.pdf', 'application/pdf'))).toBe('Portrait art must be an image')
+    expect(artFileProblem('extra-portrait', file('a.svg', 'image/svg+xml'))).toBeNull()
+    expect(artFileProblem('extra-portrait', file('a.jpg', 'image/jpeg'))).toBe('Portrait extra layer must be a PNG, WebP or SVG')
+    expect(artFileProblem('full-portrait', file('a.jpg', 'image/jpeg', 20 * MB + 1))).toBe('Portrait art must be 20 MB or smaller (this one is 20.1 MB)')
   })
 
   it('goes by the ending of the name when the browser gave no type', () => {

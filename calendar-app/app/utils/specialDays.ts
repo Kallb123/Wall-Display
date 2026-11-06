@@ -59,6 +59,20 @@ export function takeoverInForce({ resolution, view, today, previewing }: Takeove
   return previewing || takeover.date === today ? takeover : null
 }
 
+/**
+ * The takeover's art for the stage it is drawn on: the landscape cuts on a
+ * landscape stage, the portrait ones on a portrait stage, each null for none.
+ * Never the other shape's, which cropped to fit wouldn't hold up, so a portrait
+ * wall whose day has no portrait art shows none. (`?? null` for a resolution
+ * cached before the portrait art, which has neither field.)
+ */
+export function takeoverArt(takeover: Takeover | null, orientation: 'landscape' | 'portrait'): { full: string | null, extra: string | null } {
+  if (!takeover) return { full: null, extra: null }
+  return orientation === 'portrait'
+    ? { full: takeover.full_art_portrait ?? null, extra: takeover.extra_art_portrait ?? null }
+    : { full: takeover.full_art, extra: takeover.extra_art }
+}
+
 /** The art files of a tile's decorations, in the order they are drawn. Not every decoration has some. */
 export function tileArt(days: readonly TileDecoration[]): string[] {
   return days.flatMap(day => day.tile_art ?? [])

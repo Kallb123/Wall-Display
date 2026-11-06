@@ -17,7 +17,7 @@ import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDispla
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
 import { isOverlayShowing } from '~/utils/overlay'
 import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
-import { activePreview, isEvening, takeoverInForce } from '~/utils/specialDays'
+import { activePreview, isEvening, takeoverArt, takeoverInForce } from '~/utils/specialDays'
 import { themeStyle, themeTokens } from '~/utils/themes'
 import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
@@ -167,6 +167,10 @@ const takeover = computed(() => takeoverInForce({
   previewing: previewing.value,
 }))
 
+/** The takeover's art cut for this stage's shape. */
+const fullArt = computed(() => takeoverArt(takeover.value, stage.value.orientation).full)
+const extraArt = computed(() => takeoverArt(takeover.value, stage.value.orientation).extra)
+
 // Burn-in shifting is on unless the display says otherwise. Settings cached before PR 5.3 have no word on it, and the default is on. Until there are settings at all nothing moves, so a display that has it off never starts out nudged and slides back.
 const burnIn = computed(() => settings.value !== null && settings.value.burn_in !== false)
 // The first offset is put in place at once; only the steps after it are slow. (The wait is for the browser to have drawn it: turning the transition on in the same frame would slide it in.)
@@ -313,19 +317,19 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
       <!-- Everything the burn-in shift moves. The dimmer is outside it, so it covers the whole stage whatever the offset. -->
       <div class="shift" data-testid="shift" :style="shiftStyle">
         <!-- Behind the view, which is solid where it has text, so the art shows in the margins and the gaps. -->
-        <!-- The takeover's art is 2560×1440, so it is only drawn on the landscape stage. -->
+        <!-- Each stage draws the art cut for its shape (2560×1440 or 1440×2560), never the other: cropped to the wrong one it wouldn't hold up. A portrait wall whose day has none shows no art. -->
         <img
-          v-if="takeover?.full_art && stage.orientation === 'landscape'"
+          v-if="fullArt"
           class="takeover-art"
-          :src="specialDayArtUrl(takeover.full_art)"
+          :src="specialDayArtUrl(fullArt)"
           alt=""
           draggable="false"
           data-testid="takeover-full"
         >
         <img
-          v-if="takeover?.extra_art && stage.orientation === 'landscape'"
+          v-if="extraArt"
           class="takeover-art"
-          :src="specialDayArtUrl(takeover.extra_art)"
+          :src="specialDayArtUrl(extraArt)"
           alt=""
           draggable="false"
           data-testid="takeover-extra"
@@ -403,7 +407,7 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
   transition: transform 8s ease-in-out;
 }
 
-/* Both fill the stage and are cropped to it, 2560×1440 art being the same shape. They never take a click. */
+/* Both fill the stage and are cropped to it, the art being the same shape as the stage it is drawn on. They never take a click. */
 .takeover-art {
   position: absolute;
   inset: 0;

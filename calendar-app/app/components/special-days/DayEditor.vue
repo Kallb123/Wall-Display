@@ -55,7 +55,8 @@ const emit = defineEmits<{
   'save-as-scene': []
   'preview': []
   'upload': [slot: ArtSlot, file: File]
-  'clear-art': [slot: ArtSlot]
+  /** Several at once when Reset takes the full-screen art and its portrait cut back to the scene's together. */
+  'clear-art': [slots: ArtSlot[]]
   'open-scene': [id: string]
 }>()
 
@@ -87,6 +88,22 @@ function origin(field: MarkedField) {
 
 function reset(field: Exclude<MarkedField, 'tile_art' | 'full_art'>) {
   draft.value = resetField(draft.value, field)
+}
+
+/**
+ * Reset on the full-screen art, which carries the mark for its portrait cut too
+ * (the two come from the same place), takes both back to the scene's. Without
+ * a scene it is Remove, and takes just the landscape one.
+ */
+function resetFullArt() {
+  if (origin('full_art') !== 'own') {
+    emit('clear-art', ['full'])
+    return
+  }
+  const own: ArtSlot[] = []
+  if (props.saved?.full_art != null) own.push('full')
+  if (props.saved?.full_art_portrait != null) own.push('full-portrait')
+  emit('clear-art', own)
 }
 
 // Date
@@ -384,7 +401,7 @@ const running = (action: string) => props.busy === action
         :scene-name="sceneName"
         :clearable="saved?.tile_art != null"
         @file="emit('upload', 'tile', $event)"
-        @clear="emit('clear-art', 'tile')"
+        @clear="emit('clear-art', ['tile'])"
       />
 
       <div class="sd-field">
@@ -444,35 +461,65 @@ const running = (action: string) => props.busy === action
       </p>
 
       <div class="takeover-body" :class="{ faded: !look.takeover }" :inert="look.takeover ? undefined : true" data-testid="takeover-body">
-        <SpecialDaysArtDrop
-          label="Full-screen art"
-          art-slot="full"
-          :art="look.full_art"
-          aspect="wide"
-          :progress="uploads.full?.progress ?? null"
-          :error="uploads.full?.error ?? null"
-          :disabled="saved === null"
-          :hint="saved === null ? 'Save the day first to add art' : 'Any picture, up to 20 MB'"
-          :origin="origin('full_art')"
-          :scene-name="sceneName"
-          :clearable="saved?.full_art != null"
-          @file="emit('upload', 'full', $event)"
-          @clear="emit('clear-art', 'full')"
-        />
+        <div class="art-pair">
+          <SpecialDaysArtDrop
+            label="Full-screen art"
+            art-slot="full"
+            :art="look.full_art"
+            aspect="wide"
+            :progress="uploads.full?.progress ?? null"
+            :error="uploads.full?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the day first to add art' : 'Any picture, up to 20 MB'"
+            :origin="origin('full_art')"
+            :scene-name="sceneName"
+            :clearable="saved?.full_art != null"
+            @file="emit('upload', 'full', $event)"
+            @clear="resetFullArt"
+          />
+          <SpecialDaysArtDrop
+            label="Portrait art"
+            art-slot="full-portrait"
+            :art="look.full_art_portrait"
+            aspect="tall"
+            :progress="uploads['full-portrait']?.progress ?? null"
+            :error="uploads['full-portrait']?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the day first to add art' : 'For a portrait wall, up to 20 MB'"
+            :clearable="saved?.full_art_portrait != null"
+            @file="emit('upload', 'full-portrait', $event)"
+            @clear="emit('clear-art', ['full-portrait'])"
+          />
+        </div>
 
-        <SpecialDaysArtDrop
-          label="Extra layer"
-          art-slot="extra"
-          :art="saved?.extra_art ?? null"
-          aspect="wide"
-          :progress="uploads.extra?.progress ?? null"
-          :error="uploads.extra?.error ?? null"
-          :disabled="saved === null"
-          :hint="saved === null ? 'Save the day first to add art' : 'A transparent layer drawn over the art, just for this day'"
-          :clearable="saved?.extra_art != null"
-          @file="emit('upload', 'extra', $event)"
-          @clear="emit('clear-art', 'extra')"
-        />
+        <div class="art-pair">
+          <SpecialDaysArtDrop
+            label="Extra layer"
+            art-slot="extra"
+            :art="saved?.extra_art ?? null"
+            aspect="wide"
+            :progress="uploads.extra?.progress ?? null"
+            :error="uploads.extra?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the day first to add art' : 'A transparent layer drawn over the art, just for this day'"
+            :clearable="saved?.extra_art != null"
+            @file="emit('upload', 'extra', $event)"
+            @clear="emit('clear-art', ['extra'])"
+          />
+          <SpecialDaysArtDrop
+            label="Portrait extra layer"
+            art-slot="extra-portrait"
+            :art="saved?.extra_art_portrait ?? null"
+            aspect="tall"
+            :progress="uploads['extra-portrait']?.progress ?? null"
+            :error="uploads['extra-portrait']?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the day first to add art' : 'Transparent, for a portrait wall'"
+            :clearable="saved?.extra_art_portrait != null"
+            @file="emit('upload', 'extra-portrait', $event)"
+            @clear="emit('clear-art', ['extra-portrait'])"
+          />
+        </div>
 
         <div class="sd-field">
           <span class="sd-label">
@@ -608,6 +655,14 @@ const running = (action: string) => props.busy === action
 
 .hint-flush {
   margin-top: -12px;
+}
+
+/* A landscape drop and its portrait cut side by side, wrapping under each other on a narrow screen. */
+.art-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 24px;
 }
 
 .takeover-body {

@@ -26,6 +26,7 @@ const scene = (changes: Partial<SpecialDayScene> & Pick<SpecialDayScene, 'id' | 
   tile_art: null,
   takeover: false,
   full_art: null,
+  full_art_portrait: null,
   greeting: null,
   palette: 'warm',
   updated_at: UPDATED,
@@ -43,9 +44,11 @@ const day = (changes: Partial<SpecialDay> & Pick<SpecialDay, 'id' | 'name' | 'mo
   tile_art: null,
   takeover: null,
   full_art: null,
+  full_art_portrait: null,
   greeting: null,
   palette: null,
   extra_art: null,
+  extra_art_portrait: null,
   updated_at: UPDATED,
   ...changes,
 })
@@ -80,6 +83,9 @@ let requests: { method: string, url: string, pin: string | null, body: unknown }
 function refusal(code: number, message: string, data: Record<string, unknown> = {}) {
   return Object.assign(new Error(`${code}`), { statusCode: code, data: { statusCode: code, message, ...data } })
 }
+
+/** The column an upload slot fills: `full` is `full_art`, `full-portrait` is `full_art_portrait`. */
+const artColumn = (slot: string): string => slot.includes('-') ? slot.replace('-', '_art_') : `${slot}_art`
 
 const slug = (name: string, taken: readonly { id: string }[]): string => {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -145,7 +151,7 @@ async function server(url: string, options: Options = {}) {
     return structuredClone(created)
   }
 
-  const dayRoute = path.match(/^\/api\/special-days\/([^/]+)(?:\/(duplicate|save-as-scene|art\/(?:tile|full|extra)))?$/)
+  const dayRoute = path.match(/^\/api\/special-days\/([^/]+)(?:\/(duplicate|save-as-scene|art\/(?:tile|full|extra|full-portrait|extra-portrait)))?$/)
   if (dayRoute) {
     const existing = days.find(candidate => candidate.id === dayRoute[1])
     if (!existing) throw refusal(404, 'No such special day')
@@ -169,16 +175,16 @@ async function server(url: string, options: Options = {}) {
       const look = effectiveLook(existing, scenes.find(candidate => candidate.id === existing.scene_id))
       const made = scene({ ...look, id: slug(existing.name, scenes), name: existing.name })
       scenes.push(made)
-      Object.assign(existing, { scene_id: made.id, lead: null, lead_days: null, tile_art: null, takeover: null, full_art: null, greeting: null, palette: null })
+      Object.assign(existing, { scene_id: made.id, lead: null, lead_days: null, tile_art: null, takeover: null, full_art: null, full_art_portrait: null, greeting: null, palette: null })
       return structuredClone({ scene: made, day: existing })
     }
     if (method === 'DELETE' && action?.startsWith('art/')) {
-      Object.assign(existing, { [`${action.slice(4)}_art`]: null })
+      Object.assign(existing, { [artColumn(action.slice(4))]: null })
       return structuredClone(existing)
     }
   }
 
-  const sceneRoute = path.match(/^\/api\/special-day-scenes\/([^/]+)(?:\/(duplicate|art\/(?:tile|full)))?$/)
+  const sceneRoute = path.match(/^\/api\/special-day-scenes\/([^/]+)(?:\/(duplicate|art\/(?:tile|full|full-portrait)))?$/)
   if (sceneRoute) {
     const existing = scenes.find(candidate => candidate.id === sceneRoute[1])
     if (!existing) throw refusal(404, 'No such scene')
@@ -196,7 +202,7 @@ async function server(url: string, options: Options = {}) {
       return undefined
     }
     if (method === 'DELETE' && sceneRoute[2]?.startsWith('art/')) {
-      Object.assign(existing, { [`${sceneRoute[2].slice(4)}_art`]: null })
+      Object.assign(existing, { [artColumn(sceneRoute[2].slice(4))]: null })
       return structuredClone(existing)
     }
     if (method === 'POST' && sceneRoute[2] === 'duplicate') {
@@ -261,9 +267,9 @@ class FakeRequest {
       this.respond(401, { statusCode: 401, message: refused })
       return
     }
-    const [, kind, id, slot] = this.url.match(/^\/api\/(special-days|special-day-scenes)\/([^/]+)\/art\/(\w+)$/)!
+    const [, kind, id, slot] = this.url.match(/^\/api\/(special-days|special-day-scenes)\/([^/]+)\/art\/([\w-]+)$/)!
     const record: SpecialDay | SpecialDayScene = (kind === 'special-days' ? days : scenes).find(candidate => candidate.id === id)!
-    Object.assign(record, { [`${slot}_art`]: file })
+    Object.assign(record, { [artColumn(slot!)]: file })
     this.respond(200, record)
   }
 }
@@ -336,7 +342,7 @@ function picture(name = 'tile.png', type = 'image/png', size = 10): File {
   return file
 }
 
-async function drop(wrapper: Wrapper, slot: 'tile' | 'full' | 'extra', file: File) {
+async function drop(wrapper: Wrapper, slot: 'tile' | 'full' | 'extra' | 'full-portrait' | 'extra-portrait', file: File) {
   await find(wrapper, `art-${slot}-drop`).trigger('drop', { dataTransfer: { files: [file] } })
   await settle()
 }
@@ -381,6 +387,22 @@ describe('the list', () => {
       { day: '5', month: 'Nov', name: 'Fireworks', summary: 'Once in 2026' },
       { day: '25', month: 'Dec', name: 'Christmas', summary: 'Every year · tile art · full screen' },
     ])
+  })
+
+  it('marks the days that take over with full-screen art but have no portrait art', async () => {
+    const wrapper = await open()
+
+    expect(findAll(wrapper, 'day-row').map(row => row.find('[data-testid="no-portrait"]').exists())).toEqual([true, true, false, true])
+    expect(findAll(wrapper, 'day-row')[0]!.find('[data-testid="no-portrait"]').text()).toBe('No portrait art')
+    expect(findAll(wrapper, 'day-row')[0]!.find('[data-testid="no-portrait"]').attributes('title')).toContain('portrait wall')
+  })
+
+  it('takes the mark off a day whose scene has portrait art, and off one that has its own', async () => {
+    scenes = [{ ...birthdayScene(), full_art_portrait: 'party-tall.webp' }]
+    days = [isla(), theo(), { ...christmas(), full_art_portrait: 'snow-tall.webp' }]
+    const wrapper = await open()
+
+    expect(findAll(wrapper, 'no-portrait')).toHaveLength(0)
   })
 
   it('opens the first day when nothing is chosen, and marks it as the current one', async () => {
@@ -1468,6 +1490,63 @@ describe('art', () => {
     expect(written()).toEqual(['DELETE /api/special-days/isla-birthday/art/tile'])
     expect(find(wrapper, 'art-tile-image').attributes('src')).toBe('/special-days/cake.webp')
     expect(find(wrapper, 'art-tile').find('[data-testid="mark-from"]').text()).toBe('From Birthday')
+  })
+
+  it('uploads portrait art to its own slots, for a day and for a scene', async () => {
+    const dayPage = await open('/settings/special-days?day=christmas')
+    expect(text(dayPage, 'art-full-portrait')).toContain('Portrait art')
+    expect(text(dayPage, 'art-extra-portrait')).toContain('Portrait extra layer')
+
+    await drop(dayPage, 'full-portrait', picture('snow-tall.jpg', 'image/jpeg'))
+    expect(upload().url).toBe('/api/special-days/christmas/art/full-portrait')
+    upload().answer('snow-tall.webp')
+    await settle()
+    expect(find(dayPage, 'art-full-portrait-image').attributes('src')).toBe('/special-days/snow-tall.webp')
+    expect(findAll(dayPage, 'day-row')[3]!.find('[data-testid="no-portrait"]').exists()).toBe(false)
+
+    await drop(dayPage, 'extra-portrait', picture('star.png'))
+    expect(upload().url).toBe('/api/special-days/christmas/art/extra-portrait')
+
+    const scenePage = await open('/settings/special-days?scene=birthday')
+    expect(find(scenePage, 'art-extra-portrait').exists()).toBe(false)
+    await drop(scenePage, 'full-portrait', picture('party-tall.png'))
+    expect(upload().url).toBe('/api/special-day-scenes/birthday/art/full-portrait')
+  })
+
+  it('refuses a portrait extra layer that is not a PNG, WebP or SVG without sending it', async () => {
+    const wrapper = await open('/settings/special-days?day=christmas')
+
+    await drop(wrapper, 'extra-portrait', picture('star.jpg', 'image/jpeg'))
+
+    expect(text(wrapper, 'art-extra-portrait-error')).toBe('Portrait extra layer must be a PNG, WebP or SVG')
+    expect(FakeRequest.all).toHaveLength(0)
+  })
+
+  it('removes a day\'s portrait art on its own', async () => {
+    days = [{ ...christmas(), full_art_portrait: 'snow-tall.webp' }]
+    const wrapper = await open('/settings/special-days?day=christmas')
+
+    await click(wrapper, 'art-full-portrait-remove')
+
+    expect(written()).toEqual(['DELETE /api/special-days/christmas/art/full-portrait'])
+    expect(find(wrapper, 'art-full-portrait-image').exists()).toBe(false)
+    expect(find(wrapper, 'art-full-image').attributes('src')).toBe('/special-days/snow.webp')
+  })
+
+  it('takes the full-screen art and its portrait cut back to the scene\'s together with Reset', async () => {
+    scenes = [{ ...birthdayScene(), full_art_portrait: 'party-tall.webp' }]
+    days = [{ ...isla(), full_art: 'isla.webp', full_art_portrait: 'isla-tall.webp' }]
+    const wrapper = await open('/settings/special-days?day=isla-birthday')
+    expect(find(wrapper, 'art-full').find('[data-testid="mark-changed"]').exists()).toBe(true)
+    expect(find(wrapper, 'art-full-portrait-image').attributes('src')).toBe('/special-days/isla-tall.webp')
+
+    await find(wrapper, 'art-full').find('[data-testid="reset"]').trigger('click')
+    await settle()
+
+    expect(written()).toEqual(['DELETE /api/special-days/isla-birthday/art/full', 'DELETE /api/special-days/isla-birthday/art/full-portrait'])
+    expect(find(wrapper, 'art-full-image').attributes('src')).toBe('/special-days/party.webp')
+    expect(find(wrapper, 'art-full-portrait-image').attributes('src')).toBe('/special-days/party-tall.webp')
+    expect(find(wrapper, 'art-full').find('[data-testid="mark-from"]').text()).toBe('From Birthday')
   })
 
   it('removes a scene\'s art', async () => {

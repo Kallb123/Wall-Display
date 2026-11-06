@@ -5,7 +5,7 @@ import type { PhotoInfo } from '../../shared/photos'
 import { burnInOffset } from '../../app/utils/burnIn'
 import { nightPosition } from '../../app/utils/night'
 import type { CalendarEvent } from '../../shared/types/events'
-import { fontsReady, playServer, settle } from './helpers'
+import { fontsReady, playServer, settle, settleWithArt } from './helpers'
 import { specialDaysOn } from './fixtures/special-days'
 import busy from './fixtures/agenda-busy.json' with { type: 'json' }
 import { fixtureEvents } from '../helpers/fixtureEvents'
@@ -236,14 +236,14 @@ test.describe('the agenda', () => {
     await expectRowsInside(page)
   })
 
-  test('a special day\'s greeting sits above today\'s list, in the night palette, with no art behind it', async ({ page }) => {
+  test('a special day\'s greeting sits above today\'s list, in the night palette, with no art behind it when the day has no portrait art', async ({ page }) => {
     const HALLOWEEN = new Date('2026-10-31T09:41:00Z')
     await playServer(page, { view: 'agenda' }, quiet('2026-10-31'), null, { now: HALLOWEEN, specialDays: specialDaysOn('2026-10-31') })
     await page.goto('/display?id=hallway')
     await settle(page)
 
     await expect(page.getByTestId('stage')).toHaveAttribute('data-palette', 'night')
-    // The art is 2560×1440, so the portrait stage does not draw it.
+    // Halloween has the 2560×1440 art only, which the portrait stage does not draw.
     await expect(page.getByTestId('takeover-full')).toHaveCount(0)
     await expect(page.getByTestId('day-today').getByTestId('greeting')).toHaveText('Happy Halloween!')
     await expect(page.getByTestId('day-tomorrow').getByTestId('greeting')).toHaveCount(0)
@@ -251,6 +251,21 @@ test.describe('the agenda', () => {
     await expect(page.getByTestId('day-tomorrow').getByTestId('empty-day')).toBeVisible()
     await expectRowsInside(page, ['day-today'])
     await expect(page).toHaveScreenshot('portrait-agenda-takeover.png')
+  })
+
+  test('a takeover with portrait art draws it behind the agenda, with its extra layer over it', async ({ page }) => {
+    const THURSDAY_29 = new Date('2026-10-29T09:41:00Z')
+    await playServer(page, { view: 'agenda' }, quiet('2026-10-29'), null, { now: THURSDAY_29, specialDays: specialDaysOn('2026-10-29') })
+    await page.goto('/display?id=hallway')
+    await settleWithArt(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-orientation', 'portrait')
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-palette', 'sage')
+    // The portrait cuts, not the landscape ones.
+    await expect(page.getByTestId('takeover-full')).toHaveAttribute('src', '/special-days/birthday-light-tall.svg')
+    await expect(page.getByTestId('takeover-extra')).toHaveAttribute('src', '/special-days/balloon-7-tall.svg')
+    await expect(page.getByTestId('day-today').getByTestId('greeting')).toHaveText('Happy 7th birthday, Isla!')
+    await expect(page).toHaveScreenshot('portrait-agenda-takeover-art.png')
   })
 })
 

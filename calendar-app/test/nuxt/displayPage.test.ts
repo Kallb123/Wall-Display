@@ -54,7 +54,7 @@ class FakeImage {
 // Halloween 2026, a Saturday, at 10:00 in London (the clocks went back on the 25th).
 const NOW = new Date('2026-10-31T10:00:00Z')
 
-const halloween: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: 'bat.png' }
+const halloween: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: 'bat.png', full_art_portrait: 'wall-tall.webp', extra_art_portrait: 'bat-tall.png' }
 const resolution = (changes: Partial<SpecialDaysResolution> = {}): SpecialDaysResolution => ({
   today: '2026-10-31',
   from: '2026-09-28',
@@ -72,7 +72,7 @@ const christmas = resolution({
   to: '2027-01-10',
   tiles: [{ date: '2026-12-25', days: [{ id: 'christmas', name: 'Christmas', palette: 'frost', tile_art: 'tree.svg' }] }],
   current: { id: 'christmas', name: 'Christmas' },
-  takeover: { id: 'christmas', name: 'Christmas', date: '2026-12-25', greeting: 'Merry Christmas', palette: 'frost', full_art: 'snow.webp', extra_art: null },
+  takeover: { id: 'christmas', name: 'Christmas', date: '2026-12-25', greeting: 'Merry Christmas', palette: 'frost', full_art: 'snow.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null },
 })
 
 const state = (changes: Partial<DisplayState> = {}): DisplayState => displayStateSchema.parse({ view: 'month', ...changes })
@@ -847,13 +847,25 @@ describe('orientation', () => {
     expect(wrapper.find('[data-testid="stage"]').attributes('data-orientation')).toBe('portrait')
   })
 
-  it('does not draw the takeover\'s 2560×1440 art on the portrait stage', async () => {
+  it('draws the portrait art, not the landscape art, on the portrait stage', async () => {
     resizeWindow(720, 1280)
-    const wall = await openWall({ state: night(), specialDays: resolution() })
-    expect(wall.stage().findAll('img.takeover-art')).toHaveLength(0)
+    const wall = await openWall({ state: state({ view: 'agenda' }), specialDays: resolution() })
+    expect(wall.stage().attributes('data-orientation')).toBe('portrait')
+    expect(wall.wrapper.find('[data-testid="takeover-full"]').attributes('src')).toBe('/special-days/wall-tall.webp')
+    expect(wall.wrapper.find('[data-testid="takeover-extra"]').attributes('src')).toBe('/special-days/bat-tall.png')
 
     resizeWindow(1920, 1080)
     await wall.setState({ view: 'month' })
-    expect(wall.stage().findAll('img.takeover-art')).toHaveLength(2)
+    expect(wall.wrapper.find('[data-testid="takeover-full"]').attributes('src')).toBe('/special-days/wall.webp')
+    expect(wall.wrapper.find('[data-testid="takeover-extra"]').attributes('src')).toBe('/special-days/bat.png')
+  })
+
+  it('draws no art on the portrait stage for a takeover with only landscape art', async () => {
+    resizeWindow(720, 1280)
+    const landscapeOnly = { ...halloween, full_art_portrait: null, extra_art_portrait: null }
+    const wall = await openWall({ state: state({ view: 'agenda' }), specialDays: resolution({ takeover: landscapeOnly }) })
+    expect(wall.stage().attributes('data-orientation')).toBe('portrait')
+    expect(wall.stage().findAll('img.takeover-art')).toHaveLength(0)
+    expect(wall.stage().attributes('data-palette')).toBe('night')
   })
 })

@@ -86,7 +86,7 @@ describe('discoveryMessages', () => {
   it('makes the same messages every time, in the same order', () => {
     expect(discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1 })).toEqual(messages)
     expect(parsed.map(message => message.topic.split('/')[3])).toEqual([
-      'view', 'month', 'previous_month', 'next_month', 'this_month', 'screen', 'photo_source',
+      'view', 'month', 'previous_month', 'next_month', 'this_month', 'week', 'previous_week', 'next_week', 'this_week', 'screen', 'photo_source',
       'brightness', 'auto_presence', 'auto_brightness', 'message', 'next_photo', 'refresh', 'last_sync', 'special_day',
     ])
   })
@@ -213,7 +213,7 @@ describe('the entities', () => {
   it('has buttons whose press is a payload the app accepts', () => {
     const buttons = parsed.filter(message => message.topic.includes('/button/'))
 
-    expect(buttons.map(message => message.config.name)).toEqual(['Previous month', 'Next month', 'This month', 'Next photo', 'Refresh calendars'])
+    expect(buttons.map(message => message.config.name)).toEqual(['Previous month', 'Next month', 'This month', 'Previous week', 'Next week', 'This week', 'Next photo', 'Refresh calendars'])
     for (const { config } of buttons) {
       // Home Assistant sends PRESS when the config does not say.
       const press = (config.payload_press as string | undefined) ?? 'PRESS'
@@ -221,6 +221,14 @@ describe('the entities', () => {
       expect(config).not.toHaveProperty('state_topic')
       expect(accepts(suffixOf(config.command_topic!, 'hallway'), press), `${config.name} sends ${press}`).toBe(true)
     }
+  })
+
+  it('steps the week with prev, next and current', () => {
+    expect(config('previous_week').payload_press).toBe('prev')
+    expect(config('next_week').payload_press).toBe('next')
+    expect(config('this_week').payload_press).toBe('current')
+    for (const id of ['previous_week', 'next_week', 'this_week']) expect(config(id).command_topic).toBe('wallcal/hallway/week/set')
+    expect(accepts('week/set', 'PRESS')).toBe(false)
   })
 
   it('steps the month with prev, next and current', () => {
@@ -284,9 +292,10 @@ describe('the entities', () => {
   it('has sensors for the month, the last sync and the special day, which only read', () => {
     const sensors = parsed.filter(message => message.topic.includes('/sensor/'))
 
-    expect(sensors.map(message => message.config.name)).toEqual(['Month shown', 'Last sync', 'Special day'])
+    expect(sensors.map(message => message.config.name)).toEqual(['Month shown', 'Week shown', 'Last sync', 'Special day'])
     for (const { config } of sensors) expect(config).not.toHaveProperty('command_topic')
     expect(config('month').state_topic).toBe('wallcal/hallway/month/state')
+    expect(config('week').state_topic).toBe('wallcal/hallway/week/state')
     expect(config('last_sync')).toMatchObject({ state_topic: 'wallcal/hallway/last_sync/state', device_class: 'timestamp', entity_category: 'diagnostic' })
     expect(config('special_day')).toMatchObject({ state_topic: 'wallcal/hallway/special_day/state', icon: 'mdi:party-popper' })
   })

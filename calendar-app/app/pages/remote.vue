@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, Power, Settings, SkipForward, X } from 'lucide-vue-next'
-import { MONTH_RANGE, currentMonth, monthDiff } from '../../shared/display'
+import { MONTH_RANGE, WEEK_RANGE, WEEK_VIEWS, currentMonth, currentWeek, monthDiff, weekDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
 import { reconnectDelay } from '~/utils/backoff'
 import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
-import { PHOTO_SOURCE_CHOICES, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions } from '~/utils/remote'
+import { PHOTO_SOURCE_CHOICES, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions, weekCommandFor, weekOptions } from '~/utils/remote'
 import { THEMES, themeStyle } from '~/utils/themes'
 
 // The phone remote (architecture §7.5). Like the wall it never decides
@@ -72,6 +72,8 @@ const name = computed(() => settings.value?.name ?? '')
 const screenOn = computed(() => state.value?.screen !== 'off')
 const view = computed(() => state.value?.view)
 const pinnedMonth = computed(() => state.value?.month ?? null)
+const pinnedWeek = computed(() => state.value?.week ?? null)
+const weekViewOn = computed(() => view.value !== undefined && (WEEK_VIEWS as readonly string[]).includes(view.value))
 
 // The page's own theme, on <html> so the background reaches the edges of the
 // screen, including where it overscrolls (tokens.css makes the wall's page black).
@@ -151,6 +153,17 @@ function pickMonth(event: Event) {
   if (!currentMonthKey.value) return
   const target = (event.target as HTMLSelectElement).value
   void commands.send({ type: 'set_month', month: monthCommandFor(target, currentMonthKey.value) })
+}
+
+const currentWeekKey = computed(() => settings.value ? currentWeek(now.value, settings.value.timezone, settings.value.week_start) : null)
+const shownWeek = computed(() => pinnedWeek.value ?? currentWeekKey.value)
+const weekChoices = computed(() => currentWeekKey.value ? weekOptions(currentWeekKey.value) : [])
+const weekOffset = computed(() => currentWeekKey.value && shownWeek.value ? weekDiff(currentWeekKey.value, shownWeek.value) : 0)
+
+function pickWeek(event: Event) {
+  if (!currentWeekKey.value) return
+  const target = (event.target as HTMLSelectElement).value
+  void commands.send({ type: 'set_week', week: weekCommandFor(target, currentWeekKey.value) })
 }
 
 // The slider shows what the finger is doing while it is down, not the state:
@@ -356,6 +369,58 @@ function submitPin() {
               @click="commands.send({ type: 'set_month', month: 'current' })"
             >
               Back to this month
+            </button>
+          </div>
+        </section>
+
+        <section v-if="weekViewOn" aria-labelledby="week-title" data-testid="week-picker">
+          <h2 id="week-title" class="label">
+            Week shown
+          </h2>
+          <div class="card picker">
+            <div class="picker-row">
+              <button
+                type="button"
+                class="arrow"
+                aria-label="Previous week"
+                :disabled="weekOffset <= -WEEK_RANGE"
+                data-testid="week-prev"
+                @click="commands.send({ type: 'set_week', week: 'prev' })"
+              >
+                <AppIcon :icon="ChevronLeft" :size="26" />
+              </button>
+              <span class="select">
+                <select
+                  :value="shownWeek"
+                  aria-label="Week"
+                  data-testid="week-select"
+                  @change="pickWeek"
+                >
+                  <option v-for="option in weekChoices" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <AppIcon class="caret" :icon="ChevronDown" :size="22" />
+              </span>
+              <button
+                type="button"
+                class="arrow"
+                aria-label="Next week"
+                :disabled="weekOffset >= WEEK_RANGE"
+                data-testid="week-next"
+                @click="commands.send({ type: 'set_week', week: 'next' })"
+              >
+                <AppIcon :icon="ChevronRight" :size="26" />
+              </button>
+            </div>
+            <button
+              v-if="pinnedWeek"
+              type="button"
+              class="link"
+              data-testid="week-current"
+              @click="commands.send({ type: 'set_week', week: 'current' })"
+            >
+              Back to this week
             </button>
           </div>
         </section>

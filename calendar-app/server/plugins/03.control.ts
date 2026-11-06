@@ -9,7 +9,7 @@ import { getSocketHub } from '../ws/hub'
 // schedules policy that changes views at set times, and connects the event bus
 // to the WebSocket hub: a state change goes to that display's sockets, changed
 // calendar events go to every socket. It also follows the settings page: when
-// a display's month return timeout is saved, the control takes it up at once.
+// a display's month return timeout or week start is saved, the control takes it up at once.
 export default defineNitroPlugin((nitroApp) => {
   // A hot reload runs this again in the same process, so stop the old control first.
   getSchedulePolicy()?.stop()
@@ -43,7 +43,7 @@ export default defineNitroPlugin((nitroApp) => {
         const display = settings.config().displays.find(candidate => candidate.id === displayId)
         if (!display) continue
         try {
-          control.updateDisplay(displayId, { month_return_minutes: display.month_return_minutes })
+          control.updateDisplay(displayId, { month_return_minutes: display.month_return_minutes, week_start: display.week_start })
         } catch (error) {
           console.error(`[control] ${displayId}: could not apply the saved settings: ${error instanceof Error ? error.message : String(error)}`)
         }

@@ -1,12 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import NightView from '~/components/views/NightView.vue'
 import DisplayPage from '~/pages/display.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { PALETTES, THEMES } from '~/utils/themes'
+import { PORTRAIT_VIEWS } from '~/utils/views'
 import { displayStateSchema } from '../../shared/display'
-import type { DisplayState } from '../../shared/display'
+import type { DisplayState, View } from '../../shared/display'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 
@@ -750,7 +751,23 @@ describe('orientation', () => {
     expect(nightStage(wall)).toEqual({ width: 1440, height: 2560, orientation: 'portrait' })
   })
 
+  /** Every view has a portrait layout now; this takes one away for a test, to check the letterbox a later view would get. */
+  const withoutPortraitLayout = (view: View) => {
+    const index = PORTRAIT_VIEWS.indexOf(view)
+    ;(PORTRAIT_VIEWS as View[]).splice(index, 1)
+    onTestFinished(() => { (PORTRAIT_VIEWS as View[]).splice(index, 0, view) })
+  }
+
+  it('is the 1440×2560 stage for the week in a portrait window', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: state({ view: 'week' }) })
+
+    expect(stageSize(wall)).toEqual([1440, 2560])
+    expect(wall.stage().attributes('data-orientation')).toBe('portrait')
+  })
+
   it('letterboxes a view with no portrait layout on the landscape stage, in a portrait window', async () => {
+    withoutPortraitLayout('week')
     resizeWindow(720, 1280)
     const wall = await openWall({ state: state({ view: 'week' }) })
 
@@ -760,6 +777,7 @@ describe('orientation', () => {
   })
 
   it('follows the view from the portrait stage to the landscape one and back', async () => {
+    withoutPortraitLayout('week')
     resizeWindow(720, 1280)
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])

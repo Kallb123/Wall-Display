@@ -20,8 +20,8 @@ export const CALENDAR_VIEWS = ['month', 'week', 'agenda'] as const satisfies rea
 
 export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
-/** The views with a portrait layout. The week is the only one left letterboxed on the landscape stage in a portrait window, until its layout arrives (PR 5.13). */
-export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month']
+/** The views with a portrait layout: all of them since PR 5.13. A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
+export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week']
 
 export const hasPortraitLayout = (view: View): boolean => PORTRAIT_VIEWS.includes(view)
 
@@ -51,7 +51,7 @@ export interface ViewProps {
   timezone: string
   /** The month the month view shows: the one the server pinned in `state.month`, or else the current month. Not necessarily the month `now` is in. */
   month: MonthKey
-  /** A date in the week the week view shows, `YYYY-MM-DD`: today, or the previewed date while a preview runs. */
+  /** A date in the week the week view shows, `YYYY-MM-DD`: the week the server pinned in `state.week`, else today; the previewed date while a preview runs. */
   weekOf: string
   /** The hours the week view draws in full (the display's `week_hours`); the rest are folded into a thin band at each end. */
   weekHours: WeekHours

@@ -22,6 +22,9 @@ export function buttonCommand(action: ButtonAction, state: Pick<DisplayState, 's
     case 'next_month': return { type: 'set_month', month: 'next' }
     case 'prev_month': return { type: 'set_month', month: 'prev' }
     case 'this_month': return { type: 'set_month', month: 'current' }
+    case 'next_week': return { type: 'set_week', week: 'next' }
+    case 'prev_week': return { type: 'set_week', week: 'prev' }
+    case 'this_week': return { type: 'set_week', week: 'current' }
     case 'refresh': return { type: 'refresh' }
     case 'ha':
     case 'none':

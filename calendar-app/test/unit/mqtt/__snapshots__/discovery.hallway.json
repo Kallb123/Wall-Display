@@ -136,6 +136,109 @@
     }
   },
   {
+    "topic": "homeassistant/sensor/wallcal_hallway/week/config",
+    "payload": {
+      "name": "Week shown",
+      "unique_id": "wallcal_hallway_week",
+      "icon": "mdi:calendar-week",
+      "state_topic": "wallcal/hallway/week/state",
+      "availability_topic": "wallcal/hallway/availability",
+      "payload_available": "online",
+      "payload_not_available": "offline",
+      "device": {
+        "identifiers": [
+          "wallcal_hallway"
+        ],
+        "name": "Wall Calendar",
+        "manufacturer": "Wall Display",
+        "model": "Wall Calendar"
+      },
+      "origin": {
+        "name": "Wall Calendar",
+        "url": "https://github.com/kallb123/wall-display"
+      },
+      "qos": 1
+    }
+  },
+  {
+    "topic": "homeassistant/button/wallcal_hallway/previous_week/config",
+    "payload": {
+      "name": "Previous week",
+      "unique_id": "wallcal_hallway_previous_week",
+      "icon": "mdi:chevron-left",
+      "command_topic": "wallcal/hallway/week/set",
+      "payload_press": "prev",
+      "availability_topic": "wallcal/hallway/availability",
+      "payload_available": "online",
+      "payload_not_available": "offline",
+      "device": {
+        "identifiers": [
+          "wallcal_hallway"
+        ],
+        "name": "Wall Calendar",
+        "manufacturer": "Wall Display",
+        "model": "Wall Calendar"
+      },
+      "origin": {
+        "name": "Wall Calendar",
+        "url": "https://github.com/kallb123/wall-display"
+      },
+      "qos": 1
+    }
+  },
+  {
+    "topic": "homeassistant/button/wallcal_hallway/next_week/config",
+    "payload": {
+      "name": "Next week",
+      "unique_id": "wallcal_hallway_next_week",
+      "icon": "mdi:chevron-right",
+      "command_topic": "wallcal/hallway/week/set",
+      "payload_press": "next",
+      "availability_topic": "wallcal/hallway/availability",
+      "payload_available": "online",
+      "payload_not_available": "offline",
+      "device": {
+        "identifiers": [
+          "wallcal_hallway"
+        ],
+        "name": "Wall Calendar",
+        "manufacturer": "Wall Display",
+        "model": "Wall Calendar"
+      },
+      "origin": {
+        "name": "Wall Calendar",
+        "url": "https://github.com/kallb123/wall-display"
+      },
+      "qos": 1
+    }
+  },
+  {
+    "topic": "homeassistant/button/wallcal_hallway/this_week/config",
+    "payload": {
+      "name": "This week",
+      "unique_id": "wallcal_hallway_this_week",
+      "icon": "mdi:calendar-today",
+      "command_topic": "wallcal/hallway/week/set",
+      "payload_press": "current",
+      "availability_topic": "wallcal/hallway/availability",
+      "payload_available": "online",
+      "payload_not_available": "offline",
+      "device": {
+        "identifiers": [
+          "wallcal_hallway"
+        ],
+        "name": "Wall Calendar",
+        "manufacturer": "Wall Display",
+        "model": "Wall Calendar"
+      },
+      "origin": {
+        "name": "Wall Calendar",
+        "url": "https://github.com/kallb123/wall-display"
+      },
+      "qos": 1
+    }
+  },
+  {
     "topic": "homeassistant/switch/wallcal_hallway/screen/config",
     "payload": {
       "name": "Screen",

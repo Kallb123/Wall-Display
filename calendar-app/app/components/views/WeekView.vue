@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { greetingSize, tileArt } from '~/utils/specialDays'
-import { paletteAccent, personFill, tileTint } from '~/utils/themes'
+import { paletteAccent, personFill, PORTRAIT_WEEK_TILE_TINT, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { weatherOn } from '../../../shared/weather'
-import { MAX_BADGE_INITIALS, weekLayout } from '../../../shared/week-layout'
+import { MAX_BADGE_INITIALS, PORTRAIT_MAX_TRACKS, weekLayout } from '../../../shared/week-layout'
 import type { AllDayBar, Band, TimedBlock, WeekDay } from '../../../shared/week-layout'
 
 // The week in the Soft style (architecture §4.5; there is no mock, so it borrows
@@ -33,10 +33,24 @@ import type { AllDayBar, Band, TimedBlock, WeekDay } from '../../../shared/week-
 // layer behind this view, so the view has no background of its own and the art
 // shows in the gaps between the tiles.
 //
+// On the portrait stage (PR 5.13, mocks 4c and 4d, architecture §4.6) the week
+// is the same seven tiles, narrower: a smaller title, a slimmer gutter and
+// tighter gaps, with the type sizes as they are in landscape or a little under.
+// Each column is about 176 px wide, so no more than two blocks sit side by side
+// (`PORTRAIT_MAX_TRACKS`) and the rest are counted in a "+N" chip at their start
+// time, on the column's right edge. A block under 50 minutes is one line, the
+// badge and the title; a longer one has the badge and time over a title that
+// wraps to three lines. A takeover's greeting has a line to itself under the
+// title, which already fills the width. Which day is where, and how the hours
+// are folded, is not different: it is the same `weekLayout`. Landscape is drawn
+// exactly as before.
+//
 // The weather (PR 2.7) is each day's icon and high / low in its heading. Any
 // part that is not known is left out, and with no weather at all the heading is
 // shorter and nothing is drawn.
 const props = defineProps<ViewProps>()
+
+const portrait = computed(() => props.stage.orientation === 'portrait')
 
 /** The height of a lane in the all-day strip, and the gap between lanes (px). Used for the strip's rows. */
 const LANE = 34
@@ -49,6 +63,7 @@ const layout = computed(() => weekLayout({
   weekStart: props.weekStart,
   hours: props.weekHours,
   events: props.events,
+  maxTracks: portrait.value ? PORTRAIT_MAX_TRACKS : undefined,
 }))
 
 /** How many days of the shown week are before today: the columns the veil covers. */
@@ -80,7 +95,7 @@ const decorated = computed(() => new Map(props.specialDays.tiles.flatMap(({ date
 function tileBackground(day: WeekDay): string {
   const base = day.today ? 'var(--today-cell)' : 'var(--tile)'
   const special = decorated.value.get(day.date)
-  return special ? tileTint(special.accent, base) : base
+  return special ? tileTint(special.accent, base, portrait.value ? PORTRAIT_WEEK_TILE_TINT : undefined) : base
 }
 
 /** The badges an item gets: its first people, as many as the layout kept initials for. Keyed by person, as two can share an initial. */
@@ -108,10 +123,13 @@ function barStyle(bar: AllDayBar) {
 /** The blocks in one column. */
 const blocksIn = (column: number): TimedBlock[] => layout.value.blocks.filter(block => block.column === column)
 
+/** The "+N" chips in one column. */
+const overflowIn = (column: number) => layout.value.overflow.filter(chip => chip.column === column)
+
 /** Below this many minutes a block has room for one line only: the time and the title side by side. */
 const ONE_LINE_MINUTES = 50
-/** The gap between side-by-side blocks, and at the tile's edge (px). */
-const BLOCK_GAP = 6
+/** The gap between side-by-side blocks, and at the tile's edge (px). Less in the narrow portrait columns. */
+const blockGap = computed(() => portrait.value ? 4 : 6)
 
 function blockStyle(block: TimedBlock) {
   const range = layout.value.rangeMinutes
@@ -143,7 +161,7 @@ const percent = (minutes: number): string => `${minutes / layout.value.rangeMinu
 const gridRows = computed(() => {
   const strip = layout.value.allDay.lanes
   return [
-    anyWeather.value ? '116px' : '72px',
+    portrait.value ? (anyWeather.value ? '112px' : '68px') : (anyWeather.value ? '116px' : '72px'),
     strip ? `${strip * LANE + (strip - 1) * LANE_GAP + 14}px` : '0px',
     layout.value.early ? '48px' : '0px',
     'minmax(0, 1fr)',
@@ -159,7 +177,7 @@ const BAND_SHOWN = 1
 </script>
 
 <template>
-  <section class="view" data-testid="week-view">
+  <section class="view" :class="{ portrait }" data-testid="week-view">
     <header class="header">
       <h1 class="title" data-testid="week-title">
         <!-- The space is for the text ("26 October – 1 November 2026"); between flex items it takes no room. -->
@@ -214,7 +232,7 @@ const BAND_SHOWN = 1
           >
         </div>
         <div v-if="forecasts[day.column]" class="day-weather" data-testid="day-weather">
-          <AppIcon v-if="forecasts[day.column]!.icon" :icon="forecasts[day.column]!.icon!" :size="32" />
+          <AppIcon v-if="forecasts[day.column]!.icon" :icon="forecasts[day.column]!.icon!" :size="portrait ? 26 : 32" />
           <span v-if="forecasts[day.column]!.text">{{ forecasts[day.column]!.text }}</span>
         </div>
       </div>
@@ -318,7 +336,7 @@ const BAND_SHOWN = 1
         v-for="day in layout.days"
         :key="`hours-${day.date}`"
         class="hours"
-        :style="{ gridColumn: day.column + 2 }"
+        :style="{ gridColumn: day.column + 2, '--tile-bg': tileBackground(day) }"
       >
         <span
           v-for="(hour, index) in layout.hours"
@@ -326,7 +344,7 @@ const BAND_SHOWN = 1
           class="rule"
           :style="{ top: percent(index * 60) }"
         />
-        <div class="blocks" :style="{ '--gap': `${BLOCK_GAP}px` }">
+        <div class="blocks" :style="{ '--gap': `${blockGap}px` }">
           <div
             v-for="block in blocksIn(day.column)"
             :key="block.event.id"
@@ -352,6 +370,16 @@ const BAND_SHOWN = 1
               </span>
               <span class="name">{{ block.event.display_title }}</span>
             </span>
+          </div>
+          <!-- Blocks that had no track left, counted where they start. Over the blocks, with a ring in the tile's colour to lift it off them. -->
+          <div
+            v-for="chip in overflowIn(day.column)"
+            :key="chip.top"
+            class="overflow"
+            :style="{ top: percent(chip.top) }"
+            data-testid="overflow"
+          >
+            +{{ chip.count }}
           </div>
         </div>
         <div
@@ -815,5 +843,194 @@ const BAND_SHOWN = 1
   border-radius: 32px;
   background: var(--veil);
   pointer-events: none;
+}
+
+/*
+ * The portrait stage (1440×2560, mocks 4c and 4d). Sizes are the mock's; the
+ * mock is drawn at the stage's own size, so they are px as they are.
+ */
+.portrait {
+  gap: 24px;
+  padding: 48px 40px;
+}
+
+.portrait .header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.portrait .title {
+  gap: 18px;
+}
+
+.portrait .range {
+  font-size: 76px;
+}
+
+.portrait .year {
+  font-size: 40px;
+}
+
+/* On a line of its own, as long as the stage is wide. */
+.portrait .greeting {
+  text-align: left;
+}
+
+.portrait .grid {
+  grid-template-columns: 64px repeat(7, minmax(0, 1fr));
+  column-gap: 10px;
+}
+
+.portrait .tile,
+.portrait .veil {
+  border-radius: 28px;
+}
+
+/* The date and its weekday on one line, the weather under it. */
+.portrait .head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0 0 10px;
+}
+
+.portrait .date {
+  gap: 10px;
+}
+
+.portrait .number {
+  min-width: 40px;
+  height: 40px;
+  font-size: 27px;
+}
+
+.portrait .weekday {
+  font-size: 19px;
+}
+
+.portrait .day-weather {
+  gap: 8px;
+  margin-top: 0;
+  padding-left: 4px;
+  font-size: 20px;
+}
+
+/* Narrow tiles: a smaller picture, tucked into the corner. */
+.portrait .tile-art {
+  top: 6px;
+  right: 8px;
+}
+
+.portrait .tile-art img {
+  max-width: 44px;
+  height: 44px;
+}
+
+.portrait .bar {
+  gap: 8px;
+  padding: 0 12px 0 4px;
+  font-size: 19px;
+}
+
+.portrait .more {
+  padding: 0 12px;
+  font-size: 19px;
+}
+
+/* The gutter is 64 px wide: the label ("00–07") stays on one line. */
+.portrait .band-label {
+  padding-right: 4px;
+  font-size: 16px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+/* A column has no room for a time beside the title in the band either. */
+.portrait .band {
+  padding: 0 8px;
+}
+
+.portrait .chip {
+  font-size: 18px;
+}
+
+.portrait .chip .time {
+  display: none;
+}
+
+.portrait .hour-label {
+  right: 4px;
+  font-size: 19px;
+}
+
+.portrait .now-time {
+  padding: 3px 8px;
+  font-size: 18px;
+}
+
+.portrait .rule {
+  right: 10px;
+  left: 10px;
+}
+
+.portrait .blocks {
+  inset: 0 2px 0 6px;
+}
+
+.portrait .block {
+  font-size: 18px;
+}
+
+.portrait .block .inner {
+  gap: 3px;
+  padding: 7px 8px 6px 7px;
+}
+
+.portrait .block .top {
+  gap: 6px;
+}
+
+.portrait .block .badge {
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+}
+
+.portrait .block .time {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 17px;
+  white-space: nowrap;
+}
+
+/* One line: the badge and the title, with no time. */
+.portrait .block.one-line .inner {
+  gap: 6px;
+  padding: 0 8px 0 6px;
+}
+
+.portrait .block.one-line .time {
+  display: none;
+}
+
+/* The count of what did not fit, on the right edge at the hidden blocks' start. */
+.overflow {
+  position: absolute;
+  right: 0;
+  z-index: 3;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--tile-bg);
+  color: var(--on-accent);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  transform: translateY(-35%);
+}
+
+.portrait .now-dot {
+  left: 4px;
 }
 </style>

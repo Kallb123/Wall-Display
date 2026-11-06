@@ -193,10 +193,12 @@ export function paletteAccent(palette: SpecialDayPalette): string {
 
 /** How much of the palette accent a decorated tile is tinted with. */
 export const TILE_TINT = '26%'
+/** The portrait week's narrow tiles are tinted less (mock 4c). */
+export const PORTRAIT_WEEK_TILE_TINT = '16%'
 
-/** `base`, a tile's own background, with `accent` mixed into it. OKLab, as for a person's bar, so the hue doesn't swing. */
-export function tileTint(accent: string, base: string): string {
-  return `color-mix(in oklab, ${accent} ${TILE_TINT}, ${base})`
+/** `base`, a tile's own background, with `accent` mixed into it (`amount` of it, `TILE_TINT` when left out). OKLab, as for a person's bar, so the hue doesn't swing. */
+export function tileTint(accent: string, base: string, amount: string = TILE_TINT): string {
+  return `color-mix(in oklab, ${accent} ${amount}, ${base})`
 }
 
 /** `todayCell` as `today-cell`, for a CSS variable name. */

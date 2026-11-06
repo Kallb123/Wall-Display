@@ -108,6 +108,8 @@ The entities use names relative to the device, so HA normally generates the IDs 
 | View | `select.wall_calendar_view` | `month`, `week`, `agenda`, `photo`, `night` or `next`. |
 | Month shown | `sensor.wall_calendar_month_shown` | The month the month view shows, as `YYYY-MM`. |
 | Previous month, Next month, This month | `button.wall_calendar_previous_month`, `button.wall_calendar_next_month`, `button.wall_calendar_this_month` | Change the month shown. |
+| Week shown | `sensor.wall_calendar_week_shown` | The first day of the week the week view shows, as `YYYY-MM-DD`. |
+| Previous week, Next week, This week | `button.wall_calendar_previous_week`, `button.wall_calendar_next_week`, `button.wall_calendar_this_week` | Change the week shown. They also switch the wall to the week view. |
 | Screen | `switch.wall_calendar_screen` | Screen on or off. |
 | Photo source | `select.wall_calendar_photo_source` | Which source the photo frame uses: `immich`, `google` or `local` (the local folder). Config category. A source that isn't set up in the config is still listed, because HA can't hide options; choosing one makes the wall use the first source that is set up instead (Immich, then the folder). `google` is accepted but not built yet, so it is never set up. |
 | Brightness | `number.wall_calendar_brightness` | A 0–100 % slider. It dims the page with an overlay. It is not the panel's backlight. |
@@ -547,7 +549,7 @@ If `remote.pin` is set, the remote asks for it once and keeps it in that browser
 | Entities are unavailable | The app is offline or can't reach the broker. Check the MQTT status in the `/settings` header and `docker compose logs -f calendar-app`. Wrong URL, username or password show up there. |
 | A command does nothing | The display id in a topic must match the config exactly. A retained message on a `…/set` topic is ignored, so check `retain` is off. A payload that doesn't fit the topic is ignored and logged. The PIN does not apply to MQTT. |
 | A device from an old display id is still there | Renaming a display id leaves the old device behind. Delete it in HA, and clear its retained configs: `mosquitto_pub -r -n -t homeassistant/<component>/wallcal_<id>/<object>/config` for each entity. |
-| "Month shown" goes back by itself | A month picked on the remote or from HA reverts to the current month after `month_return_minutes` (15 by default, set per display). |
+| "Month shown" or "Week shown" goes back by itself | A month or week picked on the remote or from HA reverts to the current one after `month_return_minutes` (15 by default, set per display, and the same time for both). |
 | No weather on the wall | The config has a `weather` block (and a `homeassistant` block). `GET /api/weather` is not `null`; if it is, `docker compose logs calendar-app` has a `[weather]` line with the reason. HA refusing the token, no such entity, or an entity with no daily forecast are the usual ones. |
 | No alarm on the night view | The display has `night_text: next_alarm`, and the config has an `alarm` block (and a `homeassistant` block). The entity's state in Developer tools → States is a time, not `unknown`; the time is within the next 24 hours. If it is, `docker compose logs calendar-app` has an `[alarm]` line with the reason, such as HA refusing the token or no such entity. |
 | The Webpage card is blank | See the caveats above: HTTPS, or you are away from home. |

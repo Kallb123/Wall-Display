@@ -197,6 +197,22 @@ describe('parseCommandPayload', () => {
     }
   })
 
+  it('turns week/set into a date, or current, prev and next', () => {
+    expect(command('week/set', '2026-12-09')).toEqual({ type: 'set_week', week: '2026-12-09' })
+    for (const week of ['current', 'prev', 'next']) {
+      expect(command('week/set', week)).toEqual({ type: 'set_week', week })
+    }
+  })
+
+  it('rejects a week/set payload that is not a real date, naming the topic', () => {
+    for (const payload of ['2026-02-31', '2026-12', 'last', '']) {
+      const parsed = parseCommandPayload('week/set', payload)
+
+      expect(parsed.ok, payload).toBe(false)
+      if (!parsed.ok) expect(parsed.reason).toContain('week/set')
+    }
+  })
+
   it('turns screen/set and photo_source/set into commands', () => {
     expect(command('screen/set', 'off')).toEqual({ type: 'set_screen', screen: 'off' })
     expect(command('photo_source/set', 'google')).toEqual({ type: 'set_photo_source', photo_source: 'google' })
@@ -343,9 +359,10 @@ describe('statePayloads', () => {
   const NOW = new Date('2026-10-28T12:00:00Z')
 
   it('gives every state topic its payload', () => {
-    expect(statePayloads(state({ view: 'agenda', screen: 'off', photo_source: 'local', brightness: 80, auto_presence: false }), NOW, 'Europe/London')).toEqual({
+    expect(statePayloads(state({ view: 'agenda', screen: 'off', photo_source: 'local', brightness: 80, auto_presence: false }), NOW, 'Europe/London', 'monday')).toEqual({
       'view/state': 'agenda',
       'month/state': '2026-10',
+      'week/state': '2026-10-26',
       'screen/state': 'off',
       'photo_source/state': 'local',
       'brightness/state': '80',
@@ -356,13 +373,13 @@ describe('statePayloads', () => {
   })
 
   it('writes brightness as a plain integer, at both ends', () => {
-    expect(statePayloads(state({ brightness: 0 }), NOW, 'Europe/London')['brightness/state']).toBe('0')
-    expect(statePayloads(state({ brightness: 100 }), NOW, 'Europe/London')['brightness/state']).toBe('100')
+    expect(statePayloads(state({ brightness: 0 }), NOW, 'Europe/London', 'monday')['brightness/state']).toBe('0')
+    expect(statePayloads(state({ brightness: 100 }), NOW, 'Europe/London', 'monday')['brightness/state']).toBe('100')
   })
 
   it('writes both policies as ON or OFF', () => {
-    const on = statePayloads(state(), NOW, 'Europe/London')
-    const off = statePayloads(state({ auto_presence: false, auto_brightness: false }), NOW, 'Europe/London')
+    const on = statePayloads(state(), NOW, 'Europe/London', 'monday')
+    const off = statePayloads(state({ auto_presence: false, auto_brightness: false }), NOW, 'Europe/London', 'monday')
 
     expect([on['auto_presence/state'], on['auto_brightness/state']]).toEqual(['ON', 'ON'])
     expect([off['auto_presence/state'], off['auto_brightness/state']]).toEqual(['OFF', 'OFF'])
@@ -371,36 +388,55 @@ describe('statePayloads', () => {
   it('shows the overlay\'s text, and nothing when there is no overlay', () => {
     const overlay = { text: 'Bins out tonight', icon: null, until: null }
 
-    expect(statePayloads(state({ overlay }), NOW, 'Europe/London')['overlay/state']).toBe('Bins out tonight')
-    expect(statePayloads(state({ overlay: null }), NOW, 'Europe/London')['overlay/state']).toBe('')
+    expect(statePayloads(state({ overlay }), NOW, 'Europe/London', 'monday')['overlay/state']).toBe('Bins out tonight')
+    expect(statePayloads(state({ overlay: null }), NOW, 'Europe/London', 'monday')['overlay/state']).toBe('')
   })
 
   it('shows only the text of an overlay that has an icon and a time to go', () => {
     const overlay = { text: 'Back at 6', icon: 'clock', until: '2026-10-28T13:00:00.000Z' }
 
-    expect(statePayloads(state({ overlay }), NOW, 'Europe/London')['overlay/state']).toBe('Back at 6')
+    expect(statePayloads(state({ overlay }), NOW, 'Europe/London', 'monday')['overlay/state']).toBe('Back at 6')
   })
 
   it('shows the pinned month while one is pinned', () => {
     const pinned = state({ month: '2026-12', month_set_at: NOW.toISOString() })
 
-    expect(statePayloads(pinned, NOW, 'Europe/London')['month/state']).toBe('2026-12')
+    expect(statePayloads(pinned, NOW, 'Europe/London', 'monday')['month/state']).toBe('2026-12')
+  })
+
+  it('shows the pinned week while one is pinned', () => {
+    const pinned = state({ view: 'week', week: '2026-12-07', week_set_at: NOW.toISOString() })
+
+    expect(statePayloads(pinned, NOW, 'Europe/London', 'monday')['week/state']).toBe('2026-12-07')
+  })
+
+  it('shows the first day of the current week, by the display\'s week start, when nothing is pinned', () => {
+    expect(statePayloads(state(), NOW, 'Europe/London', 'monday')['week/state']).toBe('2026-10-26')
+    expect(statePayloads(state(), NOW, 'Europe/London', 'sunday')['week/state']).toBe('2026-10-25')
+  })
+
+  it('rolls over to the new week with the clock, in the display time zone', () => {
+    // 23:30 on Sunday 1 November is already Monday in Auckland.
+    const lateSunday = new Date('2026-11-01T23:30:00Z')
+
+    expect(statePayloads(state(), lateSunday, 'Europe/London', 'monday')['week/state']).toBe('2026-10-26')
+    expect(statePayloads(state(), lateSunday, 'Pacific/Auckland', 'monday')['week/state']).toBe('2026-11-02')
   })
 
   it('shows the current month in the display time zone when nothing is pinned', () => {
     // 23:30 on Halloween in London is already 1 November in Auckland, where the process runs.
     const lateOnThe31st = new Date('2026-10-31T23:30:00Z')
 
-    expect(statePayloads(state(), lateOnThe31st, 'Europe/London')['month/state']).toBe('2026-10')
-    expect(statePayloads(state(), lateOnThe31st, 'Pacific/Auckland')['month/state']).toBe('2026-11')
+    expect(statePayloads(state(), lateOnThe31st, 'Europe/London', 'monday')['month/state']).toBe('2026-10')
+    expect(statePayloads(state(), lateOnThe31st, 'Pacific/Auckland', 'monday')['month/state']).toBe('2026-11')
   })
 
   it('rolls over to the new month with the clock, without the state changing', () => {
     const before = new Date('2026-12-31T23:59:59Z')
     const after = new Date('2027-01-01T00:00:00Z')
 
-    expect(statePayloads(state(), before, 'Europe/London')['month/state']).toBe('2026-12')
-    expect(statePayloads(state(), after, 'Europe/London')['month/state']).toBe('2027-01')
+    expect(statePayloads(state(), before, 'Europe/London', 'monday')['month/state']).toBe('2026-12')
+    expect(statePayloads(state(), after, 'Europe/London', 'monday')['month/state']).toBe('2027-01')
   })
 })
 

@@ -81,7 +81,7 @@ describe('display state, commands and the WebSocket', async () => {
   it('GET /api/displays/:id/state is the default state for a new display', async () => {
     const state = await $fetch<DisplayState>('/api/displays/hallway/state')
 
-    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null })
+    expect(state).toEqual({ view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null })
   })
 
   it('GET /api/displays/:id/state answers 404 for an unknown display', async () => {
@@ -109,6 +109,8 @@ describe('display state, commands and the WebSocket', async () => {
     await expect(command('hallway', { type: 'explode' })).rejects.toMatchObject(reason(400, 'type must be'))
     await expect(command('hallway', { type: 'set_brightness', brightness: 101 })).rejects.toMatchObject(reason(400, 'brightness must be from 0 to 100'))
     await expect(command('hallway', { type: 'set_month', month: '2026-13' })).rejects.toMatchObject(reason(400, 'month must be'))
+    await expect(command('hallway', { type: 'set_week', week: '2026-02-31' })).rejects.toMatchObject(reason(400, 'week must be'))
+    await expect(command('hallway', { type: 'set_week', week: 'last' })).rejects.toMatchObject(reason(400, 'week must be'))
     await expect(command('hallway', { type: 'next_view', extra: true })).rejects.toMatchObject(reason(400, 'command'))
   })
 

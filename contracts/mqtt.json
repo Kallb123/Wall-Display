@@ -89,6 +89,32 @@
         ""
       ]
     },
+    "week/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Pins the week view to a week, or steps from the week it shows. A date means the week that holds it, whichever day of that week it is. \"current\" goes back to following the calendar. A week more than 52 weeks from this one is clamped to 52.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^([1-9]\\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])|current|prev|next)$"
+        }
+      },
+      "examples": [
+        "2026-11-02",
+        "2026-11-04",
+        "current",
+        "prev",
+        "next"
+      ],
+      "invalid_examples": [
+        "2026-11",
+        "11/02/2026",
+        "Current",
+        "last",
+        ""
+      ]
+    },
     "month/state": {
       "direction": "from_app",
       "retained": true,
@@ -106,6 +132,27 @@
       ],
       "invalid_examples": [
         "2026-13",
+        "current",
+        ""
+      ]
+    },
+    "week/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The first day of the week the week view shows, as YYYY-MM-DD (a Monday, or a Sunday if the display's weeks start on Sunday): the pinned week, or the current week in the display time zone when nothing is pinned.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "pattern": "^[1-9]\\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+        }
+      },
+      "examples": [
+        "2026-10-26",
+        "2027-01-04"
+      ],
+      "invalid_examples": [
+        "2026-10",
         "current",
         ""
       ]

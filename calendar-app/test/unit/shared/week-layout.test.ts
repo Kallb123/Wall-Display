@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fixtureEvents } from '../../helpers/fixtureEvents'
 import { loadConfig } from '../../../server/config/load'
-import { ALL_DAY_LANES, MAX_BADGE_INITIALS, MIN_BLOCK_MINUTES, weekLayout } from '../../../shared/week-layout'
+import { ALL_DAY_LANES, MAX_BADGE_INITIALS, MIN_BLOCK_MINUTES, PORTRAIT_MAX_TRACKS, weekLayout } from '../../../shared/week-layout'
 import type { WeekLayout, WeekLayoutInput } from '../../../shared/week-layout'
 import type { CalendarEvent, EventPerson } from '../../../shared/types/events'
 
@@ -116,6 +116,7 @@ describe('an empty week', () => {
     expect(result.hours).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
     expect(result.rangeMinutes).toBe(14 * 60)
     expect(result.blocks).toEqual([])
+    expect(result.overflow).toEqual([])
     expect(result.allDay).toEqual({ bars: [], more: [], lanes: 0 })
     expect(result.early!.items).toEqual([[], [], [], [], [], [], []])
     expect(result.late!.items).toEqual([[], [], [], [], [], [], []])
@@ -225,6 +226,105 @@ describe('side by side', () => {
     ] })
 
     expect(titles(result.blocks)).toEqual(['Wed early', 'Wed late', 'Thu'])
+  })
+})
+
+describe('limiting the tracks', () => {
+  const track = (result: WeekLayout) => result.blocks.map(block => [block.event.display_title, block.track, block.tracks])
+  const chips = (result: WeekLayout) => result.overflow.map(chip => [chip.column, chip.top, chip.count, titles(chip)])
+  const titles = (chip: { events: CalendarEvent[] }) => chip.events.map(event => event.display_title)
+
+  it('is two for the portrait week', () => {
+    expect(PORTRAIT_MAX_TRACKS).toBe(2)
+  })
+
+  it('leaves the layout as it was when no limit is given', () => {
+    const result = layout({ events: [between(WED, '10:00', '11:00', 'A'), between(WED, '10:00', '11:00', 'B'), between(WED, '10:00', '11:00', 'C')] })
+
+    expect(track(result)).toEqual([['A', 0, 3], ['B', 1, 3], ['C', 2, 3]])
+    expect(result.overflow).toEqual([])
+  })
+
+  it('draws two of three overlapping blocks, two tracks wide, and counts the third in a chip at its start', () => {
+    const result = layout({ maxTracks: 2, events: [
+      between(WED, '10:00', '11:00', 'A', [], 1),
+      between(WED, '10:00', '11:00', 'B', [], 2),
+      between(WED, '10:30', '11:30', 'C', [], 3),
+    ] })
+
+    expect(track(result)).toEqual([['A', 0, 2], ['B', 1, 2]])
+    expect(chips(result)).toEqual([[2, 3 * 60 + 30, 1, ['C']]])
+  })
+
+  it('makes one chip of two hidden blocks that start together', () => {
+    const result = layout({ maxTracks: 2, events: [
+      between(WED, '10:00', '12:00', 'A', [], 1),
+      between(WED, '10:00', '12:00', 'B', [], 2),
+      between(WED, '10:30', '11:00', 'C', [], 3),
+      between(WED, '10:30', '11:30', 'D', [], 4),
+    ] })
+
+    expect(track(result)).toEqual([['A', 0, 2], ['B', 1, 2]])
+    expect(chips(result)).toEqual([[2, 210, 2, ['C', 'D']]])
+  })
+
+  it('makes a chip for each start time when the hidden blocks start apart', () => {
+    const result = layout({ maxTracks: 2, events: [
+      between(WED, '10:00', '13:00', 'A', [], 1),
+      between(WED, '10:00', '13:00', 'B', [], 2),
+      between(WED, '11:00', '11:30', 'C', [], 3),
+      between(WED, '12:00', '12:30', 'D', [], 4),
+    ] })
+
+    expect(chips(result)).toEqual([[2, 240, 1, ['C']], [2, 300, 1, ['D']]])
+  })
+
+  it('does not touch a group that stays within the limit', () => {
+    const result = layout({ maxTracks: 2, events: [
+      between(WED, '09:00', '10:00', 'A'),
+      between(WED, '09:00', '10:00', 'B'),
+      between(WED, '09:00', '10:00', 'C'),
+      between(WED, '12:00', '13:00', 'D'),
+      between(WED, '12:30', '13:30', 'E'),
+    ] })
+
+    // The first group is cut to two tracks; the second has two and is as it was.
+    expect(track(result)).toEqual([['A', 0, 2], ['B', 1, 2], ['D', 0, 2], ['E', 1, 2]])
+    expect(chips(result)).toEqual([[2, 120, 1, ['C']]])
+  })
+
+  it('keeps a lone block whole in a column with a crowd in another', () => {
+    const result = layout({ maxTracks: 2, events: [
+      between(WED, '10:00', '11:00', 'A'),
+      between(WED, '10:00', '11:00', 'B'),
+      between(WED, '10:00', '11:00', 'C'),
+      between('2026-10-29', '10:00', '11:00', 'D'),
+    ] })
+
+    expect(track(result)).toEqual([['A', 0, 2], ['B', 1, 2], ['D', 0, 1]])
+    expect(result.overflow.map(chip => chip.column)).toEqual([2])
+  })
+
+  it('draws one block at a time with a limit of one', () => {
+    const result = layout({ maxTracks: 1, events: [between(WED, '10:00', '11:00', 'A'), between(WED, '10:30', '11:30', 'B'), between(WED, '11:00', '12:00', 'C')] })
+
+    // C starts as A ends, so it is on A's track again; only B is beside something.
+    expect(track(result)).toEqual([['A', 0, 1], ['C', 0, 1]])
+    expect(chips(result)).toEqual([[2, 210, 1, ['B']]])
+  })
+
+  it('counts where a block starts after it is cut to the range, and sorts the chips by column then top', () => {
+    const result = layout({ maxTracks: 1, events: [
+      between('2026-10-29', '07:30', '08:30', 'Thu A', [], 1),
+      between('2026-10-29', '07:45', '08:45', 'Thu B', [], 2),
+      timed('2026-10-27T05:00:00Z', '2026-10-27T09:00:00Z', 'Tue A', [], 3),
+      timed('2026-10-27T06:00:00Z', '2026-10-27T09:00:00Z', 'Tue B', [], 4),
+      timed('2026-10-27T06:30:00Z', '2026-10-27T09:00:00Z', 'Tue C', [], 5),
+    ] })
+
+    // All three Tuesday events start before the 07:00 range, so they are cut to its top: B and C are hidden there, as one chip.
+    expect(chips(result)).toEqual([[1, 0, 2, ['Tue B', 'Tue C']], [3, 45, 1, ['Thu B']]])
+    expect(result.blocks.find(block => block.event.display_title === 'Tue A')!.clippedStart).toBe(true)
   })
 })
 

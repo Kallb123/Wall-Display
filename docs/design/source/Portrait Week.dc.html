@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/styles.css">
+<script src="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/_ds_bundle.js"></script>
+<style>body{margin:0}a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}</style>
+</helmet>
+<div data-screen-label="Portrait · Week" style="width:100%;height:100%;box-sizing:border-box;padding:48px 40px;display:flex;flex-direction:column;gap:24px;background:{{ t.bg }};color:{{ t.text }};font-family:var(--font-body);overflow:hidden">
+  <sc-if value="{{ fullTitle }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;align-items:baseline;gap:18px;padding-left:12px;flex:none;white-space:nowrap">
+      <div style="font-family:var(--font-heading);font-size:76px;line-height:1;letter-spacing:-0.02em">{{ range }}</div>
+      <div style="font-family:var(--font-heading);font-size:40px;line-height:1;color:{{ t.muted }}">{{ year }}</div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ shortTitle }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:baseline;gap:16px;padding-left:12px;flex:none;white-space:nowrap">
+      <div style="font-family:var(--font-heading);font-size:56px;line-height:1;letter-spacing:-0.02em">{{ rangeShort }}</div>
+      <div style="font-family:var(--font-heading);font-size:32px;line-height:1;color:{{ t.muted }}">This week</div>
+    </div>
+  </sc-if>
+  <div style="flex:1;position:relative;display:grid;grid-template-columns:64px repeat(7,minmax(0,1fr));grid-template-rows:{{ gridRows }};column-gap:10px;min-height:0">
+    <sc-for list="{{ days }}" as="d" hint-placeholder-count="7">
+      <div style="grid-column:{{ d.col }};grid-row:1 / -1;border-radius:28px;background:{{ d.tileBg }}"></div>
+      <div style="grid-column:{{ d.col }};grid-row:1;padding:12px 0 0 10px;min-width:0;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="min-width:40px;height:40px;border-radius:999px;display:grid;place-items:center;font-size:27px;font-weight:700;background:{{ d.numBg }};color:{{ d.numFg }}">{{ d.n }}</div>
+          <div style="font-size:19px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{{ t.muted }}">{{ d.wd }}</div>
+        </div>
+        <sc-if value="{{ d.hasWx }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:8px;padding-left:4px;font-size:20px;font-weight:700;white-space:nowrap;color:{{ t.muted }}">
+            <svg viewBox="0 0 24 24" width="26" height="26" style="flex:none;fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><sc-if value="{{ d.isRain }}" hint-placeholder-val="{{ false }}"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 14v6"></path><path d="M8 14v6"></path><path d="M12 16v6"></path></sc-if><sc-if value="{{ d.isSun }}" hint-placeholder-val="{{ false }}"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></sc-if><sc-if value="{{ d.isCloudSun }}" hint-placeholder-val="{{ false }}"><path d="M12 2v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="M20 12h2"></path><path d="m19.07 4.93-1.41 1.41"></path><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"></path><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"></path></sc-if><sc-if value="{{ d.isCloud }}" hint-placeholder-val="{{ false }}"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></sc-if></svg>
+            <div>{{ d.range }}</div>
+          </div>
+        </sc-if>
+      </div>
+      <div style="grid-column:{{ d.col }};grid-row:3;position:relative;min-height:0">
+        <sc-for list="{{ d.rules }}" as="r" hint-placeholder-count="13">
+          <div style="position:absolute;left:10px;right:10px;height:2px;top:{{ r.top }};background:{{ t.line }}"></div>
+        </sc-for>
+        <div style="position:absolute;top:0;bottom:0;left:6px;right:2px">
+          <sc-for list="{{ d.blocks }}" as="b" hint-placeholder-count="2">
+            <div style="position:absolute;top:{{ b.top }};height:{{ b.height }};left:{{ b.left }};width:{{ b.width }};box-sizing:border-box;padding:1px 4px 1px 0">
+              <div style="height:100%;box-sizing:border-box;border-radius:14px;background:{{ b.bg }};color:{{ t.barText }};overflow:hidden;opacity:{{ b.op }}">
+                <sc-if value="{{ b.multi }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;flex-direction:column;gap:3px;padding:7px 8px 6px 7px">
+                    <div style="display:flex;align-items:center;gap:6px;min-width:0">
+                      <div style="width:22px;height:22px;border-radius:999px;flex:none;display:grid;place-items:center;font-size:13px;font-weight:700;background:{{ b.color }};color:var(--color-neutral-900)">{{ b.initial }}</div>
+                      <div style="font-size:17px;font-weight:700;color:{{ t.muted }};white-space:nowrap;overflow:hidden">{{ b.time }}</div>
+                    </div>
+                    <div style="font-size:18px;font-weight:600;line-height:1.2;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">{{ b.title }}</div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ b.oneLine }}" hint-placeholder-val="{{ false }}">
+                  <div style="height:100%;display:flex;align-items:center;gap:6px;padding:0 8px 0 6px;min-width:0">
+                    <div style="width:22px;height:22px;border-radius:999px;flex:none;display:grid;place-items:center;font-size:13px;font-weight:700;background:{{ b.color }};color:var(--color-neutral-900)">{{ b.initial }}</div>
+                    <div style="font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ b.title }}</div>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+          <sc-for list="{{ d.chips }}" as="c" hint-placeholder-count="0">
+            <div style="position:absolute;z-index:3;top:{{ c.top }};right:0;transform:translateY(-35%);padding:2px 10px;border-radius:999px;background:{{ t.accent }};color:{{ t.todayNumFg }};font-size:17px;font-weight:700;box-shadow:0 0 0 3px {{ d.tileBg }}">{{ c.label }}</div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ d.hasNow }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:0;right:0;z-index:2;top:{{ d.nowTop }};height:4px;border-radius:2px;background:{{ t.accent }};transform:translateY(-50%);pointer-events:none">
+            <div style="position:absolute;top:50%;left:4px;width:16px;height:16px;border-radius:50%;background:{{ t.accent }};transform:translateY(-50%)"></div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+    <div style="grid-column:2 / -1;grid-row:2;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:{{ stripRows }};column-gap:10px;row-gap:5px;align-content:start;min-height:0">
+      <sc-for list="{{ bars }}" as="b" hint-placeholder-count="2">
+        <div style="grid-column:{{ b.col }};grid-row:{{ b.row }};margin:0 {{ b.mr }} 0 {{ b.ml }};border-radius:{{ b.rl }} {{ b.rr }} {{ b.rr }} {{ b.rl }};background:{{ b.bg }};color:{{ t.barText }};display:flex;align-items:center;gap:8px;padding:0 12px 0 4px;font-size:19px;font-weight:700;white-space:nowrap;overflow:hidden;min-width:0">
+          <div style="width:24px;height:24px;border-radius:999px;flex:none;display:grid;place-items:center;font-size:14px;font-weight:700;background:{{ b.color }};color:var(--color-neutral-900)">{{ b.initial }}</div>
+          <div style="overflow:hidden;text-overflow:ellipsis">{{ b.title }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="grid-column:1;grid-row:3;position:relative;min-height:0">
+      <sc-for list="{{ hours }}" as="h" hint-placeholder-count="13">
+        <div style="position:absolute;right:4px;top:{{ h.top }};transform:translateY({{ h.ty }});visibility:{{ h.vis }};font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:{{ t.muted }}">{{ h.label }}</div>
+      </sc-for>
+      <div style="position:absolute;right:0;z-index:2;top:{{ nowTop }};transform:translateY(-50%);padding:3px 8px;border-radius:999px;background:{{ t.accent }};color:{{ t.todayNumFg }};font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1">{{ nowTime }}</div>
+    </div>
+    <div style="grid-column:{{ veilCol }};grid-row:1 / -1;border-radius:28px;background:{{ t.veil }};pointer-events:none"></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:2560},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;title&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;full&quot;,&quot;short&quot;,&quot;none&quot;],&quot;default&quot;:&quot;full&quot;,&quot;tsType&quot;:&quot;'full'|'short'|'none'&quot;},&quot;maxTracks&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;min&quot;:1,&quot;max&quot;:4,&quot;default&quot;:2,&quot;tsType&quot;:&quot;number&quot;}}">
+class Component extends DCLogic {
+  state = { m: null };
+  componentDidMount() { import('./portrait-data.js').then(m => this.setState({ m })); }
+  renderVals() {
+    const theme = this.props.theme ?? 'light';
+    const title = this.props.title ?? 'full';
+    const tf = { fullTitle: title === 'full', shortTitle: title === 'short' };
+    const m = this.state.m;
+    if (!m) return { t: {}, days: [], bars: [], hours: [], gridRows: '112px 0px minmax(0,1fr)', ...tf };
+    const maxTracks = this.props.maxTracks ?? 2;
+    const k = theme + maxTracks;
+    if (this._k !== k) { this._k = k; this._d = m.buildWeek(theme, { maxTracks }); }
+    const d = this._d, n = d.laneCount;
+    return { ...d, ...tf, gridRows: `112px ${n ? n * 34 + (n - 1) * 5 + 14 : 0}px minmax(0,1fr)` };
+  }
+}
+</script>
+</body>
+</html>

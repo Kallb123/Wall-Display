@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/styles.css">
+<script src="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/_ds_bundle.js"></script>
+<style>body{margin:0}a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}button{font:inherit;color:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent}button:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}</style>
+</helmet>
+<div data-screen-label="Remote" style="width:390px;min-height:980px;box-sizing:border-box;padding:56px 20px 32px;display:flex;flex-direction:column;gap:28px;background:{{ t.bg }};color:{{ t.text }};font-family:var(--font-body)">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-family:var(--font-heading);font-size:32px;line-height:1.1;flex:1">Hallway</div>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:{{ t.okBg }};color:{{ t.okFg }};font-size:14px;font-weight:700">
+      <div style="width:8px;height:8px;border-radius:999px;background:currentColor"></div>Connected
+    </div>
+  </div>
+  <button onClick="{{ toggleScreen }}" style="display:flex;align-items:center;gap:16px;padding:16px 18px 16px 16px;border-radius:32px;background:{{ t.surface }};text-align:left" style-active="transform:scale(0.98)">
+    <div style="width:56px;height:56px;border-radius:999px;display:grid;place-items:center;flex:none;background:{{ scr.iconBg }};color:{{ scr.iconFg }}">
+      <svg viewBox="0 0 24 24" width="26" height="26" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path></svg>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+      <div style="font-family:var(--font-heading);font-size:21px">Screen</div>
+      <div style="font-size:15px;color:{{ t.muted }}">{{ scr.sub }}</div>
+    </div>
+    <div style="width:64px;height:38px;border-radius:999px;padding:4px;box-sizing:border-box;display:flex;justify-content:{{ scr.knobAlign }};background:{{ scr.trackBg }};transition:background .2s">
+      <div style="width:30px;height:30px;border-radius:999px;background:var(--color-neutral-100);box-shadow:var(--shadow-sm)"></div>
+    </div>
+  </button>
+  <div style="display:flex;flex-direction:column;gap:12px;opacity:{{ dim }};transition:opacity .2s">
+    <div style="font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{{ t.muted }};padding-left:6px">On the wall</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <button onClick="{{ v.agenda.go }}" style="height:108px;border-radius:28px;padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;background:{{ v.agenda.bg }};color:{{ v.agenda.fg }}" style-active="transform:scale(0.97)">
+        <svg viewBox="0 0 24 24" width="28" height="28" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><path d="M3 12h.01"></path><path d="M3 18h.01"></path><path d="M3 6h.01"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M8 6h13"></path></svg>
+        <div style="font-family:var(--font-heading);font-size:20px">Agenda</div>
+      </button>
+      <button onClick="{{ v.month.go }}" style="height:108px;border-radius:28px;padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;background:{{ v.month.bg }};color:{{ v.month.fg }}" style-active="transform:scale(0.97)">
+        <svg viewBox="0 0 24 24" width="28" height="28" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>
+        <div style="font-family:var(--font-heading);font-size:20px">Month</div>
+      </button>
+      <button onClick="{{ v.week.go }}" style="height:108px;border-radius:28px;padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;background:{{ v.week.bg }};color:{{ v.week.fg }}" style-active="transform:scale(0.97)">
+        <svg viewBox="0 0 24 24" width="28" height="28" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="M15 3v18"></path></svg>
+        <div style="font-family:var(--font-heading);font-size:20px">Week</div>
+      </button>
+      <button onClick="{{ v.night.go }}" style="height:108px;border-radius:28px;padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;background:{{ v.night.bg }};color:{{ v.night.fg }}" style-active="transform:scale(0.97)">
+        <svg viewBox="0 0 24 24" width="28" height="28" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
+        <div style="font-family:var(--font-heading);font-size:20px">Night</div>
+      </button>
+      <button onClick="{{ v.photo.go }}" style="grid-column:1 / -1;height:84px;border-radius:28px;padding:0 20px;display:flex;align-items:center;gap:14px;background:{{ v.photo.bg }};color:{{ v.photo.fg }}" style-active="transform:scale(0.98)">
+        <svg viewBox="0 0 24 24" width="28" height="28" style="flex:none;fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><rect width="18" height="18" x="3" y="3" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
+        <div style="font-family:var(--font-heading);font-size:20px">Photo frame</div>
+      </button>
+    </div>
+  </div>
+  <sc-if value="{{ showMonthNav }}" hint-placeholder-val="{{ true }}">
+  <div style="display:flex;flex-direction:column;gap:12px;opacity:{{ dim }};transition:opacity .2s">
+    <div style="display:flex;align-items:baseline;padding:0 6px">
+      <div style="font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{{ t.muted }};flex:1">Month shown</div>
+      <sc-if value="{{ notCurrent }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ thisMonth }}" style="background:transparent;padding:0;font-size:14px;font-weight:700;color:{{ t.link }}">Back to this month</button>
+      </sc-if>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;padding:4px;border-radius:999px;background:{{ t.surface }}">
+      <button onClick="{{ prevMonth }}" aria-label="Previous month" style="width:52px;height:52px;flex:none;border-radius:999px;display:grid;place-items:center;background:transparent" style-hover="background:{{ t.bg }}" style-active="transform:scale(0.94)">
+        <svg viewBox="0 0 24 24" width="24" height="24" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"></path></svg>
+      </button>
+      <div style="flex:1;position:relative;height:52px;min-width:0">
+        <select value="{{ monthKey }}" onChange="{{ pickMonth }}" aria-label="Pick a month" style="appearance:none;-webkit-appearance:none;width:100%;height:100%;border:0;border-radius:999px;background:{{ t.bg }};color:{{ t.text }};font-family:var(--font-heading);font-size:19px;text-align:center;text-align-last:center;padding:0 40px;cursor:pointer">
+          <sc-for list="{{ months }}" as="mo" hint-placeholder-count="12">
+            <option value="{{ mo.key }}">{{ mo.label }}</option>
+          </sc-for>
+        </select>
+        <svg viewBox="0 0 24 24" width="18" height="18" style="position:absolute;right:16px;top:17px;pointer-events:none;color:{{ t.muted }};fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><path d="m6 9 6 6 6-6"></path></svg>
+      </div>
+      <button onClick="{{ nextMonth }}" aria-label="Next month" style="width:52px;height:52px;flex:none;border-radius:999px;display:grid;place-items:center;background:transparent" style-hover="background:{{ t.bg }}" style-active="transform:scale(0.94)">
+        <svg viewBox="0 0 24 24" width="24" height="24" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg>
+      </button>
+    </div>
+  </div>
+  </sc-if>
+  <div style="display:flex;flex-direction:column;gap:12px;opacity:{{ dim }};transition:opacity .2s">
+    <div style="font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{{ t.muted }};padding-left:6px">Photos from</div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:999px;background:{{ t.surface }}">
+      <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+        <button onClick="{{ s.go }}" style="height:48px;border-radius:999px;font-size:16px;font-weight:700;background:{{ s.bg }};color:{{ s.fg }};transition:background .15s">{{ s.label }}</button>
+      </sc-for>
+    </div>
+    <button onClick="{{ nextPhoto }}" style="height:56px;border-radius:999px;display:flex;align-items:center;justify-content:center;gap:10px;font-family:var(--font-heading);font-size:18px;background:transparent;border:2px solid {{ t.line }}" style-active="background:{{ t.surface }}">
+      <svg viewBox="0 0 24 24" width="22" height="22" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" x2="19" y1="5" y2="19"></line></svg>
+      {{ nextLabel }}
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;}}">
+class Component extends DCLogic {
+  state = { view: 'month', screen: true, source: 'immich', skipping: false };
+  renderVals() {
+    const dark = (this.props.theme ?? 'light') === 'dark';
+    const t = dark
+      ? { bg: 'var(--color-neutral-900)', surface: 'var(--color-neutral-800)', text: 'var(--color-neutral-100)', muted: 'var(--color-neutral-400)', line: 'var(--color-neutral-700)', sel: 'var(--color-accent-400)', selFg: 'var(--color-neutral-900)', okBg: 'var(--color-accent-2-900)', okFg: 'var(--color-accent-2-300)', off: 'var(--color-neutral-700)' }
+      : { bg: 'var(--color-bg)', surface: 'var(--color-surface)', text: 'var(--color-text)', muted: 'var(--color-neutral-700)', line: 'var(--color-neutral-300)', sel: 'var(--color-accent-600)', selFg: 'var(--color-neutral-100)', okBg: 'var(--color-accent-2-200)', okFg: 'var(--color-accent-2-800)', off: 'var(--color-neutral-400)' };
+    const { view, screen, source, skipping } = this.state;
+    const v = {};
+    ['agenda', 'month', 'week', 'night', 'photo'].forEach(k => {
+      const on = view === k;
+      v[k] = { bg: on ? t.sel : t.surface, fg: on ? t.selFg : t.text, go: () => this.setState({ view: k }) };
+    });
+    const sources = [['immich', 'Immich'], ['google', 'Google'], ['local', 'Folder']].map(([k, label]) => {
+      const on = source === k;
+      return { label, bg: on ? t.bg : 'transparent', fg: on ? t.text : t.muted, go: () => this.setState({ source: k }) };
+    });
+    t.link = dark ? 'var(--color-accent-300)' : 'var(--color-accent-700)';
+    const NOW = 2026 * 12 + 9, mi = this.state.mi ?? NOW;
+    const fmt = k => new Date(Date.UTC(Math.floor(k / 12), k % 12, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const months = [];
+    for (let k = NOW - 12; k <= NOW + 12; k++) months.push({ key: String(k), label: fmt(k) });
+    const go = k => this.setState({ mi: Math.max(NOW - 12, Math.min(NOW + 12, k)) });
+    return {
+      t, v, sources,
+      showMonthNav: view === 'month',
+      monthKey: String(mi), months, notCurrent: mi !== NOW,
+      prevMonth: () => go(mi - 1), nextMonth: () => go(mi + 1), thisMonth: () => go(NOW),
+      pickMonth: e => go(+e.target.value),
+      dim: screen ? 1 : 0.5,
+      scr: {
+        sub: screen ? 'On' : 'Off, panel in standby',
+        iconBg: screen ? t.sel : t.bg, iconFg: screen ? t.selFg : t.muted,
+        trackBg: screen ? 'var(--color-accent-2-500)' : t.off,
+        knobAlign: screen ? 'flex-end' : 'flex-start',
+      },
+      toggleScreen: () => this.setState(s => ({ screen: !s.screen })),
+      nextLabel: skipping ? 'Skipped' : 'Next photo',
+      nextPhoto: () => { this.setState({ skipping: true }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ skipping: false }), 1200); },
+    };
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>

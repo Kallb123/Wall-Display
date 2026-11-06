@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/styles.css">
+<script src="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/_ds_bundle.js"></script>
+<style>body{margin:0}a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}</style>
+</helmet>
+<div data-screen-label="Portrait · Agenda" style="width:1440px;height:2560px;box-sizing:border-box;padding:72px 64px;display:flex;flex-direction:column;gap:48px;background:{{ t.bg }};color:{{ t.text }};font-family:var(--font-body);overflow:hidden">
+  <sc-for list="{{ cards }}" as="c" hint-placeholder-count="2">
+    <div style="flex:{{ c.flex }};min-height:0;box-sizing:border-box;display:flex;flex-direction:column;padding:56px 64px;border-radius:64px;overflow:hidden;background:{{ c.bg }};color:{{ c.fg }};box-shadow:{{ c.shadow }}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:32px;margin-bottom:40px;flex:none">
+        <div style="min-width:0">
+          <div style="font-family:var(--font-heading);font-size:120px;line-height:1">{{ c.label }}</div>
+          <div style="margin-top:12px;font-size:48px;font-weight:600;line-height:1.1">{{ c.longDate }}</div>
+          <div style="display:flex;align-items:center;gap:16px;margin-top:20px;font-size:40px;font-weight:600;line-height:1.1;color:{{ c.mut }}">
+            <svg viewBox="0 0 24 24" width="48" height="48" style="flex:none;fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><sc-if value="{{ c.isRain }}" hint-placeholder-val="{{ false }}"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 14v6"></path><path d="M8 14v6"></path><path d="M12 16v6"></path></sc-if><sc-if value="{{ c.isCloudSun }}" hint-placeholder-val="{{ false }}"><path d="M12 2v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="M20 12h2"></path><path d="m19.07 4.93-1.41 1.41"></path><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"></path><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"></path></sc-if></svg>
+            <div>{{ c.wxText }}</div>
+            <div style="margin-left:20px;font-variant-numeric:tabular-nums">{{ c.range }}</div>
+          </div>
+        </div>
+        <sc-if value="{{ c.isToday }}" hint-placeholder-val="{{ false }}">
+          <div style="font-family:var(--font-heading);font-size:120px;line-height:1;font-variant-numeric:tabular-nums">{{ clock }}</div>
+        </sc-if>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;flex:1;min-height:0;overflow:hidden">
+        <sc-for list="{{ c.rows }}" as="r" hint-placeholder-count="5">
+          <sc-if value="{{ r.isNow }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:16px;height:40px;padding:0 20px;flex:none">
+              <div style="padding:4px 22px 6px;border-radius:999px;background:{{ t.accent }};color:{{ t.todayNumFg }};font-size:30px;font-weight:700;line-height:1.2">Now</div>
+              <div style="flex:1;height:4px;border-radius:999px;background:{{ t.accent }}"></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ r.isAllDay }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:24px;height:92px;padding:0 20px;flex:none;border-radius:999px;font-size:44px;background:{{ r.bg }}">
+              <div style="width:60px;height:60px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:30px;font-weight:700;background:{{ r.color }};color:var(--color-neutral-900);box-shadow:0 0 0 4px {{ r.bg }}">{{ r.initial }}</div>
+              <div style="flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
+              <div style="flex:none;padding-right:8px;font-size:30px;font-weight:600;opacity:0.7">All day</div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ r.isTimed }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:24px;height:92px;padding:0 20px;flex:none;font-size:44px;opacity:{{ r.op }}">
+              <div style="flex:none;width:12px;height:64px;border-radius:999px;background:{{ r.color }}"></div>
+              <div style="width:60px;height:60px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:30px;font-weight:700;background:{{ r.color }};color:var(--color-neutral-900)">{{ r.initial }}</div>
+              <div style="flex:none;min-width:120px;font-weight:700;font-variant-numeric:tabular-nums">{{ r.time }}</div>
+              <div style="flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
+            </div>
+          </sc-if>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:2560},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;}}">
+class Component extends DCLogic {
+  state = { m: null };
+  componentDidMount() { import('./portrait-data.js').then(m => this.setState({ m })); }
+  renderVals() {
+    const theme = this.props.theme ?? 'light';
+    const m = this.state.m;
+    if (!m) return { t: {}, cards: [] };
+    if (this._k !== theme) {
+      this._k = theme;
+      const a = m.buildAgenda(theme), T = a.t;
+      this._d = { t: T, clock: a.clock, cards: [
+        { ...a.today, isToday: true, flex: '1.45', bg: T.panel, fg: T.panelText, mut: T.panelMuted, shadow: 'var(--shadow-md)' },
+        { ...a.tomorrow, isToday: false, flex: '1', bg: T.tile, fg: T.text, mut: T.muted, shadow: 'var(--shadow-sm)' },
+      ] };
+    }
+    return this._d;
+  }
+}
+</script>
+</body>
+</html>

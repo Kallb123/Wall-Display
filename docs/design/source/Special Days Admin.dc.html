@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/styles.css">
+<script src="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/_ds_bundle.js"></script>
+<script src="./image-slot.js"></script>
+<style>body{margin:0}a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-600)}button{font:inherit;color:inherit;border:0;cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}</style>
+</helmet>
+<div data-screen-label="Admin · Special days" style="max-width:1440px;min-height:960px;box-sizing:border-box;padding:40px 48px 48px;display:flex;flex-direction:column;gap:32px;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)">
+  <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
+    <div style="font-family:var(--font-heading);font-size:26px">Wall Display</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <div style="padding:10px 18px;border-radius:999px;font-weight:700;color:var(--color-neutral-700)">Calendars</div>
+      <div style="padding:10px 18px;border-radius:999px;font-weight:700;color:var(--color-neutral-700)">Photos</div>
+      <div style="padding:10px 18px;border-radius:999px;font-weight:700;background:var(--color-surface)">Special days</div>
+      <div style="padding:10px 18px;border-radius:999px;font-weight:700;color:var(--color-neutral-700)">Displays</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:minmax(280px,400px) minmax(0,1fr);gap:40px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:20px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="font-family:var(--font-heading);font-size:40px;line-height:1.1;flex:1">Special days</div>
+        <button class="btn btn-primary" onClick="{{ addDay }}" style="display:flex;align-items:center;gap:8px">
+          <svg viewBox="0 0 24 24" width="18" height="18" style="fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>Add
+        </button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ list }}" as="o" hint-placeholder-count="5">
+          <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:16px;padding:14px 18px 14px 14px;border-radius:28px;text-align:left;background:{{ o.bg }}" style-hover="background:var(--color-surface)">
+            <div style="width:52px;height:52px;flex:none;border-radius:999px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:{{ o.chipBg }};color:{{ o.chipFg }}">
+              <div style="font-size:19px;font-weight:700;line-height:1">{{ o.day }}</div>
+              <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase">{{ o.mon }}</div>
+            </div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+              <div style="font-family:var(--font-heading);font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.name }}</div>
+              <div style="font-size:14px;color:var(--color-neutral-700)">{{ o.summary }}</div>
+            </div>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="background:var(--color-surface);border-radius:40px;padding:36px 40px;display:flex;flex-direction:column;gap:32px;min-width:0">
+      <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:20px;align-items:end">
+        <label class="field" style="display:flex;flex-direction:column;gap:8px;min-width:0">
+          <span style="font-weight:700;font-size:14px">Name</span>
+          <input class="input" value="{{ sel.name }}" onChange="{{ setName }}" style="font-family:var(--font-heading);font-size:20px"></input>
+        </label>
+        <label class="field" style="display:flex;flex-direction:column;gap:8px;min-width:0">
+          <span style="font-weight:700;font-size:14px">Date</span>
+          <input class="input" value="{{ sel.dateLabel }}" readOnly="{{ true }}"></input>
+        </label>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <span style="font-weight:700;font-size:14px">Repeats</span>
+          <div style="display:flex;gap:4px;padding:4px;border-radius:999px;background:var(--color-bg)">
+            <sc-for list="{{ repeatOpts }}" as="r" hint-placeholder-count="2">
+              <button onClick="{{ r.go }}" style="height:40px;padding:0 16px;border-radius:999px;font-weight:700;font-size:15px;white-space:nowrap;background:{{ r.bg }};color:{{ r.fg }}">{{ r.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:32px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="font-family:var(--font-heading);font-size:22px">Day tile art</div>
+            <div style="font-size:15px;color:var(--color-neutral-700);text-wrap:pretty">Sits in the tile's top corner, clear of events. Transparent PNG or SVG.</div>
+          </div>
+          <div style="position:relative;aspect-ratio:1;max-width:240px;border-radius:32px;background:var(--color-bg)">
+            <image-slot id="{{ sel.tileSlot }}" shape="rounded" radius="32" fit="contain" placeholder="Drop tile art"></image-slot>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font-weight:700;font-size:14px">Show on the calendar from</span>
+            <div style="display:flex;gap:4px;padding:4px;border-radius:999px;background:var(--color-bg);flex-wrap:wrap">
+              <sc-for list="{{ leadOpts }}" as="l" hint-placeholder-count="3">
+                <button onClick="{{ l.go }}" style="height:40px;padding:0 14px;border-radius:999px;font-weight:700;font-size:14px;white-space:nowrap;background:{{ l.bg }};color:{{ l.fg }}">{{ l.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+          <div style="display:flex;align-items:flex-start;gap:16px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+              <div style="font-family:var(--font-heading);font-size:22px">Full-screen takeover</div>
+              <div style="font-size:15px;color:var(--color-neutral-700);text-wrap:pretty">On the day itself the whole wall switches palette and shows this art behind the agenda.</div>
+            </div>
+            <button onClick="{{ toggleTakeover }}" aria-label="Full-screen takeover" style="width:64px;height:38px;flex:none;border-radius:999px;padding:4px;box-sizing:border-box;display:flex;justify-content:{{ tk.align }};background:{{ tk.track }};transition:background .2s">
+              <div style="width:30px;height:30px;border-radius:999px;background:var(--color-neutral-100);box-shadow:var(--shadow-sm)"></div>
+            </button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;opacity:{{ tk.dim }};pointer-events:{{ tk.pe }};transition:opacity .2s">
+            <div style="position:relative;aspect-ratio:16 / 9;border-radius:32px;background:var(--color-bg)">
+              <image-slot id="{{ sel.fullSlot }}" shape="rounded" radius="32" placeholder="Drop full-screen art (2560×1440)"></image-slot>
+            </div>
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:end">
+              <label class="field" style="display:flex;flex-direction:column;gap:8px;min-width:0">
+                <span style="font-weight:700;font-size:14px">Greeting</span>
+                <input class="input" value="{{ sel.greeting }}" onChange="{{ setGreeting }}"></input>
+              </label>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <span style="font-weight:700;font-size:14px">Palette</span>
+                <div style="display:flex;gap:10px;height:48px;align-items:center">
+                  <sc-for list="{{ palettes }}" as="p" hint-placeholder-count="4">
+                    <button onClick="{{ p.go }}" aria-label="{{ p.name }}" title="{{ p.name }}" style="width:44px;height:44px;border-radius:999px;padding:0;overflow:hidden;display:flex;box-shadow:{{ p.ring }}">
+                      <div style="flex:1;background:{{ p.a }}"></div><div style="flex:1;background:{{ p.b }}"></div>
+                    </button>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-ghost" style="color:var(--color-accent-700)">Delete</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-secondary">Preview on wall</button>
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:960}}">
+class Component extends DCLogic {
+  state = {
+    sel: 0,
+    days: [
+      { id: 'halloween', name: 'Halloween', m: 9, d: 31, repeat: 'yearly', lead: 'month', takeover: true, greeting: 'Happy Halloween', palette: 'night' },
+      { id: 'bonfire', name: 'Bonfire Night', m: 10, d: 5, repeat: 'yearly', lead: 'week', takeover: false, greeting: 'Remember, remember', palette: 'night' },
+      { id: 'christmas', name: 'Christmas Day', m: 11, d: 25, repeat: 'yearly', lead: 'month', takeover: true, greeting: 'Merry Christmas', palette: 'frost' },
+      { id: 'isla-bday', name: "Isla's birthday", m: 2, d: 14, repeat: 'yearly', lead: 'week', takeover: true, greeting: 'Happy birthday, Isla', palette: 'warm' },
+      { id: 'theo-bday', name: "Theo's birthday", m: 9, d: 21, repeat: 'yearly', lead: 'week', takeover: false, greeting: 'Happy birthday, Theo', palette: 'warm' },
+      { id: 'moving', name: 'Moving day', m: 5, d: 12, year: 2027, repeat: 'once', lead: 'day', takeover: false, greeting: '', palette: 'sage' },
+    ],
+  };
+  upd(patch) { this.setState(s => ({ days: s.days.map((x, i) => i === s.sel ? { ...x, ...patch } : x) })); }
+  renderVals() {
+    const { days, sel } = this.state;
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const LEAD = { day: 'On the day', week: 'A week before', month: 'All month' };
+    const PAL = {
+      warm: { name: 'Warm (default)', a: 'var(--color-bg)', b: 'var(--color-accent-500)' },
+      night: { name: 'Night', a: 'oklch(0.23 0.035 310)', b: 'var(--color-accent-400)' },
+      frost: { name: 'Frost', a: 'oklch(0.3 0.04 240)', b: 'oklch(0.92 0.02 240)' },
+      sage: { name: 'Sage', a: 'var(--color-accent-2-200)', b: 'var(--color-accent-2-600)' },
+    };
+    const on = { bg: 'var(--color-accent-600)', fg: 'var(--color-neutral-100)' }, off = { bg: 'transparent', fg: 'var(--color-neutral-700)' };
+    const cur = days[sel];
+    const list = days.map((o, i) => ({
+      name: o.name, day: o.d, mon: MON[o.m],
+      summary: [o.repeat === 'yearly' ? 'Every year' : String(o.year), 'tile art', o.takeover ? 'full screen' : null].filter(Boolean).join(' · '),
+      bg: i === sel ? 'var(--color-surface)' : 'transparent',
+      chipBg: i === sel ? 'var(--color-accent-600)' : 'var(--color-accent-200)',
+      chipFg: i === sel ? 'var(--color-neutral-100)' : 'var(--color-accent-800)',
+      pick: () => this.setState({ sel: i }),
+    }));
+    return {
+      list,
+      sel: {
+        ...cur,
+        dateLabel: `${cur.d} ${LONG[cur.m]}${cur.repeat === 'once' ? ' ' + cur.year : ''}`,
+        tileSlot: `tile-${cur.id}`, fullSlot: `full-${cur.id}`,
+      },
+      repeatOpts: [['yearly', 'Every year'], ['once', 'Once']].map(([k, label]) => ({ label, ...(cur.repeat === k ? on : off), go: () => this.upd({ repeat: k, year: cur.year || 2026 }) })),
+      leadOpts: Object.entries(LEAD).map(([k, label]) => ({ label, ...(cur.lead === k ? on : off), go: () => this.upd({ lead: k }) })),
+      palettes: Object.entries(PAL).map(([k, p]) => ({ ...p, ring: cur.palette === k ? '0 0 0 3px var(--color-surface), 0 0 0 5px var(--color-accent-600)' : '0 0 0 1px var(--color-neutral-300)', go: () => this.upd({ palette: k }) })),
+      tk: cur.takeover
+        ? { align: 'flex-end', track: 'var(--color-accent-2-500)', dim: 1, pe: 'auto' }
+        : { align: 'flex-start', track: 'var(--color-neutral-400)', dim: 0.45, pe: 'none' },
+      toggleTakeover: () => this.upd({ takeover: !cur.takeover }),
+      setName: e => this.upd({ name: e.target.value }),
+      setGreeting: e => this.upd({ greeting: e.target.value }),
+      addDay: () => this.setState(s => ({ days: [...s.days, { id: 'new-' + s.days.length, name: 'New special day', m: 0, d: 1, repeat: 'yearly', lead: 'day', takeover: false, greeting: '', palette: 'warm' }], sel: s.days.length })),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { todayIn } from '../../shared/dates'
 import { formatTime } from '../../shared/format'
 import type { NextAlarm } from '../../shared/display'
 import type { CalendarEvent } from '../../shared/types/events'
+import type { StageOrientation } from './stage'
 
 // What the night view says under its clock (architecture §4.1), and where the
 // clock sits. The view is almost black and almost nothing, so this is small:
@@ -83,7 +84,13 @@ export const NIGHT_SPOTS: readonly { x: number, y: number }[] = [
 /** How long the clock rests at each spot. */
 const NIGHT_STEP_MS = 5 * 60_000
 
-/** Where the night clock sits at `now`, as an offset from the centre. Changes every five minutes and goes round all the spots in an hour. */
-export function nightPosition(now: Date): { x: number, y: number } {
-  return NIGHT_SPOTS[Math.floor(now.getTime() / NIGHT_STEP_MS) % NIGHT_SPOTS.length]!
+/**
+ * Where the night clock sits at `now`, as an offset from the centre. Changes
+ * every five minutes and goes round all the spots in an hour. On the portrait
+ * stage the spots are turned on their side (x and y swapped), so the clock
+ * drifts further along the taller screen and no further across the narrow one.
+ */
+export function nightPosition(now: Date, orientation: StageOrientation = 'landscape'): { x: number, y: number } {
+  const spot = NIGHT_SPOTS[Math.floor(now.getTime() / NIGHT_STEP_MS) % NIGHT_SPOTS.length]!
+  return orientation === 'portrait' ? { x: spot.y, y: spot.x } : spot
 }

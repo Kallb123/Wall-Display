@@ -16,16 +16,24 @@ import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
 import { isOverlayShowing } from '~/utils/overlay'
-import { STAGE_HEIGHT, STAGE_WIDTH } from '~/utils/stage'
+import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
 import { activePreview, isEvening, takeoverInForce } from '~/utils/specialDays'
 import { themeStyle, themeTokens } from '~/utils/themes'
-import { NO_SPECIAL_DAYS } from '~/utils/views'
+import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
 
-// The wall. A fixed 2560×1440 stage scaled to fit the window, showing the view
-// the server chose (architecture §4.1). The page never picks a view or a month
-// itself: it shows the state it is sent, and keeps the last it knew in
-// localStorage so a reload with the server out of reach still shows something.
+// The wall. A fixed stage scaled to fit the window, showing the view the server
+// chose (architecture §4.1). The page never picks a view or a month itself: it
+// shows the state it is sent, and keeps the last it knew in localStorage so a
+// reload with the server out of reach still shows something.
+//
+// There are two stages (architecture §4.2): 2560×1440 for landscape and
+// 1440×2560 for portrait. The device's orientation comes from `?orientation=`,
+// else the display's setting (`auto` follows the window's shape). The stage is
+// portrait only when the device is and the view being shown has a portrait
+// layout; any other view stays on the landscape stage, letterboxed in the
+// window with black bars, exactly as on a landscape screen. The banner, badges,
+// dimmer and burn-in layer all sit on whichever stage is in use.
 //
 // Special days (architecture §6) are the server's to work out: the page draws
 // the resolution it is sent. What it does decide is what is in force right now:
@@ -52,7 +60,7 @@ const viewFor = (view: View): Component => viewComponents[view]
 const route = useRoute()
 const storage = browserStorage()
 const now = useNow()
-const scale = useStageScale()
+const viewport = useViewport()
 
 const requestedId = [route.query.id].flat()[0] || null
 const displayId = ref<string | null>(null)
@@ -95,6 +103,12 @@ async function loadSettings() {
   if (found.id !== displayId.value) select(found.id)
   settings.value = found
 }
+
+// The query is for one device and wins over the display's setting. Settings cached before PR 5.10 have no word on it, and the default is auto.
+const orientation = computed(() => orientationQuery(route.query.orientation) ?? settings.value?.orientation ?? 'auto')
+const device = computed(() => deviceOrientation(orientation.value, viewport.value.width, viewport.value.height))
+const stage = computed(() => stageFor(state.value.view, device.value))
+const scale = computed(() => stageScale(viewport.value.width, viewport.value.height, stage.value.orientation))
 
 const timezone = computed(() => settings.value?.timezone ?? null)
 const today = computed(() => timezone.value ? todayIn(now.value, timezone.value) : null)
@@ -162,6 +176,7 @@ const viewProps = computed<ViewProps | null>(() => {
   if (!display || !month || !weekDate) return null
   return {
     view: state.value.view,
+    stage: stage.value,
     events: events.value,
     now: now.value,
     timezone: display.timezone,
@@ -249,8 +264,8 @@ onMounted(() => {
 const tokens = computed(() => themeTokens(settings.value?.theme ?? 'light', takeover.value?.palette))
 const stageStyle = computed(() => ({
   ...themeStyle(tokens.value),
-  width: `${STAGE_WIDTH}px`,
-  height: `${STAGE_HEIGHT}px`,
+  width: `${stage.value.width}px`,
+  height: `${stage.value.height}px`,
   transform: `translate(-50%, -50%) scale(${scale.value})`,
 }))
 
@@ -264,6 +279,7 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
     <div
       class="stage"
       data-testid="stage"
+      :data-orientation="stage.orientation"
       :data-theme="settings?.theme ?? 'light'"
       :data-palette="takeover?.palette"
       :data-preview="previewing || undefined"
@@ -272,8 +288,9 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
       <!-- Everything the burn-in shift moves. The dimmer is outside it, so it covers the whole stage whatever the offset. -->
       <div class="shift" data-testid="shift" :style="shiftStyle">
         <!-- Behind the view, which is solid where it has text, so the art shows in the margins and the gaps. -->
+        <!-- The takeover's art is 2560×1440, so it is only drawn on the landscape stage. -->
         <img
-          v-if="takeover?.full_art"
+          v-if="takeover?.full_art && stage.orientation === 'landscape'"
           class="takeover-art"
           :src="specialDayArtUrl(takeover.full_art)"
           alt=""
@@ -281,7 +298,7 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
           data-testid="takeover-full"
         >
         <img
-          v-if="takeover?.extra_art"
+          v-if="takeover?.extra_art && stage.orientation === 'landscape'"
           class="takeover-art"
           :src="specialDayArtUrl(takeover.extra_art)"
           alt=""
@@ -328,7 +345,7 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
   cursor: none;
 }
 
-/* Laid out at 2560×1440 and centred, then scaled to fit the window. */
+/* Laid out at the stage's own size (2560×1440, or 1440×2560 for portrait) and centred, then scaled to fit the window. */
 .stage {
   position: absolute;
   top: 50%;
@@ -340,8 +357,12 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
 }
 
 .message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin: 0;
-  padding-top: 600px;
   font-family: var(--font-display);
   font-size: 96px;
   text-align: center;

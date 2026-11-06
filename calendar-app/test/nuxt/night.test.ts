@@ -14,7 +14,7 @@ import type { CalendarEvent } from '../../shared/types/events'
 const NOW = new Date('2026-10-28T22:30:00Z')
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'night', events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
+  view: 'night', stage: { width: 2560, height: 1440, orientation: 'landscape' }, events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
 })
 
 function event(changes: Partial<CalendarEvent> = {}): CalendarEvent {
@@ -92,5 +92,13 @@ describe('the night view', () => {
     expect(block(still).style.transform).toBe('translate(0px, 0px)')
     const unsaid = await open()
     expect(block(unsaid).style.transform).toBe('translate(0px, 0px)')
+  })
+
+  it('drifts along the long side of the portrait stage', async () => {
+    const spot = nightPosition(NOW, 'portrait')
+    expect(spot).not.toEqual({ x: 0, y: 0 })
+    const wrapper = await open({ burnIn: true, stage: { width: 1440, height: 2560, orientation: 'portrait' } })
+
+    expect(wrapper.find('[data-testid="night-clock"]').element.parentElement!.style.transform).toBe(`translate(${spot.x}px, ${spot.y}px)`)
   })
 })

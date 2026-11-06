@@ -3,6 +3,8 @@ import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
 import type { Corner } from './burnIn'
+import { stageSize } from './stage'
+import type { StageOrientation } from './stage'
 
 // What every view component is given by pages/display.vue. They all declare
 // `defineProps<ViewProps>()`, even when they ignore some of it, so a prop a
@@ -18,9 +20,29 @@ export const CALENDAR_VIEWS = ['month', 'week', 'agenda'] as const satisfies rea
 
 export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
+/** The views with a portrait layout. The rest are letterboxed on the landscape stage in a portrait window, until their layouts arrive (PR 5.11 onwards). */
+export const PORTRAIT_VIEWS: readonly View[] = ['night']
+
+export const hasPortraitLayout = (view: View): boolean => PORTRAIT_VIEWS.includes(view)
+
+/** The stage a view is drawn on. */
+export interface Stage {
+  width: number
+  height: number
+  orientation: StageOrientation
+}
+
+/** The stage for `view` on a device that wants `device`: portrait only when the view has a layout for it, and the landscape stage otherwise. */
+export function stageFor(view: View, device: StageOrientation): Stage {
+  const orientation = device === 'portrait' && hasPortraitLayout(view) ? 'portrait' : 'landscape'
+  return { ...stageSize(orientation), orientation }
+}
+
 export interface ViewProps {
   /** The view being shown. */
   view: View
+  /** The size of the stage the view draws on. */
+  stage: Stage
   /** The events fetched for the shown month and the next few days, sorted by start. */
   events: CalendarEvent[]
   /** The current moment, ticking. Views work out "today" from it in `timezone`. */

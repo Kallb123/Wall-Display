@@ -143,4 +143,18 @@ describe('nightPosition', () => {
       expect(Math.hypot(next.x - spot.x, next.y - spot.y)).toBeGreaterThanOrEqual(150)
     })
   })
+
+  it('is the same place on the landscape stage as when no orientation is given', () => {
+    expect(nightPosition(at(0), 'landscape')).toEqual(nightPosition(at(0)))
+  })
+
+  it('turns the spots on their side on the portrait stage: 160 px across, 240 px up or down', () => {
+    for (let step = 0; step < NIGHT_SPOTS.length; step++) {
+      const landscape = nightPosition(at(step * 5))
+      const portrait = nightPosition(at(step * 5), 'portrait')
+      expect(portrait).toEqual({ x: landscape.y, y: landscape.x })
+      expect(Math.abs(portrait.x)).toBeLessThanOrEqual(160)
+      expect(Math.abs(portrait.y)).toBeLessThanOrEqual(240)
+    }
+  })
 })

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
+import NightView from '~/components/views/NightView.vue'
 import DisplayPage from '~/pages/display.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { PALETTES, THEMES } from '~/utils/themes'
@@ -79,14 +80,14 @@ const state = (changes: Partial<DisplayState> = {}): DisplayState => displayStat
 let requests: { url: string, query: Record<string, string> | undefined }[]
 /** What `GET /api/special-days/preview` answers, or null to fail. */
 let previewAnswer: (query: Record<string, string>) => SpecialDaysResolution | null
-/** What the display's settings say beyond the usual: `burn_in` and `night_text`, for the tests of those. */
+/** What the display's settings say beyond the usual: `burn_in`, `night_text` and `orientation`, for the tests of those. */
 let settingsExtra: Record<string, unknown>
 /** What `GET /api/events` answers. */
 let eventsAnswer: CalendarEvent[]
 
 function server(url: string, options?: { query?: Record<string, string> }) {
   requests.push({ url, query: options?.query })
-  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', week_hours: { from: 7, to: 21 }, ...settingsExtra }]
+  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, ...settingsExtra }]
   if (url === '/api/events') return { events: eventsAnswer }
   if (url === '/api/special-days/preview') {
     const answer = previewAnswer(options?.query ?? {})
@@ -96,10 +97,18 @@ function server(url: string, options?: { query?: Record<string, string> }) {
   throw new Error(`Not found: ${url}`)
 }
 
+const originalWindow = { width: window.innerWidth, height: window.innerHeight }
+/** Resizes the window the page is mounted in (the page reads it when it mounts and on `resize`). */
+function resizeWindow(width: number, height: number) {
+  window.innerWidth = width
+  window.innerHeight = height
+  window.dispatchEvent(new Event('resize'))
+}
+
 const mounted: { unmount: () => void }[] = []
 
-async function openWall(initial: { state?: DisplayState, specialDays?: SpecialDaysResolution | null } = {}) {
-  const wrapper = await mountSuspended(DisplayPage, { route: '/display?id=hallway' })
+async function openWall(initial: { state?: DisplayState, specialDays?: SpecialDaysResolution | null, query?: string } = {}) {
+  const wrapper = await mountSuspended(DisplayPage, { route: `/display?id=hallway${initial.query ?? ''}` })
   mounted.push(wrapper)
   await flushPromises()
   const socket = FakeSocket.all.at(-1)!
@@ -147,6 +156,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  window.innerWidth = originalWindow.width
+  window.innerHeight = originalWindow.height
   for (const wrapper of mounted.splice(0)) wrapper.unmount()
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -577,7 +588,7 @@ describe('settings changed on the settings page', () => {
   const update = (changes: Record<string, unknown>) => ({
     type: 'settings.updated',
     display_id: 'hallway',
-    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [], ...changes },
+    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [], ...changes },
   })
 
   it('re-themes the wall at once', async () => {
@@ -709,5 +720,140 @@ describe('preloading tomorrow\'s art', () => {
     await wall.setSpecialDays(tomorrow)
 
     expect(FakeImage.all).toEqual([])
+  })
+})
+
+describe('orientation', () => {
+  const stageSize = (wall: Awaited<ReturnType<typeof openWall>>) => {
+    const style = wall.stage().attributes('style')!
+    return [style.match(/width: (\d+)px/)![1], style.match(/height: (\d+)px/)![1]].map(Number)
+  }
+  const night = () => state({ view: 'night' })
+  const nightStage = (wall: Awaited<ReturnType<typeof openWall>>) => wall.wrapper.findComponent(NightView).props('stage')
+
+  it('is the 2560×1440 stage in a landscape window', async () => {
+    resizeWindow(1920, 1080)
+    const wall = await openWall({ state: night() })
+
+    expect(stageSize(wall)).toEqual([2560, 1440])
+    expect(wall.stage().attributes('data-orientation')).toBe('landscape')
+    expect(nightStage(wall)).toEqual({ width: 2560, height: 1440, orientation: 'landscape' })
+  })
+
+  it('is the 1440×2560 stage for the night view in a portrait window, scaled to fit', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: night() })
+
+    expect(stageSize(wall)).toEqual([1440, 2560])
+    expect(wall.stage().attributes('data-orientation')).toBe('portrait')
+    expect(wall.stage().attributes('style')).toContain('scale(0.5)')
+    expect(nightStage(wall)).toEqual({ width: 1440, height: 2560, orientation: 'portrait' })
+  })
+
+  it('letterboxes a view with no portrait layout on the landscape stage, in a portrait window', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: state({ view: 'month' }) })
+
+    expect(stageSize(wall)).toEqual([2560, 1440])
+    expect(wall.stage().attributes('data-orientation')).toBe('landscape')
+    expect(wall.stage().attributes('style')).toContain(`scale(${720 / 2560})`)
+  })
+
+  it('follows the view from the portrait stage to the landscape one and back', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: night() })
+    expect(stageSize(wall)).toEqual([1440, 2560])
+
+    await wall.setState({ view: 'agenda' })
+    expect(stageSize(wall)).toEqual([2560, 1440])
+    await wall.setState({ view: 'night' })
+    expect(stageSize(wall)).toEqual([1440, 2560])
+  })
+
+  it('follows the window as it is resized', async () => {
+    resizeWindow(1920, 1080)
+    const wall = await openWall({ state: night() })
+    expect(stageSize(wall)).toEqual([2560, 1440])
+
+    resizeWindow(1080, 1920)
+    await flushPromises()
+    expect(stageSize(wall)).toEqual([1440, 2560])
+  })
+
+  it('takes ?orientation=landscape over a portrait window', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: night(), query: '&orientation=landscape' })
+
+    expect(stageSize(wall)).toEqual([2560, 1440])
+  })
+
+  it('takes ?orientation=portrait over a landscape window, for a view with a portrait layout', async () => {
+    resizeWindow(1920, 1080)
+    const wall = await openWall({ state: night(), query: '&orientation=portrait' })
+
+    expect(stageSize(wall)).toEqual([1440, 2560])
+    expect(wall.stage().attributes('style')).toContain(`scale(${1080 / 2560})`)
+  })
+
+  it('takes the display\'s setting, and a change to it at once', async () => {
+    resizeWindow(1920, 1080)
+    settingsExtra = { orientation: 'portrait' }
+    const wall = await openWall({ state: night() })
+    expect(stageSize(wall)).toEqual([1440, 2560])
+
+    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [] } })
+    await flushPromises()
+    expect(stageSize(wall)).toEqual([2560, 1440])
+  })
+
+  it('lets the query win over the display\'s setting', async () => {
+    resizeWindow(1920, 1080)
+    settingsExtra = { orientation: 'portrait' }
+    const wall = await openWall({ state: night(), query: '&orientation=landscape' })
+
+    expect(stageSize(wall)).toEqual([2560, 1440])
+  })
+
+  it('ignores a query that is not an orientation', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: night(), query: '&orientation=sideways' })
+
+    expect(stageSize(wall)).toEqual([1440, 2560])
+  })
+
+  it('treats settings with no orientation (cached before PR 5.10) as auto', async () => {
+    resizeWindow(720, 1280)
+    settingsExtra = { orientation: undefined }
+    const wall = await openWall({ state: night() })
+
+    expect(stageSize(wall)).toEqual([1440, 2560])
+    resizeWindow(1920, 1080)
+    await flushPromises()
+    expect(stageSize(wall)).toEqual([2560, 1440])
+  })
+
+  it('treats cached settings with no orientation as auto before the server has answered', async () => {
+    resizeWindow(720, 1280)
+    localStorage.setItem('wallcal:display:hallway', JSON.stringify({
+      settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
+      state: state({ view: 'night' }),
+      events: [],
+      saved_at: NOW.toISOString(),
+    }))
+    fetchMock.mockRejectedValue(new Error('offline'))
+    const wrapper = await mountSuspended(DisplayPage, { route: '/display?id=hallway' })
+    mounted.push(wrapper)
+
+    expect(wrapper.find('[data-testid="stage"]').attributes('data-orientation')).toBe('portrait')
+  })
+
+  it('does not draw the takeover\'s 2560×1440 art on the portrait stage', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: night(), specialDays: resolution() })
+    expect(wall.stage().findAll('img.takeover-art')).toHaveLength(0)
+
+    resizeWindow(1920, 1080)
+    await wall.setState({ view: 'month' })
+    expect(wall.stage().findAll('img.takeover-art')).toHaveLength(2)
   })
 })

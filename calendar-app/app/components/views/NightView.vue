@@ -16,6 +16,10 @@ import type { ViewProps } from '../../utils/views'
 // the display turns `burn_in` off the whole block moves to a new spot every five
 // minutes (see nightPosition), a long way compared with the nudge the rest of the
 // wall gets, and does it as a slow drift rather than a jump.
+//
+// It has a portrait layout (PR 5.10): the same block, centred on the taller
+// stage, drifting along the long side. The 360 px clock is about 970 px wide,
+// which fits the 1440 px of the portrait stage with its drift to spare.
 const props = defineProps<ViewProps>()
 
 const time = computed(() => formatTime(props.now, props.timezone))
@@ -33,7 +37,7 @@ const line = computed(() => {
   return null
 })
 
-const position = computed(() => props.burnIn ? nightPosition(props.now) : { x: 0, y: 0 })
+const position = computed(() => props.burnIn ? nightPosition(props.now, props.stage.orientation) : { x: 0, y: 0 })
 </script>
 
 <template>
@@ -69,7 +73,8 @@ const position = computed(() => props.burnIn ? nightPosition(props.now) : { x: 0
   flex-direction: column;
   align-items: center;
   gap: 24px;
-  max-width: 1600px;
+  /* Leaves room for the drift (160 px either way across on the portrait stage) and 64 px of margin beyond it, so a long line is cut, not pushed off the stage. */
+  max-width: min(1600px, 100% - 448px);
   transition: transform 20s ease-in-out;
 }
 

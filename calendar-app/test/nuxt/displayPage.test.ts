@@ -752,7 +752,7 @@ describe('orientation', () => {
 
   it('letterboxes a view with no portrait layout on the landscape stage, in a portrait window', async () => {
     resizeWindow(720, 1280)
-    const wall = await openWall({ state: state({ view: 'month' }) })
+    const wall = await openWall({ state: state({ view: 'week' }) })
 
     expect(stageSize(wall)).toEqual([2560, 1440])
     expect(wall.stage().attributes('data-orientation')).toBe('landscape')
@@ -764,7 +764,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])
 
-    await wall.setState({ view: 'month' })
+    await wall.setState({ view: 'week' })
     expect(stageSize(wall)).toEqual([2560, 1440])
     await wall.setState({ view: 'night' })
     expect(stageSize(wall)).toEqual([1440, 2560])

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Cloud, CloudFog, CloudHail, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Moon, Sun, TriangleAlert, Wind } from 'lucide-vue-next'
 import { WEATHER_CONDITIONS } from '../../../shared/weather'
-import { formatCurrent, formatHighLow, weatherIcon } from '../../../app/utils/weather'
+import { formatCurrent, formatHighLow, formatHighLowWords, weatherIcon } from '../../../app/utils/weather'
 
 describe('weatherIcon', () => {
   it('picks a picture for each condition', () => {
@@ -63,5 +63,24 @@ describe('formatHighLow', () => {
 
   it('is null when neither is known', () => {
     expect(formatHighLow({ high: null, low: null })).toBeNull()
+  })
+})
+
+describe('formatHighLowWords', () => {
+  it('spells out the high, then the low', () => {
+    expect(formatHighLowWords({ high: 14, low: 8 })).toBe('High 14° · Low 8°')
+  })
+
+  it('rounds to whole degrees and never writes -0', () => {
+    expect(formatHighLowWords({ high: 13.6, low: -0.4 })).toBe('High 14° · Low 0°')
+  })
+
+  it('leaves out the part that is missing', () => {
+    expect(formatHighLowWords({ high: 14, low: null })).toBe('High 14°')
+    expect(formatHighLowWords({ high: null, low: 8 })).toBe('Low 8°')
+  })
+
+  it('is null when neither is known', () => {
+    expect(formatHighLowWords({ high: null, low: null })).toBeNull()
   })
 })

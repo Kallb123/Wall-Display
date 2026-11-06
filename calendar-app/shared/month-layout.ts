@@ -6,9 +6,10 @@ import { formatTime } from './format'
 import type { CalendarEvent, EventPerson } from './types/events'
 
 // The month view's layout (architecture §4.4): five week rows of seven days,
-// with each event placed as a bar or a timed row in one of four lanes, "+N more"
-// where a day is full, a veil over each run of past days, and the side panel's
-// four days. Both month styles draw this output and add nothing to it. Pure: no
+// with each event placed as a bar or a timed row in one of a few lanes (four on
+// the landscape stage, six on the taller portrait cells, so it is an option),
+// "+N more" where a day is full, a veil over each run of past days, and the side
+// panel's four days. Both month styles draw this output and add nothing to it. Pure: no
 // Nuxt or Vue imports, no I/O, and no use of the process's local time. Days are
 // `YYYY-MM-DD` strings in the display's time zone.
 //
@@ -19,6 +20,8 @@ import type { CalendarEvent, EventPerson } from './types/events'
 export const WEEK_ROWS = 5
 /** Lanes for events in a day's tile, below the date. The last one holds "+N more" when the day is full. */
 export const LANES = 4
+/** Lanes in a day's tile on the portrait stage, whose cells are taller (architecture §4.6). */
+export const PORTRAIT_LANES = 6
 /** Days in the side panel: today and the three after it. */
 export const PANEL_DAYS = 4
 /** Initials in a badge. A fourth person is kept in `people` but not drawn. */
@@ -32,6 +35,8 @@ export interface MonthLayoutInput {
   /** The display's IANA zone; timed events are placed on days and given times in it. */
   timeZone: string
   weekStart: 'monday' | 'sunday'
+  /** Lanes for events in a day's tile, the last holding "+N more" when the day is full. `LANES` when left out; whole, and at least 2 so that a full day still shows an event beside its label. */
+  lanes?: number
   /** Each event already carries its people (PR 1.2), so there is no separate people argument. */
   events: CalendarEvent[]
 }
@@ -65,7 +70,7 @@ export interface ItemPeople {
 /** An all-day or multi-day event, or one piece of it: the part in one week row, between hidden days. */
 export interface Bar extends ItemPeople {
   event: CalendarEvent
-  /** 0 to `LANES - 1`. */
+  /** 0 to the layout's `lanes - 1`. */
   lane: number
   /** The first column of this piece. */
   column: number
@@ -89,7 +94,7 @@ export interface TimedRow extends ItemPeople {
 /** The "+N more" in a full day's last lane. */
 export interface MoreLabel {
   column: number
-  /** Always `LANES - 1`. */
+  /** Always the layout's `lanes - 1`. */
   lane: number
   /** Items on the day that are not drawn: those that would have been in the last lane or below it. */
   count: number
@@ -138,6 +143,8 @@ export interface MonthLayout {
   weekdays: string[]
   /** Always `WEEK_ROWS`. */
   rows: WeekRow[]
+  /** The lanes the grid was laid out with, so the view can size its rows to match. */
+  lanes: number
   /** Today and the next three days, whatever month the grid shows. */
   panel: PanelDay[]
 }
@@ -220,7 +227,7 @@ function dateRuns(cells: DayCell[]): number[][] {
 }
 
 /** Lays out one row. Lanes are unbounded until the "+N more" rule decides what shows. */
-function layoutRow(cells: DayCell[], placed: Placed[], timeZone: string): WeekRow {
+function layoutRow(cells: DayCell[], placed: Placed[], timeZone: string, laneCount: number): WeekRow {
   const rowFirst = cells.reduce((min, cell) => cell.date < min ? cell.date : min, cells[0]!.date)
   const rowLast = cells.reduce((max, cell) => cell.date > max ? cell.date : max, cells[0]!.date)
   const columnOf = new Map(cells.map(cell => [cell.date, cell.column]))
@@ -261,17 +268,17 @@ function layoutRow(cells: DayCell[], placed: Placed[], timeZone: string): WeekRo
       return { placed: item, column, lane }
     })
 
-  // 3. A day with more than `LANES` items, or with one pushed below the last lane by packing, gives its
+  // 3. A day with more than `laneCount` items, or with one pushed below the last lane by packing, gives its
   // last lane to "+N more", which counts everything that is not drawn above it.
   const more: MoreLabel[] = []
   for (const cell of cells) {
     const lanes = [...taken[cell.column]!]
-    if (lanes.length > LANES || lanes.some(lane => lane >= LANES)) {
-      more.push({ column: cell.column, lane: LANES - 1, count: lanes.filter(lane => lane >= LANES - 1).length })
+    if (lanes.length > laneCount || lanes.some(lane => lane >= laneCount)) {
+      more.push({ column: cell.column, lane: laneCount - 1, count: lanes.filter(lane => lane >= laneCount - 1).length })
     }
   }
   const hasMore = new Set(more.map(label => label.column))
-  const hidden = (column: number, lane: number) => hasMore.has(column) && lane >= LANES - 1
+  const hidden = (column: number, lane: number) => hasMore.has(column) && lane >= laneCount - 1
 
   // 4. A bar is split around the days where its lane is hidden. A timed row there is only counted.
   const pieces: Bar[] = bars.flatMap((bar) => {
@@ -341,7 +348,9 @@ function panelDays(today: string, events: CalendarEvent[], timeZone: string): Pa
 }
 
 /** Lays out `month`: the grid with its bars, timed rows, "+N more" labels and veils, and the side panel. */
-export function monthLayout({ month, today, timeZone, weekStart, events }: MonthLayoutInput): MonthLayout {
+export function monthLayout({ month, today, timeZone, weekStart, events, lanes = LANES }: MonthLayoutInput): MonthLayout {
+  // A fraction or a nonsense count must not leave a day with no room for "+N more" beside an event.
+  const laneCount = Math.max(2, Math.floor(lanes) || 0)
   const cells = gridCells(month, today, weekStart)
 
   // Which days an event is on is decided in event-days, the same as for the agenda.
@@ -350,13 +359,14 @@ export function monthLayout({ month, today, timeZone, weekStart, events }: Month
     return span ? [{ event, span, bar: event.all_day || span.first < span.last }] : []
   })
 
-  const rows = Array.from({ length: WEEK_ROWS }, (_, row) => layoutRow(cells.slice(row * 7, row * 7 + 7), placed, timeZone))
+  const rows = Array.from({ length: WEEK_ROWS }, (_, row) => layoutRow(cells.slice(row * 7, row * 7 + 7), placed, timeZone, laneCount))
   const firstDay = weekStart === 'monday' ? 1 : 0
 
   return {
     month,
     weekdays: Array.from({ length: 7 }, (_, index) => SHORT_WEEKDAYS[(firstDay + index) % 7]!),
     rows,
+    lanes: laneCount,
     panel: panelDays(today, events, timeZone),
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitPanelDay, MAX_PANEL_ROWS } from '../../../app/utils/monthPanel'
+import { fitPanelDay, MAX_PANEL_ROWS, PORTRAIT_STRIP_ROWS, PORTRAIT_TODAY_ROWS } from '../../../app/utils/monthPanel'
 import type { FittedPanelDay } from '../../../app/utils/monthPanel'
 import type { PanelDay, PanelItem } from '../../../shared/month-layout'
 import type { CalendarEvent } from '../../../shared/types/events'
@@ -57,6 +57,11 @@ const titles = (fitted: FittedPanelDay) => fitted.rows.map(row => row.item.event
 describe('fitPanelDay', () => {
   it('has room for four rows, counting "+N more"', () => {
     expect(MAX_PANEL_ROWS).toBe(4)
+  })
+
+  it('has room for seven rows in the portrait band and four in each strip card', () => {
+    expect(PORTRAIT_TODAY_ROWS).toBe(7)
+    expect(PORTRAIT_STRIP_ROWS).toBe(4)
   })
 
   it('carries the day\'s date and label', () => {

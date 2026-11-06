@@ -1,4 +1,4 @@
-import type { PanelDay, PanelItem } from '../../shared/month-layout'
+import type { ItemPeople, PanelDay, PanelItem } from '../../shared/month-layout'
 
 // What the month view's side panel shows of a day from `monthLayout`: its items,
 // all-day first and then timed, trimmed to the rows the panel has room for.
@@ -7,6 +7,30 @@ import type { PanelDay, PanelItem } from '../../shared/month-layout'
 
 /** What fits under a day's heading at the size the wall draws it, counting the "+N more" row. */
 export const MAX_PANEL_ROWS = 4
+
+/**
+ * What fits in the portrait month's band beside today's date (PR 5.12),
+ * counting the "+N more" row, found by measuring: the band is as tall as the
+ * taller of its two columns, and with seven 40 px rows 14 px apart the events
+ * column (364 px, in 44 px of padding above and 47 below) makes it 464 px, which
+ * is about what the date, weekday, weather and high and low need on the left
+ * (mock 4a). That leaves the five weeks 289 px tiles, in which six lanes get
+ * their full 34 px. Each row further adds 54 px to the band and takes about 11 px
+ * from every tile, which the lanes would have to give up. With a takeover's
+ * greeting the band is about 522 px, the tiles 278 px and the lanes 31.8 px:
+ * test/visual/portrait.spec.ts checks that six still fit and nothing is cut.
+ */
+export const PORTRAIT_TODAY_ROWS = 7
+
+/**
+ * What fits in each of the portrait month's three cards under the weeks (PR
+ * 5.12), counting the "+N more" row, found by measuring: the strip is 284 px
+ * tall (mock 4a), and with 30 px of padding, a heading of about 40 px and 32 px
+ * rows 14 px apart, four rows end 4 px above the padding at the bottom (a fifth
+ * overflows by about 42 px). test/visual/portrait.spec.ts checks that a full card
+ * cuts no row.
+ */
+export const PORTRAIT_STRIP_ROWS = 4
 
 /** One row of a panel day. */
 export interface PanelRow {
@@ -55,4 +79,9 @@ export function fitPanelDay(day: PanelDay, now: Date, isToday: boolean, maxRows 
   if (excess <= dropped.size) return result(kept, 0)
 
   return result(kept.slice(0, limit - 1), kept.length - (limit - 1))
+}
+
+/** The badges an item gets: its first people, as many as the layout kept initials for. Keyed by person, as two can share an initial. */
+export function badgesOf(item: ItemPeople): { id: string, initial: string, colour: string }[] {
+  return item.initials.map((initial, index) => ({ id: item.people[index]!.id, initial, colour: item.people[index]!.colour }))
 }

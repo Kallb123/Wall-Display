@@ -1,13 +1,14 @@
 <script setup lang="ts">
+import MonthPanelRows from './MonthPanelRows.vue'
 import { formatWeekday } from '~/utils/format'
 import { todayIn } from '~/utils/eventRanges'
-import { fitPanelDay } from '~/utils/monthPanel'
+import { badgesOf, fitPanelDay, PORTRAIT_STRIP_ROWS, PORTRAIT_TODAY_ROWS } from '~/utils/monthPanel'
 import { greetingSize, tileArt } from '~/utils/specialDays'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
-import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
+import { formatCurrent, formatHighLow, formatHighLowWords, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
-import { monthLayout } from '../../../shared/month-layout'
-import type { DayCell, ItemPeople } from '../../../shared/month-layout'
+import { monthLayout, PORTRAIT_LANES } from '../../../shared/month-layout'
+import type { DayCell } from '../../../shared/month-layout'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { currentWeather, weatherOn } from '../../../shared/weather'
 
@@ -19,22 +20,37 @@ import { currentWeather, weatherOn } from '../../../shared/weather'
 // room there is. The grid shows `month`, which the server can pin to another
 // month; the panel always starts at today.
 //
+// On the portrait stage (PR 5.12, mocks 4a, 4b and 4j, architecture §4.6) the
+// same pieces are stacked in a column instead: the title, then a band across the
+// full width that holds today (the big date, the weather and its high and low on
+// the left, today's events on the right), then the five weeks at seven narrow
+// columns, then a strip of three cards for the next three days. The tiles are
+// taller, so each holds six lanes (`PORTRAIT_LANES`) and a timed row is just its
+// badge and title, with no room for the time. Nothing about which day is where
+// changes: it is the same `monthLayout`, asked for more lanes. The landscape
+// layout is untouched by any of this.
+//
 // Special days (architecture §6, PR S.3) are drawn from `specialDays`, which the
 // page has already decided: a decorated tile is tinted with its first day's
 // palette accent and carries every day's art in its top-right corner, and a
-// takeover's greeting goes at the top of the panel. The takeover's colours are
-// the stage's theme and its art is a layer behind this view, so the one thing
-// the panel does about it is stop being full height: only as tall as its
-// content, it leaves the lower part of the column clear for the art to show.
-// With nothing special, none of this draws and the view is exactly as it was.
+// takeover's greeting goes at the top of the panel (or the band). The takeover's
+// colours are the stage's theme and its art is a layer behind this view, so the
+// one thing the panel does about it is stop being full height: only as tall as
+// its content, it leaves the lower part of the column clear for the art to show.
+// The portrait band is only as tall as its content anyway, which with a greeting
+// in it takes room from the weeks, so the portrait grid lets its lanes shrink a
+// little rather than lose one. With nothing special, none of this draws and the
+// view is exactly as it was.
 //
 // The weather (PR 2.7) is drawn in the panel only: the current conditions under
-// the weekday, and each day's icon and high / low at the right of its heading.
-// Any part that is not known is left out, and with no weather at all nothing
-// is drawn, so the panel is exactly as it was.
+// the weekday, and each day's icon and high / low at the right of its heading
+// (the portrait band adds today's high and low in words). Any part that is not
+// known is left out, and with no weather at all nothing is drawn, so the panel
+// is exactly as it was.
 const props = defineProps<ViewProps>()
 
 const today = computed(() => todayIn(props.now, props.timezone))
+const portrait = computed(() => props.stage.orientation === 'portrait')
 
 const layout = computed(() => monthLayout({
   month: props.month,
@@ -42,6 +58,7 @@ const layout = computed(() => monthLayout({
   timeZone: props.timezone,
   weekStart: props.weekStart,
   events: props.events,
+  lanes: portrait.value ? PORTRAIT_LANES : undefined,
 }))
 
 /** A panel day's icon and `14° / 8°`, either of which can be missing; null when the forecast has neither. */
@@ -56,6 +73,21 @@ const panelDays = computed(() => layout.value.panel.map((day, index) => ({
   ...fitPanelDay(day, props.now, index === 0),
   weather: dayWeather(day.date),
 })))
+
+/** Portrait: today's rows for the band, which has room for more than a panel day. */
+const bandDay = computed(() => fitPanelDay(layout.value.panel[0]!, props.now, true, PORTRAIT_TODAY_ROWS))
+
+/** Portrait: the three days after today, each in a card with room for fewer rows. */
+const stripDays = computed(() => layout.value.panel.slice(1).map(day => ({
+  ...fitPanelDay(day, props.now, false, PORTRAIT_STRIP_ROWS),
+  weather: dayWeather(day.date),
+})))
+
+/** `High 14° · Low 8°` for today, or null when the forecast has neither. */
+const todayHighLow = computed(() => {
+  const day = weatherOn(props.weather, today.value)
+  return day ? formatHighLowWords(day) : null
+})
 
 /** `October`, from the month itself: the shown month is not always the one `now` is in. */
 const monthName = computed(() => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'long' }).format(new Date(`${props.month}-01T00:00:00Z`)))
@@ -89,11 +121,6 @@ function numberColours(cell: DayCell): { background: string, color: string } {
   return { background: 'transparent', color: cell.inMonth ? 'var(--text)' : 'var(--faint)' }
 }
 
-/** The badges an item gets: its first people, as many as the layout kept initials for. Keyed by person, as two can share an initial. */
-function badgesOf(item: ItemPeople): { id: string, initial: string, colour: string }[] {
-  return item.initials.map((initial, index) => ({ id: item.people[index]!.id, initial, colour: item.people[index]!.colour }))
-}
-
 /** A bar's fill. With nobody on it (no person matched) it is the surface colour and has no badge. */
 const barFill = (colour: string | null): string => colour ? personFill(colour) : 'var(--surface)'
 
@@ -113,14 +140,48 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
 </script>
 
 <template>
-  <section class="view" data-testid="month-view">
+  <section class="view" :class="{ portrait }" data-testid="month-view">
     <div class="side">
       <h1 class="title" data-testid="month-title">
         <!-- The space is for the text ("October 2026"); between flex items it takes no room. -->
         <span class="month">{{ monthName }}</span>{{ ' ' }}<span class="year">{{ year }}</span>
       </h1>
 
-      <div class="panel" :class="{ takeover: specialDays.takeover }" data-testid="panel">
+      <div v-if="portrait" class="panel band" :class="{ takeover: specialDays.takeover }" data-testid="today-band">
+        <div class="band-now">
+          <div
+            v-if="specialDays.takeover?.greeting"
+            class="greeting"
+            data-testid="greeting"
+            :style="{ fontSize: `${greetingSize(specialDays.takeover.greeting)}px` }"
+          >
+            {{ specialDays.takeover.greeting }}
+          </div>
+
+          <div class="now">
+            <div class="big-date" data-testid="panel-date">
+              {{ dayNumber }}
+            </div>
+            <div class="weekday">
+              {{ weekday }}
+              <div v-if="nowWeather" class="weather-now" data-testid="weather-now">
+                <AppIcon v-if="nowWeather.icon" :icon="nowWeather.icon" :size="44" />
+                <span class="weather-text">{{ nowWeather.text }}</span>
+              </div>
+              <div v-if="todayHighLow" class="high-low" data-testid="today-high-low">
+                {{ todayHighLow }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="!bandDay.rows.length && !bandDay.more" class="nothing">
+          Nothing planned
+        </p>
+        <MonthPanelRows v-else :day="bandDay" size="roomy" />
+      </div>
+
+      <div v-else class="panel" :class="{ takeover: specialDays.takeover }" data-testid="panel">
         <div
           v-if="specialDays.takeover?.greeting"
           class="greeting"
@@ -159,31 +220,7 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
               Nothing planned
             </p>
 
-            <div v-else class="rows">
-              <div
-                v-for="row in day.rows"
-                :key="row.item.event.id"
-                class="row"
-                :class="{ past: row.past }"
-                data-kind="panel"
-                data-testid="event"
-              >
-                <span class="badges">
-                  <span
-                    v-for="badge in badgesOf(row.item)"
-                    :key="badge.id"
-                    class="badge"
-                    :style="{ background: badge.colour }"
-                  >{{ badge.initial }}</span>
-                </span>
-                <span class="time">{{ row.item.time ?? 'All day' }}</span>
-                <span class="name">{{ row.item.event.display_title }}</span>
-              </div>
-              <div v-if="day.more" class="row more-row" data-testid="panel-more">
-                <span class="badges" />
-                <span class="time">+{{ day.more }} more</span>
-              </div>
-            </div>
+            <MonthPanelRows v-else :day="day" />
           </section>
         </div>
       </div>
@@ -257,7 +294,7 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
                 :style="{ background: badge.colour }"
               >{{ badge.initial }}</span>
             </span>
-            <span class="time">{{ row.time }}</span>
+            <span v-if="!portrait" class="time">{{ row.time }}</span>
             <span class="name">{{ row.event.display_title }}</span>
           </div>
 
@@ -281,6 +318,26 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
           />
         </div>
       </div>
+    </div>
+
+    <div v-if="portrait" class="next-days" data-testid="next-days">
+      <section v-for="day in stripDays" :key="day.date" class="day" data-testid="panel-day" :data-date="day.date">
+        <header class="day-head">
+          <h2 class="day-label">
+            {{ day.label }}
+          </h2>
+          <div v-if="day.weather" class="day-weather" data-testid="day-weather">
+            <AppIcon v-if="day.weather.icon" :icon="day.weather.icon" :size="34" />
+            <span v-if="day.weather.text">{{ day.weather.text }}</span>
+          </div>
+        </header>
+
+        <p v-if="!day.rows.length && !day.more" class="nothing">
+          Nothing planned
+        </p>
+
+        <MonthPanelRows v-else :day="day" size="card" />
+      </section>
     </div>
   </section>
 </template>
@@ -438,49 +495,6 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
-}
-
-/* A day's rows share their columns (a subgrid), so the times line up even when an event has several badges or "Until 11:30" is wider than "09:00". */
-.rows {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  row-gap: 10px;
-}
-
-.row {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-  align-items: center;
-  column-gap: 14px;
-  font-size: 26px;
-  line-height: 1.3;
-  --ring: var(--panel);
-}
-
-.row.past {
-  opacity: 0.45;
-}
-
-.row .time {
-  min-width: 100px;
-  color: var(--panel-muted);
-  font-size: 23px;
-  font-weight: 700;
-}
-
-.row .name {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The badge column is at least one badge wide, so an event with nobody on it still lines up. */
-.row .badges {
-  min-width: 40px;
-  min-height: 40px;
-  align-items: center;
 }
 
 .badge {
@@ -678,5 +692,102 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   border-radius: 32px;
   background: var(--veil);
   pointer-events: none;
+}
+
+/*
+ * The portrait stage (1440×2560, mocks 4a, 4b and 4j): one column of title,
+ * today's band, the weeks and the strip. Sizes are the mocks' doubled.
+ */
+.view.portrait {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.portrait .side {
+  flex: none;
+}
+
+.portrait .grid {
+  flex: 1;
+}
+
+/* Two columns, the right starting at x 616 on the stage, and only as tall as the taller of them. */
+.panel.band {
+  display: grid;
+  flex: none;
+  grid-template-columns: 516px minmax(0, 1fr);
+  align-items: start;
+  padding: 44px 52px 47px;
+}
+
+.band-now {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  min-width: 0;
+}
+
+.band .now {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 40px;
+}
+
+.band .weather-now {
+  margin-top: 30px;
+}
+
+/* Level with the date's top, as in the mock. */
+.band .rows,
+.band .nothing {
+  margin-top: 9px;
+}
+
+/* Today's range in words, a step quieter than the conditions above it. */
+.high-low {
+  margin-top: 20px;
+  color: var(--panel-muted);
+  font-family: var(--font-body);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/*
+ * Six lanes where landscape has four. The lanes may be a little under their 34
+ * px when the band is tall (a takeover's greeting makes it so), so that six
+ * still fit; at the mock's 290 px tiles they are the full 34.
+ */
+.portrait .week {
+  min-height: 0;
+  grid-template-rows: 52px repeat(6, minmax(28px, 34px)) 1fr;
+}
+
+/* The next three days, as wide as the grid's columns allow, on the tile colour. */
+.next-days {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  height: 284px;
+}
+
+.next-days .day {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 30px 32px;
+  overflow: hidden;
+  border-radius: 40px;
+  background: var(--tile);
+  color: var(--text);
+}
+
+.next-days .day-weather {
+  color: var(--muted);
+}
+
+.next-days .nothing {
+  color: var(--muted);
 }
 </style>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/styles.css">
+<script src="_ds/organic-b7c8e5cf-1b74-40ce-b592-4fc0cbde078f/_ds_bundle.js"></script>
+<style>body{margin:0}a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}</style>
+</helmet>
+<div data-screen-label="Portrait · Month" style="width:1440px;height:2560px;box-sizing:border-box;padding:48px;display:flex;flex-direction:column;gap:28px;background:{{ t.bg }};color:{{ t.text }};font-family:var(--font-body);overflow:hidden">
+  <div style="display:flex;align-items:baseline;gap:20px;padding-left:12px;flex:none">
+    <div style="font-family:var(--font-heading);font-size:88px;line-height:1;letter-spacing:-0.02em">October</div>
+    <div style="font-family:var(--font-heading);font-size:44px;line-height:1;color:{{ t.muted }}">2026</div>
+  </div>
+  <div style="flex:none;background:{{ t.panel }};color:{{ t.panelText }};border-radius:64px;padding:44px 52px;display:grid;grid-template-columns:470px minmax(0,1fr);gap:48px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <sc-if value="{{ isHalloweenDay }}" hint-placeholder-val="{{ false }}">
+        <div style="font-family:var(--font-heading);font-size:56px;line-height:1;color:var(--color-accent-300);margin-bottom:6px">Happy Halloween</div>
+      </sc-if>
+      <div style="font-family:var(--font-heading);font-size:200px;line-height:0.85;letter-spacing:-0.03em">{{ dayNum }}</div>
+      <div style="font-family:var(--font-heading);font-size:52px;line-height:1;margin-top:8px">{{ dayName }}</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:10px;font-size:30px;font-weight:700;white-space:nowrap;color:{{ t.panelMuted }}">
+        <svg viewBox="0 0 24 24" width="42" height="42" style="flex:none;fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><sc-if value="{{ band.isRain }}" hint-placeholder-val="{{ false }}"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 14v6"></path><path d="M8 14v6"></path><path d="M12 16v6"></path></sc-if><sc-if value="{{ band.isSun }}" hint-placeholder-val="{{ false }}"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></sc-if></svg>
+        <div>{{ nowWx }}</div>
+      </div>
+      <div style="font-size:26px;font-weight:700;color:{{ t.panelMuted }}">{{ hiLo }}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0;padding-top:6px">
+      <sc-for list="{{ band.shown }}" as="it" hint-placeholder-count="6">
+        <div style="display:grid;grid-template-columns:44px 104px minmax(0,1fr);align-items:center;gap:16px;height:44px;font-size:28px;opacity:{{ it.op }}">
+          <div style="width:44px;height:44px;border-radius:999px;display:grid;place-items:center;font-size:21px;font-weight:700;background:{{ it.color }};color:var(--color-neutral-900)">{{ it.initial }}</div>
+          <div style="font-size:25px;font-weight:700;color:{{ t.panelMuted }}">{{ it.time }}</div>
+          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ it.title }}</div>
+        </div>
+      </sc-for>
+      <sc-if value="{{ band.hasMore }}" hint-placeholder-val="{{ false }}">
+        <div style="padding-left:60px;font-size:25px;font-weight:700;color:{{ t.panelMuted }}">{{ band.more }}</div>
+      </sc-if>
+    </div>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));column-gap:14px;padding:0 0 12px;font-size:22px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{{ t.muted }}">
+      <div style="padding-left:16px">Mon</div><div style="padding-left:16px">Tue</div><div style="padding-left:16px">Wed</div><div style="padding-left:16px">Thu</div><div style="padding-left:16px">Fri</div><div style="padding-left:16px">Sat</div><div style="padding-left:16px">Sun</div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;min-height:0">
+      <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="5">
+        <div style="flex:1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:52px repeat(6,34px) 1fr;column-gap:14px;row-gap:5px;min-height:0">
+          <sc-for list="{{ w.days }}" as="d" hint-placeholder-count="7">
+            <div style="grid-column:{{ d.col }};grid-row:1 / -1;border-radius:32px;background:{{ d.tileBg }}"></div>
+            <sc-if value="{{ d.isHalloween }}" hint-placeholder-val="{{ false }}">
+              <div style="grid-column:{{ d.col }};grid-row:1 / 3;justify-self:end;align-self:start;padding:8px 12px 0 0;pointer-events:none">
+                <svg viewBox="0 0 120 100" width="60" height="50"><path d="M60 24 C60 14 64 8 72 5" style="fill:none;stroke:var(--color-accent-2-600);stroke-width:7;stroke-linecap:round"></path><ellipse cx="36" cy="60" rx="28" ry="34" style="fill:var(--color-accent-500)"></ellipse><ellipse cx="84" cy="60" rx="28" ry="34" style="fill:var(--color-accent-500)"></ellipse><ellipse cx="60" cy="60" rx="28" ry="38" style="fill:var(--color-accent-400)"></ellipse><path d="M44 54 L51 42 L58 54 Z M62 54 L69 42 L76 54 Z M42 68 Q60 84 78 68 Q60 76 42 68 Z" style="fill:var(--color-accent-900);stroke:var(--color-accent-900);stroke-width:3;stroke-linejoin:round"></path></svg>
+              </div>
+            </sc-if>
+            <sc-if value="{{ d.isBirthday }}" hint-placeholder-val="{{ false }}">
+              <div style="grid-column:{{ d.col }};grid-row:1 / 3;justify-self:end;align-self:start;padding:6px 14px 0 0;pointer-events:none">
+                <svg viewBox="0 0 64 60" width="54" height="50"><path d="M16 30 Q20 42 32 56 M34 28 Q34 42 32 56 M50 32 Q44 44 32 56" style="fill:none;stroke:var(--color-neutral-600);stroke-width:2;stroke-linecap:round"></path><ellipse cx="16" cy="18" rx="11" ry="13" style="fill:oklch(0.64 0.075 235)"></ellipse><ellipse cx="50" cy="20" rx="10" ry="12" style="fill:oklch(0.76 0.12 82)"></ellipse><ellipse cx="34" cy="15" rx="12" ry="14" style="fill:var(--color-accent-500)"></ellipse></svg>
+              </div>
+            </sc-if>
+            <div style="grid-column:{{ d.col }};grid-row:1;padding:6px 0 0 8px;display:flex;align-items:center">
+              <div style="min-width:40px;height:40px;border-radius:999px;display:grid;place-items:center;font-size:27px;font-weight:700;background:{{ d.numBg }};color:{{ d.numFg }}">{{ d.n }}</div>
+            </div>
+          </sc-for>
+          <sc-for list="{{ w.bars }}" as="b" hint-placeholder-count="2">
+            <div style="grid-column:{{ b.col }};grid-row:{{ b.row }};margin:0 {{ b.mr }} 0 {{ b.ml }};border-radius:{{ b.rl }} {{ b.rr }} {{ b.rr }} {{ b.rl }};background:{{ b.bg }};color:{{ t.barText }};display:flex;align-items:center;gap:8px;padding:0 12px 0 4px;font-size:19px;font-weight:700;white-space:nowrap;overflow:hidden;min-width:0">
+              <div style="width:24px;height:24px;border-radius:999px;flex:none;display:grid;place-items:center;font-size:14px;font-weight:700;background:{{ b.color }};color:var(--color-neutral-900)">{{ b.initial }}</div>
+              <div style="overflow:hidden;text-overflow:ellipsis">{{ b.title }}</div>
+            </div>
+          </sc-for>
+          <sc-for list="{{ w.timed }}" as="e" hint-placeholder-count="3">
+            <div style="grid-column:{{ e.col }};grid-row:{{ e.row }};display:flex;align-items:center;gap:8px;padding:0 10px;font-size:19px;min-width:0;white-space:nowrap;overflow:hidden">
+              <div style="width:24px;height:24px;border-radius:999px;flex:none;display:grid;place-items:center;font-size:14px;font-weight:700;background:{{ e.color }};color:var(--color-neutral-900)">{{ e.initial }}</div>
+              <div style="overflow:hidden;text-overflow:ellipsis;font-weight:600">{{ e.title }}</div>
+            </div>
+          </sc-for>
+          <sc-for list="{{ w.more }}" as="m" hint-placeholder-count="1">
+            <div style="grid-column:{{ m.col }};grid-row:{{ m.row }};padding:0 14px;display:flex;align-items:center;font-size:19px;font-weight:700;color:{{ t.accentInk }}">{{ m.label }}</div>
+          </sc-for>
+          <sc-for list="{{ w.past }}" as="p" hint-placeholder-count="2">
+            <div style="grid-column:{{ p.col }};grid-row:1 / -1;border-radius:32px;pointer-events:none;background:{{ t.veil }}"></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  <div style="flex:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+    <sc-for list="{{ strip }}" as="a" hint-placeholder-count="3">
+      <div style="background:{{ t.tile }};border-radius:40px;padding:28px 30px;display:flex;flex-direction:column;gap:12px;min-width:0;height:284px;box-sizing:border-box;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:12px;color:{{ t.muted }}">
+          <div style="font-family:var(--font-heading);font-size:34px;line-height:1.1;color:{{ t.text }}">{{ a.label }}</div>
+          <div style="flex:1"></div>
+          <sc-if value="{{ a.hasWx }}" hint-placeholder-val="{{ true }}">
+            <svg viewBox="0 0 24 24" width="30" height="30" style="flex:none;fill:none;stroke:currentColor;stroke-width:2.75;stroke-linecap:round;stroke-linejoin:round"><sc-if value="{{ a.isRain }}" hint-placeholder-val="{{ false }}"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 14v6"></path><path d="M8 14v6"></path><path d="M12 16v6"></path></sc-if><sc-if value="{{ a.isSun }}" hint-placeholder-val="{{ false }}"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></sc-if><sc-if value="{{ a.isCloudSun }}" hint-placeholder-val="{{ false }}"><path d="M12 2v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="M20 12h2"></path><path d="m19.07 4.93-1.41 1.41"></path><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"></path><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"></path></sc-if><sc-if value="{{ a.isCloud }}" hint-placeholder-val="{{ false }}"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></sc-if></svg>
+            <div style="font-size:23px;font-weight:700">{{ a.range }}</div>
+          </sc-if>
+        </div>
+        <sc-for list="{{ a.shown }}" as="it" hint-placeholder-count="4">
+          <div style="display:grid;grid-template-columns:32px 84px minmax(0,1fr);align-items:center;gap:12px;height:34px;font-size:24px">
+            <div style="width:32px;height:32px;border-radius:999px;display:grid;place-items:center;font-size:16px;font-weight:700;background:{{ it.color }};color:var(--color-neutral-900)">{{ it.initial }}</div>
+            <div style="font-size:21px;font-weight:700;color:{{ t.muted }}">{{ it.time }}</div>
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ it.title }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:2560},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;occasion&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;halloween&quot;],&quot;default&quot;:&quot;none&quot;,&quot;tsType&quot;:&quot;'none'|'halloween'&quot;}}">
+class Component extends DCLogic {
+  state = { m: null };
+  componentDidMount() { import('./portrait-data.js').then(m => this.setState({ m })); }
+  renderVals() {
+    const hw = (this.props.occasion ?? 'none') === 'halloween';
+    const theme = hw ? 'halloween' : (this.props.theme ?? 'light');
+    const head = hw
+      ? { isHalloweenDay: true, dayNum: '31', dayName: 'Saturday', nowWx: '9° · Clear and crisp', hiLo: 'High 14° · Low 8°' }
+      : { isHalloweenDay: false, dayNum: '28', dayName: 'Wednesday', nowWx: '12° · Light showers', hiLo: 'High 14° · Low 8°' };
+    const m = this.state.m;
+    if (!m) return { t: {}, weeks: [], band: { shown: [] }, strip: [], ...head };
+    if (this._k !== theme) { this._k = theme; this._d = m.buildPortraitMonth(theme, hw ? { today: '2026-10-31' } : {}); }
+    return { ...this._d, ...head };
+  }
+}
+</script>
+</body>
+</html>

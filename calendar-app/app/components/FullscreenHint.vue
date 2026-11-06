@@ -48,9 +48,10 @@ function enter() {
   left: 50%;
   z-index: 10;
   padding: 10px 20px;
-  border: 0;
+  /* Light on dark, because it usually sits on the black letterbox; the border keeps it apart from a light stage too. */
+  border: 1px solid rgb(255 255 255 / 0.35);
   border-radius: 999px;
-  background: rgb(0 0 0 / 0.7);
+  background: rgb(40 40 40 / 0.75);
   color: #fff;
   font: 600 15px/1.2 var(--font-body, sans-serif);
   cursor: pointer;

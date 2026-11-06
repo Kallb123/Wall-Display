@@ -53,13 +53,17 @@ self.addEventListener('fetch', (event) => {
   }
 })
 
-/** Asks the network, keeps a good answer under `key`, and falls back to what was kept if the network fails or is slow. */
+/** Asks the network, keeps a good answer under `key`, and falls back to what was kept if the network fails, is slow or answers with an error. */
 async function networkFirst(request, key) {
   const cache = await caches.open(CACHE)
   try {
     const response = await fetchWithTimeout(request, NETWORK_TIMEOUT_MS)
-    if (response.ok) await cache.put(key, response.clone())
-    return response
+    if (response.ok) {
+      await cache.put(key, response.clone())
+      return response
+    }
+    // An error page (a proxy's 502 while the app is down, say) is no better than no answer.
+    return (await cache.match(key)) ?? response
   } catch (error) {
     const kept = await cache.match(key)
     if (kept) return kept

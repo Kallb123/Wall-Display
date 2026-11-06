@@ -42,6 +42,15 @@ export function formatCurrent(current: WeatherCurrent): string | null {
   return known.length ? known.join(' · ') : null
 }
 
+/** `High 14° · Low 8°`, or just the one that is known, or null when neither is. The portrait month's band has room to spell them out. */
+export function formatHighLowWords(day: Pick<WeatherDay, 'high' | 'low'>): string | null {
+  const parts = [
+    day.high === null ? null : `High ${formatTemperature(day.high)}`,
+    day.low === null ? null : `Low ${formatTemperature(day.low)}`,
+  ].filter(part => part !== null)
+  return parts.length ? parts.join(' · ') : null
+}
+
 /** `14° / 8°`, or just the one that is known, or null when neither is. */
 export function formatHighLow(day: Pick<WeatherDay, 'high' | 'low'>): string | null {
   const parts = [day.high, day.low].filter(value => value !== null).map(formatTemperature)

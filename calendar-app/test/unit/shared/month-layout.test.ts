@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fixtureEvents } from '../../helpers/fixtureEvents'
 import { loadConfig } from '../../../server/config/load'
-import { LANES, MAX_BADGE_INITIALS, monthLayout, PANEL_DAYS, WEEK_ROWS } from '../../../shared/month-layout'
+import { LANES, MAX_BADGE_INITIALS, monthLayout, PANEL_DAYS, PORTRAIT_LANES, WEEK_ROWS } from '../../../shared/month-layout'
 import type { MonthLayout, MonthLayoutInput, WeekRow } from '../../../shared/month-layout'
 import type { CalendarEvent, EventPerson } from '../../../shared/types/events'
 
@@ -673,5 +673,59 @@ describe('time zones', () => {
     const row = layout('2026-10', { events: [at('2026-10-14', '11:30', 'Midday')] }).rows[2]!
 
     expect(row.timed.map(item => [item.column, item.time])).toEqual([[2, '12:30']])
+  })
+})
+
+describe('more lanes', () => {
+  // Wednesday 14 October 2026 is row 3, column 2.
+  const busy = (count: number, lanes = PORTRAIT_LANES) => layout('2026-10', { lanes, events: Array.from({ length: count }, (_, i) => at('2026-10-14', `${String(8 + i).padStart(2, '0')}:00`, `Event ${i + 1}`, [], i + 1)) }).rows[2]!
+
+  it('is six lanes for the portrait month', () => {
+    expect(PORTRAIT_LANES).toBe(6)
+  })
+
+  it('shows six items in six lanes, without a label', () => {
+    const row = busy(6)
+
+    expect(row.timed.map(item => item.lane)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(row.more).toEqual([])
+  })
+
+  it('shows seven items as five and "+2 more" in the sixth lane', () => {
+    const row = busy(7)
+
+    expect(row.timed.map(item => [item.lane, item.event.display_title])).toEqual([[0, 'Event 1'], [1, 'Event 2'], [2, 'Event 3'], [3, 'Event 4'], [4, 'Event 5']])
+    expect(row.more).toEqual([{ column: 2, lane: 5, count: 2 }])
+  })
+
+  it('splits a bar in the sixth lane around the "+N more" day it crosses', () => {
+    // Five five-day bars take lanes 0 to 4, a shorter one from Tuesday to Thursday takes lane 5,
+    // and Wednesday has two timed events on top, so its sixth lane becomes "+3 more".
+    const row = layout('2026-10', {
+      lanes: 6,
+      events: [
+        ...['A', 'B', 'C', 'D', 'E'].map((name, i) => allDay('2026-10-12', '2026-10-17', name, [], i + 1)),
+        allDay('2026-10-13', '2026-10-16', 'F', [], 6),
+        at('2026-10-14', '08:00', 'T1', [], 7),
+        at('2026-10-14', '09:00', 'T2', [], 8),
+      ],
+    }).rows[2]!
+
+    expect(row.bars.filter(bar => bar.event.display_title === 'F').map(bar => [bar.lane, bar.column, bar.span])).toEqual([[5, 1, 1], [5, 3, 1]])
+    expect(row.more).toEqual([{ column: 2, lane: 5, count: 3 }])
+    expect(row.timed).toEqual([])
+  })
+
+  it('clamps fewer than two lanes to two', () => {
+    expect(layout('2026-10', { lanes: 1 }).lanes).toBe(2)
+    expect(layout('2026-10', { lanes: 0 }).lanes).toBe(2)
+    // Three items in two lanes: one drawn, and the label counts the other two.
+    expect(busy(3, 1).more).toEqual([{ column: 2, lane: 1, count: 2 }])
+  })
+
+  it('echoes the lanes it was laid out with, four by default', () => {
+    expect(layout('2026-10').lanes).toBe(LANES)
+    expect(layout('2026-10', { lanes: 6 }).lanes).toBe(6)
+    expect(layout('2026-10', { lanes: 5.9 }).lanes).toBe(5)
   })
 })

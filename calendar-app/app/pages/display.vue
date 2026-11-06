@@ -48,7 +48,7 @@ useHead({ title: 'Display' })
 
 // Each view.
 const viewComponents: Record<View, Component> = {
-  // The Soft style. The Classic one arrives in PR 5.7 and will be chosen here by `month_style`.
+  // The Soft style, which is the one with a portrait layout (PR 5.12). The Classic one arrives in PR 5.7, will be chosen here by `month_style`, and would need a portrait layout of its own.
   month: MonthSoftView,
   week: WeekView,
   agenda: AgendaView,

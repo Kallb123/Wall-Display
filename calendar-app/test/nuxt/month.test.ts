@@ -260,4 +260,99 @@ describe('MonthSoftView', () => {
       expect(wrapper.find('[data-testid="day-weather"]').exists()).toBe(false)
     })
   })
+
+  describe('portrait', () => {
+    const portrait = (overrides: Partial<ViewProps> = {}) => props({ stage: { width: 1440, height: 2560, orientation: 'portrait' }, weather, ...overrides })
+    /** `count` timed events on `date` from 10:00 (so none is over at 09:41). */
+    const crowd = (date: string, count: number) => Array.from({ length: count }, (_, index) => ({
+      ...events.find(event => !event.all_day)!,
+      id: 9000 + index + Number(date.slice(8)) * 20,
+      display_title: `Crowd ${index + 1}`,
+      start: `${date}T${String(10 + index).padStart(2, '0')}:00:00.000Z`,
+      end: `${date}T${String(10 + index).padStart(2, '0')}:30:00.000Z`,
+    }))
+
+    it('has a band for today, with the date, weekday, weather and high and low, and no landscape panel', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait() })
+
+      const band = wrapper.find('[data-testid="today-band"]')
+      expect(band.exists()).toBe(true)
+      expect(wrapper.find('[data-testid="panel"]').exists()).toBe(false)
+      expect(band.find('[data-testid="panel-date"]').text()).toBe('28')
+      expect(band.text()).toContain('Wednesday')
+      expect(band.find('[data-testid="weather-now"]').text()).toBe('12° · Rain')
+      expect(band.find('[data-testid="today-high-low"]').text()).toBe('High 14° · Low 8°')
+      expect(band.text()).toContain('All day')
+      expect(band.find('[data-testid="panel-more"]').exists()).toBe(false)
+    })
+
+    it('leaves the high and low out with no forecast', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait({ weather: null }) })
+
+      expect(wrapper.find('[data-testid="today-high-low"]').exists()).toBe(false)
+    })
+
+    it('shows "+N more" after seven rows in the band', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait({ events: [...events, ...crowd('2026-10-28', 9)] }) })
+
+      const band = wrapper.find('[data-testid="today-band"]')
+      expect(band.findAll('[data-testid="event"]')).toHaveLength(6)
+      expect(band.find('[data-testid="panel-more"]').exists()).toBe(true)
+    })
+
+    it('has a strip of Tomorrow, Friday and Saturday, with the weather where there is some', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait() })
+
+      const cards = wrapper.find('[data-testid="next-days"]').findAll('[data-testid="panel-day"]')
+      expect(cards.map(card => card.find('h2').text())).toEqual(['Tomorrow', 'Friday', 'Saturday'])
+      expect(cards.map(card => card.attributes('data-date'))).toEqual(['2026-10-29', '2026-10-30', '2026-10-31'])
+      expect(cards[0]!.find('[data-testid="day-weather"]').exists()).toBe(true)
+      expect(cards[2]!.find('[data-testid="day-weather"]').exists()).toBe(false)
+    })
+
+    it('limits a strip card to four rows, counting "+N more"', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait({ events: [...events, ...crowd('2026-10-29', 8)] }) })
+
+      const card = wrapper.find('[data-testid="next-days"] [data-testid="panel-day"]')
+      expect(card.findAll('[data-testid="event"]')).toHaveLength(3)
+      expect(card.find('[data-testid="panel-more"]').exists()).toBe(true)
+    })
+
+    it('draws a timed row in the grid as its badge and title, with no time, and lays out six lanes', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait({ events: [...events, ...crowd('2026-10-14', 8)] }) })
+
+      const timed = wrapper.findAll('[data-kind="timed"]')
+      expect(timed.length).toBeGreaterThan(0)
+      for (const row of timed) expect(row.find('.time').exists()).toBe(false)
+      // A crowded day's "+N more" is in the sixth lane, which is grid row 7 (the date is row 1).
+      const more = wrapper.findAll('[data-testid="more"]').find(label => label.attributes('style')?.includes('grid-row: 7'))
+      expect(more).toBeDefined()
+    })
+
+    it('puts the greeting in the band during a takeover', async () => {
+      const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-28', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null }
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait({ specialDays: { tiles: [], takeover } }) })
+
+      const band = wrapper.find('[data-testid="today-band"]')
+      expect(band.find('[data-testid="greeting"]').text()).toBe('Happy Halloween')
+      expect(band.classes()).toContain('takeover')
+    })
+
+    it('shows a pinned month in the grid while the band stays on today', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: portrait({ month: '2026-12' }) })
+
+      expect(wrapper.find('[data-testid="month-title"]').text()).toBe('December 2026')
+      expect(wrapper.find('[data-testid="today-number"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="today-band"] [data-testid="panel-date"]').text()).toBe('28')
+      expect(wrapper.find('[data-testid="next-days"] [data-testid="panel-day"]').attributes('data-date')).toBe('2026-10-29')
+    })
+
+    it('draws nothing portrait on the landscape stage', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props() })
+
+      expect(wrapper.find('[data-testid="today-band"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="next-days"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="today-high-low"]').exists()).toBe(false)
+    })
+  })
 })

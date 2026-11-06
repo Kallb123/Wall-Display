@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { APIRequestContext, Page } from '@playwright/test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { photoResponseSchema } from '../../shared/photos'
 import type { PhotoInfo } from '../../shared/photos'
 import { burnInOffset } from '../../app/utils/burnIn'
@@ -12,11 +12,12 @@ import { fixtureEvents } from '../helpers/fixtureEvents'
 import weather from './fixtures/weather.json' with { type: 'json' }
 
 // The portrait stage (PR 5.10, architecture §4.2): a 1440×2560 window, as a
-// panel hung on its side shows it. The night view, the agenda and the photo
-// frame have portrait layouts so far; the month and week are the landscape
-// stage letterboxed in the window, as the month is here. The window is the shape of the panel, so `auto` finds
-// portrait by itself, and `?orientation=` is checked as well. The landscape
-// pictures are in the other specs, which must not change.
+// panel hung on its side shows it. The night view, the agenda, the photo frame
+// and the month have portrait layouts so far; the week is the landscape stage
+// letterboxed in the window, as it is here (until PR 5.13). The window is the
+// shape of the panel, so `auto` finds portrait by itself, and `?orientation=` is
+// checked as well. The landscape pictures are in the other specs, which must
+// not change.
 
 const events = fixtureEvents({ configFile: 'test/visual/config.visual.yaml' })
 /** The events up to the end of `through` (`YYYY-MM-DD`), so the greeting has a short list under it. */
@@ -104,8 +105,8 @@ test('the overlay banner keeps its margins on the portrait stage', async ({ page
   await expect(page).toHaveScreenshot('portrait-night-overlay.png')
 })
 
-test('the month is the landscape stage letterboxed in a portrait window', async ({ page }) => {
-  await playServer(page, { view: 'month' })
+test('the week is the landscape stage letterboxed in a portrait window', async ({ page }) => {
+  await playServer(page, { view: 'week' })
   await page.goto('/display?id=hallway')
   await settle(page)
 
@@ -115,7 +116,7 @@ test('the month is the landscape stage letterboxed in a portrait window', async 
   expect(stage.height).toBeCloseTo(810, 0)
   // Centred, with black above and below.
   expect(stage.y).toBeCloseTo((2560 - 810) / 2, 0)
-  await expect(page).toHaveScreenshot('portrait-month-letterboxed.png')
+  await expect(page).toHaveScreenshot('portrait-week-letterboxed.png')
 })
 
 test('?orientation=portrait gives the night view the portrait stage in a landscape window', async ({ page }) => {
@@ -269,6 +270,190 @@ test.describe('the agenda', () => {
   })
 })
 
+// The month (PR 5.12, mocks 4a, 4b and 4j): the title, a band for today, the
+// five weeks at six lanes a tile, and a strip of the next three days. The
+// fixture's busiest day shows four events, so two crowded days are added: one
+// that fills six lanes exactly and one that overflows them into "+N more".
+test.describe('the month', () => {
+  const crowded = (date: string, count: number, from = 7): CalendarEvent[] => Array.from({ length: count }, (_, index) => ({
+    ...swimming,
+    id: 700 + index + Number(date.slice(8)) * 20,
+    title: `Crowd ${index + 1}`,
+    display_title: `Crowd ${index + 1}`,
+    start: `${date}T${String(from + index).padStart(2, '0')}:00:00.000Z`,
+    end: `${date}T${String(from + index).padStart(2, '0')}:30:00.000Z`,
+  }))
+  /** Sun 11 Oct holds six rows exactly, and Mon 12 Oct (with Swimming already) has more than it can show. */
+  const withCrowds = [...events, ...crowded('2026-10-11', 6), ...crowded('2026-10-12', 8)]
+
+  const box = async (locator: Locator) => (await locator.boundingBox())!
+
+  /**
+   * Nothing in the grid is cut off: every event, bar and "+N more" lies inside
+   * the row of tiles it is in, with its whole height, and clips nothing of its
+   * own. A bar runs across tiles, so it is the tile under its left end.
+   */
+  async function expectGridInside(page: Page) {
+    const tiles = await page.getByTestId('day-tile').evaluateAll(elements => elements.map((element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect()
+      return { left, right, top, bottom }
+    }))
+    const items = await page.locator('[data-testid="event"]:not([data-kind="panel"]), [data-testid="more"]').evaluateAll(elements => elements.map((element) => {
+      const { left, top, bottom } = element.getBoundingClientRect()
+      return { left, top, bottom, clipped: element.scrollHeight > element.clientHeight, text: element.textContent }
+    }))
+    expect(items.length).toBeGreaterThan(0)
+    // The last row of tiles ends above the strip, not under it.
+    expect(Math.max(...tiles.map(tile => tile.bottom))).toBeLessThanOrEqual((await box(page.getByTestId('next-days'))).y)
+    for (const item of items) {
+      const tile = tiles.find(candidate => item.left >= candidate.left - 0.5 && item.left < candidate.right && (item.top + item.bottom) / 2 >= candidate.top && (item.top + item.bottom) / 2 <= candidate.bottom)
+      expect(tile, item.text!).toBeDefined()
+      expect(item.top, item.text!).toBeGreaterThanOrEqual(tile!.top)
+      expect(item.bottom, item.text!).toBeLessThanOrEqual(tile!.bottom)
+      expect(item.clipped, item.text!).toBe(false)
+    }
+  }
+
+  /** Nothing in the band or the strip is cut off: every row is inside, above the padding, and clips nothing. */
+  async function expectPanelsInside(page: Page) {
+    for (const [id, padding] of [['today-band', 44], ['panel-day', 30]] as const) {
+      const holders = page.getByTestId(id)
+      for (let index = 0; index < await holders.count(); index++) {
+        const holder = holders.nth(index)
+        const outer = await box(holder)
+        const rows = await holder.locator('[data-testid="event"], [data-testid="panel-more"], [data-testid="greeting"], .nothing').evaluateAll(elements => elements.map((element) => {
+          const { top, bottom } = element.getBoundingClientRect()
+          // A greeting's line box is taller than its glyphs and nothing clips it, so only its position is checked.
+          return { top, bottom, clipped: element.getAttribute('data-testid') !== 'greeting' && element.scrollHeight > element.clientHeight }
+        }))
+        for (const row of rows) {
+          expect(row.top, id).toBeGreaterThanOrEqual(outer.y)
+          expect(row.bottom, id).toBeLessThanOrEqual(outer.y + outer.height - padding + 0.5)
+          expect(row.clipped, id).toBe(false)
+        }
+        // The holder itself clips nothing either.
+        expect(await holder.evaluate(element => element.scrollHeight <= element.clientHeight), id).toBe(true)
+      }
+    }
+  }
+
+  /** The events and "+N more" label in the tile of `date`. */
+  async function itemsIn(page: Page, date: string) {
+    const tile = await box(page.locator(`[data-testid="day-tile"][data-date="${date}"]`))
+    return page.locator('[data-testid="event"]:not([data-kind="panel"]), [data-testid="more"]').evaluateAll((elements, area) => elements.filter((element) => {
+      const { left, top } = element.getBoundingClientRect()
+      return left >= area.x - 0.5 && left < area.x + area.width && top >= area.y && top < area.y + area.height
+    }).map(element => ({ more: element.getAttribute('data-testid') === 'more', text: (element.querySelector('.name') ?? element).textContent!.trim() })), tile)
+  }
+
+  test('October, light theme, as the mock', async ({ page }) => {
+    await playServer(page, { view: 'month' }, events, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-orientation', 'portrait')
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'light')
+    await expect(page.getByTestId('month-title')).toHaveText('October 2026')
+    await expect(page.getByTestId('today-high-low')).toHaveText('High 14° · Low 8°')
+    await expect(page.getByTestId('next-days').getByTestId('panel-day')).toHaveCount(3)
+    // Full width less its 48 px margins, the weeks under the band and the strip under them.
+    const band = await box(page.getByTestId('today-band'))
+    const strip = await box(page.getByTestId('next-days'))
+    expect(band).toMatchObject({ x: 48, width: 1344 })
+    expect(strip).toMatchObject({ x: 48, width: 1344 })
+    expect(strip.y + strip.height).toBeCloseTo(2560 - 48, 0)
+    await expectGridInside(page)
+    await expectPanelsInside(page)
+    await expect(page).toHaveScreenshot('portrait-month-light.png')
+  })
+
+  test('October, dark theme', async ({ page }) => {
+    await playServer(page, { view: 'month' }, events, weather)
+    await page.goto('/display?id=kitchen')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'dark')
+    await expectGridInside(page)
+    await expectPanelsInside(page)
+    await expect(page).toHaveScreenshot('portrait-month-dark.png')
+  })
+
+  test('a day with six events shows all six, and a fuller one ends in "+N more" in the sixth lane', async ({ page }) => {
+    await playServer(page, { view: 'month' }, withCrowds, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    const six = await itemsIn(page, '2026-10-11')
+    expect(six.map(item => item.text)).toEqual(['Crowd 1', 'Crowd 2', 'Crowd 3', 'Crowd 4', 'Crowd 5', 'Crowd 6'])
+    // More than six: five rows, then the count of the rest.
+    const full = await itemsIn(page, '2026-10-12')
+    expect(full).toHaveLength(6)
+    expect(full[5]).toMatchObject({ more: true, text: expect.stringMatching(/^\+\d+ more$/) })
+    await expectGridInside(page)
+    await expect(page).toHaveScreenshot('portrait-month-crowded.png')
+  })
+
+  test('the strip and the band hold as many rows as they are meant to, and cut none', async ({ page }) => {
+    // Tomorrow has eight events and today has nine: more than either can show.
+    await playServer(page, { view: 'month' }, [...events, ...crowded('2026-10-28', 9, 10), ...crowded('2026-10-29', 8)], weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('today-band').getByTestId('panel-more')).toBeVisible()
+    const tomorrow = page.locator('[data-testid="next-days"] [data-testid="panel-day"]').first()
+    await expect(tomorrow.getByTestId('panel-more')).toBeVisible()
+    await expect(tomorrow.getByTestId('event')).toHaveCount(3)
+    await expect(page.getByTestId('today-band').getByTestId('event')).toHaveCount(6)
+    await expectPanelsInside(page)
+    await expectGridInside(page)
+    await expect(page).toHaveScreenshot('portrait-month-full-panels.png')
+  })
+
+  test('a takeover\'s greeting sits in the band, in the night palette, and six lanes still fit the shorter tiles', async ({ page }) => {
+    const HALLOWEEN = new Date('2026-10-31T09:41:00Z')
+    await playServer(page, { view: 'month' }, withCrowds, weather, { now: HALLOWEEN, specialDays: specialDaysOn('2026-10-31') })
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-palette', 'night')
+    await expect(page.getByTestId('takeover-full')).toHaveCount(0)
+    await expect(page.getByTestId('today-band').getByTestId('greeting')).toHaveText('Happy Halloween!')
+    expect((await itemsIn(page, '2026-10-11')).map(item => item.text)).toEqual(['Crowd 1', 'Crowd 2', 'Crowd 3', 'Crowd 4', 'Crowd 5', 'Crowd 6'])
+    expect((await itemsIn(page, '2026-10-12'))[5]).toMatchObject({ more: true })
+    await expectGridInside(page)
+    await expectPanelsInside(page)
+    await expect(page).toHaveScreenshot('portrait-month-takeover.png')
+  })
+
+  test('a takeover with portrait art draws it behind the month', async ({ page }) => {
+    const THURSDAY_29 = new Date('2026-10-29T09:41:00Z')
+    await playServer(page, { view: 'month' }, quiet('2026-11-02'), weather, { now: THURSDAY_29, specialDays: specialDaysOn('2026-10-29') })
+    await page.goto('/display?id=hallway')
+    await settleWithArt(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-palette', 'sage')
+    await expect(page.getByTestId('takeover-full')).toHaveAttribute('src', '/special-days/birthday-light-tall.svg')
+    await expect(page.getByTestId('today-band').getByTestId('greeting')).toHaveText('Happy 7th birthday, Isla!')
+    await expectGridInside(page)
+    await expectPanelsInside(page)
+    await expect(page).toHaveScreenshot('portrait-month-takeover-art.png')
+  })
+
+  test('a pinned month changes the title and the grid, and the band stays on today', async ({ page }) => {
+    await playServer(page, { view: 'month', month: '2026-12' }, events, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('month-title')).toHaveText('December 2026')
+    await expect(page.getByTestId('day-tile')).toHaveCount(35)
+    await expect(page.locator('[data-testid="day-tile"][data-today="true"]')).toHaveCount(0)
+    await expect(page.getByTestId('panel-date')).toHaveText('28')
+    await expect(page.getByTestId('today-band')).toContainText('Wednesday')
+    await expect(page.getByTestId('next-days').getByTestId('panel-day').first()).toHaveAttribute('data-date', '2026-10-29')
+    await expectGridInside(page)
+  })
+})
+
 // The photo frame (PR 5.11). The server's portrait renders are tested with the
 // real photos elsewhere; here the answer is made up, to check what the page
 // asks for and that the pill fits the narrow stage in every corner.
@@ -307,7 +492,7 @@ test.describe('the photo frame', () => {
     expect(layer).toEqual({ x: 0, y: 0, width: 1440, height: 2560 })
   })
 
-  test('asks for a landscape photo in the month\'s letterbox, where the photo frame has none', async ({ page }) => {
+  test('asks for a landscape photo in the week\'s letterbox, where the photo frame has none', async ({ page }) => {
     const asked = await answerPhotos(page)
     await playServer(page, { view: 'photo' }, busy, weather)
     await page.goto('/display?id=hallway&orientation=landscape')

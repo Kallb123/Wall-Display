@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, Images, Monitor, PartyPopper } from 'lucide-vue-next'
+import { CalendarDays, Images, Monitor, PartyPopper, Smartphone } from 'lucide-vue-next'
 import type { ConnectionsStatus } from '../../shared/settings'
 import { homeAssistantChip, mqttChip } from '~/utils/settings'
 import type { ChipStatus } from '~/utils/settings'
@@ -55,6 +55,10 @@ const homeAssistant = computed(() => chip(({ homeassistant }) => homeAssistantCh
         <div class="chips" role="group" aria-label="Connections">
           <SettingsStatusChip name="MQTT" :status="mqtt" data-testid="chip-mqtt" />
           <SettingsStatusChip name="Home Assistant" :status="homeAssistant" data-testid="chip-homeassistant" />
+          <NuxtLink to="/remote" class="remote-link" data-testid="remote-link">
+            <AppIcon :icon="Smartphone" :size="20" />
+            Remote
+          </NuxtLink>
         </div>
       </header>
 
@@ -118,6 +122,27 @@ const homeAssistant = computed(() => chip(({ homeassistant }) => homeAssistantCh
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 10px;
+}
+
+/* Back to the phone remote: a pill the height of the chips beside it. */
+.remote-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.remote-link:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .tabs {

@@ -329,6 +329,18 @@ test('opens /settings on the Calendars tab, and the tabs move between pages', as
   await expect(page.getByTestId('special-days-list')).toBeVisible()
 })
 
+test('links back to the remote', async ({ page }) => {
+  await playSettings(page)
+  await page.goto('/settings/calendars')
+
+  const link = page.getByTestId('remote-link')
+  await expect(link).toHaveAttribute('href', '/remote')
+  await link.click()
+
+  await expect(page).toHaveURL(/\/remote$/)
+  await expect(page.getByTestId('remote')).toBeVisible()
+})
+
 test('Refresh now asks for the PIN, then refreshes with it', async ({ page }) => {
   await playSettings(page, connections, true)
   const refreshes: (string | undefined)[] = []

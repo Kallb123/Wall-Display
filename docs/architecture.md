@@ -660,13 +660,13 @@ Working versions with the generated entity IDs, broker setup and a dashboard are
 - **On the wall.** Large tiles for Agenda, Month, Week and Night in a 2×2 grid, plus a full-width Photo frame tile. The active view is filled with the accent colour.
 - **Month shown.** Only while Month is the active view. It has back and forward arrows and a dropdown of months, covering 12 months either side of the current one. A "Back to this month" link appears when another month is shown. These send `set_month` (§7.1).
 - **Photos from.** A segmented control (Immich, Google, Folder) for `photo_source`, and a "Next photo" button that briefly reads "Skipped" (two seconds) to confirm. The server says which sources are set up (`photo_sources` in `GET /api/displays`, names only): the others are disabled and marked "Not set up", and the control shows the source the wall really uses, which is the first one that is set up when the display's own choice isn't. "Next photo" is off while the wall isn't on the photo frame, with a line saying so. With no source set up (no `photos` block) the Photo frame tile and this section are left out, because the wall would have nothing to show; the tile stays, lit, if the wall is on the photo view anyway.
-- **More.** Brightness and Refresh calendars. These aren't in the mocks yet, so they sit in a plain section at the bottom until they are designed.
+- **More.** Brightness, Refresh calendars and a link to the settings pages (§7.6). These aren't in the mocks yet, so they sit in a plain section at the bottom until they are designed.
 
 It talks to the same command handler as MQTT, so it works even if HA is down. It's for the local network only. You can set an optional shared PIN (`remote.pin`, 4 to 12 digits, usually via `!secret`) in the config. The page learns from `GET /api/remote` whether one is needed, asks for it once and sends it as an `X-Wallcal-Pin` header on every write. The server checks it in one middleware (`server/middleware/pin.ts`) that covers every request under `/api/` except GET, HEAD and OPTIONS, so no write route can forget to, and it runs before the route, so an unauthenticated caller can't learn which displays exist. It answers 401 for a missing or wrong PIN, compares it in constant time, and answers 429 to an address that sends 10 wrong ones in 5 minutes (counted from the socket's address, not `X-Forwarded-For`, and reset by the right PIN or when the window ends). Reading state and the WebSocket (`/_ws`) stay open. Don't expose it to the internet. If you need remote access, use HA's existing remote access.
 
 ### 7.6 Settings pages
 
-`/settings` is the admin area, for use from a laptop or tablet. It has tabs along the top (mock 3a):
+`/settings` is the admin area, for use from a laptop or tablet. It has tabs along the top (mock 3a), and a Remote link beside the connection chips in the header goes back to `/remote`:
 
 | Tab | Contents |
 |---|---|

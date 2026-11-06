@@ -277,6 +277,21 @@ test('names the page for the home screen', async ({ page }) => {
   await expect(page.locator('meta[name="theme-color"]')).toHaveCount(2)
 })
 
+test('links to the settings page with a tap-sized button', async ({ page }) => {
+  await openRemote(page)
+
+  const link = page.getByTestId('settings-link')
+  await expect(link).toHaveAttribute('href', '/settings')
+  await expect(link).toHaveAccessibleName('Settings')
+  const box = (await link.boundingBox())!
+  expect(box.height).toBeGreaterThanOrEqual(44)
+  expect(box.width).toBeGreaterThanOrEqual(44)
+
+  await link.click()
+  await expect(page).toHaveURL(/\/settings\/calendars$/)
+  await expect(page.getByTestId('settings')).toBeVisible()
+})
+
 test('a tap sends one command and does not reload the page', async ({ page }) => {
   await openRemote(page, { view: 'month' })
   await page.evaluate(() => {

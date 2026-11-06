@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, Power, SkipForward, X } from 'lucide-vue-next'
+import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, Power, Settings, SkipForward, X } from 'lucide-vue-next'
 import { MONTH_RANGE, currentMonth, monthDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
 import { reconnectDelay } from '~/utils/backoff'
@@ -492,6 +492,10 @@ function submitPin() {
             >
               {{ REFRESH_LABELS[refresh] }}
             </button>
+            <NuxtLink to="/settings" class="button settings-link" data-testid="settings-link">
+              <AppIcon :icon="Settings" :size="22" />
+              Settings
+            </NuxtLink>
           </div>
         </section>
       </div>
@@ -1083,6 +1087,16 @@ input[type='range'] {
   background: var(--bg);
   font-size: 16px;
   font-weight: 700;
+}
+
+/* To the settings page: a link that looks like the button above it. */
+.settings-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
 }
 
 .button:disabled {

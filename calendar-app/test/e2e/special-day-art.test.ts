@@ -214,6 +214,8 @@ describe('special day art', async () => {
     // Scenes have no extra art.
     expect((await upload('/api/special-day-scenes/birthday/art/extra', data)).status).toBe(404)
     expect((await remove('/api/special-day-scenes/birthday/art/extra')).status).toBe(404)
+    expect((await upload('/api/special-day-scenes/birthday/art/extra-portrait', data)).status).toBe(404)
+    expect((await remove('/api/special-day-scenes/birthday/art/extra-portrait')).status).toBe(404)
     expect((await remove('/api/special-days/party/art/banner')).status).toBe(404)
   })
 
@@ -285,6 +287,50 @@ describe('special day art', async () => {
 
     const sceneFull = await (await upload('/api/special-day-scenes/birthday/art/full', await jpeg(1920, 1080))).json() as SpecialDayScene
     expect((await resolved()).takeover).toMatchObject({ id: 'party', full_art: sceneFull.full_art })
+  })
+
+  it('crops portrait art to 1440×2560, takes a portrait extra layer only with transparency, and clears both', async () => {
+    const before = stored()
+    const croppedTo = async (name: string) => sharp(Buffer.from(await (await served(name)).arrayBuffer())).metadata()
+
+    const tall = await upload('/api/special-days/party/art/full-portrait', await jpeg(3000, 1000), { filename: 'photo.jpg' })
+    const day = await tall.json() as SpecialDay
+    expect(tall.status).toBe(200)
+    expect(day.full_art_portrait).toMatch(/^[0-9a-f]{64}\.webp$/)
+    expect(await croppedTo(day.full_art_portrait!)).toMatchObject({ format: 'webp', width: 1440, height: 2560 })
+
+    const opaque = await upload('/api/special-days/party/art/extra-portrait', await png(600, 800))
+    expect(opaque.status).toBe(400)
+    expect(await message(opaque)).toBe('Portrait extra art must have a transparent background, this image has none')
+    expect((await getDay('party')).extra_art_portrait).toBeNull()
+
+    const extra = await (await upload('/api/special-days/party/art/extra-portrait', await png(600, 800, 0.5))).json() as SpecialDay
+    expect(await croppedTo(extra.extra_art_portrait!)).toMatchObject({ width: 1440, height: 2560, hasAlpha: true })
+
+    // The day has a portrait picture of its own and no landscape one, so a landscape wall shows
+    // none rather than its scene's, and a portrait wall shows the day's.
+    expect((await resolved()).takeover).toMatchObject({ id: 'party', full_art: null, full_art_portrait: day.full_art_portrait, extra_art_portrait: extra.extra_art_portrait })
+
+    const cleared = await (await remove('/api/special-days/party/art/full-portrait')).json() as SpecialDay
+    expect(cleared.full_art_portrait).toBeNull()
+    expect((await resolved()).takeover).toMatchObject({ id: 'party', full_art: (await getScene('birthday')).full_art, full_art_portrait: null })
+    expect((await remove('/api/special-days/party/art/extra-portrait')).status).toBe(200)
+    expect((await getDay('party')).extra_art_portrait).toBeNull()
+    expect(stored()).toEqual(before)
+  })
+
+  it('gives a scene portrait full art, which a day on it takes, and removes the file with it', async () => {
+    const before = stored()
+    const scene = await (await upload('/api/special-day-scenes/birthday/art/full-portrait', await jpeg(1000, 1000))).json() as SpecialDayScene
+    expect(scene.full_art_portrait).toMatch(/^[0-9a-f]{64}\.webp$/)
+    expect(await sharp(Buffer.from(await (await served(scene.full_art_portrait!)).arrayBuffer())).metadata()).toMatchObject({ width: 1440, height: 2560 })
+
+    expect((await resolved()).takeover).toMatchObject({ id: 'party', full_art_portrait: scene.full_art_portrait })
+
+    const cleared = await (await remove('/api/special-day-scenes/birthday/art/full-portrait')).json() as SpecialDayScene
+    expect(cleared.full_art_portrait).toBeNull()
+    expect((await served(scene.full_art_portrait!)).status).toBe(404)
+    expect(stored()).toEqual(before)
   })
 
   it('sends special_days.updated after an upload', async () => {

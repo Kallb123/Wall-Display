@@ -301,6 +301,60 @@ describe('a file shared by a scene and a day', () => {
   })
 })
 
+describe('portrait art files', () => {
+  it('count as referenced, in every column that holds one', async () => {
+    const dir = await tempDir()
+    const { db } = migratedMemoryDb()
+    const sceneTall = store(dir, 'scene tall')
+    const dayTall = store(dir, 'day tall')
+    const dayExtraTall = store(dir, 'day extra tall')
+    createScene(db, sceneInput(), NOW)
+    createSpecialDay(db, dayInput(), NOW)
+    setSceneArt(db, 'birthday', 'full-portrait', sceneTall, NOW)
+    setSpecialDayArt(db, 'christmas', 'full-portrait', dayTall, NOW)
+    setSpecialDayArt(db, 'christmas', 'extra-portrait', dayExtraTall, NOW)
+
+    expect(referencedArt(db)).toEqual(new Set([sceneTall, dayTall, dayExtraTall]))
+    expect(removeUnreferencedArt(db, dir, [sceneTall, dayTall, dayExtraTall])).toEqual([])
+    expect(filesIn(dir)).toEqual([sceneTall, dayTall, dayExtraTall].sort())
+  })
+
+  it('stay while a copy of the day refers to them, and go with the last one', async () => {
+    const dir = await tempDir()
+    const { db } = migratedMemoryDb()
+    const tall = store(dir, 'tall')
+    const extraTall = store(dir, 'extra tall')
+    createSpecialDay(db, dayInput(), NOW)
+    setSpecialDayArt(db, 'christmas', 'full-portrait', tall, NOW)
+    setSpecialDayArt(db, 'christmas', 'extra-portrait', extraTall, NOW)
+    const copy = duplicateSpecialDay(db, 'christmas', NOW)!
+    expect(copy).toMatchObject({ full_art_portrait: tall, extra_art_portrait: extraTall })
+
+    expect(removeUnreferencedArt(db, dir, deleteSpecialDay(db, 'christmas')!)).toEqual([])
+    expect(filesIn(dir)).toEqual([tall, extraTall].sort())
+
+    expect(removeUnreferencedArt(db, dir, deleteSpecialDay(db, copy.id)!).sort()).toEqual([tall, extraTall].sort())
+    expect(filesIn(dir)).toEqual([])
+  })
+
+  it('go when a scene is deleted and nothing else refers to them, and clear with null', async () => {
+    const dir = await tempDir()
+    const { db } = migratedMemoryDb()
+    const tall = store(dir, 'scene tall')
+    createScene(db, sceneInput(), NOW)
+    setSceneArt(db, 'birthday', 'full-portrait', tall, NOW)
+
+    const cleared = setSceneArt(db, 'birthday', 'full-portrait', null, LATER)!
+    expect(cleared.previous).toBe(tall)
+    expect(cleared.scene.full_art_portrait).toBeNull()
+    expect(removeUnreferencedArt(db, dir, [cleared.previous])).toEqual([tall])
+
+    const again = store(dir, 'scene tall again')
+    setSceneArt(db, 'birthday', 'full-portrait', again, NOW)
+    expect(removeUnreferencedArt(db, dir, deleteScene(db, 'birthday')!)).toEqual([again])
+  })
+})
+
 describe('setSpecialDayArt', () => {
   it('sets the slot, bumps updated_at and returns the day and what the slot held', () => {
     const { db } = migratedMemoryDb()
@@ -322,9 +376,11 @@ describe('setSpecialDayArt', () => {
 
     setSpecialDayArt(db, 'christmas', 'tile', 'tile', NOW)
     setSpecialDayArt(db, 'christmas', 'full', 'full', NOW)
+    setSpecialDayArt(db, 'christmas', 'full-portrait', 'full-tall', NOW)
     setSpecialDayArt(db, 'christmas', 'extra', 'extra', NOW)
+    setSpecialDayArt(db, 'christmas', 'extra-portrait', 'extra-tall', NOW)
 
-    expect(getSpecialDay(db, 'christmas')).toMatchObject({ tile_art: 'tile', full_art: 'full', extra_art: 'extra' })
+    expect(getSpecialDay(db, 'christmas')).toMatchObject({ tile_art: 'tile', full_art: 'full', full_art_portrait: 'full-tall', extra_art: 'extra', extra_art_portrait: 'extra-tall' })
   })
 
   it('clears a slot with null, and still bumps updated_at', () => {
@@ -371,8 +427,9 @@ describe('setSceneArt', () => {
 
     setSceneArt(db, 'birthday', 'tile', 'tile', NOW)
     setSceneArt(db, 'birthday', 'full', 'full', NOW)
+    setSceneArt(db, 'birthday', 'full-portrait', 'full-tall', NOW)
 
-    expect(getScene(db, 'birthday')).toMatchObject({ tile_art: 'tile', full_art: 'full' })
+    expect(getScene(db, 'birthday')).toMatchObject({ tile_art: 'tile', full_art: 'full', full_art_portrait: 'full-tall' })
   })
 
   it('leaves the days using the scene alone, and says null for an unknown id', () => {

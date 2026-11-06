@@ -89,9 +89,11 @@ describe('special days', async () => {
       tile_art: null,
       takeover: true,
       full_art: null,
+      full_art_portrait: null,
       greeting: 'Merry Christmas',
       palette: 'warm',
       extra_art: null,
+      extra_art_portrait: null,
       updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     })
   })

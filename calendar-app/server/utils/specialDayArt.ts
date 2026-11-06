@@ -18,7 +18,7 @@ export function useSpecialDayArtDir(): string {
   return join(resolveDataDir({ env: process.env, dev: import.meta.dev, rootDir: process.cwd() }), ART_DIR_NAME)
 }
 
-/** Whether `slot` is one of the three art slots. */
+/** Whether `slot` is one of the art slots. */
 export function isArtSlot(slot: string): slot is ArtSlot {
   return Object.hasOwn(ART_LIMITS, slot)
 }

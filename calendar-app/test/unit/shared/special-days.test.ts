@@ -38,9 +38,11 @@ function day(overrides: Partial<SpecialDay> & { id: string }): SpecialDay {
     tile_art: null,
     takeover: false,
     full_art: null,
+    full_art_portrait: null,
     greeting: null,
     palette: 'warm',
     extra_art: null,
+    extra_art_portrait: null,
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides,
   }
@@ -59,6 +61,7 @@ function scene(overrides: Partial<SpecialDayScene> & { id: string }): SpecialDay
     tile_art: null,
     takeover: false,
     full_art: null,
+    full_art_portrait: null,
     greeting: null,
     palette: 'warm',
     updated_at: '2026-01-01T00:00:00.000Z',
@@ -396,7 +399,7 @@ describe('today\'s special day', () => {
     const days = [day({ id: 'christmas', name: 'Christmas', takeover: true, greeting: 'Merry Christmas', palette: 'frost', full_art: 'tree.png' })]
     const { takeover } = resolveWithoutScenes(days, { from: '2026-12-01', to: '2026-12-31', today: '2026-12-25' })
 
-    expect(takeover).toEqual({ id: 'christmas', name: 'Christmas', date: '2026-12-25', greeting: 'Merry Christmas', palette: 'frost', full_art: 'tree.png', extra_art: null })
+    expect(takeover).toEqual({ id: 'christmas', name: 'Christmas', date: '2026-12-25', greeting: 'Merry Christmas', palette: 'frost', full_art: 'tree.png', extra_art: null, full_art_portrait: null, extra_art_portrait: null })
   })
 
   it('lets the current day differ from the takeover when the first by precedence does not take over', () => {
@@ -846,6 +849,7 @@ describe('effectiveLook', () => {
       tile_art: 'cake.svg',
       takeover: true,
       full_art: 'party.webp',
+      full_art_portrait: null,
       greeting: 'Happy birthday!',
       palette: 'sage',
     })
@@ -872,6 +876,20 @@ describe('effectiveLook', () => {
     }
   })
 
+  it('takes full_art and full_art_portrait together, from the day if it has either', () => {
+    const tall = scene({ id: 'tall', takeover: true, full_art: 'party.webp', full_art_portrait: 'party-tall.webp' })
+
+    // Nothing of its own: both from the scene.
+    expect(effectiveLook(bare, tall)).toMatchObject({ full_art: 'party.webp', full_art_portrait: 'party-tall.webp' })
+    // Landscape only: the scene's portrait picture must not turn up beside the day's own.
+    expect(effectiveLook({ ...bare, full_art: 'own.webp' }, tall)).toMatchObject({ full_art: 'own.webp', full_art_portrait: null })
+    // Portrait only: a landscape wall shows none rather than the scene's.
+    expect(effectiveLook({ ...bare, full_art_portrait: 'own-tall.webp' }, tall)).toMatchObject({ full_art: null, full_art_portrait: 'own-tall.webp' })
+    expect(effectiveLook({ ...bare, full_art: 'own.webp', full_art_portrait: 'own-tall.webp' }, tall)).toMatchObject({ full_art: 'own.webp', full_art_portrait: 'own-tall.webp' })
+    // No scene: the day's own, or the defaults.
+    expect(effectiveLook({ ...bare, full_art_portrait: 'own-tall.webp' })).toMatchObject({ full_art: null, full_art_portrait: 'own-tall.webp' })
+  })
+
   it('counts a takeover of false as the day\'s own value, not as unset', () => {
     expect(effectiveLook({ ...bare, takeover: false }, birthday).takeover).toBe(false)
     expect(effectiveLook({ ...bare, takeover: true }, scene({ id: 'quiet', takeover: false })).takeover).toBe(true)
@@ -894,7 +912,7 @@ describe('effectiveLook', () => {
 
     expect(effectiveLook(empty, null)).toEqual(DEFAULT_LOOK)
     expect(effectiveLook(empty)).toEqual(DEFAULT_LOOK)
-    expect(DEFAULT_LOOK).toEqual({ lead: 'day', lead_days: null, tile_art: null, takeover: false, full_art: null, greeting: null, palette: 'warm' })
+    expect(DEFAULT_LOOK).toEqual({ lead: 'day', lead_days: null, tile_art: null, takeover: false, full_art: null, full_art_portrait: null, greeting: null, palette: 'warm' })
   })
 
   it('uses the defaults for a day whose scene is missing from the list', () => {
@@ -911,7 +929,7 @@ describe('effectiveLook', () => {
 
   it('leaves a day with its own whole look as it is, with or without a scene', () => {
     const whole = day({ id: 'christmas', lead: 'days', lead_days: 3, tile_art: 'tree.svg', takeover: true, full_art: 'full.png', greeting: 'Merry', palette: 'frost' })
-    const expected = { lead: 'days', lead_days: 3, tile_art: 'tree.svg', takeover: true, full_art: 'full.png', greeting: 'Merry', palette: 'frost' }
+    const expected = { lead: 'days', lead_days: 3, tile_art: 'tree.svg', takeover: true, full_art: 'full.png', full_art_portrait: null, greeting: 'Merry', palette: 'frost' }
 
     expect(effectiveLook(whole, null)).toEqual(expected)
     expect(effectiveLook({ ...whole, scene_id: 'birthday' }, birthday)).toEqual(expected)
@@ -1039,7 +1057,7 @@ describe('resolving with scenes', () => {
     const { tiles, takeover } = resolve([isla], [birthday], '2026-03-14')
 
     expect(tiles).toEqual([{ date: '2026-03-14', days: [{ id: 'isla', name: 'isla', palette: 'sage', tile_art: 'cake.svg' }] }])
-    expect(takeover).toEqual({ id: 'isla', name: 'isla', date: '2026-03-14', greeting: 'Happy 7th birthday, Isla!', palette: 'sage', full_art: 'party.webp', extra_art: null })
+    expect(takeover).toEqual({ id: 'isla', name: 'isla', date: '2026-03-14', greeting: 'Happy 7th birthday, Isla!', palette: 'sage', full_art: 'party.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null })
   })
 
   it('runs the date rules on the effective lead, not the stored one', () => {
@@ -1226,6 +1244,15 @@ describe('resolving with scenes', () => {
       expect(takeover).toMatchObject({ full_art: 'party.webp', extra_art: 'seven.png' })
     })
 
+    it('has a portrait pair too, the extra one the day\'s own and the full one by the scene or the day', () => {
+      const tall = scene({ id: 'tall', takeover: true, full_art: 'party.webp', full_art_portrait: 'party-tall.webp' })
+      const isla = sceneDay({ id: 'isla', scene_id: 'tall', month: 3, day: 14, extra_art_portrait: 'seven-tall.png' })
+
+      expect(resolve([isla], [tall], '2026-03-14').takeover).toMatchObject({ full_art_portrait: 'party-tall.webp', extra_art_portrait: 'seven-tall.png' })
+      // A picture of the day's own comes with its own portrait art, which here is none.
+      expect(resolve([{ ...isla, full_art: 'own.webp' }], [tall], '2026-03-14').takeover).toMatchObject({ full_art: 'own.webp', full_art_portrait: null })
+    })
+
     it('differs per day sharing a scene', () => {
       const days = [
         sceneDay({ id: 'isla', month: 3, day: 14, extra_art: 'seven.png' }),
@@ -1288,6 +1315,12 @@ describe('tomorrow_art', () => {
     expect(resolve(days, '2026-10-30').tomorrow_art).toEqual(['shared.svg'])
   })
 
+  it('includes the portrait full and extra art too', () => {
+    const days = [day({ id: 'halloween', month: 10, day: 31, takeover: true, full_art: 'full.png', full_art_portrait: 'tall.png', extra_art: 'seven.png', extra_art_portrait: 'seven-tall.png' })]
+
+    expect(resolve(days, '2026-10-30').tomorrow_art).toEqual(['full.png', 'seven.png', 'tall.png', 'seven-tall.png'])
+  })
+
   it('uses a scene\'s art for a day that takes its look from it', () => {
     const birthday = scene({ id: 'birthday', tile_art: 'cake.svg', takeover: true, full_art: 'party.webp' })
 
@@ -1333,7 +1366,7 @@ describe('resolvePreview', () => {
         to: '2026-11-14',
         tiles: [{ date: '2026-10-31', days: [{ id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }] }],
         current: { id: 'halloween', name: 'Halloween' },
-        takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Boo!', palette: 'night', full_art: 'full.png', extra_art: null },
+        takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Boo!', palette: 'night', full_art: 'full.png', extra_art: null, full_art_portrait: null, extra_art_portrait: null },
         tomorrow_art: [],
       })
     })
@@ -1469,7 +1502,7 @@ describe('resolvePreview', () => {
         to: '2026-04-14',
         tiles: [{ date: '2026-03-02', days: [{ id: 'scene:birthday', name: 'Birthday', palette: 'sage', tile_art: 'cake.svg' }] }],
         current: { id: 'scene:birthday', name: 'Birthday' },
-        takeover: { id: 'scene:birthday', name: 'Birthday', date: '2026-03-02', greeting: 'Happy {nth} birthday, {who}!', palette: 'sage', full_art: 'party.webp', extra_art: null },
+        takeover: { id: 'scene:birthday', name: 'Birthday', date: '2026-03-02', greeting: 'Happy {nth} birthday, {who}!', palette: 'sage', full_art: 'party.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null },
         tomorrow_art: [],
       })
     })

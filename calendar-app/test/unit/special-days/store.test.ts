@@ -53,9 +53,11 @@ describe('createSpecialDay and getSpecialDay', () => {
       tile_art: null,
       takeover: true,
       full_art: null,
+      full_art_portrait: null,
       greeting: 'Merry Christmas',
       palette: 'warm',
       extra_art: null,
+      extra_art_portrait: null,
       updated_at: '2026-10-28T12:00:00.000Z',
     })
     expect(getSpecialDay(db, 'christmas')).toEqual(created)
@@ -210,7 +212,7 @@ describe('duplicateSpecialDay', () => {
     const { db } = migratedMemoryDb()
     makeScene(db)
     createSpecialDay(db, input({ name: 'Isla\'s birthday', month: 3, day: 14, scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: 'days', lead_days: 10, takeover: null, greeting: null, palette: 'night' }), NOW)
-    db.update(specialDays).set({ tileArt: 'tile.webp', fullArt: 'full.webp', extraArt: 'seven.webp', updatedAt: NOW }).run()
+    db.update(specialDays).set({ tileArt: 'tile.webp', fullArt: 'full.webp', fullArtPortrait: 'full-tall.webp', extraArt: 'seven.webp', extraArtPortrait: 'seven-tall.webp', updatedAt: NOW }).run()
 
     const copy = duplicateSpecialDay(db, 'isla-s-birthday', LATER)!
 
@@ -220,7 +222,7 @@ describe('duplicateSpecialDay', () => {
       name: 'Copy of Isla\'s birthday',
       updated_at: '2026-10-29T08:30:00.000Z',
     })
-    expect(copy).toMatchObject({ scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: 'days', lead_days: 10, takeover: null, palette: 'night', tile_art: 'tile.webp', full_art: 'full.webp', extra_art: 'seven.webp' })
+    expect(copy).toMatchObject({ scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: 'days', lead_days: 10, takeover: null, palette: 'night', tile_art: 'tile.webp', full_art: 'full.webp', full_art_portrait: 'full-tall.webp', extra_art: 'seven.webp', extra_art_portrait: 'seven-tall.webp' })
     expect(db.select().from(specialDays).all().find(row => row.id === copy.id)!.createdAt).toEqual(LATER)
     expect(listSpecialDays(db)).toHaveLength(2)
   })

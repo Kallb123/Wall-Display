@@ -188,7 +188,7 @@ function wallMinutes(instant: number, timeZone: string): number {
 const pad = (hour: number) => String(hour).padStart(2, '0')
 
 /** `5 – 11 October 2026`, `26 October – 1 November 2026` or `28 December 2026 – 3 January 2027`, for the week's first and last dates. */
-function weekTitle(first: string, last: string): string {
+export function weekTitle(first: string, last: string): string {
   const part = (date: string) => ({ year: date.slice(0, 4), month: MONTHS[Number(date.slice(5, 7)) - 1]!, day: String(Number(date.slice(8, 10))) })
   const a = part(first)
   const b = part(last)

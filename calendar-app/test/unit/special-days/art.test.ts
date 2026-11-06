@@ -163,13 +163,23 @@ describe('processArt: size', () => {
     expect(error.message).toBe('Tile art must be at most 2 MB')
   })
 
-  it('has limits of 2, 20 and 20 MB', () => {
-    expect(ART_LIMITS).toEqual({ tile: 2 * 1024 * 1024, full: 20 * 1024 * 1024, extra: 20 * 1024 * 1024 })
+  it('has limits of 2 MB for a tile and 20 MB for the rest', () => {
+    const big = 20 * 1024 * 1024
+    expect(ART_LIMITS).toEqual({ 'tile': 2 * 1024 * 1024, 'full': big, 'full-portrait': big, 'extra': big, 'extra-portrait': big })
   })
 
   it('refuses over-size full and extra art too', async () => {
     expect((await artError(() => processArt('full', Buffer.alloc(ART_LIMITS.full + 1)))).statusCode).toBe(413)
     expect((await artError(() => processArt('extra', Buffer.alloc(ART_LIMITS.extra + 1)))).statusCode).toBe(413)
+  })
+
+  it('refuses over-size portrait art too, by its own name', async () => {
+    const full = await artError(() => processArt('full-portrait', Buffer.alloc(ART_LIMITS['full-portrait'] + 1)))
+    expect(full.statusCode).toBe(413)
+    expect(full.message).toBe('Portrait full-screen art must be at most 20 MB')
+    const extra = await artError(() => processArt('extra-portrait', Buffer.alloc(ART_LIMITS['extra-portrait'] + 1)))
+    expect(extra.statusCode).toBe(413)
+    expect(extra.message).toBe('Portrait extra art must be at most 20 MB')
   })
 })
 
@@ -464,5 +474,62 @@ describe('processArt: extra', () => {
 
   it('refuses a hostile SVG with a 400', async () => {
     expect((await artError(() => processArt('extra', fixture('hostile.svg')))).statusCode).toBe(400)
+  })
+})
+
+describe('processArt: portrait', () => {
+  const size = async (data: Buffer) => {
+    const info = await meta(data)
+    return [info.width, info.height]
+  }
+
+  it('crops full art to 1440×2560 WebP, from the centre', async () => {
+    // Red left, green middle, blue right: a 9:16 cut of a square keeps the middle.
+    const band = (r: number, g: number, b: number) => raster(100, 300, { r, g, b, alpha: 1 }).png().toBuffer()
+    const input = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#000' } })
+      .composite([
+        { input: await band(255, 0, 0), left: 0, top: 0 },
+        { input: await band(0, 255, 0), left: 100, top: 0 },
+        { input: await band(0, 0, 255), left: 200, top: 0 },
+      ])
+      .png().toBuffer()
+
+    const { data, ext } = await processArt('full-portrait', input)
+
+    expect(ext).toBe('webp')
+    expect(await size(data)).toEqual([1440, 2560])
+    const { data: pixels, info } = await sharp(data).raw().toBuffer({ resolveWithObject: true })
+    const at = (x: number) => [0, 1, 2].map(c => pixels[(1200 * info.width + x) * info.channels + c]!)
+    // The cut is 169 px of the 300, so a sliver of red and of blue is left either side of the green.
+    expect(at(720)[1]).toBeGreaterThan(200)
+    expect(at(10)[0]).toBeGreaterThan(200)
+    expect(at(1430)[2]).toBeGreaterThan(200)
+  })
+
+  it('takes full art in the same formats as landscape, and draws an SVG sharp at the portrait size', async () => {
+    expect(await size((await processArt('full-portrait', await raster(4000, 3000).jpeg().toBuffer())).data)).toEqual([1440, 2560])
+    expect(await size((await processArt('full-portrait', Buffer.from(svg('<rect width="100" height="100" fill="#123456"/>')))).data)).toEqual([1440, 2560])
+    const error = await artError(() => processArt('full-portrait', Buffer.from('not an image')))
+    expect(error.statusCode).toBe(415)
+    expect(error.message).toContain('Portrait full-screen art must be an image')
+  })
+
+  it('crops a transparent extra layer to 1440×2560 and keeps the transparency', async () => {
+    const solid = await raster(500, 1000, { r: 30, g: 90, b: 200, alpha: 1 }).png().toBuffer()
+    const input = await sharp({ create: { width: 1000, height: 1000, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .composite([{ input: solid, left: 0, top: 0 }]).png().toBuffer()
+
+    const { data } = await processArt('extra-portrait', input)
+
+    expect(await size(data)).toEqual([1440, 2560])
+    expect(await isTransparent(data)).toBe(true)
+  })
+
+  it('refuses an extra layer with no transparency, or a JPEG', async () => {
+    const opaque = await artError(async () => processArt('extra-portrait', await raster(800, 800).png().toBuffer()))
+    expect(opaque.statusCode).toBe(400)
+    expect(opaque.message).toBe('Portrait extra art must have a transparent background, this image has none')
+    const jpeg = await artError(async () => processArt('extra-portrait', await raster(800, 800).jpeg().toBuffer()))
+    expect(jpeg.statusCode).toBe(415)
   })
 })

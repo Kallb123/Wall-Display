@@ -1,12 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import type { Preview } from '../../../shared/display'
 import type { SpecialDaysResolution, Takeover } from '../../../shared/special-days'
-import { activePreview, greetingSize, isEvening, previewKey, previewQuery, takeoverInForce, tileArt } from '../../../app/utils/specialDays'
+import { activePreview, greetingSize, isEvening, previewKey, previewQuery, takeoverArt, takeoverInForce, tileArt } from '../../../app/utils/specialDays'
 import { CALENDAR_VIEWS, isCalendarView } from '../../../app/utils/views'
 
-const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null }
+const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: 'bat.png', full_art_portrait: 'wall-tall.webp', extra_art_portrait: null }
 const resolution = (changes: Partial<SpecialDaysResolution> = {}): SpecialDaysResolution => ({
   today: '2026-10-31', from: '2026-09-17', to: '2026-11-14', tiles: [], current: { id: 'halloween', name: 'Halloween' }, takeover, tomorrow_art: [], ...changes,
+})
+
+describe('takeoverArt', () => {
+  it('is the landscape art on a landscape stage and the portrait art on a portrait one', () => {
+    expect(takeoverArt(takeover, 'landscape')).toEqual({ full: 'wall.webp', extra: 'bat.png' })
+    expect(takeoverArt(takeover, 'portrait')).toEqual({ full: 'wall-tall.webp', extra: null })
+  })
+
+  it('is none on a portrait stage without portrait art, never the landscape art', () => {
+    const landscapeOnly = { ...takeover, full_art_portrait: null }
+    expect(takeoverArt(landscapeOnly, 'portrait')).toEqual({ full: null, extra: null })
+  })
+
+  it('is none without a takeover, and copes with a takeover cached before the portrait art', () => {
+    expect(takeoverArt(null, 'landscape')).toEqual({ full: null, extra: null })
+    const { full_art_portrait: _full, extra_art_portrait: _extra, ...old } = takeover
+    expect(takeoverArt(old as Takeover, 'portrait')).toEqual({ full: null, extra: null })
+  })
 })
 
 describe('isEvening', () => {

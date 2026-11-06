@@ -199,7 +199,9 @@ export type SpecialDaySceneInput = z.output<typeof specialDaySceneInputSchema>
 
 /**
  * The parts of a look. Each is null on a day to use its scene's. `lead_days`
- * goes with `lead` and is not a field of its own: the two come from the same place.
+ * goes with `lead` and is not a field of its own: the two come from the same
+ * place. So does `full_art_portrait` with `full_art`: the two are one picture
+ * cropped two ways, so a day that sets either has both of its own.
  */
 export const LOOK_FIELDS = ['lead', 'tile_art', 'takeover', 'full_art', 'greeting', 'palette'] as const
 export type LookField = (typeof LOOK_FIELDS)[number]
@@ -217,6 +219,8 @@ export const specialDaySceneSchema = z.object({
   takeover: z.boolean(),
   /** File name in `/data/special-days/`, or null. */
   full_art: z.string().nullable(),
+  /** The full art for a portrait stage (1440×2560): a file name in `/data/special-days/`, or null for none, when a portrait wall shows no full art. */
+  full_art_portrait: z.string().nullable(),
   /** May use `{who}`, `{years}` and `{nth}`. */
   greeting: z.string().nullable(),
   palette: z.enum(SPECIAL_DAY_PALETTES),
@@ -249,10 +253,14 @@ export const specialDaySchema = z.object({
   takeover: z.boolean().nullable(),
   /** File name in `/data/special-days/`, or null. */
   full_art: z.string().nullable(),
+  /** The full art for a portrait stage (1440×2560), or null. Goes with `full_art`: if the day has either, both are the day's own (see `effectiveLook`). */
+  full_art_portrait: z.string().nullable(),
   greeting: z.string().nullable(),
   palette: z.enum(SPECIAL_DAY_PALETTES).nullable(),
   /** A layer drawn over the full art for this day only, such as a "7" balloon: a file name in `/data/special-days/`, or null. The day's own; scenes have none. */
   extra_art: z.string().nullable(),
+  /** The extra layer for a portrait stage, cropped like `full_art_portrait` so the two line up, or null. The day's own, like `extra_art`. */
+  extra_art_portrait: z.string().nullable(),
   /** When it was last edited, as an ISO 8601 instant. The newer edit wins a tie (architecture §6.3). */
   updated_at: z.iso.datetime(),
 })
@@ -265,6 +273,7 @@ export interface SpecialDayLook {
   tile_art: string | null
   takeover: boolean
   full_art: string | null
+  full_art_portrait: string | null
   greeting: string | null
   palette: SpecialDayPalette
 }
@@ -276,28 +285,34 @@ export const DEFAULT_LOOK: Readonly<SpecialDayLook> = {
   tile_art: null,
   takeover: false,
   full_art: null,
+  full_art_portrait: null,
   greeting: null,
   palette: 'warm',
 }
 
 /** The parts of a day or a scene that make up a look. A scene fits this too, so a scene that hasn't been saved yet can be checked. */
-export type LookSource = Pick<SpecialDay, LookField | 'lead_days'>
+export type LookSource = Pick<SpecialDay, LookField | 'lead_days' | 'full_art_portrait'>
 
 /**
  * The look a day uses, one field at a time (architecture §6.1): its own value
  * if it has one, otherwise its scene's, otherwise the default. `lead` and
  * `lead_days` are one field, taken together from the day if it has a `lead`,
- * otherwise from the scene. A day with no scene (or one that no longer exists)
- * has only its own values and the defaults.
+ * otherwise from the scene. `full_art` and `full_art_portrait` are one field
+ * the same way: from the day if it has either, otherwise from the scene, so a
+ * day with a picture of its own never shows its scene's picture on a portrait
+ * wall. A day with no scene (or one that no longer exists) has only its own
+ * values and the defaults.
  */
 export function effectiveLook(day: LookSource, scene?: LookSource | null): SpecialDayLook {
   const leadFrom = day.lead !== null ? day : scene && scene.lead !== null ? scene : null
+  const artFrom = day.full_art !== null || day.full_art_portrait !== null ? day : scene
   return {
     lead: leadFrom?.lead ?? DEFAULT_LOOK.lead,
     lead_days: leadFrom ? leadFrom.lead_days : DEFAULT_LOOK.lead_days,
     tile_art: day.tile_art ?? scene?.tile_art ?? DEFAULT_LOOK.tile_art,
     takeover: day.takeover ?? scene?.takeover ?? DEFAULT_LOOK.takeover,
-    full_art: day.full_art ?? scene?.full_art ?? DEFAULT_LOOK.full_art,
+    full_art: artFrom?.full_art ?? DEFAULT_LOOK.full_art,
+    full_art_portrait: artFrom?.full_art_portrait ?? DEFAULT_LOOK.full_art_portrait,
     greeting: day.greeting ?? scene?.greeting ?? DEFAULT_LOOK.greeting,
     palette: day.palette ?? scene?.palette ?? DEFAULT_LOOK.palette,
   }
@@ -324,6 +339,9 @@ export interface Takeover {
   full_art: string | null
   /** The day's own layer over the full art, or null. Scenes have none. */
   extra_art: string | null
+  /** The two above for the portrait stage (1440×2560), each null for none. A portrait wall draws only these, never the landscape ones. */
+  full_art_portrait: string | null
+  extra_art_portrait: string | null
 }
 
 /**
@@ -350,7 +368,7 @@ export interface SpecialDaysResolution {
   takeover: Takeover | null
   /**
    * The art files the wall will need tomorrow that it may not have loaded yet:
-   * tomorrow's takeover's `full_art` and `extra_art`, and the `tile_art` of every
+   * tomorrow's takeover's full and extra art (landscape and portrait), and the `tile_art` of every
    * tile that is decorated tomorrow in the range. Each once, no order promised.
    * The display preloads them in the evening (architecture §6.5).
    */
@@ -378,6 +396,9 @@ export const specialDaysResolutionSchema: z.ZodType<SpecialDaysResolution> = z.o
     palette: paletteSchema,
     full_art: z.string().nullable(),
     extra_art: z.string().nullable(),
+    // An answer from before the portrait art has none.
+    full_art_portrait: z.string().nullable().default(null),
+    extra_art_portrait: z.string().nullable().default(null),
   }).nullable(),
   // An answer from before PR S.3 has none.
   tomorrow_art: z.array(z.string()).default([]),
@@ -425,6 +446,8 @@ export function resolveSpecialDays(days: readonly SpecialDay[], scenes: readonly
   const art = [
     tomorrow.takeover?.full_art,
     tomorrow.takeover?.extra_art,
+    tomorrow.takeover?.full_art_portrait,
+    tomorrow.takeover?.extra_art_portrait,
     ...tomorrow.tiles.flatMap(({ days: onDate }) => onDate.map(({ tile_art }) => tile_art)),
   ]
   return { ...resolveOn(days, scenes, options), tomorrow_art: [...new Set(art.filter((name): name is string => typeof name === 'string'))] }
@@ -477,6 +500,8 @@ function resolveOn(days: readonly SpecialDay[], scenes: readonly SpecialDayScene
           palette: taking.look.palette,
           full_art: taking.look.full_art,
           extra_art: taking.day.extra_art,
+          full_art_portrait: taking.look.full_art_portrait,
+          extra_art_portrait: taking.day.extra_art_portrait,
         }
       : null,
     tomorrow_art: [],
@@ -590,9 +615,11 @@ export function resolvePreview(days: readonly SpecialDay[], scenes: readonly Spe
         tile_art: null,
         takeover: null,
         full_art: null,
+        full_art_portrait: null,
         greeting: null,
         palette: null,
         extra_art: null,
+        extra_art_portrait: null,
         updated_at: scene.updated_at,
       }
       all = [...days, shown]

@@ -22,13 +22,29 @@ const MB = 1024 * 1024
 /** The size every full-screen and extra image is cropped to, so the two line up. */
 const FULL = { width: 2560, height: 1440 } as const
 
+/** The same for the portrait stage, which is the landscape one turned on its side. */
+const PORTRAIT = { width: 1440, height: 2560 } as const
+
+type Box = typeof FULL | typeof PORTRAIT
+
+/** The box a full-screen or extra slot is cropped to. */
+function boxOf(slot: ArtSlot): Box {
+  return slot === 'full-portrait' || slot === 'extra-portrait' ? PORTRAIT : FULL
+}
+
 /** The box a tile is fitted inside. */
 const TILE_BOX = 512
 
 /** The most dpi an SVG is rasterised at: a tiny logo still comes out sharp, but a stray 1×1 SVG can't ask for a huge render. */
 const MAX_DENSITY = 2400
 
-const SLOT_LABEL: Record<ArtSlot, string> = { tile: 'Tile art', full: 'Full-screen art', extra: 'Extra art' }
+const SLOT_LABEL: Record<ArtSlot, string> = {
+  'tile': 'Tile art',
+  'full': 'Full-screen art',
+  'full-portrait': 'Portrait full-screen art',
+  'extra': 'Extra art',
+  'extra-portrait': 'Portrait extra art',
+}
 
 /** The bytes to store, and the extension to name and serve them by. */
 export interface ProcessedArt {
@@ -228,11 +244,11 @@ async function encode(slot: ArtSlot, pipeline: Pipeline): Promise<Buffer> {
   }
 }
 
-/** The input for a crop to full-screen size: a raster as it is, an SVG sanitised and drawn large enough not to blur. */
-async function fullSource(input: Buffer, type: string): Promise<Pipeline> {
+/** The input for a crop to a box: a raster as it is, an SVG sanitised and drawn large enough to cover the box without blurring. */
+async function fullSource(input: Buffer, type: string, box: Box): Promise<Pipeline> {
   if (type !== 'svg') return sharp(input, { failOn: 'error' }).rotate()
   const { svg, width, height } = await cleanSvg(input)
-  const scale = Math.max(FULL.width / width, FULL.height / height)
+  const scale = Math.max(box.width / width, box.height / height)
   const density = Math.min(MAX_DENSITY, Math.max(1, Math.ceil(72 * scale)))
   return sharp(svg, { density })
 }
@@ -250,6 +266,8 @@ async function fullSource(input: Buffer, type: string): Promise<Pipeline> {
  *   cropped to fill 2560×1440 and saved as WebP.
  * - `extra`: PNG, WebP or SVG that has transparency, cropped like `full` so
  *   the two line up, and saved as WebP with the transparency kept.
+ * - `full-portrait` and `extra-portrait`: the same rules, cropped to fill
+ *   1440×2560 for a portrait stage.
  *
  * Only the first frame of an animated image is used.
  */
@@ -270,19 +288,21 @@ export async function processArt(slot: ArtSlot, input: Buffer): Promise<Processe
     return { data, ext: 'webp' }
   }
 
-  if (slot === 'full') {
+  const box = boxOf(slot)
+
+  if (slot === 'full' || slot === 'full-portrait') {
     if (!type || !FULL_FORMATS.has(type)) throw new ArtError(415, `${label} must be an image, such as JPEG, PNG, WebP or SVG`)
-    const source = await fullSource(input, type)
+    const source = await fullSource(input, type, box)
     const data = await encode(slot, source
-      .resize(FULL.width, FULL.height, { fit: 'cover', position: 'centre' })
+      .resize(box.width, box.height, { fit: 'cover', position: 'centre' })
       .webp({ quality: 85 }))
     return { data, ext: 'webp' }
   }
 
   if (!type || !ALPHA_FORMATS.has(type)) throw new ArtError(415, `${label} must be PNG, WebP or SVG with a transparent background`)
-  const source = await fullSource(input, type)
+  const source = await fullSource(input, type, box)
   const data = await encode(slot, source
-    .resize(FULL.width, FULL.height, { fit: 'cover', position: 'centre' })
+    .resize(box.width, box.height, { fit: 'cover', position: 'centre' })
     .webp({ quality: 85, alphaQuality: 100 }))
   if (await isOpaque(data)) throw new ArtError(400, `${label} must have a transparent background, this image has none`)
   return { data, ext: 'webp' }

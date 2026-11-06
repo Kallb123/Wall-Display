@@ -73,7 +73,7 @@ describe('AgendaView weather', () => {
 })
 
 describe('AgendaView special days', () => {
-  const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-28', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null }
+  const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-28', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null }
 
   it('draws no greeting without a takeover', async () => {
     const wrapper = await mountSuspended(AgendaView, { props: props() })

@@ -285,7 +285,7 @@ A display can be portrait (1440×2560) as well as landscape (2560×1440). The `o
 | `agenda` | Today's sage card (about 60% of the height, with the clock in its header) is stacked above tomorrow's tile. Rows, badges and the now marker are unchanged from landscape. | [4e](design/mocks/4e.png), [4f](design/mocks/4f.png) |
 | `photo` | Photos are rendered at 1440×2560. A portrait photo fills the screen; a landscape one is fitted over its blurred copy. The pill is unchanged and still walks the four corners. | [4g](design/mocks/4g.jpg), [4h](design/mocks/4h.jpg) |
 | `night` | The same block on the portrait stage (PR 5.10). It drifts across a taller area. | [4i](design/mocks/4i.png) |
-| Special days | A takeover changes the palette and shows the greeting at the top of the today band. The 2560×1440 full-screen art is not shown in portrait. Tile tints and tile art are as in landscape; in the week view the tint is lighter (16%) because the tiles are full height. | [4j](design/mocks/4j.png) |
+| Special days | A takeover changes the palette and shows the greeting at the top of the today band. The 2560×1440 full-screen art is not shown in portrait; the day's or scene's 1440×2560 portrait art is (PR 5.11a), and a day with none shows the palette, greeting and tile art only. Tile tints and tile art are as in landscape; in the week view the tint is lighter (16%) because the tiles are full height. | [4j](design/mocks/4j.png) |
 
 **Hybrid views.** Views become panes that draw into the box they are given (PR 5.14). Both hybrids ship in landscape as well as portrait.
 
@@ -374,6 +374,7 @@ Scene {
   tile_art,                // file name, or null
   takeover: bool,
   full_art,                // file name, or null
+  full_art_portrait,       // the same picture cropped to 1440×2560 for a portrait wall, or null
   greeting,                // e.g. "Happy {nth} birthday, {who}!"
   palette: warm | night | frost | sage,
   updated_at
@@ -389,6 +390,7 @@ SpecialDay {
   // Its own version of the scene's look. Each is null to use the scene's.
   lead, lead_days, tile_art, takeover, full_art, greeting, palette,
   extra_art,               // a layer drawn over the full art, or null
+  extra_art_portrait,      // the same layer cropped to 1440×2560, or null
   updated_at
 }
 ```
@@ -400,7 +402,9 @@ SpecialDay {
 | `tile_art` | A square drawing, transparent PNG or SVG, for the day's tile. |
 | `takeover` | Whether the day takes over the whole wall when it arrives. |
 | `full_art`, `greeting`, `palette` | Used by the takeover only. |
+| `full_art_portrait` | The full-screen art for a portrait wall, cropped to 1440×2560 (see §4.6). It is not a field of its own: it goes with `full_art`, as `lead_days` goes with `lead`. A day that has either of the two uses its own pair and nothing of its scene's, so a day with a picture of its own never shows its scene's portrait picture beside it (nor loses its own portrait picture to the scene's landscape one). Setting only one leaves the other blank for that day. A wall in the other orientation shows no full-screen art when its half of the pair is null. Saving a day as a scene, and deleting a scene with its days detached, move the pair together. |
 | `extra_art` | A transparent layer drawn on top of the full art, for the one thing that differs on this day: a "7" balloon, a name banner. The scene's picture is shared and only the extra is drawn per day. Takeover only. |
+| `extra_art_portrait` | The day's own layer for a portrait wall, cropped to 1440×2560 so it lines up with `full_art_portrait`. Takeover only; scenes have none. |
 | `who`, `since_year` | Fill the greeting's placeholders (below). |
 
 **The look a day uses** is worked out one field at a time: the day's own value if it has one, otherwise its scene's, otherwise a default (no art, no greeting, `warm`, lead `day`, no takeover). `lead` and `lead_days` count as one field. A day with no scene simply has all of its own values. This is how S.1 stored every day, so those days carry on unchanged. A scene can't be based on another scene: one level (day over scene) covers "nearly the same, with an extra thing", and a chain would make it hard to see where a value comes from. Copying (below) covers a scene that is mostly like another.
@@ -442,7 +446,7 @@ From midnight to midnight (`Europe/London`) on a special day with `takeover` on,
 
 - **Palette.** The display swaps its theme tokens for the special day's palette (§6.4). This covers the page background, tiles, panel, text and accents.
 - **Greeting.** The greeting, with its placeholders filled in (§6.1), appears in large heading type at the top of the today panel (Soft month), above the weather card (Classic month), and above today's list in the agenda view.
-- **Art.** The full-screen art (2560×1440) is a layer behind the view, with the day's extra art, if it has any, drawn on top of it. Tiles and panels stay solid, so text contrast doesn't depend on the art. The art shows in the margins, the gaps between tiles and the empty lower part of the side panel, where the mock puts its scene. Artists should keep the busy parts of the picture out from behind text.
+- **Art.** The full-screen art (2560×1440) is a layer behind the view, with the day's extra art, if it has any, drawn on top of it. A portrait wall draws the portrait pair (1440×2560) in the same way and never the landscape one, because a 16:9 picture does not crop well to 9:16; with no portrait art it shows the takeover's palette, greeting and tile art only, and the admin page marks the days that have none. Tiles and panels stay solid, so text contrast doesn't depend on the art. The art shows in the margins, the gaps between tiles and the empty lower part of the side panel, where the mock puts its scene. Artists should keep the busy parts of the picture out from behind text.
 
 The photo frame and night views don't change. Overlay banners (§7.1) still show on top. If two special days fall on the same date, a `once` day wins over a `yearly` one, and then the most recently edited day wins. Editing a scene doesn't count as editing its days. Only one takes over. Every matching day's tile art is drawn side by side.
 
@@ -464,7 +468,7 @@ More palettes can be added in code. They aren't user-editable, so every palette 
 - **Resolution on the server.** The server works out the special days for any date range (each day's look from its scene, yearly dates, one-off dates, lead windows, greeting placeholders, the precedence rule above). A 29 February special day shows on 28 February in non-leap years. The display gets the tile decorations for the month it shows, plus today's takeover if there is one. It never works out dates itself.
 - **Midnight.** A timer in the app fires at local midnight, and on DST change days too. It re-resolves and broadcasts, so a takeover starts and ends at midnight without a page reload. The display preloads (`img.decode()`) the next day's art in the evening, so the switch is instant. The resolution lists it as `tomorrow_art`: tomorrow's takeover art and the tile art of every tile decorated tomorrow.
 - **Preview on wall.** The admin page's "Preview on wall" button sends a `preview_special_day` command. The display shows that day's takeover and tile art for 60 seconds (`seconds`, from 5 to 600), as if today were that day, with a small "Preview" badge. The server sets `preview` in the state, and clears it when the time is up, so the display goes back on its own. The display gets the answer from `GET /api/special-days/preview?special_day=<id>` (or `?scene=<id>`), which resolves the day for the date it next falls on, so a day months away still shows, and with its own takeover even if another day shares the date. A scene can be previewed too (`preview_special_day { scene }`): it is shown through the first day that uses it, so the placeholders are filled in, or with them as typed if no day uses it yet.
-- **Uploads.** Tile art is PNG, WebP or SVG, up to 2 MB. Raster images are resized to fit 512×512. SVGs are sanitised on upload (no scripts, event handlers or external references) and served with a locked-down `Content-Security-Policy` and `X-Content-Type-Options: nosniff`. Full-screen art can be any image `sharp` reads, up to 20 MB. It is cropped to fill 2560×1440 and saved as WebP. Extra art is the same, but must have transparency (PNG, WebP or SVG), keeps it, and is cropped the same way so it lines up with the full art. Scenes and days both take uploads. Files are named by a hash of their content, so they can be cached for good: they are served at `/special-days/<hash>.<webp|svg>` with `Cache-Control: public, max-age=31536000, immutable` and `X-Content-Type-Options: nosniff` (SVGs also with the `Content-Security-Policy` above), outside `/api` so the displays need no PIN to load them. A file is deleted only once no day or scene refers to it, because copies share files.
+- **Uploads.** Tile art is PNG, WebP or SVG, up to 2 MB. Raster images are resized to fit 512×512. SVGs are sanitised on upload (no scripts, event handlers or external references) and served with a locked-down `Content-Security-Policy` and `X-Content-Type-Options: nosniff`. Full-screen art can be any image `sharp` reads, up to 20 MB. It is cropped to fill 2560×1440 and saved as WebP. Extra art is the same, but must have transparency (PNG, WebP or SVG), keeps it, and is cropped the same way so it lines up with the full art. The portrait slots (`full-portrait` for days and scenes, `extra-portrait` for days) follow the same rules and limits but are cropped to fill 1440×2560. Scenes and days both take uploads. Files are named by a hash of their content, so they can be cached for good: they are served at `/special-days/<hash>.<webp|svg>` with `Cache-Control: public, max-age=31536000, immutable` and `X-Content-Type-Options: nosniff` (SVGs also with the `Content-Security-Policy` above), outside `/api` so the displays need no PIN to load them. A file is deleted only once no day or scene refers to it in any of its art columns (tile, full, portrait full, extra, portrait extra), because copies share files. Duplicating a day or scene copies the portrait art along with the rest.
 - **Home Assistant.** The app publishes today's special day name (or empty) as a sensor, so automations can react to it, for example with themed lights.
 
 ## 7. Control

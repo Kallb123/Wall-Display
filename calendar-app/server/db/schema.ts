@@ -175,6 +175,8 @@ export const specialDayScenes = sqliteTable('special_day_scenes', {
   tileArt: text('tile_art'),
   takeover: integer('takeover', { mode: 'boolean' }).notNull().default(false),
   fullArt: text('full_art'),
+  /** The full art for a portrait stage (1440×2560). Null shows none there. */
+  fullArtPortrait: text('full_art_portrait'),
   greeting: text('greeting'),
   palette: text('palette', { enum: SPECIAL_DAY_PALETTES }).notNull().default('warm'),
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
@@ -208,8 +210,12 @@ export const specialDays = sqliteTable('special_days', {
   tileArt: text('tile_art'),
   takeover: integer('takeover', { mode: 'boolean' }),
   fullArt: text('full_art'),
+  /** Goes with `fullArt`: a day with either has both of its own, so it never shows its scene's picture half way. */
+  fullArtPortrait: text('full_art_portrait'),
   /** Extra art for this day alone, shown over its look. Scenes have none. */
   extraArt: text('extra_art'),
+  /** The extra art for a portrait stage, cropped to line up with `fullArtPortrait`. */
+  extraArtPortrait: text('extra_art_portrait'),
   greeting: text('greeting'),
   palette: text('palette', { enum: SPECIAL_DAY_PALETTES }),
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),

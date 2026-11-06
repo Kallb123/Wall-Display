@@ -27,9 +27,11 @@ export function toSpecialDay(row: SpecialDayRow): SpecialDay {
     tile_art: row.tileArt,
     takeover: row.takeover,
     full_art: row.fullArt,
+    full_art_portrait: row.fullArtPortrait,
     greeting: row.greeting,
     palette: row.palette,
     extra_art: row.extraArt,
+    extra_art_portrait: row.extraArtPortrait,
     updated_at: row.updatedAt.toISOString(),
   }
 }
@@ -43,6 +45,7 @@ export function toSpecialDayScene(row: SpecialDaySceneRow): SpecialDayScene {
     tile_art: row.tileArt,
     takeover: row.takeover,
     full_art: row.fullArt,
+    full_art_portrait: row.fullArtPortrait,
     greeting: row.greeting,
     palette: row.palette,
     updated_at: row.updatedAt.toISOString(),

@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm'
 import type { SpecialDaySceneInput, SpecialDayScene } from '../../shared/special-days'
 import type { Db } from '../db/client'
+import type { SceneArtSlot } from './art-errors'
 import { specialDays, specialDayScenes } from '../db/schema'
 import { SpecialDayError, joinList } from './errors'
 import type { DayRef } from './errors'
@@ -94,13 +95,16 @@ export function deleteScene(db: Db, id: string, { detach = false }: { detach?: b
 
     for (const day of users) {
       const ownLead = day.lead !== null
+      const ownArt = day.fullArt !== null || day.fullArtPortrait !== null
       tx.update(specialDays).set({
         sceneId: null,
         lead: ownLead ? day.lead : scene.lead,
         leadDays: ownLead ? day.leadDays : scene.leadDays,
         tileArt: day.tileArt ?? scene.tileArt,
         takeover: day.takeover ?? scene.takeover,
-        fullArt: day.fullArt ?? scene.fullArt,
+        // The two full arts move together, as `effectiveLook` takes them.
+        fullArt: ownArt ? day.fullArt : scene.fullArt,
+        fullArtPortrait: ownArt ? day.fullArtPortrait : scene.fullArtPortrait,
         greeting: day.greeting ?? scene.greeting,
         palette: day.palette ?? scene.palette,
         // Set to itself: left out, the column's on-update default would stamp it.
@@ -108,7 +112,7 @@ export function deleteScene(db: Db, id: string, { detach = false }: { detach?: b
       }).where(and(eq(specialDays.id, day.id), eq(specialDays.sceneId, id))).run()
     }
     tx.delete(specialDayScenes).where(eq(specialDayScenes.id, id)).run()
-    return [...new Set([scene.tileArt, scene.fullArt].filter((name): name is string => name !== null))]
+    return [...new Set([scene.tileArt, scene.fullArt, scene.fullArtPortrait].filter((name): name is string => name !== null))]
   })
 }
 
@@ -119,8 +123,8 @@ export function deleteScene(db: Db, id: string, { detach = false }: { detach?: b
  * the slot held before, so the caller can remove it if nothing else refers to
  * it. Null if there is no such scene.
  */
-export function setSceneArt(db: Db, id: string, slot: 'tile' | 'full', name: string | null, now: Date): { scene: SpecialDayScene, previous: string | null } | null {
-  const column = { tile: 'tileArt', full: 'fullArt' } as const
+export function setSceneArt(db: Db, id: string, slot: SceneArtSlot, name: string | null, now: Date): { scene: SpecialDayScene, previous: string | null } | null {
+  const column = { 'tile': 'tileArt', 'full': 'fullArt', 'full-portrait': 'fullArtPortrait' } as const satisfies Record<SceneArtSlot, string>
   return db.transaction((tx) => {
     const before = tx.select().from(specialDayScenes).where(eq(specialDayScenes.id, id)).get()
     if (!before) return null

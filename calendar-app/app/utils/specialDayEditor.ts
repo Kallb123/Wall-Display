@@ -252,7 +252,7 @@ export function sceneIsDirty(draft: SceneDraft, saved: SpecialDayScene | null): 
 
 // Scene or own
 
-/** The parts of a look the editor marks. `lead` is `lead` and `lead_days` together; the art is `tile_art` and `full_art` (a day's `extra_art` is always its own). */
+/** The parts of a look the editor marks. `lead` is `lead` and `lead_days` together; the art is `tile_art` and `full_art`, which stands for the portrait art too (a day's extra layers are always its own). */
 export type MarkedField = 'lead' | 'tile_art' | 'takeover' | 'full_art' | 'greeting' | 'palette'
 
 /**
@@ -260,14 +260,19 @@ export type MarkedField = 'lead' | 'tile_art' | 'takeover' | 'full_art' | 'greet
  * follows the scene, `own` ("Changed", with Reset) when the day sets it, or null
  * when the day has no scene, so there is nothing to mark. The art isn't in the
  * draft, so for `tile_art` and `full_art` it is the saved day that says: own
- * when the day has art of its own.
+ * when the day has art of its own. The full-screen art and its portrait cut go
+ * together (as in `effectiveLook`), so a day with either has both of its own.
  */
 export function fieldOrigin(draft: DayDraft, saved: SpecialDay | null, field: MarkedField): 'scene' | 'own' | null {
   if (draft.scene_id === null) return null
-  if (field === 'tile_art' || field === 'full_art') return (saved?.[field] ?? null) !== null ? 'own' : 'scene'
+  if (field === 'tile_art') return (saved?.tile_art ?? null) !== null ? 'own' : 'scene'
+  if (field === 'full_art') return ownsFullArt(saved) ? 'own' : 'scene'
   const own = field === 'greeting' ? !isBlank(draft.greeting) : draft[field] !== null
   return own ? 'own' : 'scene'
 }
+
+/** Whether the day has full-screen art of its own, in either shape. */
+const ownsFullArt = (day: Pick<SpecialDay, 'full_art' | 'full_art_portrait'> | null): boolean => day !== null && (day.full_art !== null || day.full_art_portrait !== null)
 
 /** The draft with a part of the look back to the scene's: null, and for `lead` the lead days cleared with it. The art is cleared with a `DELETE`, not here. */
 export function resetField(draft: DayDraft, field: Exclude<MarkedField, 'tile_art' | 'full_art'>): DayDraft {
@@ -304,6 +309,7 @@ export function draftLook(draft: DayDraft, saved: SpecialDay | null, scene: Spec
     tile_art: saved?.tile_art ?? null,
     takeover: draft.takeover,
     full_art: saved?.full_art ?? null,
+    full_art_portrait: saved?.full_art_portrait ?? null,
     greeting: textOrNull(draft.greeting),
     palette: draft.palette,
   }, scene)
@@ -412,7 +418,7 @@ const plural = (count: number, one: string, many: string): string => `${count} $
 export function daySummary(day: SpecialDay, scenes: readonly SpecialDayScene[]): string {
   const scene = day.scene_id === null ? undefined : scenes.find(candidate => candidate.id === day.scene_id)
   if (scene) {
-    const changes = LOOK_FIELDS.filter(field => day[field] !== null).length
+    const changes = LOOK_FIELDS.filter(field => field === 'full_art' ? ownsFullArt(day) : day[field] !== null).length
     return [`${scene.name} scene`, changes > 0 ? plural(changes, 'change', 'changes') : null, day.extra_art === null ? null : 'extra layer']
       .filter(part => part !== null)
       .join(' · ')
@@ -423,6 +429,17 @@ export function daySummary(day: SpecialDay, scenes: readonly SpecialDayScene[]):
     look.tile_art === null ? null : 'tile art',
     look.takeover ? 'full screen' : null,
   ].filter(part => part !== null).join(' · ')
+}
+
+/**
+ * Whether a portrait wall would show nothing of this day's full-screen art: the
+ * day takes over and has full-screen art (its own or its scene's) but no
+ * portrait cut of it. The list marks these. A day that doesn't take over, or has
+ * no full-screen art at all, has nothing for a portrait wall to miss.
+ */
+export function lacksPortraitArt(day: SpecialDay, scenes: readonly SpecialDayScene[]): boolean {
+  const look = effectiveLook(day, scenes.find(candidate => candidate.id === day.scene_id))
+  return look.takeover && look.full_art !== null && look.full_art_portrait === null
 }
 
 /** `Not used yet`, `Used by 1 day`, `Used by 4 days`. */

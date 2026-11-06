@@ -22,7 +22,7 @@ type Kind = 'day' | 'scene'
 interface Selection { kind: Kind, id: string | null }
 type Uploads = Partial<Record<ArtSlot, { progress: number | null, error: string | null }>>
 
-const SLOTS: readonly ArtSlot[] = ['tile', 'full', 'extra']
+const SLOTS: readonly ArtSlot[] = ['tile', 'full', 'extra', 'full-portrait', 'extra-portrait']
 
 const route = useRoute()
 const router = useRouter()
@@ -401,17 +401,22 @@ async function upload(slot: ArtSlot, file: File) {
   }
 }
 
-async function clearArt(slot: ArtSlot) {
+/** Removes art from the slots one after another, as each answer is the whole record and the last must be the newest. */
+async function clearArt(slots: ArtSlot[]) {
   const target = selected.value
   if (!target || target.id === null) return
   const { kind, id } = target
-  const key = `${keyOf(target)}|${slot}`
-  uploadState[key] = { progress: null, error: null }
-  try {
-    const done = await pin.guard(headers => $fetch<SpecialDay | SpecialDayScene>(`${pathOf(kind, id)}/art/${slot}`, { method: 'DELETE', headers }), () => clearArt(slot))
-    if (done) replace(kind, done.value)
-  } catch (caught) {
-    uploadState[key] = { progress: null, error: writeFailure(caught, `Couldn't remove the ${ART_SLOT_LABELS[slot].toLowerCase()}`) }
+  for (const slot of slots) {
+    const key = `${keyOf(target)}|${slot}`
+    uploadState[key] = { progress: null, error: null }
+    try {
+      const done = await pin.guard(headers => $fetch<SpecialDay | SpecialDayScene>(`${pathOf(kind, id)}/art/${slot}`, { method: 'DELETE', headers }), () => clearArt(slots.slice(slots.indexOf(slot))))
+      if (!done) return
+      replace(kind, done.value)
+    } catch (caught) {
+      uploadState[key] = { progress: null, error: writeFailure(caught, `Couldn't remove the ${ART_SLOT_LABELS[slot].toLowerCase()}`) }
+      return
+    }
   }
 }
 </script>

@@ -90,6 +90,7 @@ describe('special day scenes', async () => {
       tile_art: null,
       takeover: true,
       full_art: null,
+      full_art_portrait: null,
       greeting: 'Happy {nth} birthday, {who}!',
       palette: 'sage',
       updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),

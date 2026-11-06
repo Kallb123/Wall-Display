@@ -5,7 +5,8 @@ import type { ArtSlot } from '~/utils/artUpload'
 import '~/assets/special-days-form.css'
 
 // A place to drop a picture, or click to choose one: the art for a day's tile,
-// the wall's full-screen takeover, or a day's own extra layer. It shows the art
+// the wall's full-screen takeover, a day's own extra layer, or the portrait cut of
+// either (tall, 9:16, so it sits beside its landscape one). It shows the art
 // there is, or what to do, a bar while one uploads and the reason an upload was
 // refused. It does not check or send the file: the editor hands it to the page,
 // which does both. On a day that uses a scene, art of its own is marked
@@ -15,7 +16,7 @@ const props = withDefaults(defineProps<{
   artSlot: ArtSlot
   /** The art's file name, or null for none. */
   art: string | null
-  aspect: 'square' | 'wide'
+  aspect: 'square' | 'wide' | 'tall'
   /** 0 to 1 while a file uploads, else null. */
   progress: number | null
   /** Why the last upload was refused, or null. */
@@ -40,7 +41,7 @@ const input = useTemplateRef<HTMLInputElement>('input')
 const over = ref(false)
 
 /** Only the formats the server takes for the slot (the full-screen art is converted there, so any image goes). */
-const accept = computed(() => props.artSlot === 'full' ? 'image/*' : 'image/png,image/webp,image/svg+xml')
+const accept = computed(() => props.artSlot === 'full' || props.artSlot === 'full-portrait' ? 'image/*' : 'image/png,image/webp,image/svg+xml')
 const uploading = computed(() => props.progress !== null)
 const inert = computed(() => props.disabled || uploading.value)
 const percent = computed(() => Math.round((props.progress ?? 0) * 100))
@@ -155,6 +156,15 @@ function dragOver() {
 
 .art.wide {
   align-items: stretch;
+  /* Beside a tall drop it takes the room that is left, up to its own limit. */
+  flex: 1 1 240px;
+  max-width: 360px;
+}
+
+.art.tall {
+  flex: none;
+  /* Wide enough for "Portrait extra layer" to stay on one line, so the drops beside it line up. */
+  width: 156px;
 }
 
 .drop {
@@ -181,6 +191,11 @@ function dragOver() {
   width: 100%;
   max-width: 360px;
   aspect-ratio: 16 / 9;
+}
+
+.tall .drop {
+  width: 128px;
+  aspect-ratio: 9 / 16;
 }
 
 .drop:disabled {
@@ -247,6 +262,10 @@ function dragOver() {
 
 .square .bar {
   max-width: 160px;
+}
+
+.tall .bar {
+  max-width: 128px;
 }
 
 .fill {

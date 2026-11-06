@@ -37,6 +37,11 @@ function giveSceneArt(db: Db, id: string): void {
   db.update(specialDayScenes).set({ tileArt: 'scene-tile.webp', fullArt: 'scene-full.webp' }).where(eq(specialDayScenes.id, id)).run()
 }
 
+/** Gives a scene portrait full art too. */
+function giveScenePortraitArt(db: Db, id: string): void {
+  db.update(specialDayScenes).set({ fullArtPortrait: 'scene-tall.webp' }).where(eq(specialDayScenes.id, id)).run()
+}
+
 function updatedAtOf(db: Db, id: string): Date {
   return db.select().from(specialDays).where(eq(specialDays.id, id)).get()!.updatedAt
 }
@@ -55,6 +60,7 @@ describe('createScene and getScene', () => {
       tile_art: null,
       takeover: true,
       full_art: null,
+      full_art_portrait: null,
       greeting: 'Happy {nth} birthday, {who}!',
       palette: 'sage',
       updated_at: '2026-10-28T12:00:00.000Z',
@@ -110,6 +116,7 @@ describe('updateScene', () => {
       tile_art: 'scene-tile.webp',
       takeover: false,
       full_art: 'scene-full.webp',
+      full_art_portrait: null,
       greeting: null,
       palette: 'frost',
       updated_at: '2026-10-29T08:30:00.000Z',
@@ -312,6 +319,34 @@ describe('deleteScene', () => {
   })
 })
 
+describe('portrait art', () => {
+  it('is copied with a scene, and listed among the files a deleted scene held', () => {
+    const { db } = migratedMemoryDb()
+    createScene(db, sceneInput(), NOW)
+    giveSceneArt(db, 'birthday')
+    giveScenePortraitArt(db, 'birthday')
+
+    expect(duplicateScene(db, 'birthday', LATER)).toMatchObject({ full_art: 'scene-full.webp', full_art_portrait: 'scene-tall.webp' })
+    expect(deleteScene(db, 'birthday')).toEqual(['scene-tile.webp', 'scene-full.webp', 'scene-tall.webp'])
+  })
+
+  it('goes to a detached day with the scene\'s full art, and stays off a day that has full art of its own', () => {
+    const { db } = migratedMemoryDb()
+    createScene(db, sceneInput(), NOW)
+    giveSceneArt(db, 'birthday')
+    giveScenePortraitArt(db, 'birthday')
+    createSpecialDay(db, dayInput(), NOW)
+    createSpecialDay(db, dayInput({ name: 'Theo\'s birthday', who: 'Theo' }), NOW)
+    db.update(specialDays).set({ fullArt: 'theo-full.webp' }).where(eq(specialDays.id, 'theo-s-birthday')).run()
+
+    deleteScene(db, 'birthday', { detach: true })
+
+    expect(getSpecialDay(db, 'isla-s-birthday')).toMatchObject({ full_art: 'scene-full.webp', full_art_portrait: 'scene-tall.webp' })
+    // As effectiveLook had it: the day's own picture, and no portrait one.
+    expect(getSpecialDay(db, 'theo-s-birthday')).toMatchObject({ full_art: 'theo-full.webp', full_art_portrait: null })
+  })
+})
+
 describe('saveDayAsScene', () => {
   it('makes a scene from the day\'s own look and moves the day onto it with its own look cleared', () => {
     const { db } = migratedMemoryDb()
@@ -328,6 +363,7 @@ describe('saveDayAsScene', () => {
       tile_art: 'tile.webp',
       takeover: true,
       full_art: 'full.webp',
+      full_art_portrait: null,
       greeting: 'Happy {nth}, {who}!',
       palette: 'night',
       updated_at: '2026-10-29T08:30:00.000Z',
@@ -349,6 +385,43 @@ describe('saveDayAsScene', () => {
     })
     expect(getSpecialDay(db, 'first-birthday')).toEqual(saved.day)
     expect(getScene(db, 'first-birthday')).toEqual(saved.scene)
+  })
+
+  it('takes the day\'s portrait full art into the scene with its full art, and keeps the extra layer on the day', () => {
+    const { db } = migratedMemoryDb()
+    createSpecialDay(db, dayInput({ name: 'First birthday', scene_id: null, lead: 'day', takeover: true, palette: 'night' }), NOW)
+    db.update(specialDays).set({ fullArt: 'full.webp', fullArtPortrait: 'tall.webp', extraArt: 'seven.webp', extraArtPortrait: 'seven-tall.webp' }).run()
+
+    const saved = saveDayAsScene(db, 'first-birthday', undefined, LATER)!
+
+    expect(saved.scene).toMatchObject({ full_art: 'full.webp', full_art_portrait: 'tall.webp' })
+    expect(saved.day).toMatchObject({ full_art: null, full_art_portrait: null, extra_art: 'seven.webp', extra_art_portrait: 'seven-tall.webp' })
+  })
+
+  it('takes a lone portrait art of the day, and leaves the scene\'s full art behind it', () => {
+    const { db } = migratedMemoryDb()
+    createScene(db, sceneInput(), NOW)
+    giveSceneArt(db, 'birthday')
+    createSpecialDay(db, dayInput(), NOW)
+    db.update(specialDays).set({ fullArtPortrait: 'tall.webp' }).run()
+
+    const saved = saveDayAsScene(db, 'isla-s-birthday', 'Isla style', LATER)!
+
+    // The wall showed no landscape art and this portrait picture, and still does.
+    expect(saved.scene).toMatchObject({ full_art: null, full_art_portrait: 'tall.webp' })
+    expect(saved.day).toMatchObject({ full_art_portrait: null })
+  })
+
+  it('takes the scene\'s pair when the day has no full art of its own', () => {
+    const { db } = migratedMemoryDb()
+    createScene(db, sceneInput(), NOW)
+    giveSceneArt(db, 'birthday')
+    giveScenePortraitArt(db, 'birthday')
+    createSpecialDay(db, dayInput(), NOW)
+
+    const saved = saveDayAsScene(db, 'isla-s-birthday', 'Isla style', LATER)!
+
+    expect(saved.scene).toMatchObject({ full_art: 'scene-full.webp', full_art_portrait: 'scene-tall.webp' })
   })
 
   it('uses the effective look: the scene\'s values under the day\'s own', () => {

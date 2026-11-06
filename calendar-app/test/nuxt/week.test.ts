@@ -27,7 +27,7 @@ const weather: WeatherSnapshot = {
 }
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'week', events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
+  view: 'week', stage: { width: 2560, height: 1440, orientation: 'landscape' }, events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, weekStart: 'monday', weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
 })
 
 const person = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }

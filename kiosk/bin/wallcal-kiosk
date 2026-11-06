@@ -104,12 +104,26 @@ rotate_log() {
 }
 
 set_mode() {
-  local mode=${WALLCAL_MODE:-auto} line output=
-  if [[ $mode == auto ]]; then
+  local mode=${WALLCAL_MODE:-auto} rotate=${WALLCAL_ROTATE:-0} line output=
+  local -a args=()
+  local what='' to='' own=mode
+  if [[ $mode != auto ]]; then
+    args+=(--mode "$mode")
+    what="mode $mode"
+    to=$mode
+  fi
+  # 0 is wlr-randr's 'normal', which is what the output already has, so leave it alone.
+  if [[ $rotate != 0 ]]; then
+    args+=(--transform "$rotate")
+    own=settings
+    what+="${what:+ and }rotation $rotate"
+    to+="${to:+ }rotated $rotate"
+  fi
+  if ((${#args[@]} == 0)); then
     return 0
   fi
   if ! have wlr-randr || [[ -z ${WAYLAND_DISPLAY:-} ]]; then
-    log "cannot set mode $mode: needs wlr-randr and a Wayland session; leaving the monitor's own mode"
+    log "cannot set $what: needs wlr-randr and a Wayland session; leaving the monitor's own $own"
     return 0
   fi
   # Output names are the unindented lines of wlr-randr's listing.
@@ -120,13 +134,13 @@ set_mode() {
     fi
   done < <(wlr-randr 2>/dev/null || true)
   if [[ -z $output ]]; then
-    log "wlr-randr listed no outputs; leaving the monitor's own mode"
+    log "wlr-randr listed no outputs; leaving the monitor's own $own"
     return 0
   fi
-  if wlr-randr --output "$output" --mode "$mode"; then
-    log "set $output to $mode"
+  if wlr-randr --output "$output" "${args[@]}"; then
+    log "set $output to $to"
   else
-    log "could not set $output to $mode; carrying on"
+    log "could not set $output to $to; carrying on"
   fi
 }
 

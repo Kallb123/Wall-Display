@@ -312,6 +312,12 @@ describe('validation errors name the field', () => {
     expect(message).toContain('displays[0].night_text')
   })
 
+  it('an unknown orientation', async () => {
+    const message = await messageFor((c) => { c.displays[0].orientation = 'sideways' })
+
+    expect(message).toContain('displays[0].orientation')
+  })
+
   it('bad timezone', async () => {
     const message = await messageFor((c) => { c.timezone = 'Mars/Olympus' })
 

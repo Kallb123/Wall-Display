@@ -11,6 +11,7 @@ SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 DEFAULT_COMPOSITOR=labwc
 DEFAULT_MODE=2560x1440
+DEFAULT_ROTATE=0
 HOOK_BEGIN='# >>> wallcal-kiosk >>>'
 HOOK_END='# <<< wallcal-kiosk <<<'
 
@@ -18,6 +19,7 @@ URL=''
 KIOSK_USER=''
 COMPOSITOR=''
 MODE=''
+ROTATE=''
 TARGET=''
 WORK=''
 
@@ -25,6 +27,7 @@ usage() {
   cat <<'EOF'
 Usage:
   sudo ./setup.sh --url URL [--user NAME] [--compositor labwc|cage] [--mode WxH[@R]|auto]
+                    [--rotate 0|90|180|270]
   ./setup.sh --help
 
 Options:
@@ -35,6 +38,8 @@ Options:
   --compositor NAME  labwc (default) or cage.
   --mode MODE        HDMI mode, WIDTHxHEIGHT or WIDTHxHEIGHT@RATE (default 2560x1440),
                      or 'auto' to keep the monitor's preferred mode.
+  --rotate DEGREES   Turn the picture: 0 (default), 90, 180 or 270. Use 90 or 270 for a
+                     panel mounted in portrait.
 
 Options left out keep the values saved in /etc/wallcal-kiosk/kiosk.conf.
 Quote the URL: it usually contains ? and &.
@@ -76,13 +81,14 @@ parse_args() {
   while (($#)); do
     case $1 in
       -h|--help) usage; exit 0 ;;
-      --url|--user|--compositor|--mode|--target)
+      --url|--user|--compositor|--mode|--rotate|--target)
         (($# >= 2)) || usage_error "$1 needs a value"
         case $1 in
           --url) URL=$2 ;;
           --user) KIOSK_USER=$2 ;;
           --compositor) COMPOSITOR=$2 ;;
           --mode) MODE=$2 ;;
+          --rotate) ROTATE=$2 ;;
           --target) TARGET=${2%/}
             [[ -n $TARGET ]] || usage_error "--target must not be /" ;;
         esac
@@ -108,6 +114,8 @@ resolve_settings() {
   : "${COMPOSITOR:=$DEFAULT_COMPOSITOR}"
   : "${MODE:=$(saved_value WALLCAL_MODE)}"
   : "${MODE:=$DEFAULT_MODE}"
+  : "${ROTATE:=$(saved_value WALLCAL_ROTATE)}"
+  : "${ROTATE:=$DEFAULT_ROTATE}"
   : "${KIOSK_USER:=${SUDO_USER:-}}"
 }
 
@@ -120,6 +128,7 @@ validate_settings() {
   [[ $URL =~ $url_re ]] || usage_error "--url must start with http:// or https:// and contain no spaces"
   [[ $COMPOSITOR == labwc || $COMPOSITOR == cage ]] || usage_error "--compositor must be labwc or cage"
   [[ $MODE == auto || $MODE =~ $mode_re ]] || usage_error "--mode must be auto, WIDTHxHEIGHT or WIDTHxHEIGHT@RATE"
+  [[ $ROTATE == 0 || $ROTATE == 90 || $ROTATE == 180 || $ROTATE == 270 ]] || usage_error "--rotate must be 0, 90, 180 or 270"
   [[ -n $KIOSK_USER ]] || usage_error "--user is required (SUDO_USER is not set)"
   [[ $KIOSK_USER =~ $user_re ]] || usage_error "--user '$KIOSK_USER' is not a valid account name"
   [[ $KIOSK_USER != root ]] || usage_error "--user must not be root"
@@ -189,11 +198,13 @@ write_conf() {
 # Edit it, or re-run setup.sh with new options; then reboot or run
 # 'sudo systemctl restart getty@tty1' to apply the change.
 # WALLCAL_MODE is WIDTHxHEIGHT, WIDTHxHEIGHT@RATE or auto.
+# WALLCAL_ROTATE is 0, 90, 180 or 270 (degrees).
 EOF
     printf '%s=%q\n' \
       WALLCAL_URL "$URL" \
       WALLCAL_COMPOSITOR "$COMPOSITOR" \
-      WALLCAL_MODE "$MODE"
+      WALLCAL_MODE "$MODE" \
+      WALLCAL_ROTATE "$ROTATE"
   } | write_file 0644 "$(path /etc/wallcal-kiosk/kiosk.conf)"
 }
 
@@ -311,6 +322,7 @@ Kiosk installed.
   URL:        $URL
   Compositor: $COMPOSITOR
   Mode:       $MODE
+  Rotate:     $ROTATE
 
 Reboot to start the kiosk: sudo reboot
 EOF

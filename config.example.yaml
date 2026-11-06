@@ -87,10 +87,10 @@ weather:
 #   poll_seconds: 300 # default 300; at least 30
 
 # One entry per screen. Open /display?id=hallway on it.
-# theme, month_style, month_return_minutes, week_start, week_hours, burn_in and
-# night_text can also be changed on the /settings Displays tab while the app
-# runs. A change made there is stored in the database on top of this file and
-# wins over it until you press Reset there; this file is never written.
+# theme, month_style, month_return_minutes, week_start, week_hours, burn_in,
+# night_text and orientation can also be changed on the /settings Displays tab
+# while the app runs. A change made there is stored in the database on top of
+# this file and wins over it until you press Reset there; this file is never written.
 displays:
   - id: hallway
     name: Hallway
@@ -100,6 +100,7 @@ displays:
     week_start: monday # monday | sunday
     burn_in: true # default true; slowly shift the content and move the photo frame's clock between corners, against burn-in
     night_text: first_event # none (default) | first_event | next_alarm; the line under the night view's clock. next_alarm needs the alarm block above
+    orientation: auto # auto (default) | landscape | portrait; auto lays out portrait when the screen is taller than it is wide. ?orientation= on the display URL overrides it for one device
     week_hours: { from: 7, to: 21 } # the hours the week view draws in full (whole hours, from 0-23 to 1-24); earlier and later hours are folded into a thin band
     # Optional built-in schedules: rules that put a view on the wall for part of
     # the day. Each schedule has an id (letters, digits, - and _), an optional

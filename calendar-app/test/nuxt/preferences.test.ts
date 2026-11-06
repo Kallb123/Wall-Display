@@ -21,6 +21,7 @@ const displayValues: DisplayPreferences = {
   week_hours: { from: 7, to: 21 },
   burn_in: true,
   night_text: 'none',
+  orientation: 'auto',
 }
 
 const sharedValues: SharedPreferences = {
@@ -174,6 +175,18 @@ describe('the display preferences', () => {
     expect(card.findAll('[data-testid="mark-changed"]')).toHaveLength(2)
     expect(card.find('[data-testid="unsaved"]').exists()).toBe(false)
     expect(card.find('[data-testid="preferences-outcome"]').text()).toContain('Saved')
+  })
+
+  it('shows the orientation in force and saves a change to it', async () => {
+    const wrapper = await open()
+    const card = hallway(wrapper)
+
+    expect((card.find('[data-testid="orientation-auto"]').element as HTMLInputElement).checked).toBe(true)
+    await card.find('[data-testid="orientation-portrait"]').setValue(true)
+    await card.find('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(puts()).toEqual([{ method: 'PUT', url: '/api/settings/preferences/displays/hallway', body: { set: { orientation: 'portrait' } }, pin: null }])
   })
 
   it('sends a changed week hours and minutes as numbers', async () => {

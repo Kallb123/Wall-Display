@@ -104,7 +104,7 @@ stop_launcher() { # pid
 # --- Fixtures ---------------------------------------------------------------
 
 # Never leak the developer's own session or kiosk settings into the tests.
-unset WAYLAND_DISPLAY WALLCAL_URL WALLCAL_MODE WALLCAL_COMPOSITOR WALLCAL_CHROMIUM
+unset WAYLAND_DISPLAY WALLCAL_URL WALLCAL_MODE WALLCAL_ROTATE WALLCAL_COMPOSITOR WALLCAL_CHROMIUM
 export HOME=$tmp/home
 export XDG_DATA_HOME=$tmp/data
 export XDG_STATE_HOME=$tmp/state
@@ -375,6 +375,25 @@ assert_false "stop: chromium was stopped with it" alive "$chromium_pid"
 assert_contains "stop: mode failure was logged" "$(<"$tmp/term.err")" "could not set HDMI-A-1"
 assert_contains "log rotation: previous run's log kept as chromium.log.1" "$(<"$state/chromium.log.1")" "fake chromium output smoke"
 assert_contains "log rotation: this run's log is chromium.log" "$(<"$state/chromium.log")" "fake chromium output term"
+
+# Rotation: one wlr-randr call with both --mode and --transform, or transform only; nothing
+# at all with rotate 0 and mode auto.
+for case in '2560x1440 270 --output HDMI-A-1 --mode 2560x1440 --transform 270' \
+  'auto 90 --output HDMI-A-1 --transform 90' 'auto 0 ' '2560x1440 0 --output HDMI-A-1 --mode 2560x1440'; do
+  read -r c_mode c_rot c_want <<<"$case"
+  rm -f "$FAKE_STARTS" "$FAKE_WLR_ARGS"
+  printf 'WALLCAL_URL=%q\nWALLCAL_MODE=%s\nWALLCAL_ROTATE=%s\n' "$url" "$c_mode" "$c_rot" >"$WALLCAL_KIOSK_CONF"
+  env PATH="$fakebin:$PATH" WAYLAND_DISPLAY=wayland-test FAKE_TAG=rot \
+    WALLCAL_KIOSK_BACKOFF_START=1 WALLCAL_KIOSK_WAIT_INTERVAL=0 \
+    "$BASH" "$launcher" 2>"$tmp/rot.err" &
+  pid=$!
+  bg_pids+=("$pid")
+  assert_true "rotate [$c_mode $c_rot]: chromium started" wait_for_lines "$FAKE_STARTS" 1 10
+  stop_launcher "$pid"
+  got=none
+  [[ -f $FAKE_WLR_ARGS ]] && got=$(<"$FAKE_WLR_ARGS")
+  assert_eq "rotate [$c_mode $c_rot]: wlr-randr arguments" "${c_want:-none}" "$got"
+done
 
 # --- 9. launcher: access for the Pi agent -----------------------------------
 

@@ -43,7 +43,8 @@ const icon = computed(() => overlayIcon(props.overlay?.icon ?? null))
   align-items: center;
   gap: 32px;
   box-sizing: border-box;
-  max-width: 2200px;
+  /* Keeps 64 px clear at each side of the narrower, portrait stage. */
+  max-width: min(2200px, 100% - 128px);
   padding: 28px 64px 28px 56px;
   border-radius: var(--radius-pill);
   background: var(--accent);

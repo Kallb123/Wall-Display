@@ -51,6 +51,21 @@ describe('the settings store', () => {
     expect(events).toEqual([{ displayIds: ['hallway'], shared: false }])
   })
 
+  it('saves orientation, puts it in force and resets it', () => {
+    const { store, events } = setup()
+
+    const saved = store.updateDisplay('hallway', { set: { orientation: 'portrait' } })
+
+    expect(saved.displays[0]).toMatchObject({ values: { orientation: 'portrait' }, config: { orientation: 'auto' }, changed: ['orientation'] })
+    expect(store.config().displays[0]!.orientation).toBe('portrait')
+    expect(refused(() => store.updateDisplay('hallway', { set: { orientation: 'sideways' } }))).toEqual({ orientation: expect.any(String) })
+
+    const reset = store.updateDisplay('hallway', { reset: ['orientation'] })
+
+    expect(reset.displays[0]).toMatchObject({ values: { orientation: 'auto' }, changed: [] })
+    expect(events).toEqual([{ displayIds: ['hallway'], shared: false }, { displayIds: ['hallway'], shared: false }])
+  })
+
   it('lists changed keys in key order, whatever order they were saved in', () => {
     const { store } = setup()
     store.updateDisplay('hallway', { set: { burn_in: false } })

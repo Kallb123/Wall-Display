@@ -25,6 +25,9 @@ export const ALL_DAY_LANES = 3
 /** A timed event shorter than this is laid out, and drawn, as if it were this long, so short neighbours do not sit on top of each other. */
 export const MIN_BLOCK_MINUTES = 30
 
+/** The portrait week's side-by-side limit: the columns are too narrow for more, so the rest are counted in a "+N" chip instead. */
+export const PORTRAIT_MAX_TRACKS = 2
+
 const MINUTES_IN_DAY = 24 * 60
 
 export interface WeekLayoutInput {
@@ -39,6 +42,8 @@ export interface WeekLayoutInput {
   hours: WeekHours
   /** Each event already carries its people. */
   events: CalendarEvent[]
+  /** The most blocks side by side in a column. Those on a later track are not drawn but counted in `overflow`. No limit when left out. */
+  maxTracks?: number
 }
 
 export interface WeekDay {
@@ -105,6 +110,17 @@ export interface TimedBlock extends ItemPeople {
   ongoing: boolean
 }
 
+/** The blocks that did not fit beside the others, counted where they start: the view draws "+N" there, on the column's right edge. */
+export interface OverflowChip {
+  column: number
+  /** Minutes from the top of the full range, after clipping: where the hidden blocks start. */
+  top: number
+  /** At least 1. */
+  count: number
+  /** The hidden events, by id. */
+  events: CalendarEvent[]
+}
+
 /** A timed event wholly inside a collapsed band. */
 export interface BandItem extends ItemPeople {
   event: CalendarEvent
@@ -150,8 +166,10 @@ export interface WeekLayout {
     /** The lanes actually used, 0 to `ALL_DAY_LANES`, so the view can shrink the strip when it is empty. */
     lanes: number
   }
-  /** By column, then top, then track. */
+  /** By column, then top, then track. With `maxTracks`, only those on a track below it. */
   blocks: TimedBlock[]
+  /** Blocks left out for want of a track, grouped by column and start. Empty without `maxTracks`. By column, then top. */
+  overflow: OverflowChip[]
   /** The hours before `hours.from`. `null` when `hours.from` is 0. */
   early: Band | null
   /** The hours from `hours.to`. `null` when `hours.to` is 24. */
@@ -284,15 +302,19 @@ interface TimedPlan {
   end: number
 }
 
-/** Side by side: gives each block in one column its track and the number of tracks in its overlap group. */
-function assignTracks(blocks: TimedBlock[]): void {
+/**
+ * Side by side: gives each block in one column its track and the number of tracks in its overlap group.
+ * With `maxTracks`, a group has at most that many tracks, and the blocks on a later one are returned
+ * rather than kept, for the caller to count.
+ */
+function assignTracks(blocks: TimedBlock[], maxTracks: number): TimedBlock[] {
   blocks.sort((a, b) => a.top - b.top || b.height - a.height || a.event.id - b.event.id)
 
   let group: TimedBlock[] = []
   let groupBottom = -Infinity
   let trackBottoms: number[] = []
   const close = () => {
-    for (const block of group) block.tracks = trackBottoms.length
+    for (const block of group) block.tracks = Math.min(trackBottoms.length, maxTracks)
     group = []
     trackBottoms = []
     groupBottom = -Infinity
@@ -309,10 +331,14 @@ function assignTracks(blocks: TimedBlock[]): void {
     groupBottom = Math.max(groupBottom, block.top + block.height)
   }
   close()
+
+  const hidden = blocks.filter(block => block.track >= maxTracks)
+  blocks.splice(0, blocks.length, ...blocks.filter(block => block.track < maxTracks))
+  return hidden
 }
 
 /** Lays out the week of `weekOf`: the strip, the blocks, the collapsed bands and the now line. */
-export function weekLayout({ weekOf, now, timeZone, weekStart, hours, events }: WeekLayoutInput): WeekLayout {
+export function weekLayout({ weekOf, now, timeZone, weekStart, hours, events, maxTracks = Infinity }: WeekLayoutInput): WeekLayout {
   const today = todayIn(now, timeZone)
   const first = addDays(weekOf, -((dayOfWeek(weekOf) - (weekStart === 'monday' ? 1 : 0) + 7) % 7))
   const days = Array.from({ length: 7 }, (_, column): WeekDay => {
@@ -390,10 +416,21 @@ export function weekLayout({ weekOf, now, timeZone, weekStart, hours, events }: 
   }
 
   const ordered: TimedBlock[] = []
+  const overflow: OverflowChip[] = []
   for (const day of days) {
     const column = blocks.filter(block => block.column === day.column)
-    assignTracks(column)
+    const hidden = assignTracks(column, maxTracks)
     ordered.push(...column)
+    // One chip for each start time, so two hidden blocks that begin together are "+2" and not two chips on top of each other.
+    for (const block of hidden.sort((a, b) => a.top - b.top || a.event.id - b.event.id)) {
+      const last = overflow[overflow.length - 1]
+      if (last && last.column === day.column && last.top === block.top) {
+        last.count++
+        last.events.push(block.event)
+      } else {
+        overflow.push({ column: day.column, top: block.top, count: 1, events: [block.event] })
+      }
+    }
   }
 
   const band = (label: string, items: BandItem[][]): Band => ({
@@ -419,6 +456,7 @@ export function weekLayout({ weekOf, now, timeZone, weekStart, hours, events }: 
     rangeMinutes,
     allDay: layoutAllDay(days, bars),
     blocks: ordered,
+    overflow,
     early: hours.from === 0 ? null : band(`00–${pad(hours.from)}`, early),
     late: hours.to === 24 ? null : band(`${pad(hours.to)}–24`, late),
     now: nowLine,

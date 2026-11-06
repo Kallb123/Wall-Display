@@ -13,8 +13,7 @@ import weather from './fixtures/weather.json' with { type: 'json' }
 
 // The portrait stage (PR 5.10, architecture §4.2): a 1440×2560 window, as a
 // panel hung on its side shows it. The night view, the agenda, the photo frame
-// and the month have portrait layouts so far; the week is the landscape stage
-// letterboxed in the window, as it is here (until PR 5.13). The window is the
+// the month and the week have portrait layouts, which is every view. The window is the
 // shape of the panel, so `auto` finds portrait by itself, and `?orientation=` is
 // checked as well. The landscape pictures are in the other specs, which must
 // not change.
@@ -103,20 +102,6 @@ test('the overlay banner keeps its margins on the portrait stage', async ({ page
   expect(banner.x).toBeGreaterThanOrEqual(64)
   expect(banner.x + banner.width).toBeLessThanOrEqual(1440 - 64)
   await expect(page).toHaveScreenshot('portrait-night-overlay.png')
-})
-
-test('the week is the landscape stage letterboxed in a portrait window', async ({ page }) => {
-  await playServer(page, { view: 'week' })
-  await page.goto('/display?id=hallway')
-  await settle(page)
-
-  await expect(page.getByTestId('stage')).toHaveAttribute('data-orientation', 'landscape')
-  const stage = await stageBox(page)
-  expect(stage.width).toBeCloseTo(1440, 0)
-  expect(stage.height).toBeCloseTo(810, 0)
-  // Centred, with black above and below.
-  expect(stage.y).toBeCloseTo((2560 - 810) / 2, 0)
-  await expect(page).toHaveScreenshot('portrait-week-letterboxed.png')
 })
 
 test('?orientation=portrait gives the night view the portrait stage in a landscape window', async ({ page }) => {
@@ -454,6 +439,158 @@ test.describe('the month', () => {
   })
 })
 
+// The week (PR 5.13, mocks 4c and 4d): seven narrow tiles with the hours down
+// the left, two blocks side by side at most, and a "+N" chip for the rest. The
+// fixtures have Wednesday's playdate and ballet side by side; the crowded week
+// adds three events at once on Tuesday, two more at one time on Thursday, and
+// five all-day events on Monday, which fill the strip and end in "+N more".
+test.describe('the week', () => {
+  const crowd = (id: number, title: string, start: string, end: string, extra: Partial<CalendarEvent> = {}): CalendarEvent => ({
+    ...swimming, id, title, display_title: title, start, end, ...extra,
+  })
+  const crowded: CalendarEvent[] = [
+    ...events,
+    crowd(801, 'Maths club', '2026-10-27T10:00:00.000Z', '2026-10-27T12:00:00.000Z'),
+    crowd(802, 'Chess club', '2026-10-27T10:00:00.000Z', '2026-10-27T12:00:00.000Z'),
+    crowd(803, 'Choir', '2026-10-27T10:30:00.000Z', '2026-10-27T11:30:00.000Z'),
+    crowd(804, 'Drama', '2026-10-27T10:30:00.000Z', '2026-10-27T11:00:00.000Z'),
+    crowd(805, 'Lab', '2026-10-27T14:00:00.000Z', '2026-10-27T14:20:00.000Z'),
+    crowd(806, 'Quick one', '2026-10-27T14:00:00.000Z', '2026-10-27T14:20:00.000Z'),
+    crowd(807, 'Spanish', '2026-10-27T14:00:00.000Z', '2026-10-27T14:20:00.000Z'),
+    ...[1, 2, 3, 4, 5].map(index => crowd(810 + index, `Day trip ${index}`, '2026-10-26', '2026-10-27', { all_day: true, start_date: '2026-10-26', end_date: '2026-10-27' })),
+  ]
+
+  const box = async (locator: Locator) => (await locator.boundingBox())!
+
+  /**
+   * Nothing is cut off: the title, the strip and every block and chip lie inside
+   * the stage's margins and the tile they belong to, and the tiles end above the
+   * stage's bottom margin. A title may be clamped (it ends in an ellipsis), but
+   * the block holds it.
+   */
+  async function expectWeekInside(page: Page) {
+    const tiles = await page.getByTestId('day-tile').evaluateAll(elements => elements.map((element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect()
+      return { left, right, top, bottom }
+    }))
+    expect(tiles).toHaveLength(7)
+    expect(Math.min(...tiles.map(tile => tile.top))).toBeGreaterThan(0)
+    expect(Math.max(...tiles.map(tile => tile.bottom))).toBeLessThanOrEqual(2560 - 48 + 0.5)
+    expect(Math.max(...tiles.map(tile => tile.right))).toBeLessThanOrEqual(1440 - 40 + 0.5)
+    const title = await box(page.getByTestId('week-title'))
+    expect(title.x).toBeGreaterThanOrEqual(40)
+    expect(title.x + title.width).toBeLessThanOrEqual(1440 - 40)
+    expect(title.y + title.height).toBeLessThanOrEqual(Math.min(...tiles.map(tile => tile.top)))
+    const greeting = page.getByTestId('greeting')
+    if (await greeting.count()) {
+      const line = await box(greeting)
+      expect(line.x + line.width).toBeLessThanOrEqual(1440 - 40)
+      expect(line.y).toBeGreaterThanOrEqual(title.y + title.height)
+      expect(line.y + line.height).toBeLessThanOrEqual(Math.min(...tiles.map(tile => tile.top)))
+    }
+
+    const items = await page.locator('[data-testid="event"], [data-testid="more"], [data-testid="overflow"], [data-testid="band-item"]').evaluateAll(elements => elements.map((element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect()
+      return { kind: element.getAttribute('data-testid') === 'event' ? element.getAttribute('data-kind')! : element.getAttribute('data-testid')!, left, right, top, bottom, text: element.textContent!.replace(/\s+/g, ' ').trim() }
+    }))
+    expect(items.length).toBeGreaterThan(0)
+    for (const item of items) {
+      const middle = (item.left + item.right) / 2
+      const tile = tiles.find(candidate => middle >= candidate.left && middle <= candidate.right)
+      expect(tile, item.text).toBeDefined()
+      expect(item.top, item.text).toBeGreaterThanOrEqual(tile!.top - 0.5)
+      expect(item.bottom, item.text).toBeLessThanOrEqual(tile!.bottom + 0.5)
+      // A bar may run on into the next tile; everything else stays in its own.
+      if (item.kind !== 'bar') {
+        expect(item.left, item.text).toBeGreaterThanOrEqual(tile!.left - 0.5)
+        expect(item.right, item.text).toBeLessThanOrEqual(tile!.right + 0.5)
+      }
+    }
+    // The labels that must be whole are not clipped.
+    const clipped = await page.locator('[data-testid="more"], [data-testid="overflow"]').evaluateAll(elements => elements.filter(element => element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight).map(element => element.textContent))
+    expect(clipped).toEqual([])
+  }
+
+  test('26 October to 1 November, light theme, as the mock', async ({ page }) => {
+    await playServer(page, { view: 'week' }, events, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-orientation', 'portrait')
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'light')
+    await expect(page.getByTestId('week-title')).toHaveText('26 October – 1 November 2026')
+    await expect(page.getByTestId('now-time')).toHaveText('09:41')
+    // The hour gutter is 64 px and the stage has 40 px at its sides, so the first tile starts at 40 + 64 + 10.
+    const first = await box(page.getByTestId('day-tile').first())
+    const last = await box(page.getByTestId('day-tile').last())
+    expect(first.x).toBeCloseTo(114, 0)
+    expect(last.x + last.width).toBeCloseTo(1400, 0)
+    expect(last.y + last.height).toBeCloseTo(2560 - 48, 0)
+    // The playdate and the ballet share Wednesday's column, two tracks wide.
+    await expect(page.locator('[data-kind="block"][data-tracks="2"]')).not.toHaveCount(0)
+    await expectWeekInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-light.png')
+  })
+
+  test('26 October to 1 November, dark theme', async ({ page }) => {
+    await playServer(page, { view: 'week' }, events, weather)
+    await page.goto('/display?id=kitchen')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'dark')
+    await expectWeekInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-dark.png')
+  })
+
+  test('a crowded week draws two blocks at most side by side, counts the rest in chips, and ends a full strip in "+N more"', async ({ page }) => {
+    await playServer(page, { view: 'week' }, crowded, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    const tuesday = page.locator('[data-testid="overflow"]')
+    // Tuesday: two of the four 10:00 to 12:00 events are hidden (Choir at 10:30 and Drama at 10:30: one chip, +2), and the three short ones at 14:00 leave one chip, +1.
+    await expect(tuesday).toHaveText(['+2', '+1'])
+    expect(await page.locator('[data-kind="block"]').evaluateAll(blocks => Math.max(...blocks.map(block => Number(block.getAttribute('data-tracks')))))).toBe(2)
+    // Half term and five day trips on Monday: three lanes, the last of them "+N more".
+    await expect(page.locator('[data-kind="bar"]').filter({ hasText: 'Day trip' })).toHaveCount(1)
+    await expect(page.getByTestId('more').first()).toHaveText('+4 more')
+    // It sits in the third lane, 34 px tall.
+    const strip = await box(page.getByTestId('more').first())
+    expect(strip.height).toBe(34)
+    await expectWeekInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-crowded.png')
+  })
+
+  test('a long block has its time and a title that wraps; a short one is a single line with no time', async ({ page }) => {
+    await playServer(page, { view: 'week' }, crowded, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    const long = page.locator('[data-kind="block"]').filter({ hasText: 'Hair appointment' }).first()
+    await expect(long.locator('.time')).toBeVisible()
+    const short = page.locator('[data-kind="block"].one-line').first()
+    await expect(short.locator('.time')).toBeHidden()
+    expect((await box(short)).height).toBeLessThan(50 / 60 * 90)
+  })
+
+  test('a takeover\'s greeting has a line under the title, in the night palette, with the tiles tinted', async ({ page }) => {
+    const HALLOWEEN = new Date('2026-10-31T09:41:00Z')
+    await playServer(page, { view: 'week' }, crowded, weather, { now: HALLOWEEN, specialDays: specialDaysOn('2026-10-31') })
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-palette', 'night')
+    await expect(page.getByTestId('takeover-full')).toHaveCount(0)
+    await expect(page.getByTestId('greeting')).toHaveText('Happy Halloween!')
+    const title = await box(page.getByTestId('week-title'))
+    const greeting = await box(page.getByTestId('greeting'))
+    expect(greeting.y).toBeGreaterThanOrEqual(title.y + title.height)
+    await expect(page.locator('[data-testid="day-tile"][data-special="halloween"]')).toHaveAttribute('data-date', '2026-10-31')
+    await expectWeekInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-takeover.png')
+  })
+})
+
 // The photo frame (PR 5.11). The server's portrait renders are tested with the
 // real photos elsewhere; here the answer is made up, to check what the page
 // asks for and that the pill fits the narrow stage in every corner.
@@ -492,7 +629,7 @@ test.describe('the photo frame', () => {
     expect(layer).toEqual({ x: 0, y: 0, width: 1440, height: 2560 })
   })
 
-  test('asks for a landscape photo in the week\'s letterbox, where the photo frame has none', async ({ page }) => {
+  test('asks for a landscape photo when the display is turned to landscape in a portrait window', async ({ page }) => {
     const asked = await answerPhotos(page)
     await playServer(page, { view: 'photo' }, busy, weather)
     await page.goto('/display?id=hallway&orientation=landscape')

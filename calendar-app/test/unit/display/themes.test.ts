@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SPECIAL_DAY_PALETTES } from '../../../shared/special-days'
-import { PALETTES, THEME_TOKENS, THEMES, paletteAccent, personFill, themeStyle, themeTokens, tileTint } from '../../../app/utils/themes'
+import { PALETTES, THEME_TOKENS, THEMES, paletteAccent, personFill, PORTRAIT_WEEK_TILE_TINT, themeStyle, themeTokens, tileTint } from '../../../app/utils/themes'
 
 describe('THEMES', () => {
   it('gives light and dark every token', () => {
@@ -76,6 +76,10 @@ describe('paletteAccent', () => {
 describe('tileTint', () => {
   it('mixes 26% of the accent into what the tile would have been', () => {
     expect(tileTint('var(--accent)', 'var(--tile)')).toBe('color-mix(in oklab, var(--accent) 26%, var(--tile))')
+  })
+
+  it('mixes in the amount it is given, 16% for the portrait week', () => {
+    expect(tileTint('var(--accent)', 'var(--tile)', PORTRAIT_WEEK_TILE_TINT)).toBe('color-mix(in oklab, var(--accent) 16%, var(--tile))')
   })
 })
 

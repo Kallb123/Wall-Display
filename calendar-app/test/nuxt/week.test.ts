@@ -236,4 +236,53 @@ describe('WeekView', () => {
       expect(wrapper.find('[data-testid="greeting"]').exists()).toBe(false)
     })
   })
+
+  describe('on the portrait stage', () => {
+    const portrait = (overrides: Partial<ViewProps> = {}) => props({ stage: { width: 1440, height: 2560, orientation: 'portrait' }, ...overrides })
+    const at = (title: string, start: string, end: string, id: number) => event(id, { display_title: title, start: `2026-10-28T${start}:00Z`, end: `2026-10-28T${end}:00Z` })
+
+    it('is flagged, and draws the same seven tiles', async () => {
+      const landscape = await mountSuspended(WeekView, { props: props() })
+      const wrapper = await mountSuspended(WeekView, { props: portrait() })
+
+      expect(wrapper.find('[data-testid="week-view"]').classes()).toContain('portrait')
+      expect(landscape.find('[data-testid="week-view"]').classes()).not.toContain('portrait')
+      expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(7)
+    })
+
+    it('puts two overlapping blocks side by side and counts the third in a chip, with no block drawn for it', async () => {
+      const events = [at('A', '10:00', '11:00', 1), at('B', '10:00', '11:00', 2), at('C', '10:30', '11:30', 3)]
+      const wrapper = await mountSuspended(WeekView, { props: portrait({ events }) })
+
+      expect(wrapper.findAll('[data-kind="block"]').map(block => [block.text().includes('C'), block.attributes('data-tracks')])).toEqual([[false, '2'], [false, '2']])
+      const chips = wrapper.findAll('[data-testid="overflow"]')
+      expect(chips.map(chip => chip.text())).toEqual(['+1'])
+      // 10:30 is 210 minutes into the 07:00 to 21:00 scale.
+      expect(chips[0]!.attributes('style')).toContain(`top: ${210 / 840 * 100}%`)
+    })
+
+    it('draws all three side by side in landscape, and no chip', async () => {
+      const events = [at('A', '10:00', '11:00', 1), at('B', '10:00', '11:00', 2), at('C', '10:30', '11:30', 3)]
+      const wrapper = await mountSuspended(WeekView, { props: props({ events }) })
+
+      expect(wrapper.findAll('[data-kind="block"]')).toHaveLength(3)
+      expect(wrapper.find('[data-testid="overflow"]').exists()).toBe(false)
+    })
+
+    it('draws a block under 50 minutes on one line and a longer one on two', async () => {
+      const events = [at('Short', '09:00', '09:40', 1), at('Long', '12:00', '13:00', 2)]
+      const wrapper = await mountSuspended(WeekView, { props: portrait({ events }) })
+
+      const [short, long] = wrapper.findAll('[data-kind="block"]')
+      expect(short!.classes()).toContain('one-line')
+      expect(long!.classes()).not.toContain('one-line')
+    })
+
+    it('keeps the chip\'s ring in the colour of its tile', async () => {
+      const events = [at('A', '10:00', '11:00', 1), at('B', '10:00', '11:00', 2), at('C', '10:00', '11:00', 3)]
+      const wrapper = await mountSuspended(WeekView, { props: portrait({ events }) })
+
+      expect(wrapper.find('.hours[style*="--tile-bg: var(--today-cell)"]').find('[data-testid="overflow"]').exists()).toBe(true)
+    })
+  })
 })

@@ -20,8 +20,8 @@ export const CALENDAR_VIEWS = ['month', 'week', 'agenda'] as const satisfies rea
 
 export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
-/** The views with a portrait layout. The week is the only one left letterboxed on the landscape stage in a portrait window, until its layout arrives (PR 5.13). */
-export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month']
+/** The views with a portrait layout: all of them since PR 5.13. A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
+export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week']
 
 export const hasPortraitLayout = (view: View): boolean => PORTRAIT_VIEWS.includes(view)
 

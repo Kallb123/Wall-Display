@@ -95,7 +95,8 @@ photos:
     expect(status).toMatchObject({
       configured: true,
       interval_seconds: 30,
-      landscape_only: true,
+      // Set with the older name, which still turns it on.
+      match_orientation: true,
       cache_bytes: 0,
       cache_max_bytes: 64 * 1024 * 1024,
       google_ignored: true,

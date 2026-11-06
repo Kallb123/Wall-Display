@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import { calendars, displayState, events, photoAssets, specialDays, specialDayScenes, syncStatus } from '../../../server/db/schema'
+import { calendars, displayState, events, photoAssets, photoRenditions, specialDays, specialDayScenes, syncStatus } from '../../../server/db/schema'
 import type { NewEventRow, NewSpecialDayRow, NewSpecialDaySceneRow } from '../../../server/db/schema'
 import { insertCalendar, migratedMemoryDb } from './helpers'
 
@@ -141,7 +141,7 @@ describe('display_state', () => {
 })
 
 describe('photo_assets', () => {
-  it('stores an asset with optional cache fields empty', () => {
+  it('stores an asset with nothing cached yet', () => {
     const { db } = migratedMemoryDb()
 
     db.insert(photoAssets).values({
@@ -156,11 +156,24 @@ describe('photo_assets', () => {
     expect(db.select().from(photoAssets).get()).toMatchObject({
       id: 'local:holiday/beach.jpg',
       takenAt: null,
-      cacheFile: null,
-      cacheBytes: null,
-      fetchedAt: null,
       lastShownAt: null,
     })
+  })
+
+  it('keeps one rendition file per shape and drops them with the asset', () => {
+    const { db } = migratedMemoryDb()
+    db.insert(photoAssets).values({ id: 'local:a.jpg', provider: 'local', providerAssetId: 'a.jpg', width: 4000, height: 3000, orientation: 'landscape' }).run()
+    const fetchedAt = new Date(1000)
+    db.insert(photoRenditions).values([
+      { assetId: 'local:a.jpg', rendition: 'landscape', cacheFile: 'l.webp', cacheBytes: 10, fetchedAt },
+      { assetId: 'local:a.jpg', rendition: 'portrait', cacheFile: 'p.webp', cacheBytes: 20, fetchedAt },
+    ]).run()
+    expect(() => db.insert(photoRenditions).values({ assetId: 'local:a.jpg', rendition: 'portrait', cacheFile: 'x.webp', cacheBytes: 1, fetchedAt }).run()).toThrow()
+    expect(() => db.insert(photoRenditions).values({ assetId: 'local:nope', rendition: 'portrait', cacheFile: 'x.webp', cacheBytes: 1, fetchedAt }).run()).toThrow(/FOREIGN KEY/)
+
+    db.delete(photoAssets).run()
+
+    expect(db.select().from(photoRenditions).all()).toEqual([])
   })
 })
 

@@ -29,3 +29,21 @@ export type PhotoResponse = z.infer<typeof photoResponseSchema>
 export function photoUrl(name: string): string {
   return `/photos/${name}`
 }
+
+/** The two shapes a photo is rendered to: the landscape stage (2560×1440) and the portrait one (1440×2560). */
+export const PHOTO_RENDITIONS = ['landscape', 'portrait'] as const
+export type PhotoRendition = (typeof PHOTO_RENDITIONS)[number]
+
+/** The pixel size of a rendition, the same as the stage it is drawn on. */
+export function photoRenditionSize(rendition: PhotoRendition): { width: number, height: number } {
+  return rendition === 'portrait' ? { width: 1440, height: 2560 } : { width: 2560, height: 1440 }
+}
+
+/**
+ * `?orientation=` of `GET /api/photos/next`: a rendition, or null for none or
+ * not one (the first value if it is repeated).
+ */
+export function renditionQuery(value: unknown): PhotoRendition | null {
+  const first = Array.isArray(value) ? value[0] : value
+  return PHOTO_RENDITIONS.find(r => r === first) ?? null
+}

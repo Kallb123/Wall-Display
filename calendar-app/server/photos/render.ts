@@ -1,21 +1,19 @@
+import { photoRenditionSize } from '../../shared/photos'
+import type { PhotoRendition } from '../../shared/photos'
 import type { PhotoOrientation } from '../db/schema'
 import { loadSharp } from './sharp'
 
-// Turns a photo into the one image the display draws (architecture §5.1), so the
-// Pi never has to scale or blur anything. A photo close to 16:9 is cropped to
-// fill the screen. Any other shape is fitted whole, centred over a blurred,
-// enlarged, slightly darkened copy of itself. Either way the result is a
-// 2560×1440 WebP. Free of h3, so it can be tested alone.
-
-/** The size every photo is rendered to, the same stage as the display's. */
-export const PHOTO_SIZE = { width: 2560, height: 1440 } as const
-
-const TARGET_RATIO = PHOTO_SIZE.width / PHOTO_SIZE.height
+// Turns a photo into the one image a display draws (architecture §5.1), so the
+// Pi never has to scale or blur anything. It is rendered to the shape of the
+// stage it is for: 2560×1440 on a landscape display, 1440×2560 on a portrait one.
+// A photo close to that shape is cropped to fill the screen. Any other shape is
+// fitted whole, centred over a blurred, enlarged, slightly darkened copy of
+// itself. Either way the result is a WebP. Free of h3, so it can be tested alone.
 
 /** How far from 16:9 a photo may be and still be cropped to fill (10%): a little is lost at the edges, which beats bars. */
 const COVER_TOLERANCE = 0.1
 
-/** The blurred background is drawn this small and enlarged, which is both faster and smoother than blurring at full size. */
+/** The blurred background is drawn this small along its long side and enlarged, which is both faster and smoother than blurring at full size. */
 const BACKDROP_WIDTH = 256
 const BACKDROP_BLUR = 6
 const BACKDROP_BRIGHTNESS = 0.6
@@ -44,9 +42,10 @@ export function uprightSize(width: number, height: number, exifOrientation: numb
   return exifOrientation !== undefined && exifOrientation >= 5 ? { width: height, height: width } : { width, height }
 }
 
-/** Whether a photo of this size is cropped to fill the screen rather than fitted over a backdrop. */
-export function fillsScreen(width: number, height: number): boolean {
-  return Math.abs(width / height / TARGET_RATIO - 1) <= COVER_TOLERANCE
+/** Whether a photo of this size is cropped to fill a screen of that shape rather than fitted over a backdrop. */
+export function fillsScreen(width: number, height: number, rendition: PhotoRendition = 'landscape'): boolean {
+  const target = photoRenditionSize(rendition)
+  return Math.abs(width / height / (target.width / target.height) - 1) <= COVER_TOLERANCE
 }
 
 /**
@@ -54,9 +53,10 @@ export function fillsScreen(width: number, height: number): boolean {
  * image sharp can read. Only the first frame of an animated image is used, and
  * a transparent image is drawn on black (cropped) or over its backdrop (fitted).
  */
-export async function renderPhoto(input: Buffer): Promise<RenderedPhoto> {
+export async function renderPhoto(input: Buffer, rendition: PhotoRendition = 'landscape'): Promise<RenderedPhoto> {
   const sharp = await loadSharp()
-  const { width: W, height: H } = PHOTO_SIZE
+  const { width: W, height: H } = photoRenditionSize(rendition)
+  const scale = BACKDROP_WIDTH / Math.max(W, H)
   try {
     // `failOn: 'error'` keeps a photo that is cut off near the end, which is still a photo.
     const open = () => sharp(input, { failOn: 'error' }).rotate()
@@ -66,7 +66,7 @@ export async function renderPhoto(input: Buffer): Promise<RenderedPhoto> {
     const orientation: PhotoOrientation = height > width ? 'portrait' : 'landscape'
 
     let data: Buffer
-    if (fillsScreen(width, height)) {
+    if (fillsScreen(width, height, rendition)) {
       data = await open()
         .resize(W, H, { fit: 'cover', position: 'centre' })
         .flatten({ background: '#000000' })
@@ -74,7 +74,7 @@ export async function renderPhoto(input: Buffer): Promise<RenderedPhoto> {
         .toBuffer()
     } else {
       const backdrop = await open()
-        .resize(BACKDROP_WIDTH, Math.round(BACKDROP_WIDTH / TARGET_RATIO), { fit: 'cover', position: 'centre' })
+        .resize(Math.round(W * scale), Math.round(H * scale), { fit: 'cover', position: 'centre' })
         .flatten({ background: '#000000' })
         .blur(BACKDROP_BLUR)
         .png()

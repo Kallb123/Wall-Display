@@ -68,7 +68,7 @@ const provider = (changes: Partial<PhotoProviderSettings> = {}): PhotoProviderSe
 const photosStatus = (changes: Partial<Extract<PhotosSettingsStatus, { configured: true }>> = {}): PhotosSettingsStatus => ({
   configured: true,
   interval_seconds: 60,
-  landscape_only: false,
+  match_orientation: false,
   cache_bytes: 512 * MB,
   cache_max_bytes: 2048 * MB,
   providers: [provider(), provider({ id: 'local', mode: null, where: '/photos', photos: 8, cached: 8 })],
@@ -639,12 +639,12 @@ describe('the Photos tab', () => {
     expect(find(wrapper, 'cache-bar').attributes('data-full')).toBe('true')
   })
 
-  it('shows the interval and whether portrait photos are left out', async () => {
-    photos = photosStatus({ interval_seconds: 90, landscape_only: true })
+  it('shows the interval and whether photos of the other shape are left out', async () => {
+    photos = photosStatus({ interval_seconds: 90, match_orientation: true })
     const wrapper = await mountAt(PhotosPage, '/settings/photos')
 
     expect(find(wrapper, 'photo-interval').text()).toBe('Every 90 seconds')
-    expect(find(wrapper, 'photo-landscape').text()).toBe('Left out')
+    expect(find(wrapper, 'photo-match-orientation').text()).toBe('Left out')
     expect(find(wrapper, 'photo-cache-limit').text()).toBe('2 GB')
   })
 

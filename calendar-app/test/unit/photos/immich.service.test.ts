@@ -45,7 +45,7 @@ async function setup(mode: Mode, handler: Handler) {
     dir,
     providers: [provider],
     maxBytes: 50_000_000,
-    landscapeOnly: false,
+    matchOrientation: false,
     render: renderPhoto,
     random: seeded(3),
     log: { ...quietLog(), ...log },

@@ -1,7 +1,7 @@
 import type { PhotoSource } from '../../shared/display'
 import { PHOTO_SOURCES } from '../../shared/display'
 import { photoUrl } from '../../shared/photos'
-import type { PhotoInfo } from '../../shared/photos'
+import type { PhotoInfo, PhotoRendition } from '../../shared/photos'
 import type { Db } from '../db/client'
 import type { PhotoAssetRow } from '../db/schema'
 import { createPhotoCache } from './cache'
@@ -9,7 +9,7 @@ import { peek, take } from './playlist'
 import type { Random } from './playlist'
 import { PhotoRenderError } from './render'
 import type { RenderedPhoto } from './render'
-import { getAsset, listPool, loadPlaylist, markShown, savePlaylist, syncListing } from './store'
+import { cachedRenditions, getAsset, getRendition, listPool, loadPlaylist, markShown, savePlaylist, syncListing } from './store'
 import { PhotoProviderError, safePhotoError } from './types'
 import type { PhotoProvider } from './types'
 
@@ -18,7 +18,9 @@ import type { PhotoProvider } from './types'
 // "what does this display show next?" from a shuffled playlist: the photo is
 // fetched and rendered on demand, the one after it is prepared in the
 // background, and the cache keeps to its size cap without ever evicting a
-// photo that is on a display. If a provider is down, the photos already
+// photo that is on a display. A photo is rendered to the shape of the stage that
+// asks for it, so the cache holds a landscape and a portrait file per photo, as
+// they are wanted. If a provider is down, the photos already
 // cached keep rotating. Everything it touches comes in through the options, so
 // a test uses a fake provider, fake timers and an in-memory database.
 
@@ -30,10 +32,10 @@ export interface PhotoServiceOptions {
   providers: readonly PhotoProvider[]
   /** The cache's size cap in bytes. */
   maxBytes: number
-  /** Leave out portrait photos (`photos.landscape_only`). */
-  landscapeOnly: boolean
-  /** Turns the bytes of a photo into the image to cache. Injected so the service doesn't load sharp until a photo needs it. */
-  render: (input: Buffer) => Promise<RenderedPhoto>
+  /** Show a display only photos of its own shape (`photos.match_orientation`, or the older `landscape_only`). */
+  matchOrientation: boolean
+  /** Turns the bytes of a photo into the image to cache, drawn for the shape of stage. Injected so the service doesn't load sharp until a photo needs it. */
+  render: (input: Buffer, rendition: PhotoRendition) => Promise<RenderedPhoto>
   /** The time between listings of each provider's pool. Default: 10 minutes. */
   refreshIntervalMs?: number
   /** For tests. Default: `Math.random`. */
@@ -49,7 +51,7 @@ export interface PhotoProviderStatus {
   id: PhotoSource
   /** Photos in the pool, as last listed. */
   photos: number
-  /** How many of them are in the cache now. */
+  /** How many of them are in the cache now, in at least one rendition. */
   cached: number
   last_success_at: string | null
   last_error: string | null
@@ -67,9 +69,10 @@ export interface PhotoService {
   /**
    * Moves the display on to its next photo and answers it, or null if there is
    * nothing to show. The provider is `preferred` if it is set up, otherwise the
-   * first that is. Never rejects.
+   * first that is. The image is rendered for the `rendition` of stage the display
+   * has (landscape unless it says otherwise). Never rejects.
    */
-  next: (displayId: string, preferred: PhotoSource) => Promise<PhotoInfo | null>
+  next: (displayId: string, preferred: PhotoSource, rendition?: PhotoRendition) => Promise<PhotoInfo | null>
   status: () => { providers: PhotoProviderStatus[], cache_bytes: number }
   /** Resolves when the background preparation of next photos has finished. For tests. */
   idle: () => Promise<void>
@@ -83,10 +86,17 @@ const LEFT_THE_POOL = new Error('The photo is no longer in the pool')
 /** How many photos `next` tries before it gives up: a few bad ones in a row shouldn't blank the frame, but a pool of bad ones shouldn't spin. */
 const MAX_ATTEMPTS = 8
 
-/** A photo a display has or is about to have, and the file it was in the cache as. */
+/** A photo a display has or is about to have, in one rendition, and the file it was in the cache as. */
 interface Held {
   id: string
+  rendition: PhotoRendition
   file: string | null
+}
+
+/** A photo in the cache in one rendition. */
+interface Cached {
+  asset: PhotoAssetRow
+  file: string
 }
 
 interface ProviderState {
@@ -97,7 +107,7 @@ interface ProviderState {
 }
 
 export function createPhotoService(options: PhotoServiceOptions): PhotoService {
-  const { db, providers, landscapeOnly, render, refreshIntervalMs = REFRESH_INTERVAL_MS, random = Math.random, now = () => new Date(), log = console } = options
+  const { db, providers, matchOrientation, render, refreshIntervalMs = REFRESH_INTERVAL_MS, random = Math.random, now = () => new Date(), log = console } = options
   let started = false
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -107,15 +117,17 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   /**
    * The photo each display shows now, and the one it will be shown next (being
    * prepared): neither may be evicted. The file is kept too, because the photo
-   * can leave the pool (and its row go) while it is still on the display.
+   * can leave the pool (and its row go) while it is still on the display. Keyed
+   * by display and rendition, because a wall and a phone of another shape on
+   * one display each have a photo of their own.
    */
   const shown = new Map<string, Held>()
   const upcoming = new Map<string, Held>()
-  /** Photos being fetched and rendered right now. */
-  const working = new Set<string>()
+  /** Photos being fetched and rendered right now, by `${id}:${rendition}`. */
+  const working = new Map<string, Held>()
   /** Photos that could not be rendered, left out until the server restarts. */
   const broken = new Set<string>()
-  const fetching = new Map<string, Promise<PhotoAssetRow>>()
+  const fetching = new Map<string, Promise<Cached>>()
   const background = new Set<Promise<unknown>>()
   const queues = new Map<string, Promise<unknown>>()
 
@@ -128,14 +140,10 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     log,
     protect: () => {
       const files = new Set<string>()
-      for (const { id, file } of held()) {
+      for (const { id, rendition, file } of [...held(), ...working.values()]) {
+        // For a photo being rendered right now, the file it has is the one about to be replaced.
         if (file) files.add(file)
-        const current = getAsset(db, id)?.cacheFile
-        if (current) files.add(current)
-      }
-      // A photo being rendered right now, which may be about to be stored.
-      for (const id of working) {
-        const current = getAsset(db, id)?.cacheFile
+        const current = getRendition(db, id, rendition)?.cacheFile
         if (current) files.add(current)
       }
       return files
@@ -148,15 +156,25 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       ?? PHOTO_SOURCES.map(id => providers.find(provider => provider.id === id)).find(Boolean)
   }
 
-  /** The photos that may be shown from this provider now. */
+  /**
+   * The photos that may be shown from this provider now. Photos of the other
+   * shape are not taken out (`fits` passes them over instead), so they keep
+   * their place in the playlist for a display of their own shape.
+   */
   function poolOf(provider: PhotoProvider): string[] {
-    return listPool(db, provider.id)
-      .filter(row => !broken.has(row.id) && !(landscapeOnly && row.orientation === 'portrait'))
-      .map(row => row.id)
+    return listPool(db, provider.id).filter(row => !broken.has(row.id)).map(row => row.id)
   }
 
-  const isCached = (id: string): boolean => {
-    const file = getAsset(db, id)?.cacheFile
+  /** Whether a photo may be shown on a stage of this shape: always, unless the shapes are to match. */
+  const fits = (id: string, rendition: PhotoRendition): boolean => {
+    if (!matchOrientation) return true
+    const row = getAsset(db, id)
+    // A photo whose size isn't known yet is tried, and judged once it has been rendered.
+    return !!row && (row.width === 0 || row.orientation === rendition)
+  }
+
+  const isCached = (id: string, rendition: PhotoRendition): boolean => {
+    const file = getRendition(db, id, rendition)?.cacheFile
     return !!file && cache.has(file)
   }
 
@@ -217,20 +235,23 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   // -------------------------------------------------------------------------
   // Picking
 
-  /** Makes sure the photo has a rendered file in the cache, fetching and rendering it if not. Many callers for the same photo share one fetch. */
-  function ensureCached(provider: PhotoProvider, id: string): Promise<PhotoAssetRow> {
+  /** Makes sure the photo has a rendered file in the cache for this shape of stage, fetching and rendering it if not. Many callers for the same photo and shape share one fetch. */
+  function ensureCached(provider: PhotoProvider, id: string, rendition: PhotoRendition): Promise<Cached> {
     const row = getAsset(db, id)
     if (!row) return Promise.reject(LEFT_THE_POOL)
-    if (row.cacheFile && cache.has(row.cacheFile)) return Promise.resolve(row)
+    const file = getRendition(db, id, rendition)?.cacheFile
+    if (file && cache.has(file)) return Promise.resolve({ asset: row, file })
 
-    const running = fetching.get(id)
+    const key = `${id}:${rendition}`
+    const running = fetching.get(key)
     if (running) return running
-    working.add(id)
+    working.set(key, { id, rendition, file: null })
     const job = (async () => {
+      // The original is fetched again for each shape: it is not kept, only what is drawn from it.
       const bytes = await provider.fetch(row.providerAssetId)
       let rendered: RenderedPhoto
       try {
-        rendered = await render(bytes)
+        rendered = await render(bytes, rendition)
       } catch (error) {
         // Noted here, before the job ends, so nothing can ask for the photo again in between.
         if (error instanceof PhotoRenderError) {
@@ -243,20 +264,20 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       // A listing may have taken it out of the pool while it was being fetched (a random pick from
       // Immich replaces the pool at every listing). It is not stored: nothing would refer to the file.
       if (!getAsset(db, id)) throw LEFT_THE_POOL
-      cache.store(id, rendered)
-      return getAsset(db, id)!
+      const stored = cache.store(id, rendition, rendered)
+      return { asset: getAsset(db, id)!, file: stored }
     })().finally(() => {
-      working.delete(id)
-      fetching.delete(id)
+      working.delete(key)
+      fetching.delete(key)
     })
-    fetching.set(id, job)
+    fetching.set(key, job)
     return job
   }
 
-  function toInfo(row: PhotoAssetRow, provider: PhotoProvider): PhotoInfo {
+  function toInfo(row: PhotoAssetRow, file: string, provider: PhotoProvider): PhotoInfo {
     return {
       id: row.id,
-      url: photoUrl(row.cacheFile!),
+      url: photoUrl(file),
       width: row.width,
       height: row.height,
       orientation: row.orientation,
@@ -265,26 +286,27 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     }
   }
 
-  /** Starts preparing the photo after this one, so the next request is answered from the cache. */
-  function prepare(displayId: string, provider: PhotoProvider, id: string | null): void {
+  /** Starts preparing the photo after this one, in the same rendition, so the next request is answered from the cache. */
+  function prepare(heldKey: string, provider: PhotoProvider, id: string | null, rendition: PhotoRendition): void {
     if (!id) {
-      upcoming.delete(displayId)
+      upcoming.delete(heldKey)
       return
     }
-    const entry: Held = { id, file: null }
-    upcoming.set(displayId, entry)
-    const job = ensureCached(provider, id).then((row) => {
-      entry.file = row.cacheFile
+    const entry: Held = { id, rendition, file: null }
+    upcoming.set(heldKey, entry)
+    const job = ensureCached(provider, id, rendition).then((cached) => {
+      entry.file = cached.file
     }, () => {
       // Tried again when it is asked for, and handled there if it fails again.
     }).finally(() => background.delete(job))
     background.add(job)
   }
 
-  async function pick(displayId: string, preferred: PhotoSource): Promise<PhotoInfo | null> {
+  async function pick(displayId: string, preferred: PhotoSource, rendition: PhotoRendition): Promise<PhotoInfo | null> {
     const provider = choose(preferred)
     if (!provider) return null
 
+    const heldKey = `${displayId}:${rendition}`
     if (poolOf(provider).length === 0 && refreshing) await refreshing
     let playlist = loadPlaylist(db, displayId, provider.id)
     // Once the provider has failed, only photos already cached are candidates.
@@ -292,15 +314,15 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !stopped; attempt++) {
       const pool = poolOf(provider)
-      const taken = take(playlist, pool, random, down ? isCached : undefined)
+      const taken = take(playlist, pool, random, down ? id => fits(id, rendition) && isCached(id, rendition) : id => fits(id, rendition))
       if (!taken.id) {
         savePlaylist(db, displayId, provider.id, taken.playlist, now())
         return null
       }
 
-      let row: PhotoAssetRow
+      let cached: Cached
       try {
-        row = await ensureCached(provider, taken.id)
+        cached = await ensureCached(provider, taken.id, rendition)
       } catch (error) {
         if (error instanceof PhotoRenderError) {
           // Already noted as broken, so it is not in the pool next time.
@@ -319,17 +341,17 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
         continue
       }
       // Its true shape is known only now it has been rendered.
-      if (landscapeOnly && row.orientation === 'portrait') {
+      if (matchOrientation && cached.asset.orientation !== rendition) {
         playlist = taken.playlist
         continue
       }
 
-      markShown(db, row.id, now())
-      shown.set(displayId, { id: row.id, file: row.cacheFile })
+      markShown(db, cached.asset.id, rendition, now())
+      shown.set(heldKey, { id: cached.asset.id, rendition, file: cached.file })
       savePlaylist(db, displayId, provider.id, taken.playlist, now())
       cache.evict()
-      prepare(displayId, provider, peek(taken.playlist, poolOf(provider), random))
-      return toInfo(getAsset(db, row.id)!, provider)
+      prepare(heldKey, provider, peek(taken.playlist, poolOf(provider), random, id => fits(id, rendition)), rendition)
+      return toInfo(getAsset(db, cached.asset.id)!, cached.file, provider)
     }
     return null
   }
@@ -362,15 +384,16 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
 
     refresh,
 
-    next(displayId, preferred) {
+    next(displayId, preferred, rendition = 'landscape') {
       if (stopped) return Promise.resolve(null)
-      return inTurn(displayId, () => pick(displayId, preferred)).catch((error) => {
+      return inTurn(displayId, () => pick(displayId, preferred, rendition)).catch((error) => {
         log.error(`[photos] could not choose the next photo: ${error instanceof PhotoProviderError ? error.message : safePhotoError(error)}`)
         return null
       })
     },
 
     status() {
+      const withFiles = new Set(cachedRenditions(db).map(row => row.assetId))
       return {
         providers: providers.map((provider) => {
           const state = states.get(provider.id)!
@@ -378,7 +401,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
           return {
             id: provider.id,
             photos: rows.length,
-            cached: rows.filter(row => row.cacheFile !== null).length,
+            cached: rows.filter(row => withFiles.has(row.id)).length,
             last_success_at: state.lastSuccessAt?.toISOString() ?? null,
             last_error: state.lastError,
           }

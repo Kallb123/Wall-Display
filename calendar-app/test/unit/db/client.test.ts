@@ -38,7 +38,7 @@ describe('openDatabase', () => {
 })
 
 describe('runMigrations', () => {
-  it('creates all eight tables on an empty database', () => {
+  it('creates all the tables on an empty database', () => {
     const handle = track(openDatabase(':memory:'))
 
     const result = runMigrations(handle, MIGRATIONS_DIR)
@@ -47,7 +47,7 @@ describe('runMigrations', () => {
       .prepare(`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '\\_\\_%' escape '\\' order by name`)
       .all()
       .map(row => (row as { name: string }).name)
-    expect(tables).toEqual(['calendars', 'display_state', 'events', 'photo_assets', 'photo_playlists', 'preference_overrides', 'special_day_scenes', 'special_days', 'sync_status'])
+    expect(tables).toEqual(['calendars', 'display_state', 'events', 'photo_assets', 'photo_playlists', 'photo_renditions', 'preference_overrides', 'special_day_scenes', 'special_days', 'sync_status'])
     expect(result.applied).toBe(result.total)
     expect(result.applied).toBeGreaterThan(0)
   })
@@ -125,11 +125,45 @@ describe('runMigrations', () => {
     handle.sqlite.prepare(`insert into display_state (display_id, state, updated_at) values ('hallway', '{"view":"week"}', 0)`).run()
     expect(handle.sqlite.prepare(`select name from sqlite_master where name = 'preference_overrides'`).all()).toEqual([])
 
-    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(1)
+    // 0006 and any later ones come too.
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBeGreaterThan(0)
 
     expect(handle.sqlite.prepare('select display_id, state from display_state').all()).toEqual([{ display_id: 'hallway', state: '{"view":"week"}' }])
     handle.sqlite.prepare(`insert into preference_overrides (scope, "values", updated_at) values ('shared', '{"min_step":10}', 0)`).run()
     expect(handle.sqlite.prepare('select scope, "values" from preference_overrides').all()).toEqual([{ scope: 'shared', values: '{"min_step":10}' }])
+  })
+
+  it('carries the photos cached before renditions (0006) over as landscape ones', async () => {
+    const before = join(await tempDir(), 'migrations')
+    cpSync(MIGRATIONS_DIR, before, { recursive: true })
+    const journalFile = join(before, 'meta', '_journal.json')
+    const journal = JSON.parse(readFileSync(journalFile, 'utf8')) as { entries: { tag: string }[] }
+    journal.entries = journal.entries.filter(entry => entry.tag < '0006')
+    writeFileSync(journalFile, JSON.stringify(journal))
+
+    const handle = track(openDatabase(':memory:'))
+    runMigrations(handle, before)
+    const file = `${'a'.repeat(64)}.webp`
+    const insert = handle.sqlite.prepare(`insert into photo_assets (id, provider, provider_asset_id, width, height, orientation, cache_file, cache_bytes, fetched_at, last_shown_at, created_at)
+      values (@id, 'local', @id, 1600, 900, 'landscape', @cache_file, @cache_bytes, @fetched_at, @last_shown_at, 1000)`)
+    insert.run({ id: 'cached', cache_file: file, cache_bytes: 4096, fetched_at: 2000, last_shown_at: 3000 })
+    // Cached by an early build that did not note the size or the time.
+    insert.run({ id: 'bare', cache_file: file, cache_bytes: null, fetched_at: null, last_shown_at: null })
+    insert.run({ id: 'listed', cache_file: null, cache_bytes: null, fetched_at: null, last_shown_at: null })
+
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(1)
+
+    expect(handle.sqlite.prepare('select * from photo_renditions order by asset_id').all()).toEqual([
+      { asset_id: 'bare', rendition: 'landscape', cache_file: file, cache_bytes: 0, fetched_at: 1000, last_shown_at: null },
+      { asset_id: 'cached', rendition: 'landscape', cache_file: file, cache_bytes: 4096, fetched_at: 2000, last_shown_at: 3000 },
+    ])
+    const columns = handle.sqlite.prepare(`select name from pragma_table_info('photo_assets')`).all().map(row => (row as { name: string }).name)
+    expect(columns).not.toContain('cache_file')
+    expect(columns).toContain('last_shown_at')
+    // The photos are still there, and a photo that goes takes its renditions with it.
+    expect(handle.sqlite.prepare('select count(*) as n from photo_assets').get()).toEqual({ n: 3 })
+    handle.sqlite.prepare(`delete from photo_assets where id = 'cached'`).run()
+    expect(handle.sqlite.prepare('select asset_id from photo_renditions').all()).toEqual([{ asset_id: 'bare' }])
   })
 
   it('checks scenes and the new special day rules once 0003 is applied', () => {

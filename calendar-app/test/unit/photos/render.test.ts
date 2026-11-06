@@ -1,6 +1,7 @@
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
-import { PHOTO_SIZE, PhotoRenderError, fillsScreen, renderPhoto, uprightSize } from '../../../server/photos/render'
+import { photoRenditionSize } from '../../../shared/photos'
+import { PhotoRenderError, fillsScreen, renderPhoto, uprightSize } from '../../../server/photos/render'
 
 /** A picture split into coloured bands: `bands` are CSS colours, left to right (or top to bottom if `vertical`). */
 async function banded(width: number, height: number, bands: string[], { vertical = false, orientation }: { vertical?: boolean, orientation?: number } = {}) {
@@ -26,7 +27,7 @@ describe('renderPhoto', () => {
     const rendered = await renderPhoto(await banded(1600, 900, ['#c03030']))
 
     const meta = await sharp(rendered.data).metadata()
-    expect(meta).toMatchObject({ format: 'webp', width: PHOTO_SIZE.width, height: PHOTO_SIZE.height })
+    expect(meta).toMatchObject({ format: 'webp', ...photoRenditionSize('landscape') })
     expect(rendered).toMatchObject({ width: 1600, height: 900, orientation: 'landscape' })
     // Filled to the corners, with no bars.
     const [r, g, b] = await pixel(rendered.data, 2, 2)
@@ -124,6 +125,55 @@ describe('renderPhoto', () => {
   it('refuses bytes that are not a picture, with a message that names nothing', async () => {
     await expect(renderPhoto(Buffer.from('not an image'))).rejects.toThrow(PhotoRenderError)
     await expect(renderPhoto(Buffer.alloc(0))).rejects.toThrow(/can't be read/)
+  })
+})
+
+describe('renderPhoto in the portrait rendition', () => {
+  it('crops a 9:16 photo to fill 1440×2560', async () => {
+    const rendered = await renderPhoto(await banded(900, 1600, ['#c03030']), 'portrait')
+
+    expect(await sharp(rendered.data).metadata()).toMatchObject({ format: 'webp', width: 1440, height: 2560 })
+    expect(rendered).toMatchObject({ width: 900, height: 1600, orientation: 'portrait' })
+    const [r, g, b] = await pixel(rendered.data, 2, 2)
+    expect(r).toBeGreaterThan(150)
+    expect(g).toBeLessThan(80)
+    expect(b).toBeLessThan(80)
+  })
+
+  it('judges the fit against the shape asked for', () => {
+    expect(fillsScreen(900, 1600, 'portrait')).toBe(true)
+    expect(fillsScreen(1600, 900, 'portrait')).toBe(false)
+    expect(fillsScreen(1000, 1700, 'portrait')).toBe(true) // 9:15.3, 4.4% off
+    expect(fillsScreen(1000, 1500, 'portrait')).toBe(false) // 2:3, 15.6% off
+    expect(fillsScreen(900, 1600)).toBe(false)
+    expect(fillsScreen(1000, 1000, 'portrait')).toBe(false)
+  })
+
+  it('fits a landscape photo whole over a blurred copy, with the backdrop above and below', async () => {
+    // Red above blue. The backdrop is cropped to the stage's shape, so only the height of the photo survives in it.
+    const landscape = await banded(1500, 1000, ['#ff0000', '#0000ff'], { vertical: true })
+    const rendered = await renderPhoto(landscape, 'portrait')
+
+    expect(await sharp(rendered.data).metadata()).toMatchObject({ format: 'webp', width: 1440, height: 2560 })
+    expect(rendered).toMatchObject({ width: 1500, height: 1000, orientation: 'landscape' })
+
+    // The photo is 1440 × 960 in the middle (y 800 to 1760), at its own colours.
+    const photoTop = await pixel(rendered.data, 720, 1000)
+    const photoBottom = await pixel(rendered.data, 720, 1560)
+    expect(photoTop[0]).toBeGreaterThan(200)
+    expect(photoTop[2]).toBeLessThan(60)
+    expect(photoBottom[2]).toBeGreaterThan(200)
+    // Above and below it is the backdrop, which carries the same colours, but darker.
+    const above = await pixel(rendered.data, 720, 200)
+    const below = await pixel(rendered.data, 720, 2360)
+    expect(above[0]).toBeGreaterThan(above[2]! + 40)
+    expect(below[2]).toBeGreaterThan(below[0]! + 40)
+    expect(brightness(above)).toBeLessThan(brightness(photoTop) - 20)
+  })
+
+  it('renders to the landscape size when no rendition is named', async () => {
+    const rendered = await renderPhoto(await banded(900, 1600, ['#c03030']))
+    expect(await sharp(rendered.data).metadata()).toMatchObject({ width: 2560, height: 1440 })
   })
 })
 

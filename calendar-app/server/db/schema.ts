@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { PHOTO_RENDITIONS } from '../../shared/photos'
 
 // The database schema. After changing this file, run `pnpm db:generate` and
 // commit the new migration in `server/db/migrations/`. CI fails if they differ.
@@ -115,16 +116,31 @@ export const photoAssets = sqliteTable('photo_assets', {
   height: integer('height').notNull(),
   orientation: text('orientation', { enum: PHOTO_ORIENTATIONS }).notNull(),
   takenAt: timestamp('taken_at'),
-  /** File name in the photo cache, once downloaded. */
-  cacheFile: text('cache_file'),
-  cacheBytes: integer('cache_bytes'),
-  fetchedAt: timestamp('fetched_at'),
-  /** For least-recently-used eviction. */
+  /** When this photo was last on any display, in any rendition. */
   lastShownAt: timestamp('last_shown_at'),
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
 }, table => [
   index('photo_assets_provider_idx').on(table.provider),
   index('photo_assets_last_shown_at_idx').on(table.lastShownAt),
+])
+
+/**
+ * The rendered files of a photo in the cache (architecture §5.1): one per shape
+ * of stage it has been drawn for, so a wall and a portrait phone showing the same
+ * photo each get an image of their own size. Gone with the photo.
+ */
+export const photoRenditions = sqliteTable('photo_renditions', {
+  assetId: text('asset_id').notNull().references(() => photoAssets.id, { onDelete: 'cascade' }),
+  rendition: text('rendition', { enum: PHOTO_RENDITIONS }).notNull(),
+  /** File name in the photo cache. */
+  cacheFile: text('cache_file').notNull(),
+  cacheBytes: integer('cache_bytes').notNull(),
+  fetchedAt: timestamp('fetched_at').notNull(),
+  /** For least-recently-used eviction. */
+  lastShownAt: timestamp('last_shown_at'),
+}, table => [
+  primaryKey({ columns: [table.assetId, table.rendition] }),
+  index('photo_renditions_cache_file_idx').on(table.cacheFile),
 ])
 
 /**
@@ -232,6 +248,8 @@ export type DisplayStateRow = typeof displayState.$inferSelect
 export type NewDisplayStateRow = typeof displayState.$inferInsert
 export type PhotoAssetRow = typeof photoAssets.$inferSelect
 export type NewPhotoAssetRow = typeof photoAssets.$inferInsert
+export type PhotoRenditionRow = typeof photoRenditions.$inferSelect
+export type NewPhotoRenditionRow = typeof photoRenditions.$inferInsert
 export type PhotoPlaylistRow = typeof photoPlaylists.$inferSelect
 export type NewPhotoPlaylistRow = typeof photoPlaylists.$inferInsert
 export type SpecialDaySceneRow = typeof specialDayScenes.$inferSelect

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agendaDays, DEFAULT_MAX_ROWS } from '../../../app/utils/agenda'
+import { agendaDays, DEFAULT_MAX_ROWS, PORTRAIT_MAX_ROWS } from '../../../app/utils/agenda'
 import type { AgendaDay } from '../../../app/utils/agenda'
 import type { CalendarEvent } from '../../../shared/types/events'
 
@@ -250,6 +250,22 @@ describe('agendaDays', () => {
       expect(fits.more).toBe(0)
       expect(over.timed.length + over.allDay.length).toBe(7)
       expect(over.more).toBe(2)
+    })
+
+    it('takes a limit for each day, today\'s first', () => {
+      const [today, tomorrow] = agendaDays([...tomorrowOf(hourly(12)), ...hourly(12).map(event => ({ ...event, id: event.id + 100 }))], NOW, LONDON, { maxRows: [3, 5] })
+
+      expect(today.timed.length + today.allDay.length + (today.more ? 1 : 0)).toBeLessThanOrEqual(3)
+      expect(tomorrow.timed).toHaveLength(4)
+      expect(tomorrow.more).toBe(8)
+    })
+
+    it('has fewer rows for tomorrow than today on the portrait stage', () => {
+      expect(PORTRAIT_MAX_ROWS[1]).toBeLessThan(PORTRAIT_MAX_ROWS[0])
+      const [, tomorrow] = agendaDays(tomorrowOf(hourly(8)), NOW, LONDON, { maxRows: PORTRAIT_MAX_ROWS })
+
+      expect(tomorrow.timed).toHaveLength(PORTRAIT_MAX_ROWS[1] - 1)
+      expect(tomorrow.more).toBe(8 - (PORTRAIT_MAX_ROWS[1] - 1))
     })
 
     it('drops past events first, earliest first, without a "+N more"', () => {

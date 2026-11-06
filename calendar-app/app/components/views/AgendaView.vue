@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Leaf } from 'lucide-vue-next'
 import type { CalendarEvent } from '../../../shared/types/events'
-import { agendaDays } from '~/utils/agenda'
+import { agendaDays, PORTRAIT_MAX_ROWS } from '~/utils/agenda'
 import type { AgendaDay, AgendaItem } from '~/utils/agenda'
 import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
@@ -11,8 +11,10 @@ import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather
 
 // Today and tomorrow in large type (architecture §4.1): a card for each, with
 // the all-day events first, then the timed ones, and a "now" marker in today's.
-// There is no mock for it yet, so it borrows the Soft month's side panel: a
-// sage panel for today, a plain tile for tomorrow, and the same initial badges.
+// Mocks 4e and 4f. It borrows the Soft month's side panel: a sage panel for
+// today, a plain tile for tomorrow, and the same initial badges. On the
+// portrait stage (PR 5.11) the two cards are stacked, today's the taller, with
+// the same type, rows and marker; only how many rows fit changes.
 // A special day's greeting (architecture §6.3) goes above today's list; the
 // takeover's palette and art are the stage's, not this view's.
 //
@@ -28,7 +30,8 @@ type Row
   = | { kind: 'all-day' | 'timed', item: AgendaItem }
     | { kind: 'now' }
 
-const days = computed(() => agendaDays(props.events, props.now, props.timezone).map((day, index) => ({ ...day, weather: weatherLine(day, index === 0) })))
+const portrait = computed(() => props.stage.orientation === 'portrait')
+const days = computed(() => agendaDays(props.events, props.now, props.timezone, portrait.value ? { maxRows: PORTRAIT_MAX_ROWS } : {}).map((day, index) => ({ ...day, weather: weatherLine(day, index === 0) })))
 const time = computed(() => formatTime(props.now, props.timezone))
 
 /** The day's rows in order. The marker is only worth drawing among timed events. */
@@ -66,7 +69,7 @@ function barColour(event: CalendarEvent): string {
 </script>
 
 <template>
-  <section class="view" data-testid="agenda-view">
+  <section class="view" :class="{ portrait }" data-testid="agenda-view">
     <article
       v-for="(day, index) in days"
       :key="day.date"
@@ -150,6 +153,14 @@ function barColour(event: CalendarEvent): string {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 64px;
   padding: 80px 96px;
+}
+
+/* Stacked, today's card the taller (mocks 4e, 4f). The fr units are of the space left once the gap is out, so 7:5 is the mock's proportion. */
+.view.portrait {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 48px;
+  padding: 72px 64px;
 }
 
 .day {

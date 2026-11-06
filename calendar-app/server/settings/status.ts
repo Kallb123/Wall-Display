@@ -122,7 +122,7 @@ export function discoveryProblem(mqtt: Pick<MqttConfig, 'discovery'> | undefined
 
 export interface PhotosStatusArgs {
   /** The `photos` block, or undefined when the config has none. */
-  config: Pick<PhotosConfig, 'interval_seconds' | 'landscape_only' | 'cache_max_mb' | 'immich' | 'google' | 'local'> | undefined
+  config: Pick<PhotosConfig, 'interval_seconds' | 'match_orientation' | 'landscape_only' | 'cache_max_mb' | 'immich' | 'google' | 'local'> | undefined
   /** The photo service's status, or undefined when it isn't running. */
   status: ReturnType<PhotoService['status']> | undefined
 }
@@ -168,7 +168,8 @@ export function photosStatus({ config, status }: PhotosStatusArgs): PhotosSettin
   return {
     configured: true,
     interval_seconds: config.interval_seconds,
-    landscape_only: config.landscape_only,
+    // `landscape_only` is the older name of the same switch.
+    match_orientation: config.match_orientation || config.landscape_only,
     cache_bytes: status?.cache_bytes ?? 0,
     cache_max_bytes: config.cache_max_mb * 1024 * 1024,
     providers,

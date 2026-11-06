@@ -222,6 +222,7 @@ describe('defaults', () => {
     expect(config.button).toEqual({ single: 'next_view', double: 'toggle_photo', long: 'toggle_screen' })
     expect(config.photos).toEqual({
       interval_seconds: 60,
+      match_orientation: false,
       landscape_only: false,
       cache_max_mb: 2048,
       immich: { url: 'http://immich.local', api_key: 'k', mode: 'random', album_ids: [], random: { count: 200, person_ids: [] } },

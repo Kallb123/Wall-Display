@@ -764,7 +764,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])
 
-    await wall.setState({ view: 'agenda' })
+    await wall.setState({ view: 'month' })
     expect(stageSize(wall)).toEqual([2560, 1440])
     await wall.setState({ view: 'night' })
     expect(stageSize(wall)).toEqual([1440, 2560])

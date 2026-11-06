@@ -110,8 +110,13 @@ export function take(playlist: Playlist, pool: readonly string[], random: Random
   return { id: null, playlist: reconciled }
 }
 
-/** The photo `take` would give next, without taking it (null at the end of a round, when the next round has yet to be shuffled). */
-export function peek(playlist: Playlist, pool: readonly string[], random: Random): string | null {
+/**
+ * The photo `take` would give next, without taking it: the first one at or
+ * after the position that `accept` allows, so what is prepared ahead is
+ * something the display can show. Null at the end of a round, when the next
+ * round has yet to be shuffled, or if nothing left in this round is acceptable.
+ */
+export function peek(playlist: Playlist, pool: readonly string[], random: Random, accept: (id: string) => boolean = () => true): string | null {
   const current = reconcile(playlist, pool, random)
-  return current.order[current.position] ?? null
+  return current.order.slice(current.position).find(accept) ?? null
 }

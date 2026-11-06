@@ -379,6 +379,9 @@ const immich = z.strictObject({
 // config error (a mount may come up later); the photo service logs it.
 const photos = (baseDir: string) => z.strictObject({
   interval_seconds: sharedFields.photo_interval_seconds.default(60),
+  /** Show each display only photos of its own shape: portrait photos on a landscape display, landscape ones on a portrait one. */
+  match_orientation: z.boolean().default(false),
+  /** The older name of `match_orientation`, which it still means (on a landscape display it is exactly what it did). */
   landscape_only: z.boolean().default(false),
   cache_max_mb: z.number().int().min(1).default(2048),
   immich: immich.optional(),

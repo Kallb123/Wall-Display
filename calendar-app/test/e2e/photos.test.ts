@@ -32,7 +32,12 @@ describe('the photo routes', async () => {
     },
   })
 
-  const next = async (display = 'hallway') => photoResponseSchema.parse(await $fetch(`/api/photos/next?display=${display}`)).photo
+  const next = async (display = 'hallway', orientation?: string) =>
+    photoResponseSchema.parse(await $fetch(`/api/photos/next?display=${display}${orientation ? `&orientation=${orientation}` : ''}`)).photo
+  const sizeOf = async (url: string) => {
+    const metadata = await sharp(Buffer.from(await (await fetch(url)).arrayBuffer())).metadata()
+    return [metadata.width, metadata.height]
+  }
   const message = async (response: Response) => ((await response.json()) as { message: string }).message
 
   /** The four fixtures, by the shape they should come back as. */
@@ -104,6 +109,42 @@ describe('the photo routes', async () => {
       await $fetch('/api/displays/hallway/commands', { method: 'POST', body: { type: 'set_photo_source', photo_source: 'google' } })
 
       expect((await next())!.provider).toBe('local')
+    })
+
+    it('renders for the orientation asked: a portrait answer is a 1440×2560 file, a landscape one 2560×1440', async () => {
+      const seen = new Map<string, Set<string>>()
+      for (let i = 0; i < 8; i++) {
+        const orientation = i % 2 === 0 ? 'landscape' : 'portrait'
+        const photo = (await next('hallway', orientation))!
+        // Whatever the rendition, the answer describes the original.
+        expect([photo.width, photo.height, photo.orientation]).toEqual(SHAPES[photo.id])
+        expect(await sizeOf(photo.url), `${photo.id} ${orientation}`).toEqual(orientation === 'portrait' ? [1440, 2560] : [2560, 1440])
+        seen.set(photo.id, (seen.get(photo.id) ?? new Set()).add(photo.url))
+      }
+      // The file is the photo drawn for that shape, so a photo seen in both shapes has two.
+      for (const [id, urls] of seen) expect(urls.size, id).toBeLessThanOrEqual(2)
+    })
+
+    it('is landscape when the orientation is left out', async () => {
+      const photo = (await next('hallway'))!
+
+      expect(await sizeOf(photo.url)).toEqual([2560, 1440])
+    })
+
+    it('is a 400 for an orientation that is neither, empty or repeated wrongly', async () => {
+      for (const query of ['sideways', '', 'Portrait', 'landscape,portrait']) {
+        const response = await fetch(`/api/photos/next?display=hallway&orientation=${query}`)
+        expect(response.status, query).toBe(400)
+        expect(await message(response)).toBe('orientation must be landscape or portrait')
+      }
+    })
+
+    it('takes the first of a repeated orientation', async () => {
+      const response = await fetch('/api/photos/next?display=hallway&orientation=portrait&orientation=landscape')
+
+      expect(response.status).toBe(200)
+      const { photo } = photoResponseSchema.parse(await response.json())
+      expect(await sizeOf(photo!.url)).toEqual([1440, 2560])
     })
   })
 

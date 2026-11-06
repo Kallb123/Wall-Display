@@ -16,6 +16,15 @@ export default defineNuxtConfig({
     '@fontsource/figtree/700.css',
     '~/assets/tokens.css',
   ],
+  app: {
+    head: {
+      link: [
+        // The tab icon, for every page. The SVG where it is supported, the .ico (16, 32 and 48 px) for the rest.
+        { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+        { rel: 'icon', href: '/favicon.ico', sizes: '48x48' },
+      ],
+    },
+  },
   typescript: {
     strict: true,
     typeCheck: false,

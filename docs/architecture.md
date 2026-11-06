@@ -187,7 +187,7 @@ Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`) a
 | `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
 | `night` | Ambient | A very dim clock on pure black, whatever the theme. Used when the room is dark but you want the screen on. A line under the clock is set per display with `night_text`: nothing (`none`, the default), the first timed event in the next 24 hours (`first_event`), or the next alarm (`next_alarm`, read from Home Assistant, see §7.4). |
 
-Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show, and which month the month view shows. The page never decides for itself.
+Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show, which month the month view shows and which week the week view shows. The page never decides for itself.
 
 ### 4.2 Rendering
 
@@ -264,7 +264,7 @@ The layout engine is a pure function in `shared/`: given a month, today, the dis
 
 ### 4.5 Week view
 
-The week view shows seven day columns, from the display's `week_start`, for the week containing today (or the previewed date while a special day preview runs). It is drawn in the soft style of the month view: one rounded tile per day, the same person markers and colours, and the same tints and takeover.
+The week view shows seven day columns, from the display's `week_start`, for the week containing today, or the week pinned in the state's `week` (§7.1), which the remote, Home Assistant and the button can step through as they do months (or the previewed date while a special day preview runs). It is drawn in the soft style of the month view: one rounded tile per day, the same person markers and colours, and the same tints and takeover.
 
 - **All-day strip.** All-day and multi-day events, and timed events that run past midnight, are bars across the top of the columns, packed into three lanes by the same rules as the month view's bars: by start and then longest first, round ends where the event starts or ends, square ends where it carries in from another week or is split around a "+N more". A day with more than three of them gives its last lane to "+N more". The strip is only as tall as the lanes in use, so it takes no room in a week without such events.
 - **Timed blocks.** Every other event is a block on a shared hour scale, placed by its start and end on the wall clock in the display's time zone (not by the length between two instants), so a day with a clock change still lines up with its hour labels. An event shorter than 30 minutes is drawn 30 minutes long. Events that overlap in time sit **side by side** in the same column: within a group of overlapping events each takes the lowest free track and the group's tracks share the column's width equally. Events that merely touch (one ends as the next starts) do not overlap. Past events are dimmed.
@@ -274,7 +274,7 @@ The week view shows seven day columns, from the display's `week_start`, for the 
 
 - **Portrait.** On the portrait stage (mocks 4c and 4d) the same seven tiles are narrower, so the layout takes a `maxTracks` option (`PORTRAIT_MAX_TRACKS`, two; no limit in landscape). In an overlap group, the blocks on a track beyond it are not drawn, and the group is laid out over the tracks that are. They come back as `overflow`: one "+N" chip for each column and start time, which the view draws on the column's right edge at that time. A block under 50 minutes is one line, its badge and title; a longer one has the badge and time over a title of up to three lines. The `week_hours` range and the collapsed bands apply as in landscape, and a takeover's greeting has a line to itself under the title.
 
-The layout is a pure function in `shared/week-layout.ts`: given the week, now, the time zone, the week start, `week_hours`, the optional `maxTracks` and the events (each already carrying its people), it returns the title, the seven days, the strip's bars and "+N more" labels, the blocks with their tracks, the "+N" chips for blocks left out, the two bands and the now line. The view draws it and adds nothing. The events come from the same fetch as the month view, whose grid always covers the week.
+The layout is a pure function in `shared/week-layout.ts`: given the week, now, the time zone, the week start, `week_hours`, the optional `maxTracks` and the events (each already carrying its people), it returns the title, the seven days, the strip's bars and "+N more" labels, the blocks with their tracks, the "+N" chips for blocks left out, the two bands and the now line. The view draws it and adds nothing. The events come from the same fetch as the month view, whose grid covers this week; a pinned week outside it is fetched with it, as a range of its own.
 
 ### 4.6 Portrait
 

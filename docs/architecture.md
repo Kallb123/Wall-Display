@@ -250,7 +250,7 @@ The month view has two styles, set per display as `month_style`. Both use the sa
 Grid rules (both styles):
 
 - **Always five week rows.** In a month that needs a sixth row (a 31-day month starting on a Saturday or Sunday, or a 30-day month starting on a Sunday, with Monday-first weeks), the last one or two days wrap into the empty leading cells of the top row. This keeps every row tall enough to read.
-- **Four lanes per day.** Each day has a date row and four event lanes. All-day and multi-day events are placed first, ordered by start and then by length, longest first. Timed events then fill the free lanes in time order. When a day has more than four items, its fourth lane shows "+N more" instead.
+- **Four lanes per day.** Each day has a date row and four event lanes. All-day and multi-day events are placed first, ordered by start and then by length, longest first. Timed events then fill the free lanes in time order. When a day has more than four items, its fourth lane shows "+N more" instead. The number of lanes is an option of the layout engine: the portrait month's taller cells have six (§4.6).
 - **Multi-day bars** run unbroken across the days they cover in a week row. Where a bar starts or ends it has a rounded end. Where it carries on into the next or previous week it has a square end. If a "+N more" hides part of a bar, the bar is split around it.
 - **Timed events** show the person marker, the start time and the title, cut off with an ellipsis.
 - **Today** gets a tinted cell and its date in a filled accent circle.
@@ -276,7 +276,7 @@ The layout is a pure function in `shared/week-layout.ts`: given the week, now, t
 
 ### 4.6 Portrait
 
-A display can be portrait (1440×2560) as well as landscape (2560×1440). The `orientation` preference (`auto`, `landscape`, `portrait`) chooses the stage (PR 5.10, §4.2). Type sizes, radii and badge sizes are the same px as landscape, because a rotated panel is viewed from the same distance; only the layout changes. A view without a portrait layout is drawn on the landscape stage and letterboxed. The night view has had its portrait layout since PR 5.10, and the agenda and the photo frame since PR 5.11; the month and week follow in PRs 5.12 and 5.13. A Pi kiosk on a portrait-mounted panel turns its output with `setup.sh --rotate` (`kiosk/README.md`), and the page's `auto` then sees a portrait window. The mocks are 4a to 4r (§4.3), with pictures in [`docs/design/mocks/`](design/mocks/).
+A display can be portrait (1440×2560) as well as landscape (2560×1440). The `orientation` preference (`auto`, `landscape`, `portrait`) chooses the stage (PR 5.10, §4.2). Type sizes, radii and badge sizes are the same px as landscape, because a rotated panel is viewed from the same distance; only the layout changes. A view without a portrait layout is drawn on the landscape stage and letterboxed. The night view has had its portrait layout since PR 5.10, the agenda and the photo frame since PR 5.11, and the month since PR 5.12; the week follows in PR 5.13. A Pi kiosk on a portrait-mounted panel turns its output with `setup.sh --rotate` (`kiosk/README.md`), and the page's `auto` then sees a portrait window. The mocks are 4a to 4r (§4.3), with pictures in [`docs/design/mocks/`](design/mocks/).
 
 | View | Portrait layout | Mock |
 |---|---|---|

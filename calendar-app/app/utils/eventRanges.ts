@@ -1,6 +1,6 @@
 import { addDays } from '../../shared/dates'
 import { addMonths } from '../../shared/display'
-import type { MonthKey } from '../../shared/display'
+import type { MonthKey, WeekKey } from '../../shared/display'
 
 // Which events the display asks for. Dates are `YYYY-MM-DD` strings and the
 // arithmetic is on UTC dates, never the browser's local time, so the answer is
@@ -27,9 +27,11 @@ const PANEL_DAYS = 7
  * (the week before its first day to two weeks after its last) and, if the grid
  * doesn't already cover them, the next days from today for the side panel.
  * A month pinned a year ahead needs both, and they are separate requests so
- * neither goes near the endpoint's 366-day limit.
+ * neither goes near the endpoint's 366-day limit. With `shownWeek` (the week
+ * view's first day), its seven days are asked for as well, unless the others
+ * already cover them: a third request at most, for the same reason.
  */
-export function displayEventRanges(shownMonth: MonthKey, today: string): DateRange[] {
+export function displayEventRanges(shownMonth: MonthKey, today: string, shownWeek?: WeekKey): DateRange[] {
   const grid: DateRange = {
     from: addDays(`${shownMonth}-01`, -GRID_DAYS_BEFORE),
     to: addDays(`${addMonths(shownMonth, 1)}-01`, GRID_DAYS_AFTER),
@@ -37,5 +39,10 @@ export function displayEventRanges(shownMonth: MonthKey, today: string): DateRan
   const panel: DateRange = { from: today, to: addDays(today, PANEL_DAYS) }
 
   const covered = panel.from >= grid.from && panel.to <= grid.to
-  return covered ? [grid] : [grid, panel]
+  const ranges = covered ? [grid] : [grid, panel]
+  if (shownWeek === undefined) return ranges
+
+  const week: DateRange = { from: shownWeek, to: addDays(shownWeek, 7) }
+  const weekCovered = ranges.some(range => week.from >= range.from && week.to <= range.to)
+  return weekCovered ? ranges : [...ranges, week]
 }

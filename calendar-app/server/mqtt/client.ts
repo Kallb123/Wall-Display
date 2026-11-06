@@ -65,7 +65,7 @@ export interface MqttBridgeOptions {
   presence?: { report: (displayId: string, present: boolean | null) => void }
   /** Told what the Pi agent's light sensor reads, per display, in lux. Normally the auto brightness policy's `report`. Default: nobody listens. */
   brightness?: { report: (displayId: string, lux: number) => void }
-  control: Pick<DisplayControl, 'getState' | 'applyCommand'>
+  control: Pick<DisplayControl, 'getState' | 'applyCommand' | 'weekStartOf'>
   bus: EventBus
   /** For tests. Default: `connect` from MQTT.js. */
   connect?: (url: string, options: IClientOptions) => MqttLink
@@ -101,7 +101,7 @@ export interface MqttBridge {
 export const MIN_RECONNECT_MS = 1000
 /** A retry never waits longer than this. */
 export const MAX_RECONNECT_MS = 60_000
-/** `month/state` follows the calendar when nothing else changes, so every connection is checked this often. */
+/** `month/state` and `week/state` follow the calendar when nothing else changes, so every connection is checked this often. */
 export const RECHECK_MS = 60_000
 /** A connection has to stay up this long before the backoff starts again from a second. A broker that accepts and then drops at once (two apps with the same client id, which it keeps swapping) still backs off. */
 export const STABLE_MS = 30_000
@@ -229,7 +229,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       return
     }
     const entries: [string, string][] = [
-      ...Object.entries(statePayloads(state, now(), timeZone)),
+      ...Object.entries(statePayloads(state, now(), timeZone, control.weekStartOf(link.displayId))),
       ...Object.entries(schedulePayloads(state, link.schedules.map(schedule => schedule.id))),
       [PI_SCREEN_TOPIC, piScreenPayload(state)],
       ...lastSyncEntry(link),

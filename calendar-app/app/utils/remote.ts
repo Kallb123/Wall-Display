@@ -1,8 +1,10 @@
-import { MONTH_RANGE, PHOTO_SOURCES, addMonths } from '../../shared/display'
-import type { MonthKey, PhotoSource } from '../../shared/display'
+import { addDays } from '../../shared/dates'
+import { MONTH_RANGE, PHOTO_SOURCES, WEEK_RANGE, addMonths, addWeeks } from '../../shared/display'
+import type { MonthKey, PhotoSource, WeekKey } from '../../shared/display'
+import { weekTitle } from '../../shared/week-layout'
 
-// What the remote page works out from what it knows: the months the picker
-// offers, which `set_month` command a pick means, what the connection pill
+// What the remote page works out from what it knows: the months and weeks the
+// pickers offer, which `set_month` command a pick means, what the connection pill
 // says, and the PIN it keeps in `localStorage`. Storage can be missing or
 // blocked, so every access is guarded and a failure is the same as nothing
 // kept. Pure: no Nuxt or Vue imports, and the storage is passed in.
@@ -31,6 +33,30 @@ export function monthOptions(current: MonthKey): MonthOption[] {
 
 /** What to send to show `target`: picking the current month unpins it, which `current` says. */
 export function monthCommandFor(target: MonthKey, current: MonthKey): MonthKey | 'current' {
+  return target === current ? 'current' : target
+}
+
+export interface WeekOption {
+  value: WeekKey
+  /** `26 Oct to 1 Nov`, as the week view titles it. */
+  label: string
+}
+
+/** A week, given as its first day, as the week view titles it. */
+export function weekLabel(first: WeekKey): string {
+  return weekTitle(first, addDays(first, 6))
+}
+
+/** The weeks the picker offers: `WEEK_RANGE` either side of `current`, earliest first. */
+export function weekOptions(current: WeekKey): WeekOption[] {
+  return Array.from({ length: WEEK_RANGE * 2 + 1 }, (_, i) => {
+    const value = addWeeks(current, i - WEEK_RANGE)
+    return { value, label: weekLabel(value) }
+  })
+}
+
+/** What to send to show `target`: picking the current week unpins it, which `current` says. */
+export function weekCommandFor(target: WeekKey, current: WeekKey): WeekKey | 'current' {
   return target === current ? 'current' : target
 }
 

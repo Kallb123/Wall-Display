@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { addDays, dayOfWeek, todayIn } from './dates'
 import type { SpecialDaysResolution } from './special-days'
 import type { WeatherSnapshot } from './weather'
 
@@ -19,6 +20,12 @@ export const NEXT_VIEW_ORDER = ['month', 'agenda', 'week'] as const satisfies re
  * Night is one too: it is whatever was on the wall before the photos came on.
  */
 export const RETURN_VIEWS = ['month', 'week', 'agenda', 'night'] as const satisfies readonly View[]
+
+/**
+ * The views that show one week and follow a pinned week (`state.week`). Later
+ * week-based views join this list, so they are browsed like the week view.
+ */
+export const WEEK_VIEWS = ['week'] as const satisfies readonly View[]
 
 // The same values as PHOTO_PROVIDERS in server/db/schema.ts, which shared code can't import.
 export const PHOTO_SOURCES = ['immich', 'google', 'local'] as const
@@ -57,6 +64,8 @@ export type SocketRole = (typeof SOCKET_ROLES)[number]
 
 /** How many months either side of the current month a pinned month may be. */
 export const MONTH_RANGE = 12
+/** How many weeks either side of the current week a pinned week may be. */
+export const WEEK_RANGE = 52
 /** The longest an overlay may be set for: a week, in seconds. */
 export const MAX_OVERLAY_TTL_SECONDS = 7 * 24 * 60 * 60
 /** How long `preview_special_day` shows a special day for when it isn't told (architecture §6.5). */
@@ -74,6 +83,15 @@ export const scheduleIdSchema = z.string().regex(SCHEDULE_ID_PATTERN, 'must be l
 
 /** A month as `YYYY-MM`. */
 export type MonthKey = string
+
+/** A week as the date of its first day, `YYYY-MM-DD`: a Monday or a Sunday, by the display's `week_start`. */
+export type WeekKey = string
+
+/** `YYYY-MM-DD` that is a real date (not 2026-02-30). */
+const dateKey = z.string()
+  .regex(/^[1-9]\d{3}-\d{2}-\d{2}$/, 'must be a date like 2026-10-26')
+  // The regex does not stop the checks after it, so this must cope with any text. Years before 1000 are out: `Date.UTC` reads 0 to 99 as 19xx.
+  .refine(value => /^[1-9]\d{3}-\d{2}-\d{2}$/.test(value) && addDays(value, 0) === value, 'must be a real date like 2026-10-26')
 
 const monthKey = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'must be a month like 2026-10')
 
@@ -118,6 +136,10 @@ export const displayStateSchema = z.object({
   month: monthKey.nullable().default(null),
   /** When the pinned month was last set, as an ISO 8601 instant. `month_return_minutes` counts from here. */
   month_set_at: z.iso.datetime().nullable().default(null),
+  /** The first day of the pinned week, or null to follow the current week. */
+  week: dateKey.nullable().default(null),
+  /** When the pinned week was last set, as an ISO 8601 instant. `month_return_minutes` counts from here. */
+  week_set_at: z.iso.datetime().nullable().default(null),
   screen: z.enum(SCREEN_STATES).default('on'),
   photo_source: z.enum(PHOTO_SOURCES).default('immich'),
   /** The last view that wasn't the photo frame: where `toggle_photo` goes back to. Kept by the command handler. */
@@ -146,6 +168,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('set_view'), view: z.enum(VIEWS) }),
   z.strictObject({ type: z.literal('next_view') }),
   z.strictObject({ type: z.literal('set_month'), month: z.union([monthKey, z.enum(['current', 'prev', 'next'])], { error: 'must be a month like 2026-10, or current, prev or next' }) }),
+  // A date in the wanted week (moved to the week's first day), or current, prev or next.
+  z.strictObject({ type: z.literal('set_week'), week: z.union([dateKey, z.enum(['current', 'prev', 'next'])], { error: 'must be a date like 2026-10-26, or current, prev or next' }) }),
   z.strictObject({ type: z.literal('set_screen'), screen: z.enum(SCREEN_STATES) }),
   // Out of range is an error, not clamped: a slider that sends 120 has a bug worth seeing.
   z.strictObject({ type: z.literal('set_brightness'), brightness }),
@@ -179,7 +203,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       .max(MAX_PREVIEW_SECONDS, `must be from ${MIN_PREVIEW_SECONDS} to ${MAX_PREVIEW_SECONDS}`)
       .default(DEFAULT_PREVIEW_SECONDS),
   }).refine(command => (command.id === undefined) !== (command.scene === undefined), { message: 'needs exactly one of id and scene' }),
-], { error: 'must be set_view, next_view, set_month, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_schedule, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
+], { error: 'must be set_view, next_view, set_month, set_week, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_schedule, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
 
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']
@@ -278,4 +302,28 @@ export function addMonths(key: MonthKey, count: number): MonthKey {
 /** How many months `to` is after `from` (negative if it is before). */
 export function monthDiff(from: MonthKey, to: MonthKey): number {
   return monthIndex(to) - monthIndex(from)
+}
+
+// Weeks, as the date of their first day. The first day depends on the
+// display's `week_start`, so every helper takes it. Dates only, no times, so
+// the process's time zone never matters.
+
+/** The first day of the week `date` is in. */
+export function firstDayOfWeek(date: string, weekStart: 'monday' | 'sunday'): WeekKey {
+  return addDays(date, -((dayOfWeek(date) - (weekStart === 'monday' ? 1 : 0) + 7) % 7))
+}
+
+/** The week it is at `now` on a wall in `timeZone`. */
+export function currentWeek(now: Date, timeZone: string, weekStart: 'monday' | 'sunday'): WeekKey {
+  return firstDayOfWeek(todayIn(now, timeZone), weekStart)
+}
+
+/** The week `count` weeks after `key` (before it, if negative). */
+export function addWeeks(key: WeekKey, count: number): WeekKey {
+  return addDays(key, count * 7)
+}
+
+/** How many weeks `to` is after `from` (negative if it is before). Both are first days of weeks. */
+export function weekDiff(from: WeekKey, to: WeekKey): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / (7 * 24 * 60 * 60 * 1000))
 }

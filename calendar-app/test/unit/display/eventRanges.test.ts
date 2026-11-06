@@ -4,6 +4,27 @@ import { displayEventRanges, todayIn } from '../../../app/utils/eventRanges'
 /** Days from `from` to `to`, to check the endpoint's 366-day limit. */
 const days = (range: { from: string, to: string }) => (Date.parse(range.to) - Date.parse(range.from)) / 86_400_000
 
+describe('displayEventRanges with a week', () => {
+  it('adds nothing when the month grid already holds the week', () => {
+    expect(displayEventRanges('2026-10', '2026-10-28', '2026-10-26')).toEqual([{ from: '2026-09-24', to: '2026-11-15' }])
+  })
+
+  it('adds the week when it is far from the month and today', () => {
+    const ranges = displayEventRanges('2026-10', '2026-10-28', '2027-03-01')
+
+    expect(ranges).toEqual([
+      { from: '2026-09-24', to: '2026-11-15' },
+      { from: '2027-03-01', to: '2027-03-08' },
+    ])
+    expect(ranges.every(range => days(range) <= 366)).toBe(true)
+  })
+
+  it('counts the next days as covering it too', () => {
+    // The pinned month is a year ahead, so the next days are asked for, and a week that starts today is in them.
+    expect(displayEventRanges('2027-10', '2026-10-28', '2026-10-28')).toHaveLength(2)
+  })
+})
+
 describe('displayEventRanges', () => {
   it('asks for the month grid alone when today is inside it', () => {
     expect(displayEventRanges('2026-10', '2026-10-28')).toEqual([{ from: '2026-09-24', to: '2026-11-15' }])

@@ -211,6 +211,9 @@ export const BUTTON_ACTIONS = [
   'next_month',
   'prev_month',
   'this_month',
+  'next_week',
+  'prev_week',
+  'this_week',
   'refresh',
   'ha', // the app ignores the gesture; Home Assistant decides
   'none',

@@ -51,7 +51,7 @@ export interface ViewProps {
   timezone: string
   /** The month the month view shows: the one the server pinned in `state.month`, or else the current month. Not necessarily the month `now` is in. */
   month: MonthKey
-  /** A date in the week the week view shows, `YYYY-MM-DD`: today, or the previewed date while a preview runs. */
+  /** A date in the week the week view shows, `YYYY-MM-DD`: the week the server pinned in `state.week`, else today; the previewed date while a preview runs. */
   weekOf: string
   /** The hours the week view draws in full (the display's `week_hours`); the rest are folded into a thin band at each end. */
   weekHours: WeekHours

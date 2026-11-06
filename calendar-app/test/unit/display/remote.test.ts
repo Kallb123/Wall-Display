@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MONTH_RANGE } from '../../../shared/display'
+import { MONTH_RANGE, WEEK_RANGE } from '../../../shared/display'
+import { weekTitle } from '../../../shared/week-layout'
 import {
   OFFLINE_AFTER_MS,
   PHOTO_SOURCE_CHOICES,
@@ -12,6 +13,9 @@ import {
   monthOptions,
   requestFailure,
   savePin,
+  weekCommandFor,
+  weekLabel,
+  weekOptions,
 } from '../../../app/utils/remote'
 
 describe('monthLabel', () => {
@@ -46,6 +50,38 @@ describe('monthOptions', () => {
   it('works from a January and a December', () => {
     expect(monthOptions('2027-01')[0]!.value).toBe('2026-01')
     expect(monthOptions('2026-12').at(-1)!.value).toBe('2027-12')
+  })
+})
+
+describe('weekLabel', () => {
+  it('names a week from its first day to its last, as the week view titles it', () => {
+    expect(weekLabel('2026-10-26')).toBe(weekTitle('2026-10-26', '2026-11-01'))
+    expect(weekLabel('2026-12-28')).toBe(weekTitle('2026-12-28', '2027-01-03'))
+  })
+})
+
+describe('weekOptions', () => {
+  const options = weekOptions('2026-10-26')
+
+  it('covers WEEK_RANGE weeks either side of the current one, earliest first', () => {
+    expect(options).toHaveLength(WEEK_RANGE * 2 + 1)
+    expect(options[0]!.value).toBe('2025-10-27')
+    expect(options[WEEK_RANGE]!.value).toBe('2026-10-26')
+    expect(options.at(-1)!.value).toBe('2027-10-25')
+  })
+
+  it('steps a week at a time, each labelled by weekLabel', () => {
+    expect(options[WEEK_RANGE + 1]).toEqual({ value: '2026-11-02', label: weekLabel('2026-11-02') })
+  })
+})
+
+describe('weekCommandFor', () => {
+  it('says current for the current week, which unpins the wall', () => {
+    expect(weekCommandFor('2026-10-26', '2026-10-26')).toBe('current')
+  })
+
+  it('is the week itself for any other', () => {
+    expect(weekCommandFor('2026-11-02', '2026-10-26')).toBe('2026-11-02')
   })
 })
 

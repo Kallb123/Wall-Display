@@ -16,9 +16,9 @@ const RETURN_MINUTES = 15
 const START = new Date('2026-10-28T12:00:00Z')
 
 const DISPLAYS = [
-  { id: 'hallway', month_return_minutes: RETURN_MINUTES, schedules: [{ id: 'mornings' }, { id: 'daytime-photos' }] },
-  { id: 'kitchen', month_return_minutes: 5 },
-]
+  { id: 'hallway', month_return_minutes: RETURN_MINUTES, week_start: 'monday', schedules: [{ id: 'mornings' }, { id: 'daytime-photos' }] },
+  { id: 'kitchen', month_return_minutes: 5, week_start: 'sunday' },
+] as const
 
 const setMonth = (month: string): Command => ({ type: 'set_month', month })
 
@@ -51,7 +51,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null,
+      view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null,
     })
   })
 
@@ -200,6 +200,29 @@ describe('applying commands', () => {
 
     expect(control.getState('hallway').view).toBe('month')
     expect(stateUpdates).not.toHaveBeenCalled()
+  })
+})
+
+describe('the pinned week timer', () => {
+  it('sends the week back after month_return_minutes and announces it', () => {
+    const { control, stateUpdates } = setup()
+    control.applyCommand('hallway', { type: 'set_week', week: '2026-12-07' })
+    expect(control.getState('hallway')).toMatchObject({ view: 'week', week: '2026-12-07' })
+    stateUpdates.mockClear()
+
+    vi.advanceTimersByTime(RETURN_MINUTES * MINUTE - 1)
+    expect(stateUpdates).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+
+    expect(stateUpdates).toHaveBeenCalledTimes(1)
+    expect(stateUpdates).toHaveBeenCalledWith({ displayId: 'hallway', state: expect.objectContaining({ week: null, week_set_at: null }) })
+  })
+
+  it('starts the week on the display\'s own week_start', () => {
+    const { control } = setup()
+
+    expect(control.applyCommand('hallway', { type: 'set_week', week: '2026-12-09' }).week).toBe('2026-12-07')
+    expect(control.applyCommand('kitchen', { type: 'set_week', week: '2026-12-09' }).week).toBe('2026-12-06')
   })
 })
 
@@ -451,7 +474,7 @@ describe('schedules', () => {
 describe('the store', () => {
   it('loads a document stored before last_calendar_view existed, with month for it', () => {
     const handle = migratedMemoryDb()
-    const old = { view: 'photo', month: null, month_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null }
+    const old = { view: 'photo', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null }
     handle.db.insert(displayState).values({ displayId: 'hallway', state: old as never, updatedAt: new Date() }).run()
 
     expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', schedules_off: [], schedule: null })
@@ -459,7 +482,7 @@ describe('the store', () => {
 
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, schedules_off: ['mornings'], schedule: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, schedules_off: ['mornings'], schedule: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 
@@ -469,12 +492,41 @@ describe('the store', () => {
 })
 
 describe('updateDisplay', () => {
+  it('follows a change of week start: weekStartOf, and a pinned week moves to its new first day', () => {
+    const { control, stateUpdates } = setup()
+    control.applyCommand('hallway', { type: 'set_week', week: '2026-12-07' })
+    stateUpdates.mockClear()
+
+    expect(control.weekStartOf('hallway')).toBe('monday')
+    control.updateDisplay('hallway', { month_return_minutes: RETURN_MINUTES, week_start: 'sunday' })
+
+    expect(control.weekStartOf('hallway')).toBe('sunday')
+    expect(control.weekStartOf('kitchen')).toBe('sunday')
+    expect(stateUpdates).toHaveBeenCalledTimes(1)
+    expect(control.getState('hallway').week).toBe('2026-12-06')
+  })
+
+  it('reverts a week pinned for longer than the new limit, and leaves a recent one', () => {
+    const { control } = setup()
+    control.applyCommand('hallway', { type: 'set_week', week: '2026-12-07' })
+    vi.advanceTimersByTime(10 * MINUTE)
+
+    control.updateDisplay('hallway', { month_return_minutes: 30, week_start: 'monday' })
+    expect(control.getState('hallway').week).toBe('2026-12-07')
+    control.updateDisplay('hallway', { month_return_minutes: 5, week_start: 'monday' })
+    expect(control.getState('hallway')).toMatchObject({ week: null, week_set_at: null })
+  })
+
+  it('refuses an unknown display for weekStartOf', () => {
+    expect(() => setup().control.weekStartOf('garage')).toThrow(UnknownDisplayError)
+  })
+
   it('re-arms the timer for a longer limit', () => {
     const { control, stateUpdates } = setup()
     control.applyCommand('hallway', setMonth('2026-12'))
     stateUpdates.mockClear()
 
-    control.updateDisplay('hallway', { month_return_minutes: 30 })
+    control.updateDisplay('hallway', { month_return_minutes: 30, week_start: 'monday' })
     vi.advanceTimersByTime(RETURN_MINUTES * MINUTE)
     expect(stateUpdates).not.toHaveBeenCalled()
     expect(control.getState('hallway').month).toBe('2026-12')
@@ -490,7 +542,7 @@ describe('updateDisplay', () => {
     vi.advanceTimersByTime(4 * MINUTE)
     stateUpdates.mockClear()
 
-    control.updateDisplay('hallway', { month_return_minutes: 10 })
+    control.updateDisplay('hallway', { month_return_minutes: 10, week_start: 'monday' })
     expect(stateUpdates).not.toHaveBeenCalled()
     vi.advanceTimersByTime(6 * MINUTE - 1)
     expect(stateUpdates).not.toHaveBeenCalled()
@@ -506,7 +558,7 @@ describe('updateDisplay', () => {
     vi.advanceTimersByTime(10 * MINUTE)
     stateUpdates.mockClear()
 
-    control.updateDisplay('hallway', { month_return_minutes: 5 })
+    control.updateDisplay('hallway', { month_return_minutes: 5, week_start: 'monday' })
 
     expect(stateUpdates).toHaveBeenCalledTimes(1)
     expect(stateUpdates).toHaveBeenCalledWith({ displayId: 'hallway', state: expect.objectContaining({ month: null, month_set_at: null }) })
@@ -515,7 +567,7 @@ describe('updateDisplay', () => {
 
   it('uses the new limit for a month pinned afterwards, and leaves other displays alone', () => {
     const { control } = setup()
-    control.updateDisplay('hallway', { month_return_minutes: 1 })
+    control.updateDisplay('hallway', { month_return_minutes: 1, week_start: 'monday' })
     control.applyCommand('hallway', setMonth('2026-12'))
     control.applyCommand('kitchen', setMonth('2026-12'))
 
@@ -530,7 +582,7 @@ describe('updateDisplay', () => {
     const { control, stateUpdates } = setup()
     stateUpdates.mockClear()
 
-    control.updateDisplay('hallway', { month_return_minutes: 1 })
+    control.updateDisplay('hallway', { month_return_minutes: 1, week_start: 'monday' })
 
     expect(stateUpdates).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
@@ -539,6 +591,6 @@ describe('updateDisplay', () => {
   it('throws for an unknown display', () => {
     const { control } = setup()
 
-    expect(() => control.updateDisplay('garage', { month_return_minutes: 5 })).toThrow(UnknownDisplayError)
+    expect(() => control.updateDisplay('garage', { month_return_minutes: 5, week_start: 'sunday' })).toThrow(UnknownDisplayError)
   })
 })

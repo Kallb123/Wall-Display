@@ -13,8 +13,8 @@ const RETURN_MINUTES = 15
 /** Wed 28 Oct 2026, 12:00 in London (GMT). */
 const NOW = new Date('2026-10-28T12:00:00Z')
 
-function ctx(now: Date | string = NOW, monthReturnMinutes = RETURN_MINUTES): ControlContext {
-  return { now: new Date(now), timeZone: 'Europe/London', monthReturnMinutes }
+function ctx(now: Date | string = NOW, monthReturnMinutes = RETURN_MINUTES, weekStart: ControlContext['weekStart'] = 'monday'): ControlContext {
+  return { now: new Date(now), timeZone: 'Europe/London', monthReturnMinutes, weekStart }
 }
 
 function state(overrides: Partial<DisplayState> = {}): DisplayState {
@@ -190,6 +190,137 @@ describe('when the pinned month goes back to following the current month', () =>
 
   it('clears a set_at left without a month', () => {
     expect(expireState(state({ month: null, month_set_at: NOW.toISOString() }), ctx()).month_set_at).toBeNull()
+  })
+})
+
+/** A week pinned at `at`, which is the default now. */
+function pinnedWeek(week: string, at: Date | string = NOW, overrides: Partial<DisplayState> = {}): DisplayState {
+  return state({ view: 'week', week, week_set_at: new Date(at).toISOString(), ...overrides })
+}
+
+const setWeek = (week: string): Command => ({ type: 'set_week', week })
+
+// NOW is Wednesday 28 October 2026, so the current week starts on Monday 26 October (Sunday 25 October if weeks start on Sunday).
+describe('set_week', () => {
+  it('pins the week that holds a date, as its first day, and starts the return clock', () => {
+    const next = reduceCommand(state(), setWeek('2026-12-09'), ctx())
+
+    expect(next).toMatchObject({ view: 'week', week: '2026-12-07', week_set_at: NOW.toISOString() })
+  })
+
+  it('leaves the month alone', () => {
+    expect(reduceCommand(state(), setWeek('2026-12-09'), ctx())).toMatchObject({ month: null, month_set_at: null })
+  })
+
+  it('starts weeks on Sunday when the display does', () => {
+    expect(reduceCommand(state(), setWeek('2026-12-09'), ctx(NOW, RETURN_MINUTES, 'sunday')).week).toBe('2026-12-06')
+  })
+
+  it('shows the week view, whatever view it was on', () => {
+    expect(reduceCommand(state({ view: 'agenda' }), setWeek('2026-12-09'), ctx()).view).toBe('week')
+    expect(reduceCommand(state({ view: 'photo' }), setWeek('next'), ctx()).view).toBe('week')
+  })
+
+  it('stores the current week as null, however it is asked for', () => {
+    const away = pinnedWeek('2026-12-07')
+
+    for (const week of ['current', '2026-10-26', '2026-10-28', '2026-11-01']) {
+      expect(reduceCommand(away, setWeek(week), ctx())).toMatchObject({ view: 'week', week: null, week_set_at: null })
+    }
+  })
+
+  it('steps from the current week when none is pinned', () => {
+    expect(reduceCommand(state(), setWeek('next'), ctx()).week).toBe('2026-11-02')
+    expect(reduceCommand(state(), setWeek('prev'), ctx()).week).toBe('2026-10-19')
+  })
+
+  it('steps from the week shown', () => {
+    expect(reduceCommand(pinnedWeek('2026-12-07'), setWeek('next'), ctx()).week).toBe('2026-12-14')
+    expect(reduceCommand(pinnedWeek('2026-12-07'), setWeek('prev'), ctx()).week).toBe('2026-11-30')
+  })
+
+  it('goes back to following the calendar when a step reaches the current week', () => {
+    expect(reduceCommand(pinnedWeek('2026-11-02'), setWeek('prev'), ctx()).week).toBeNull()
+  })
+
+  it('clamps to 52 weeks either side of the current week', () => {
+    expect(reduceCommand(state(), setWeek('2030-01-01'), ctx()).week).toBe('2027-10-25')
+    expect(reduceCommand(state(), setWeek('2020-01-01'), ctx()).week).toBe('2025-10-27')
+    expect(reduceCommand(pinnedWeek('2027-10-25'), setWeek('next'), ctx()).week).toBe('2027-10-25')
+    expect(reduceCommand(pinnedWeek('2025-10-27'), setWeek('prev'), ctx()).week).toBe('2025-10-27')
+  })
+
+  it('uses the display time zone for the current week', () => {
+    // 23:30 UTC on Sunday 1 November is already Monday 2 November in Auckland, but still Sunday in London.
+    const sunday = '2026-11-01T23:30:00Z'
+    const auckland = { ...ctx(sunday), timeZone: 'Pacific/Auckland' }
+
+    expect(reduceCommand(state(), setWeek('next'), ctx(sunday)).week).toBe('2026-11-02')
+    expect(reduceCommand(state(), setWeek('next'), auckland).week).toBe('2026-11-09')
+  })
+
+  it('restarts the return clock on every pick', () => {
+    const first = reduceCommand(state(), setWeek('2026-12-07'), ctx(NOW))
+    const later = new Date(NOW.getTime() + 10 * MINUTE)
+
+    expect(reduceCommand(first, setWeek('2026-12-07'), ctx(later)).week_set_at).toBe(later.toISOString())
+  })
+})
+
+describe('when the pinned week goes back to following the current week', () => {
+  it('drops it when the view changes away from week, and keeps it for week', () => {
+    expect(reduceCommand(pinnedWeek('2026-12-07'), { type: 'set_view', view: 'month' }, ctx())).toMatchObject({ week: null, week_set_at: null })
+    expect(reduceCommand(pinnedWeek('2026-12-07'), { type: 'set_view', view: 'week' }, ctx()).week).toBe('2026-12-07')
+  })
+
+  it('drops the month when the week view is asked for, and the week when the month is', () => {
+    expect(reduceCommand(pinned('2026-12'), setWeek('next'), ctx())).toMatchObject({ view: 'week', month: null, week: '2026-11-02' })
+    expect(reduceCommand(pinnedWeek('2026-12-07'), setMonth('next'), ctx())).toMatchObject({ view: 'month', month: '2026-11', week: null })
+  })
+
+  it('goes back exactly at month_return_minutes, not before', () => {
+    const start = pinnedWeek('2026-12-07')
+    const edge = NOW.getTime() + RETURN_MINUTES * MINUTE
+
+    expect(expireState(start, ctx(new Date(edge - 1))).week).toBe('2026-12-07')
+    expect(expireState(start, ctx(new Date(edge)))).toMatchObject({ week: null, week_set_at: null })
+  })
+
+  it('drops a week that has become the current week when the calendar rolls over', () => {
+    const start = pinnedWeek('2026-11-02', '2026-11-01T23:50:00Z')
+
+    expect(expireState(start, ctx('2026-11-01T23:58:00Z')).week).toBe('2026-11-02')
+    expect(expireState(start, ctx('2026-11-02T00:00:00Z')).week).toBeNull()
+  })
+
+  it('drops a week that has fallen out of the 52-week range', () => {
+    const stale = pinnedWeek('2027-10-25')
+
+    expect(expireState(stale, ctx('2026-10-28T12:05:00Z')).week).toBe('2027-10-25')
+    expect(expireState({ ...stale, week: '2027-11-01' }, ctx('2026-10-28T12:05:00Z')).week).toBeNull()
+    expect(expireState({ ...stale, week: '2025-10-20' }, ctx('2026-10-28T12:05:00Z')).week).toBeNull()
+  })
+
+  it('drops a week with nothing to count from, one set outside the week view, and a stray set_at', () => {
+    expect(expireState(state({ view: 'week', week: '2026-12-07', week_set_at: null }), ctx()).week).toBeNull()
+    expect(expireState(pinnedWeek('2026-12-07', NOW, { view: 'month' }), ctx()).week).toBeNull()
+    expect(expireState(state({ week: null, week_set_at: NOW.toISOString() }), ctx()).week_set_at).toBeNull()
+  })
+
+  it('moves a pinned week to the first day of its week when the display\'s week start changes', () => {
+    const monday = pinnedWeek('2026-12-07')
+
+    expect(expireState(monday, ctx(NOW, RETURN_MINUTES, 'sunday')).week).toBe('2026-12-06')
+    expect(expireState(pinnedWeek('2026-12-06'), ctx(NOW, RETURN_MINUTES, 'monday')).week).toBe('2026-11-30')
+    // Re-aligned onto the current week, it is no longer a pin.
+    expect(expireState(pinnedWeek('2026-10-26'), ctx(NOW, RETURN_MINUTES, 'sunday'))).toMatchObject({ week: null, week_set_at: null })
+  })
+
+  it('counts down to the earlier of the month and the week in nextExpiry', () => {
+    const later = new Date(NOW.getTime() + 5 * MINUTE)
+    const both = state({ view: 'week', week: '2026-12-07', week_set_at: later.toISOString() })
+
+    expect(nextExpiry(both, ctx())?.getTime()).toBe(later.getTime() + RETURN_MINUTES * MINUTE)
   })
 })
 

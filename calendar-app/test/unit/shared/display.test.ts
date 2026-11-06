@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMonths, commandSchema, currentMonth, DEFAULT_PREVIEW_SECONDS, displayStateSchema, monthDiff } from '../../../shared/display'
+import { addMonths, addWeeks, commandSchema, currentMonth, currentWeek, DEFAULT_PREVIEW_SECONDS, displayStateSchema, firstDayOfWeek, monthDiff, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../../shared/display'
 
 describe('the display state schema', () => {
   it('fills in every field from nothing', () => {
@@ -7,6 +7,8 @@ describe('the display state schema', () => {
       view: 'month',
       month: null,
       month_set_at: null,
+      week: null,
+      week_set_at: null,
       screen: 'on',
       photo_source: 'immich',
       last_calendar_view: 'month',
@@ -82,6 +84,8 @@ describe('the display state schema', () => {
   it.each([
     ['an unknown view', { view: 'year' }],
     ['a month that is not YYYY-MM', { month: '2026-13' }],
+    ['a week that is only a month', { week: '2026-12' }],
+    ['a week date that does not exist', { week: '2026-02-31' }],
     ['brightness over 100', { brightness: 101 }],
     ['an empty overlay text', { overlay: { text: ' ', icon: null, until: null } }],
     ['an until that is not an instant', { overlay: { text: 'Hi', icon: null, until: 'tomorrow' } }],
@@ -98,6 +102,10 @@ describe('the command schema', () => {
     [{ type: 'set_month', month: 'current' }],
     [{ type: 'set_month', month: 'prev' }],
     [{ type: 'set_month', month: 'next' }],
+    [{ type: 'set_week', week: '2026-12-07' }],
+    [{ type: 'set_week', week: 'current' }],
+    [{ type: 'set_week', week: 'prev' }],
+    [{ type: 'set_week', week: 'next' }],
     [{ type: 'set_screen', screen: 'off' }],
     [{ type: 'set_brightness', brightness: 0 }],
     [{ type: 'set_brightness', brightness: 100 }],
@@ -134,6 +142,11 @@ describe('the command schema', () => {
     ['a month with the wrong number', { type: 'set_month', month: '2026-13' }],
     ['a month without a leading zero', { type: 'set_month', month: '2026-1' }],
     ['an unknown month word', { type: 'set_month', month: 'last' }],
+    ['a week that is only a month', { type: 'set_week', week: '2026-12' }],
+    ['a date that does not exist', { type: 'set_week', week: '2026-02-31' }],
+    ['a date with a month 13', { type: 'set_week', week: '2026-13-01' }],
+    ['an unknown week word', { type: 'set_week', week: 'last' }],
+    ['a week with no value', { type: 'set_week' }],
     ['brightness over 100', { type: 'set_brightness', brightness: 101 }],
     ['brightness under 0', { type: 'set_brightness', brightness: -1 }],
     ['fractional brightness', { type: 'set_brightness', brightness: 1.5 }],
@@ -207,5 +220,40 @@ describe('months', () => {
     expect(monthDiff('2026-12', '2027-01')).toBe(1)
     expect(monthDiff('2027-01', '2026-12')).toBe(-1)
     expect(monthDiff('2025-10', '2027-10')).toBe(24)
+  })
+})
+
+describe('weeks', () => {
+  it('finds the first day of the week that holds a date', () => {
+    // Wed 28 October 2026.
+    expect(firstDayOfWeek('2026-10-28', 'monday')).toBe('2026-10-26')
+    expect(firstDayOfWeek('2026-10-28', 'sunday')).toBe('2026-10-25')
+    expect(firstDayOfWeek('2026-10-26', 'monday')).toBe('2026-10-26')
+    expect(firstDayOfWeek('2026-10-25', 'monday')).toBe('2026-10-19')
+    expect(firstDayOfWeek('2026-10-25', 'sunday')).toBe('2026-10-25')
+  })
+
+  it('lists the views that follow a pinned week, within the views there are', () => {
+    expect(WEEK_VIEWS).toEqual(['week'])
+    expect(WEEK_RANGE).toBe(52)
+  })
+
+  it('crosses a month and a year', () => {
+    expect(firstDayOfWeek('2027-01-01', 'monday')).toBe('2026-12-28')
+  })
+
+  it('works out the current week in the display time zone', () => {
+    // 23:30 UTC on Sunday 25 October is already Monday 26 October in Auckland.
+    const now = new Date('2026-10-25T23:30:00Z')
+
+    expect(currentWeek(now, 'Europe/London', 'monday')).toBe('2026-10-19')
+    expect(currentWeek(now, 'Pacific/Auckland', 'monday')).toBe('2026-10-26')
+  })
+
+  it('moves by whole weeks and counts the distance', () => {
+    expect(addWeeks('2026-10-26', 1)).toBe('2026-11-02')
+    expect(addWeeks('2026-10-26', -52)).toBe('2025-10-27')
+    expect(weekDiff('2026-10-26', '2026-12-07')).toBe(6)
+    expect(weekDiff('2026-10-26', '2026-10-12')).toBe(-2)
   })
 })

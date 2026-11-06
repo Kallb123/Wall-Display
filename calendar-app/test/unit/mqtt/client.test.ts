@@ -121,8 +121,9 @@ function setup(options: { displays?: string[], schedules?: Record<string, { id: 
       if (!state) throw new Error(`Unknown display "${displayId}"`)
       return state
     }),
+    weekStartOf: vi.fn((): 'monday' | 'sunday' => 'monday'),
     applyCommand: vi.fn((displayId: string, command: Command): DisplayState => {
-      const next = reduceCommand(control.getState(displayId), command, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15 })
+      const next = reduceCommand(control.getState(displayId), command, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15, weekStart: 'monday' })
       states.set(displayId, next)
       bus.emit('state.updated', { displayId, state: next })
       return next
@@ -237,6 +238,7 @@ describe('connecting', () => {
     expect(Object.fromEntries(rest.map(message => [message.topic.replace('wallcal/hallway/', ''), message.payload]))).toEqual({
       'view/state': 'month',
       'month/state': '2026-10',
+      'week/state': '2026-10-26',
       'screen/state': 'on',
       'photo_source/state': 'immich',
       'brightness/state': '100',
@@ -389,7 +391,7 @@ describe('publishing the state', () => {
 
     // What the control service does when the timer fires.
     vi.advanceTimersByTime(600 * SECOND)
-    const expired = expireState(states.get('hallway')!, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15 })
+    const expired = expireState(states.get('hallway')!, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15, weekStart: 'monday' })
     states.set('hallway', expired)
     bus.emit('state.updated', { displayId: 'hallway', state: expired })
 
@@ -408,6 +410,44 @@ describe('publishing the state', () => {
     expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([['wallcal/hallway/month/state', '2026-11']])
     client().clear()
     vi.advanceTimersByTime(RECHECK_MS)
+    expect(client().published).toEqual([])
+  })
+
+  it('republishes week/state when the week rolls over, and only that', () => {
+    // 23:59:30 on Sunday 1 November: the week turns at midnight, the month does not.
+    vi.setSystemTime(new Date('2026-11-01T23:59:30Z'))
+    const { client } = setup()
+    client().up()
+    expect(client().payloadsOn('wallcal/hallway/week/state')).toEqual(['2026-10-26'])
+    client().clear()
+
+    vi.advanceTimersByTime(RECHECK_MS)
+
+    expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([['wallcal/hallway/week/state', '2026-11-02']])
+  })
+
+  it('follows the display\'s week start for week/state when it changes', () => {
+    // Wednesday 28 October 2026.
+    const { client, control } = setup()
+    client().up()
+    expect(client().payloadsOn('wallcal/hallway/week/state')).toEqual(['2026-10-26'])
+    control.weekStartOf.mockReturnValue('sunday')
+    client().clear()
+
+    vi.advanceTimersByTime(RECHECK_MS)
+
+    expect(client().published.map(({ topic, payload }) => [topic, payload])).toEqual([['wallcal/hallway/week/state', '2026-10-25']])
+  })
+
+  it('leaves a week that is pinned where it is when the calendar moves on', () => {
+    vi.setSystemTime(new Date('2026-11-01T23:59:30Z'))
+    const { client, control } = setup()
+    client().up()
+    control.applyCommand('hallway', { type: 'set_week', week: '2027-02-01' })
+    client().clear()
+
+    vi.advanceTimersByTime(RECHECK_MS)
+
     expect(client().published).toEqual([])
   })
 

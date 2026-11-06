@@ -191,7 +191,7 @@ Views are plain front-end routes inside one page (`/display`). The server tells 
 
 ### 4.2 Rendering
 
-- The layout is designed for a 16:9 screen at 2560×1440. On a 4K panel it renders at 1440p and is scaled up, which keeps Chromium responsive on the Pi. A Pi 5 can try native 4K.
+- The layout is designed for a 16:9 screen at 2560×1440, or 1440×2560 on a portrait display (§4.6). On a 4K panel it renders at 1440p and is scaled up, which keeps Chromium responsive on the Pi. A Pi 5 can try native 4K.
 - Large type, high contrast, nothing interactive. Any UI on the display should read clearly from 3 m away.
 - Calendar views use a solid, themed background and never a photo. This keeps text contrast predictable. On a special day with a takeover the palette changes, but tiles and panels stay solid (see §6.3).
 - In photo frame mode, the clock, the current weather and the next-event chip sit on a small translucent, blurred pill in a corner, the top left unless burn-in shifting moves it (the overlay banner is at the bottom centre, and the pill keeps to a top corner while one shows, so they never meet), so they stay readable over any photo without covering it. The pill is dark glass with white text whatever the theme or special day palette. The chip shows the first timed event that is on now or starts today or tomorrow; all-day events are left out because they would sit there all day and hide the appointment that matters.
@@ -222,6 +222,16 @@ Design reference (Claude Design project "Wall Display"):
 | 2b | Special day art on tiles before the day |
 | 3a | Admin: special days |
 | 3b | Remote with the month picker |
+| 4a, 4b | Portrait month (Soft), light and dark |
+| 4c, 4d | Portrait week, light and dark |
+| 4e, 4f | Portrait agenda, light and dark |
+| 4g, 4h | Portrait photo frame: a portrait photo, and a landscape photo over its blurred copy |
+| 4i | Portrait night |
+| 4j | Portrait Halloween takeover |
+| 4k, 4l | `week_photo` in portrait, light and dark |
+| 4m, 4n | `month_week` in portrait, light and dark |
+| 4o, 4p | `week_photo` and `month_week` in landscape |
+| 4q, 4r | Explored, not adopted: the week as a list, and today by person |
 
 ### 4.4 Month view
 
@@ -259,7 +269,30 @@ The week view shows seven day columns, from the display's `week_start`, for the 
 
 The layout is a pure function in `shared/week-layout.ts`: given the week, now, the time zone, the week start, `week_hours` and the events (each already carrying its people), it returns the title, the seven days, the strip's bars and "+N more" labels, the blocks with their tracks, the two bands and the now line. The view draws it and adds nothing. The events come from the same fetch as the month view, whose grid always covers the week.
 
-### 4.6 Later option: photo behind the calendar
+### 4.6 Portrait
+
+A display can be portrait (1440×2560) as well as landscape (2560×1440). The `orientation` preference (`auto`, `landscape`, `portrait`) chooses the stage (PR 5.10). Type sizes, radii and badge sizes are the same px as landscape, because a rotated panel is viewed from the same distance; only the layout changes. A view without a portrait layout is letterboxed. The mocks are 4a to 4r (§4.3).
+
+| View | Portrait layout | Mock |
+|---|---|---|
+| `month` (Soft) | Month title, then a sage **today band** across the top: the date in large type, the weekday, current weather and high/low on the left, today's events (up to six, then "+N more") on the right. Five week rows below get taller cells with **six lanes** a day. Timed rows in the grid show the badge and title only, because the time doesn't fit a ~180 px cell; times appear in the band and the strip. A **strip of three cards** at the bottom holds the next three days, each with weather and up to four events. | 4a, 4b |
+| `week` | Seven columns of about 170 px on the `week_hours` scale (08:00–21:00 in the mock), with a 64 px hour gutter. The heading stacks date, weekday and weather. The all-day strip keeps three lanes. `maxTracks` is 2: an event past the second track becomes a "+N" chip at its start time, on the column's right edge. Two-line blocks wrap the title (up to three lines); blocks under 50 minutes are one line with badge and title. | 4c, 4d |
+| `agenda` | Today's sage card (about 60% of the height, with the clock in its header) is stacked above tomorrow's tile. Rows, badges and the now marker are unchanged from landscape. | 4e, 4f |
+| `photo` | Photos are rendered at 1440×2560. A portrait photo fills the screen; a landscape one is fitted over its blurred copy. The pill is unchanged and still walks the four corners. | 4g, 4h |
+| `night` | The same block on the portrait stage. It drifts across a taller area. | 4i |
+| Special days | A takeover changes the palette and shows the greeting at the top of the today band. The 2560×1440 full-screen art is not shown in portrait. Tile tints and tile art are as in landscape; in the week view the tint is lighter (16%) because the tiles are full height. | 4j |
+
+**Hybrid views.** Views become panes that draw into the box they are given (PR 5.14). Both hybrids ship in landscape as well as portrait.
+
+- **`week_photo`** (PR 5.14): the photo frame across the top 1000 px with rounded lower corners and a compact pill (96 px clock), and the week below with a short title ("26 Oct – 1 Nov"). In landscape: the photo on the left (1100 px), the week on the right. The landscape photo pane is about 3:4, so it uses the portrait rendition. (4k, 4l, 4o)
+- **`month_week`** (PR 5.15): a compact month across the top 1000 px (title, weekday header, five rows of tiles with the date, today highlight, special day tint and art, and one 16 px dot per person, in calendar order), and the week below. In landscape: the compact month on the left (980 px) in place of the side panel. (4m, 4n, 4p)
+
+**Not adopted (explored).** Both are candidates for later views, not part of PRs 5.10 to 5.15.
+
+- The week as a list, one rounded row per day with events in two columns and past days folded (4q).
+- Today by person, one column per person on an hour scale (4r).
+
+### 4.7 Later option: photo behind the calendar
 
 Not planned for the first release. If it's added, it should be opt-in per view and keep readability first: calendar panels sit on a heavily blurred, darkened layer, with an automatic contrast check that falls back to the plain background if a photo is too bright or busy. Photo frame mode stays the main way to show photos.
 

@@ -39,6 +39,15 @@ export type Theme = (typeof THEMES)[number]
 export const NIGHT_TEXTS = ['none', 'first_event', 'next_alarm'] as const
 export type NightText = (typeof NIGHT_TEXTS)[number]
 
+/**
+ * Which way up a display is laid out (PR 5.10), set per display in config and
+ * on the settings page: `auto` (portrait when the window is taller than it is
+ * wide), or always `landscape` (the 2560×1440 stage) or `portrait` (1440×2560).
+ * `?orientation=` on `/display` overrides it for one device.
+ */
+export const ORIENTATIONS = ['auto', 'landscape', 'portrait'] as const
+export type Orientation = (typeof ORIENTATIONS)[number]
+
 /** The next alarm the server knows of, as an ISO 8601 instant, or null for none. What `alarm.updated` carries. */
 export const nextAlarmSchema = z.iso.datetime({ offset: true }).nullable()
 export type NextAlarm = z.output<typeof nextAlarmSchema>
@@ -202,6 +211,8 @@ export const displaySettingsSchema = z.object({
   burn_in: z.boolean(),
   /** What the night view shows under its clock. */
   night_text: z.enum(NIGHT_TEXTS),
+  /** Which way up the wall is laid out (PR 5.10). The client takes settings cached before it existed as `auto`. */
+  orientation: z.enum(ORIENTATIONS),
   /** The hours the week view draws in full; earlier and later hours are folded into a band. */
   week_hours: z.object({ from: z.number().int().min(0).max(23), to: z.number().int().min(1).max(24) }),
   /**

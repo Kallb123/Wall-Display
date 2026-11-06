@@ -3,6 +3,7 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import AgendaView from '~/components/views/AgendaView.vue'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
+import type { CalendarEvent } from '../../shared/types/events'
 import type { Takeover } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
@@ -96,5 +97,27 @@ describe('AgendaView special days', () => {
     const wrapper = await mountSuspended(AgendaView, { props: props({ specialDays: { tiles: [], takeover: { ...takeover, greeting: null } } }) })
 
     expect(wrapper.find('[data-testid="greeting"]').exists()).toBe(false)
+  })
+})
+
+describe('AgendaView portrait', () => {
+  const portrait = { width: 1440, height: 2560, orientation: 'portrait' as const }
+  const hourly = (day: string, count: number): CalendarEvent[] => Array.from({ length: count }, (_, i) => ({
+    id: Number(day.slice(-2)) * 100 + i, calendar_id: 'family', title: `E${i}`, display_title: `E${i}`, location: null,
+    start: `${day}T${String(10 + i).padStart(2, '0')}:00:00Z`, end: `${day}T${String(10 + i).padStart(2, '0')}:30:00Z`, all_day: false, start_date: null, end_date: null, people: [],
+  }))
+  const count = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, day: 'day-today' | 'day-tomorrow') =>
+    wrapper.findAll(`[data-testid="${day}"] [data-testid="event"]`).length
+
+  it('stacks the cards and holds fewer rows in tomorrow\'s', async () => {
+    const events = [...hourly('2026-10-28', 12).slice(1), ...hourly('2026-10-29', 12)]
+    const portraitView = await mountSuspended(AgendaView, { props: props({ events, stage: portrait }) })
+    const landscape = await mountSuspended(AgendaView, { props: props({ events }) })
+
+    expect(portraitView.find('[data-testid="agenda-view"]').classes()).toContain('portrait')
+    expect(landscape.find('[data-testid="agenda-view"]').classes()).not.toContain('portrait')
+    expect([count(portraitView, 'day-today'), count(portraitView, 'day-tomorrow')]).toEqual([7, 4])
+    expect([count(landscape, 'day-today'), count(landscape, 'day-tomorrow')]).toEqual([7, 7])
+    expect(portraitView.find('[data-testid="day-tomorrow"] [data-testid="more"]').text()).toBe('+8 more')
   })
 })

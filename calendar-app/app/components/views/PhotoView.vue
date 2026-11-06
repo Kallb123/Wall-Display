@@ -12,7 +12,10 @@ import type { ViewProps } from '../../utils/views'
 // a small pill in a corner with the clock, the weather and the next event. The server owns the rotation: it sends `photo.next` (counted by the
 // socket and handed down as `photoNext`) when it is time, and this view then
 // asks `GET /api/photos/next` for the photo to show. The image is already
-// rendered to 2560×1440 on the server, so it is only drawn with `cover`.
+// rendered on the server to the stage's shape, 2560×1440 or 1440×2560 on the
+// portrait stage (PR 5.11), so it is only drawn with `cover`. The request says
+// which, and a change of orientation fetches again at once, since the photo on
+// show is the wrong shape for the new stage.
 //
 // Two <img> layers are stacked. The next photo is loaded and `decode()`d off
 // screen first, so the Pi never decodes in the middle of a fade, then it is put
@@ -104,12 +107,13 @@ async function fetchNext() {
   const display = props.displayId
   if (!display || disposed) return
   clearTimeout(retry)
+  const orientation = props.stage.orientation
   const id = ++latest
   inflight++
   try {
     let photo: PhotoInfo | null = null
     try {
-      const answer = photoResponseSchema.parse(await $fetch('/api/photos/next', { query: { display }, timeout: REQUEST_TIMEOUT_MS }))
+      const answer = photoResponseSchema.parse(await $fetch('/api/photos/next', { query: { display, orientation }, timeout: REQUEST_TIMEOUT_MS }))
       photo = answer.photo
     } catch {
       // Offline or busy: what is on show stays.
@@ -133,6 +137,8 @@ onBeforeUnmount(() => {
 })
 
 watch(() => props.displayId, () => void fetchNext())
+// The photo on show was rendered for the other shape. Asking bumps `latest`, so an answer to the old question is dropped.
+watch(() => props.stage.orientation, () => void fetchNext())
 watch(() => props.photoNext, (next, before) => {
   if ((next ?? 0) > (before ?? 0)) void fetchNext()
 })
@@ -206,7 +212,7 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
   isolation: isolate;
 }
 
-/* Every layer fills the stage. The server already made the photo 16:9, so `cover` crops nothing worth having. */
+/* Every layer fills the stage. The server already made the photo the stage's shape, so `cover` crops nothing worth having. */
 .layer {
   position: absolute;
   inset: 0;
@@ -254,7 +260,8 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
   flex-direction: column;
   gap: 20px;
   box-sizing: border-box;
-  max-width: 1400px;
+  /* The stage's width less a 64 px margin each side, which is 1312 px on the portrait stage. */
+  max-width: min(1400px, calc(100% - 128px));
   padding: 28px 52px 28px 44px;
   border-radius: var(--radius-md);
   background: rgba(20, 18, 16, 0.55);

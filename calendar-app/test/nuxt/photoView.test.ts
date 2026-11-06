@@ -124,7 +124,7 @@ describe('fetching photos', () => {
     answers = [gives(A)]
     const view = await open()
 
-    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway' } }])
+    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'landscape' } }])
     expect(FakeImage.all.map(image => image.src)).toEqual([A.url])
     expect(view.srcs()).toEqual([A.url, null])
     expect(view.top()).toEqual([0])
@@ -181,6 +181,43 @@ describe('fetching photos', () => {
     await view.update({ photoNext: 3, now: new Date(NOW.getTime() + 1000) })
 
     expect(requests).toHaveLength(1)
+  })
+})
+
+describe('the stage\'s orientation', () => {
+  const portrait = { width: 1440, height: 2560, orientation: 'portrait' as const }
+
+  it('says which shape of photo it wants', async () => {
+    answers = [gives(A)]
+    await open({ stage: portrait })
+
+    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'portrait' } }])
+  })
+
+  it('asks again at once when the orientation changes, since the photo on show is the wrong shape', async () => {
+    answers = [gives(A), gives(B)]
+    const view = await open()
+
+    await view.update({ stage: portrait })
+
+    expect(requests.map(request => request.query)).toEqual([
+      { display: 'hallway', orientation: 'landscape' },
+      { display: 'hallway', orientation: 'portrait' },
+    ])
+    expect(view.srcs()).toEqual([A.url, B.url])
+    expect(view.top()).toEqual([1])
+  })
+
+  it('ignores the answer to a question asked for the other orientation', async () => {
+    let finish!: () => void
+    answers = [() => new Promise((resolve) => { finish = () => resolve({ photo: A }) }), gives(B)]
+    const view = await open()
+
+    await view.update({ stage: portrait })
+    finish()
+    await settle()
+
+    expect(view.srcs()).toEqual([B.url, null])
   })
 })
 

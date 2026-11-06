@@ -37,12 +37,21 @@ export interface AgendaDay {
 }
 
 export interface AgendaOptions {
-  /** The most rows a day can hold, counting the "+N more" row but not the marker. */
-  maxRows?: number
+  /** The most rows a day can hold, counting the "+N more" row but not the marker: one number for both days, or today's and then tomorrow's. */
+  maxRows?: number | readonly [today: number, tomorrow: number]
 }
 
 /** What fits in a column at the size the wall draws it. */
 export const DEFAULT_MAX_ROWS = 8
+
+/**
+ * What fits in the portrait stage's two stacked cards (PR 5.11), found by
+ * measuring: with 56 px of padding and a header of about 300 px, today's card
+ * (1382 px) holds eight 92 px rows with the "now" marker and a gap between
+ * each (a ninth overflows by about 25 px), and tomorrow's (986 px) holds five. test/visual/portrait.spec.ts checks that
+ * a full card cuts no row.
+ */
+export const PORTRAIT_MAX_ROWS = [8, 5] as const
 
 /** An item with what its sorting needs: instants in ms, and the day it starts on. */
 interface Entry {
@@ -96,13 +105,14 @@ function fit(allDay: Entry[], timed: Entry[], isToday: boolean, maxRows: number)
 
 /** Today and tomorrow in the display's zone, ready to draw. Always two days, whatever the events. */
 export function agendaDays(events: CalendarEvent[], now: Date, timeZone: string, options: AgendaOptions = {}): [AgendaDay, AgendaDay] {
-  const maxRows = Math.max(1, Math.floor(options.maxRows ?? DEFAULT_MAX_ROWS))
+  const limits = options.maxRows ?? DEFAULT_MAX_ROWS
+  const [todayRows, tomorrowRows] = (typeof limits === 'number' ? [limits, limits] : limits).map(rows => Math.max(1, Math.floor(rows))) as [number, number]
   const today = todayIn(now, timeZone)
 
   const build = (date: string, label: AgendaDay['label']): AgendaDay => {
     const isToday = label === 'Today'
     const found = agendaEntriesOn(events, date, isToday, now, timeZone)
-    const shown = fit(found.allDay, found.timed, isToday, maxRows)
+    const shown = fit(found.allDay, found.timed, isToday, isToday ? todayRows : tomorrowRows)
 
     // The entries are in start order, so the ones that have begun come first.
     let marker: number | null = null

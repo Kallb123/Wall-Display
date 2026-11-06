@@ -197,6 +197,22 @@ PR S.1 shipped each special day with its whole look stored on it. PR S.1b adds *
 
 **Note on portrait (PRs 5.9 to 5.15).** Portrait changes every layout, so it is built view by view behind the `orientation` preference, and a view without a portrait layout keeps working letterboxed in the meantime. The order is 5.9 (mocks) and 5.10 (the stage) first, then 5.11 to 5.13 in any order, then the hybrids, which need the pane change in 5.14. Special day full-screen art is cropped to 2560×1440, which doesn't crop well to 9:16, so a portrait display shows a takeover's palette, greeting and tile art but no full-screen art until a scene or day has portrait art (an optional 1440×2560 upload, part of PR 5.11 or a small follow-up), and the admin page marks the days that have none.
 
+
+**Portrait sketches.** Rough wireframes of the layouts in PRs 5.11 to 5.15, drawn on the 1440×2560 stage at quarter scale with the Organic colours and the fixture family's week (today is Wed 28 Oct, so Halloween is tinted on the Saturday). They are a starting point for the PR 5.9 mocks, not the mocks. Grey bars stand in for event titles.
+
+<table>
+<tr>
+<td align="center"><img src="portrait/month.svg" width="200" alt="Portrait month: title and a sage today band across the top, five tall week rows with up to six event lanes a day, and the next three days in a strip at the bottom"><br><sub><b>Month (5.12)</b><br>Today band on top, taller cells with six lanes, next days below</sub></td>
+<td align="center"><img src="portrait/week.svg" width="200" alt="Portrait week: seven narrow columns on a tall hour scale with an all-day strip, a now line on Wednesday and a +1 chip where three events overlap"><br><sub><b>Week (5.13)</b><br>Seven narrow columns, a tall hour scale, two tracks then "+N"</sub></td>
+<td align="center"><img src="portrait/agenda.svg" width="200" alt="Portrait agenda: a large clock and weather, then today's events stacked above tomorrow's"><br><sub><b>Agenda (5.11)</b><br>Today stacked above tomorrow</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="portrait/week-photo.svg" width="200" alt="Hybrid view: a photo with the clock pill fills the top of the screen, with this week's columns below it"><br><sub><b>Week and photo (5.14)</b><br>Photo frame on top, this week below</sub></td>
+<td align="center"><img src="portrait/month-week.svg" width="200" alt="Hybrid view: a compact month with a colour dot per person on top, with this week's columns below it"><br><sub><b>Month and week (5.15)</b><br>Compact dot month on top, this week below</sub></td>
+<td></td>
+</tr>
+</table>
+
 ---
 
 ## Backlog (not scheduled)

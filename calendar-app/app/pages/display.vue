@@ -110,6 +110,27 @@ const device = computed(() => deviceOrientation(orientation.value, viewport.valu
 const stage = computed(() => stageFor(state.value.view, device.value))
 const scale = computed(() => stageScale(viewport.value.width, viewport.value.height, stage.value.orientation))
 
+// Installable (PR 5.8): the manifest names this display, so "Install" or "Add to
+// Home Screen" opens it, fullscreen where the platform allows. iOS ignores the
+// manifest's `fullscreen` and reads the apple metas instead (standalone, with a
+// status bar that overlays the page). The theme-color is left to the manifest.
+useHead({
+  meta: [
+    // `viewport-fit=cover` lets the page draw under a notch; the wall is a fixed stage, so nothing needs the safe areas.
+    { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+    { name: 'apple-mobile-web-app-capable', content: 'yes' },
+    { name: 'mobile-web-app-capable', content: 'yes' },
+    { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+    { name: 'apple-mobile-web-app-title', content: () => settings.value?.name || 'Display' },
+  ],
+  link: [
+    { rel: 'apple-touch-icon', href: '/icons/display-apple-touch-icon.png' },
+    { rel: 'manifest', href: () => displayId.value ? `/display.webmanifest?id=${encodeURIComponent(displayId.value)}` : undefined },
+  ],
+})
+
+useWakeLock()
+
 const timezone = computed(() => settings.value?.timezone ?? null)
 const today = computed(() => timezone.value ? todayIn(now.value, timezone.value) : null)
 
@@ -255,6 +276,10 @@ watch([settings, state, events, weather, specialDays, alarm], () => {
 })
 
 onMounted(() => {
+  // Keeps the app shell for an installed display to open without the server. Never in dev, where a worker would serve stale modules.
+  if (!import.meta.dev && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/display-sw.js', { scope: '/display' }).catch(() => {})
+  }
   const id = requestedId ?? loadLastDisplayId(storage)
   if (id) select(id)
   void loadSettings()
@@ -333,6 +358,8 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
 
       <div class="dimmer" data-testid="dimmer" :style="{ opacity: dimming }" />
     </div>
+
+    <FullscreenHint />
   </div>
 </template>
 

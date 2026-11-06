@@ -432,6 +432,58 @@ describe('the Displays tab', () => {
   const card = (wrapper: Awaited<ReturnType<typeof mountAt>>, id = 'hallway') => wrapper.find(`[data-display="${id}"]`)
   const text = (wrapper: Awaited<ReturnType<typeof mountAt>>, testid: string, id = 'hallway') => card(wrapper, id).find(`[data-testid="${testid}"]`).text()
 
+  describe('Open on another device', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    const visit = (origin: string) => {
+      const { protocol, hostname } = new URL(origin)
+      vi.stubGlobal('location', { origin, protocol, hostname, href: `${origin}/settings/displays` })
+    }
+
+    it('links to the display on this address and draws it as a QR code', async () => {
+      visit('http://localhost:3000')
+      const wrapper = await mountAt(DisplaysPage, '/settings/displays')
+
+      const link = card(wrapper).find('[data-testid="display-link"]')
+      expect(link.attributes('href')).toBe('http://localhost:3000/display?id=hallway')
+      expect(link.text()).toBe('http://localhost:3000/display?id=hallway')
+      expect(link.attributes('target')).toBe('_blank')
+
+      const qr = card(wrapper).find('[data-testid="display-qr"]')
+      expect(qr.attributes('alt')).toBe('QR code for the Hallway display\'s link')
+      const svg = decodeURIComponent(qr.attributes('src')!.replace('data:image/svg+xml,', ''))
+      expect(svg).toMatch(/^<svg /)
+      expect(svg).toContain('<path')
+    })
+
+    it('has a code for each display, each for its own link', async () => {
+      visit('http://localhost:3000')
+      displays = [display(), display({ id: 'kitchen', name: 'Kitchen' })]
+      const wrapper = await mountAt(DisplaysPage, '/settings/displays')
+
+      expect(card(wrapper, 'kitchen').find('[data-testid="display-link"]').attributes('href')).toBe('http://localhost:3000/display?id=kitchen')
+      expect(card(wrapper, 'kitchen').find('[data-testid="display-qr"]').attributes('src'))
+        .not.toBe(card(wrapper).find('[data-testid="display-qr"]').attributes('src'))
+    })
+
+    it('says that installing needs HTTPS over plain HTTP to another host', async () => {
+      visit('http://192.168.1.20:3000')
+      const wrapper = await mountAt(DisplaysPage, '/settings/displays')
+
+      expect(card(wrapper).find('[data-testid="display-install-note"]').text()).toMatch(/needs HTTPS/)
+      expect(card(wrapper).find('[data-testid="display-link"]').attributes('href')).toBe('http://192.168.1.20:3000/display?id=hallway')
+    })
+
+    it.each(['http://localhost:3000', 'https://wall.example.com'])('has no such note on %s', async (origin) => {
+      visit(origin)
+      const wrapper = await mountAt(DisplaysPage, '/settings/displays')
+
+      expect(card(wrapper).find('[data-testid="display-install-note"]').exists()).toBe(false)
+    })
+  })
+
   it('shows each display\'s connections and what is on the wall', async () => {
     const wrapper = await mountAt(DisplaysPage, '/settings/displays')
 

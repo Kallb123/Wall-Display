@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { NOW, playServer, settle } from './helpers'
+import { NOW, emulateKiosk, playServer, settle } from './helpers'
 
 // The shell around the views: themes, the socket, dimming, offline, scaling. The
 // month view's own look is in month.spec.ts, the agenda's in agenda.spec.ts and
@@ -58,6 +58,7 @@ test('shows the last-known wall and an offline badge when the server cannot be r
 
   // A new load in the same browser, with the server gone: nothing answers and the socket drops at once.
   const offline = await context.newPage()
+  await emulateKiosk(offline)
   await offline.clock.setFixedTime(NOW)
   await offline.route('**/api/displays', route => route.abort())
   await offline.route('**/api/events**', route => route.abort())

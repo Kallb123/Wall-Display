@@ -21,6 +21,8 @@ export default defineConfig({
     // cut titles at a different letter. Fixed here, every machine draws text alike.
     launchOptions: { args: ['--font-render-hinting=none'] },
     deviceScaleFactor: 1,
+    // The display registers a service worker (PR 5.8). Blocked here so `page.route` stays in charge of every request; install.spec.ts allows it for its own tests.
+    serviceWorkers: 'block',
     timezoneId: 'Europe/London',
     locale: 'en-GB',
   },

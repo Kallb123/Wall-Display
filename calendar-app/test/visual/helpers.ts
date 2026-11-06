@@ -17,10 +17,39 @@ import { DAYS, SCENES } from './fixtures/special-days'
 // Wed 28 Oct 2026, 09:41 in London (the clocks went back on the 25th, so that is 09:41Z).
 export const NOW = new Date('2026-10-28T09:41:00Z')
 
+/**
+ * Makes the page report `(display-mode: fullscreen)`, as the Pi's kiosk does, so
+ * the "Tap for fullscreen" hint (PR 5.8), which only a plain tab shows, is not
+ * in the way of the display snapshots. Playwright can't emulate the display
+ * mode, so the page's `matchMedia` is told. Call it before the page loads;
+ * `playServer` does, and a spec that opens a page without it must too.
+ */
+export async function emulateKiosk(page: Page) {
+  await page.addInitScript(() => {
+    const matchMedia = window.matchMedia.bind(window)
+    window.matchMedia = (query: string) => {
+      const mode = /^\(display-mode:\s*(\w[\w-]*)\)$/.exec(query.trim())
+      if (!mode) return matchMedia(query)
+      // A real list for the plumbing (listeners), with the answer for the display mode swapped in.
+      const list = matchMedia('all')
+      return new Proxy(list, {
+        get: (target, key) => {
+          if (key === 'matches') return mode[1] === 'fullscreen'
+          if (key === 'media') return query
+          const value = Reflect.get(target, key, target)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })
+    }
+  })
+}
+
 /** A whole state, with defaults filled in. */
 const stateWith = (changes: Partial<DisplayState> = {}): DisplayState => displayStateSchema.parse(changes)
 
 export interface PlayOptions {
+  /** Report the display mode a kiosk has, `fullscreen` (see `emulateKiosk`). On unless given as false, for a spec about what a plain browser tab sees. */
+  kiosk?: boolean
   /** The moment the clock is frozen at, and so what the preview route calls today. `NOW` unless given. */
   now?: Date
   /** Leave the clock alone, for a spec that installs its own to run time forward. The page then needs `now` to be the time that clock starts at. */
@@ -53,6 +82,7 @@ export async function playServer(page: Page, initial: Partial<DisplayState> = {}
   let current = stateWith(initial)
   let specialDays = options.specialDays
 
+  if (options.kiosk !== false) await emulateKiosk(page)
   if (!options.ownClock) await page.clock.setFixedTime(options.now ?? NOW)
   await page.route(url => url.pathname.startsWith('/special-days/'), async (route) => {
     const name = new URL(route.request().url()).pathname.slice('/special-days/'.length)

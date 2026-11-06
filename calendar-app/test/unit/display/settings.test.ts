@@ -3,8 +3,10 @@ import type { ConnectionsStatus } from '../../../shared/settings'
 import {
   bytesLabel,
   cachePercent,
+  canOfferInstall,
   detectionIsOff,
   detectionLabel,
+  displayLink,
   discoveryBlockedReason,
   fallbackDateLabel,
   fullDateTime,
@@ -346,5 +348,34 @@ describe('providerChip', () => {
 
   it('says Out of reach when it has worked and now fails: its cached photos still show', () => {
     expect(providerChip({ last_success_at: '2026-10-28T09:00:00.000Z', last_error: 'Immich could not be reached (ECONNREFUSED)' })).toMatchObject({ label: 'Out of reach', tone: 'bad' })
+  })
+})
+
+describe('displayLink', () => {
+  it('is the display page of that display on this origin', () => {
+    expect(displayLink('https://wall.example.com', 'hallway')).toBe('https://wall.example.com/display?id=hallway')
+    expect(displayLink('http://192.168.1.20:3000', 'kitchen')).toBe('http://192.168.1.20:3000/display?id=kitchen')
+  })
+
+  it('escapes an id that needs it', () => {
+    expect(displayLink('http://localhost:3000', 'a b&c')).toBe('http://localhost:3000/display?id=a%20b%26c')
+  })
+})
+
+describe('canOfferInstall', () => {
+  it('is true over HTTPS', () => {
+    expect(canOfferInstall({ protocol: 'https:', hostname: 'wall.home.example' })).toBe(true)
+  })
+
+  it('is true on localhost and the loopback addresses, even over HTTP', () => {
+    for (const hostname of ['localhost', '127.0.0.1', '[::1]']) {
+      expect(canOfferInstall({ protocol: 'http:', hostname })).toBe(true)
+    }
+  })
+
+  it('is false over plain HTTP to any other host', () => {
+    expect(canOfferInstall({ protocol: 'http:', hostname: '192.168.1.20' })).toBe(false)
+    expect(canOfferInstall({ protocol: 'http:', hostname: 'wall.local' })).toBe(false)
+    expect(canOfferInstall({ protocol: 'http:', hostname: 'localhost.example.com' })).toBe(false)
   })
 })

@@ -114,6 +114,8 @@ The display shows events by **person**, not by calendar. A person has a name, an
 
 - **Text that is checked.** The title, and each line of the description. Descriptions are turned into plain text first: Google often stores them as HTML, so tags are removed, `<br>` and `<p>` become line breaks, and entities are decoded. `detect_in` chooses which fields are checked (default `[title, description]`).
 - **Name forms.** A person's name or one of their `aliases`, as a whole word, **at the start** of the title or of a description line: `Theo: Swimming`, `Theo - Swimming`, `[Theo] Swimming`, `Theo Swimming`, and lists such as `Isla & Theo: Dentist` or `Isla, Theo: Dentist`. In a description, a line that holds only names (`Theo`, `Isla & Theo`) works too. So does a line with a `Who:` or `For:` label in front (`Who: Theo, Isla`), which is the tidiest form for descriptions. Matching only at the start avoids false hits such as "Collect Mum's present". It can be widened to anywhere in the text with `detect_people: anywhere`.
+- **The "for" form.** A name list can also end the phrase after the word `for`, wherever it comes in the text: `Haircut for Adam and Alex`, `Haircut for Adam, Alex & Theo`, `Party for the boys`. The list must run to the end of the text, or to punctuation (`. , ; : ! ? ) ] - – — |`), so `Haircut for Adam (Barbers)` and `Haircut for Adam - 3pm` match, but `Cake for Mum to collect` does not. An optional `the` may come before each name (it also works in the start-of-line forms: `The boys: football`). The text is checked in the title and in each description line, and every occurrence counts. Like the start-of-line forms, it is conservative, so a name inside a longer phrase (`Shopping for Mum's birthday`, `Present for Theodore`) is left alone.
+- **Groups.** The top-level `groups` list gives a name to several people, for example `kids` for Isla, Theo and Poppy. A group's `name` and `aliases` are matched exactly where a person's would be (every form above, and `anywhere`), and expand to its members in the order the group lists them, so `Party for the kids` is for all three. A name or alias belongs to one person or one group, never both (unique ignoring case). A group id must differ from every person id, and its members must be people (no groups inside groups). Keyword rules may list group ids as well as person ids.
 - **Keyword rules** on the calendar. Each rule is a case-insensitive regular expression mapped to one or more people, tested against the title and each description line. For example, `Ballet` maps to Isla and `5-a-side` maps to Dad. These are for regular activities that never mention a name.
 
 They are applied in this order. The first step that finds anyone wins:
@@ -122,13 +124,13 @@ They are applied in this order. The first step that finds anyone wins:
 2. **Keyword rules**, against the title and then the description.
 3. **The calendar's default person** (`person`), for example Household for the shared family calendar.
 
-With `strip_names: true`, a matched name prefix is removed from the title shown on the wall, because the initial or colour already says who it is. So `Theo: Swimming` shows as "Swimming" with Theo's marker. The full title is kept in the database. Descriptions aren't shown on the wall. If event details are added to the remote later, description lines that only name people are hidden there too.
+With `strip_names: true`, a matched name prefix is removed from the title shown on the wall, because the initial or colour already says who it is. So `Theo: Swimming` shows as "Swimming" with Theo's marker. A "for" clause that runs to the end of the title is removed too: `Haircut for Adam and Alex` shows as "Haircut", and `[Isla] Party for Theo` as "Party". A clause in the middle (`Haircut for Adam (Barbers)`) stays. If nothing would be left, the full title is kept. The full title is kept in the database. Descriptions aren't shown on the wall. If event details are added to the remote later, description lines that only name people are hidden there too.
 
 If an event matches several people, it carries all of them in the order they were found. It takes the **first** person's colour for its bar fill, and shows **up to three** overlapping initials in its badge, or one dot per person in the Classic style.
 
 This means a family can use a **single shared calendar** for everyone: one calendar with `detect_people` on, defaulting to Household, with `Who: Theo` in the description and titles left clean. Separate calendars per person still work too, and you can mix the two. The settings page's Calendars tab lists recent events that fell through to the default person, so you can spot events that need a name, a rule or an alias (§7.6).
 
-Detection runs over every source, HA calendars included (their events have a `description` too). It is a pure function in `shared/`, so it can be tested on its own. When the people or rules in config change, stored events are re-resolved at boot without a fresh fetch.
+Detection runs over every source, HA calendars included (their events have a `description` too). It is a pure function in `shared/`, so it can be tested on its own. When the people, groups or rules in config change, stored events are re-resolved at boot without a fresh fetch.
 
 ### 3.4 Calendar config (example)
 
@@ -140,6 +142,10 @@ people:
   - { id: theo, name: Theo,      colour: "#5F94C4" }
   - { id: poppy, name: Poppy,    colour: "#9A7BC4", aliases: [Pops] }
   - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
+
+# Optional. "Party for the kids" is for Isla, Theo and Poppy. Rules may list a group id too.
+groups:
+  - { id: kids, name: Kids, aliases: [Children], people: [isla, theo, poppy] }
 
 calendars:
   # One shared calendar for the whole family: who an event is for comes from its

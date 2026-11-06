@@ -15,6 +15,10 @@ people:
   - { id: poppy, name: Poppy, colour: "#9A7BC4", aliases: [Pops] }
   - { id: home, name: Household, colour: "#D9A93F", initial: H, aliases: [Family, All] }
 
+# "Party for the kids" is for each of these. Rules can list a group id too.
+groups:
+  - { id: kids, name: Kids, aliases: [Children], people: [isla, theo, poppy] }
+
 calendars:
   # One shared family calendar: names in titles and descriptions, plus keyword rules.
   - id: family

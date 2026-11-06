@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, gte, lt, or } from 'drizzle-orm'
 import { createPeopleResolver } from '../../shared/people'
 import type { FallbackEvent } from '../../shared/settings'
-import type { CalendarConfig, Person } from '../config/schema'
+import type { CalendarConfig, Group, Person } from '../config/schema'
 import type { Db } from '../db/client'
 import { events } from '../db/schema'
 
@@ -12,6 +12,8 @@ import { events } from '../db/schema'
 // over the stored title and description.
 
 export interface FallbackOptions {
+  /** Groups of people, for person detection. Default none. */
+  groups?: readonly Group[]
   /** How far before now to look, in days. Default 30. */
   daysBack?: number
   /** How far after now to look, in days. Default 30. */
@@ -35,7 +37,7 @@ export function recentFallbacks(
   calendar: CalendarConfig,
   people: readonly Person[],
   now: Date,
-  { daysBack = 30, daysAhead = 30, limit = 20 }: FallbackOptions = {},
+  { groups = [], daysBack = 30, daysAhead = 30, limit = 20 }: FallbackOptions = {},
 ): FallbackEvent[] {
   if (calendar.detect_people === false) return []
 
@@ -58,15 +60,15 @@ export function recentFallbacks(
     ),
   )).orderBy(asc(events.startAt), asc(events.id)).all()
 
-  const resolve = createPeopleResolver(calendar, people)
-  const groups = new Map<string, { nearest: (typeof rows)[number], occurrences: number }>()
+  const resolve = createPeopleResolver(calendar, people, groups)
+  const byUid = new Map<string, { nearest: (typeof rows)[number], occurrences: number }>()
   for (const row of rows) {
     // Anything that matched has other people, or the default one named; skip it without the regular expressions.
     if (row.personIds.length !== 1 || row.personIds[0] !== calendar.person) continue
     if (resolve(row).matchedBy !== 'default') continue
 
-    const group = groups.get(row.uid)
-    if (!group) groups.set(row.uid, { nearest: row, occurrences: 1 })
+    const group = byUid.get(row.uid)
+    if (!group) byUid.set(row.uid, { nearest: row, occurrences: 1 })
     else {
       group.occurrences++
       // Rows come in start order, so a tie keeps the earlier one.
@@ -74,7 +76,7 @@ export function recentFallbacks(
     }
   }
 
-  return [...groups.values()]
+  return [...byUid.values()]
     .sort((a, b) => distance(a.nearest.startAt, now) - distance(b.nearest.startAt, now) || a.nearest.startAt.getTime() - b.nearest.startAt.getTime())
     .slice(0, limit)
     .sort((a, b) => a.nearest.startAt.getTime() - b.nearest.startAt.getTime())

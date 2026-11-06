@@ -39,6 +39,79 @@ describe('validation errors name the field', () => {
     expect(message).toContain('people[1].name')
   })
 
+  it('duplicate group id', async () => {
+    const message = await messageFor((c) => {
+      c.groups = [{ id: 'kids', name: 'Kids', people: ['theo'] }, { id: 'kids', name: 'Children', people: ['theo'] }]
+    })
+
+    expect(message).toContain('groups[1].id: duplicate id "kids"')
+  })
+
+  it('a group id that is a person id', async () => {
+    const message = await messageFor((c) => { c.groups = [{ id: 'theo', name: 'Boys', people: ['theo'] }] })
+
+    expect(message).toContain('groups[0].id: "theo" is already the id of a person')
+  })
+
+  it('a group member that is not a person', async () => {
+    const message = await messageFor((c) => { c.groups = [{ id: 'kids', name: 'Kids', people: ['theo', 'ghost'] }] })
+
+    expect(message).toContain('groups[0].people[1]: unknown person "ghost"')
+  })
+
+  it('a group with no people', async () => {
+    const message = await messageFor((c) => { c.groups = [{ id: 'kids', name: 'Kids', people: [] }] })
+
+    expect(message).toContain('groups[0].people: must list at least one person id')
+  })
+
+  it('a group name or alias that is a person\'s name or alias, ignoring case', async () => {
+    const byName = await messageFor((c) => { c.groups = [{ id: 'kids', name: 'THEO', people: ['theo'] }] })
+    const byAlias = await messageFor((c) => {
+      c.people[0].aliases = ['Mummy']
+      c.groups = [{ id: 'kids', name: 'Kids', aliases: ['mummy'], people: ['theo'] }]
+    })
+
+    expect(byName).toContain('groups[0].name: "THEO" is already a name or alias of person "theo"')
+    expect(byAlias).toContain('groups[0].aliases[0]: "mummy" is already a name or alias of person "mum"')
+  })
+
+  it('an alias shared by two groups', async () => {
+    const message = await messageFor((c) => {
+      c.groups = [{ id: 'kids', name: 'Kids', aliases: ['Little ones'], people: ['theo'] }, { id: 'tots', name: 'Tots', aliases: ['little ONES'], people: ['theo'] }]
+    })
+
+    expect(message).toContain('groups[1].aliases[0]')
+    expect(message).toContain('already a name or alias of group "kids"')
+  })
+
+  it('a rule may list a group id', async () => {
+    const raw = minimalConfig()
+    raw.groups = [{ id: 'kids', name: 'Kids', people: ['theo'] }]
+    raw.calendars[0].rules = [{ match: 'party', people: ['kids', 'mum'] }]
+    const { config } = await load({ config: raw })
+
+    expect(config.calendars[0]!.rules[0]!.people).toEqual(['kids', 'mum'])
+  })
+
+  it('a rule with an id that is neither a person nor a group', async () => {
+    const message = await messageFor((c) => {
+      c.groups = [{ id: 'kids', name: 'Kids', people: ['theo'] }]
+      c.calendars[0].rules = [{ match: 'party', people: ['kids', 'ghost'] }]
+    })
+
+    expect(message).toContain('calendars[0].rules[0].people[1]: unknown person "ghost" (must be the id of an entry in people or groups)')
+  })
+
+  it('a calendar\'s default person cannot be a group', async () => {
+    const message = await messageFor((c) => {
+      c.groups = [{ id: 'kids', name: 'Kids', people: ['theo'] }]
+      c.calendars[0].person = 'kids'
+    })
+
+    expect(message).toContain('calendars[0].person: unknown person "kids"')
+  })
+
   it('calendar person not found', async () => {
     const message = await messageFor((c) => { c.calendars[0].person = 'nobody' })
 

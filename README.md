@@ -103,7 +103,7 @@ If Immich can't be reached the photos already in the cache keep rotating. The lo
 
 `local.path` is a folder of pictures (JPEG, PNG, WebP, AVIF, GIF and TIFF, in sub-folders too; hidden files and folders are left out; a photo's date is read from its EXIF when it has one). An absolute path, or one relative to the folder holding the config file, as for `file:` calendar URLs. A folder that is missing is a warning in the log, not an error, and is read again every 10 minutes. In Docker, mount it into the container (for example `./photos:/photos:ro`, with `path: /photos`). `config.dev.yaml` points at the few small pictures in `calendar-app/test/fixtures/photos/` (made by `scripts/make-photo-fixtures.mjs`).
 
-Who an event is for (its people) and the title shown on the wall are worked out when it is stored, from the names in its title and description and the calendar's keyword rules, as described in [architecture §3.3](docs/architecture.md). If the people or rules in the config change, the stored events are re-resolved at the next start without fetching anything, and a calendar that has been removed from the config is deleted along with its events.
+Who an event is for (its people) and the title shown on the wall are worked out when it is stored, from the names in its title and description and the calendar's keyword rules, as described in [architecture §3.3](docs/architecture.md). If the people, groups or rules in the config change, the stored events are re-resolved at the next start without fetching anything, and a calendar that has been removed from the config is deleted along with its events.
 
 ### MQTT
 

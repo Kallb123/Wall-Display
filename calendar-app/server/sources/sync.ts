@@ -17,8 +17,8 @@ export function canSyncCalendar(calendar: CalendarConfig): boolean {
 export interface SyncCalendarArgs {
   db: Db
   calendar: CalendarConfig
-  /** For the people, the time zone, the sync window and where Home Assistant is. */
-  config: Pick<AppConfig, 'people' | 'timezone' | 'sync' | 'homeassistant'>
+  /** For the people and groups, the time zone, the sync window and where Home Assistant is. */
+  config: Pick<AppConfig, 'people' | 'groups' | 'timezone' | 'sync' | 'homeassistant'>
   /** Default: the current time. */
   now?: Date
 }
@@ -31,11 +31,11 @@ export async function syncCalendar({ db, calendar, config, now }: SyncCalendarAr
   const { type } = calendar.source
   switch (type) {
     case 'ics':
-      return outcomeOfIcs(await syncIcsCalendar({ db, calendar, people: config.people, timeZone: config.timezone, sync: config.sync, now }))
+      return outcomeOfIcs(await syncIcsCalendar({ db, calendar, people: config.people, groups: config.groups, timeZone: config.timezone, sync: config.sync, now }))
     case 'homeassistant': {
       // The config check makes sure of this, but the type does not know.
       if (!config.homeassistant) throw new Error(`calendar "${calendar.id}" has a homeassistant source, but the config has no "homeassistant" block`)
-      return outcomeOfUpdate(await syncHomeAssistantCalendar({ db, calendar, homeassistant: config.homeassistant, people: config.people, timeZone: config.timezone, sync: config.sync, now }))
+      return outcomeOfUpdate(await syncHomeAssistantCalendar({ db, calendar, homeassistant: config.homeassistant, people: config.people, groups: config.groups, timeZone: config.timezone, sync: config.sync, now }))
     }
     default: {
       const unhandled: never = type

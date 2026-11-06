@@ -1,5 +1,5 @@
 import { createPeopleResolver } from '../../../shared/people'
-import type { CalendarConfig, HomeAssistantConfig, Person, SyncConfig } from '../../config/schema'
+import type { CalendarConfig, Group, HomeAssistantConfig, Person, SyncConfig } from '../../config/schema'
 import type { Db } from '../../db/client'
 import { safeErrorMessage } from '../errors'
 import { ensureCalendarRow, recordSyncStatus, replaceCalendarEvents } from '../store'
@@ -22,6 +22,8 @@ export interface SyncHomeAssistantArgs {
   homeassistant: Pick<HomeAssistantConfig, 'url' | 'token'>
   /** Everyone in the config, for person detection. */
   people: readonly Person[]
+  /** Groups of people, for person detection. */
+  groups?: readonly Group[]
   /** The display time zone. */
   timeZone: string
   sync: SyncConfig
@@ -38,18 +40,18 @@ export type SyncHomeAssistantResult = { status: 'updated', warnings: string[] } 
  * after recording the (token-free) reason in `sync_status` and leaving the
  * stored events as they were.
  */
-export async function syncHomeAssistantCalendar({ db, calendar, homeassistant, people, timeZone, sync, now = new Date(), fetch: fetchFn }: SyncHomeAssistantArgs): Promise<SyncHomeAssistantResult> {
+export async function syncHomeAssistantCalendar({ db, calendar, homeassistant, people, groups = [], timeZone, sync, now = new Date(), fetch: fetchFn }: SyncHomeAssistantArgs): Promise<SyncHomeAssistantResult> {
   if (calendar.source.type !== 'homeassistant') throw new Error(`calendar "${calendar.id}" is not a Home Assistant calendar`)
   const { entity_id: entityId } = calendar.source
 
-  ensureCalendarRow(db, calendar, people)
+  ensureCalendarRow(db, calendar, people, groups)
   const window = syncWindow(now, timeZone, sync.months_back, sync.months_ahead)
   const attemptedAt = now
 
   try {
     const raw = await fetchHaCalendar(homeassistant, entityId, window, { fetch: fetchFn })
     const { events, warnings } = mapHaEvents(raw, window, { timeZone })
-    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people))
+    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people, groups))
     // No validators to remember: the next poll fetches the window again.
     recordSyncStatus(db, calendar.id, {
       lastAttemptAt: attemptedAt,

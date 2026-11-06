@@ -16,6 +16,7 @@ describe('shipped config files', () => {
 
     expect(config.people.map(person => person.id)).toEqual(['mum', 'dad', 'isla', 'theo', 'poppy', 'home'])
     expect(config.people.find(person => person.id === 'home')).toMatchObject({ initial: 'H', aliases: ['Family', 'All'] })
+    expect(config.groups).toEqual([{ id: 'kids', name: 'Kids', aliases: ['Children'], people: ['isla', 'theo', 'poppy'] }])
     expect(config.calendars.map(calendar => calendar.source.type)).toEqual(['ics', 'ics', 'homeassistant'])
     expect(config.homeassistant?.token).toBe('CHANGE_ME_HOME_ASSISTANT_TOKEN')
     expect(config.remote?.pin).toBe('1234')

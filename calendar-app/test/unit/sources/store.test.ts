@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { calendars, events, syncStatus } from '../../../server/db/schema'
-import type { CalendarConfig } from '../../../server/config/schema'
+import type { CalendarConfig, Group } from '../../../server/config/schema'
 import type { Db } from '../../../server/db/client'
 import { configHash, ensureCalendarRow, lastSyncAt, replaceCalendarEvents, reresolveStoredEvents, syncCalendarRows } from '../../../server/sources/store'
 import type { NormalisedEvent } from '../../../server/sources/types'
@@ -102,6 +102,21 @@ describe('configHash', () => {
     expect(hash({}, withPerson('theo', { aliases: ['Teddy'] }))).not.toBe(base)
     expect(hash({}, withPerson('mum', { aliases: ['Mummy'] }))).not.toBe(base)
     expect(hash({}, withPerson('theo', { id: 'theodore' }))).not.toBe(base)
+  })
+
+  it('changes with the groups\' ids, names, aliases and members', () => {
+    const kids: Group = { id: 'kids', name: 'Kids', aliases: ['Children'], people: ['isla', 'theo'] }
+    const withGroups = (...groups: Group[]) => configHash(calendarConfig(), PEOPLE, groups)
+    const base = withGroups(kids)
+
+    expect(withGroups(kids)).toBe(base)
+    expect(base).not.toBe(hash())
+    expect(withGroups({ ...kids, people: ['isla', 'theo', 'poppy'] })).not.toBe(base)
+    expect(withGroups({ ...kids, people: ['theo', 'isla'] })).not.toBe(base)
+    expect(withGroups({ ...kids, name: 'Boys' })).not.toBe(base)
+    expect(withGroups({ ...kids, aliases: [] })).not.toBe(base)
+    expect(withGroups({ ...kids, id: 'children' })).not.toBe(base)
+    expect(withGroups()).toBe(hash())
   })
 
   it('does not change with colours or initials, which are not who an event is for', () => {
@@ -246,7 +261,7 @@ describe('replaceCalendarEvents', () => {
     const db = setup()
     replace(db, [event({ uid: 'keep' }), event({ uid: 'change' }), event({ uid: 'remove' })])
     const before = rowsOf(db)
-    const bad = { ...event({ uid: 'bad' }), title: null } as unknown as NormalisedEvent
+    const bad = { ...event({ uid: 'bad' }), recurrenceId: null } as unknown as NormalisedEvent
 
     // Deletes 'remove', updates 'change', then fails inserting 'bad'.
     expect(() => replace(db, [

@@ -21,7 +21,7 @@ const toIso = (date: Date | null | undefined): string | null => date ? date.toIS
 
 export interface CalendarStatusArgs {
   db: Db
-  config: Pick<AppConfig, 'calendars' | 'people'>
+  config: Pick<AppConfig, 'calendars' | 'people' | 'groups'>
   now: Date
   /** Whether a source type has a sync function (`canSyncCalendar`). */
   canSync: (calendar: CalendarConfig) => boolean
@@ -48,7 +48,7 @@ export function calendarStatuses({ db, config, now, canSync }: CalendarStatusArg
       last_success_at: toIso(row?.lastSuccessAt),
       last_error: row?.lastError ?? null,
       event_count: row?.eventCount ?? 0,
-      fallbacks: recentFallbacks(db, calendar, config.people, now),
+      fallbacks: recentFallbacks(db, calendar, config.people, now, { groups: config.groups }),
     }
   })
 }

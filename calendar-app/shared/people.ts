@@ -11,12 +11,21 @@
  * the next boot re-resolves the stored events (it is part of the calendar's
  * config hash).
  */
-export const DETECTION_VERSION = 1
+export const DETECTION_VERSION = 2
 
 export interface DetectionPerson {
   id: string
   name: string
   aliases: readonly string[]
+}
+
+/** A named set of people ("the boys"): its name and aliases are matched like a person's and expand to the members. */
+export interface DetectionGroup {
+  id: string
+  name: string
+  aliases: readonly string[]
+  /** Person ids, in order. */
+  people: readonly string[]
 }
 
 export interface DetectionRule {
@@ -42,7 +51,7 @@ export interface DetectableEvent {
 export interface ResolvedPeople {
   /** In the order found, without duplicates. Never empty. */
   personIds: string[]
-  /** The title for the wall: the title, minus a name prefix when `strip_names` is on. */
+  /** The title for the wall: the title, minus a name prefix and a trailing "for" clause when `strip_names` is on. */
   displayTitle: string
   /** Which step decided. For the settings page's "fell through to the default" list; not stored. */
   matchedBy: 'name' | 'rule' | 'default'
@@ -81,6 +90,15 @@ function descriptionLines(description: string): string[] {
   return htmlToText(description).split('\n').map(line => line.trim()).filter(line => line !== '')
 }
 
+/** A "for <names>" clause in a text: "Haircut for Adam and Alex". */
+interface ForClause {
+  personIds: string[]
+  /** Where the word "for" starts. */
+  start: number
+  /** Where the name list ends. */
+  end: number
+}
+
 /** A name list at the start of a line, and what to do with the line around it. */
 interface NamePrefix {
   personIds: string[]
@@ -95,29 +113,43 @@ const termKey = (term: string) => term.trim().replace(/\s+/g, ' ').toLowerCase()
 
 // A delimiter after the name list, with optional spaces: "Theo: ...", "Theo - ...".
 const DELIMITER = /^\s*[:\-–—|]\s*/
+// What may follow the names of a "for" clause: the end of the text, or punctuation. Anything else
+// ("Cake for Mum to collect") means the names were just part of a sentence.
+const FOR_END = '(?=\\s*(?:$|[.,;:!?)\\]\\-–—|(]))'
+// All that may follow a "for" clause for it to count as the end of a title.
+const TRAILING = /^[\s.!?]*$/
+// What is left dangling at the end of a title once its "for" clause is cut off.
+const TRAILING_SEPARATORS = /[\s,;:\-–—|]+$/u
 // What starts a list that carries on, so a prefix followed by it is not a whole prefix.
 const DANGLING_SEPARATOR = /^\s*(?:[,&+/]|and\b)/i
 
 /**
- * Compiles the people's names into the matchers detection needs. Done once per
- * resolver: a sync resolves thousands of events.
+ * Compiles the people's and groups' names into the matchers detection needs.
+ * Done once per resolver: a sync resolves thousands of events.
  */
-function compileNames(people: readonly DetectionPerson[]) {
-  const personOf = new Map<string, string>()
+function compileNames(people: readonly DetectionPerson[], groups: readonly DetectionGroup[]) {
+  // A term is one person's name or alias (-> that person) or a group's (-> its members). The first owner of a term wins.
+  const idsOfTerm = new Map<string, readonly string[]>()
   for (const person of people) {
     for (const term of [person.name, ...person.aliases]) {
-      if (term.trim() !== '' && !personOf.has(termKey(term))) personOf.set(termKey(term), person.id)
+      if (term.trim() !== '' && !idsOfTerm.has(termKey(term))) idsOfTerm.set(termKey(term), [person.id])
     }
   }
-  if (personOf.size === 0) return null
+  for (const group of groups) {
+    for (const term of [group.name, ...group.aliases]) {
+      if (term.trim() !== '' && !idsOfTerm.has(termKey(term))) idsOfTerm.set(termKey(term), group.people)
+    }
+  }
+  if (idsOfTerm.size === 0) return null
 
   // Longest first, so "Grandma Jo" wins over "Grandma", and spaces in a term match any run of whitespace.
-  const alternation = [...personOf.keys()]
+  const alternation = [...idsOfTerm.keys()]
     .sort((a, b) => b.length - a.length)
     .map(term => term.split(' ').map(escapeRegExp).join('\\s+'))
     .join('|')
   // A whole word: not inside another word before it, and not in front of letters or a possessive after it.
-  const name = `(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}'’])`
+  // An optional leading "the" ("the boys") is not part of the term, so the term is captured.
+  const name = `(?<![\\p{L}\\p{N}])(?:the\\s+)?(${alternation})(?![\\p{L}\\p{N}'’])`
   const separator = '(?:\\s*[,&+/]\\s*|\\s+and\\s+)'
   const list = `${name}(?:${separator}${name})*`
   const label = '(?:(who|for)\\s*:\\s*)?'
@@ -128,12 +160,28 @@ function compileNames(people: readonly DetectionPerson[]) {
     { closed: false, pattern: new RegExp(`^\\s*${label}(${list})`, 'iu') },
   ]
   const each = new RegExp(name, 'giu')
+  // "for" is a whole word, and needs a name list straight after it. "For: Theo" is the label form, not this one.
+  const forClause = new RegExp(`(?<![\\p{L}\\p{N}])for\\s+(${list})${FOR_END}`, 'giu')
 
   const idsIn = (text: string): string[] =>
-    [...text.matchAll(each)].flatMap(match => personOf.get(termKey(match[0])) ?? [])
+    [...text.matchAll(each)].flatMap(match => idsOfTerm.get(termKey(match[1]!)) ?? [])
+
+  const forClausesIn = (text: string): ForClause[] =>
+    [...text.matchAll(forClause)].map(match => ({
+      personIds: idsIn(match[1]!),
+      start: match.index,
+      end: match.index + match[0].length,
+    }))
 
   return {
     idsIn,
+
+    /** The people of every "for <names>" clause in a text, in order. */
+    forIdsIn: (text: string): string[] => forClausesIn(text).flatMap(clause => clause.personIds),
+
+    /** The "for <names>" clause that runs to the end of a title (bar spaces and `.!?`), if there is one. */
+    trailingForClauseOf: (text: string): ForClause | null =>
+      forClausesIn(text).findLast(clause => TRAILING.test(text.slice(clause.end))) ?? null,
 
     /** The people named at the start of a line (`Theo: ...`, `[Isla & Theo] ...`, `Who: Mum`), if it starts with a name list. */
     prefixOf(text: string): NamePrefix | null {
@@ -164,9 +212,10 @@ function compileNames(people: readonly DetectionPerson[]) {
 }
 
 /**
- * Builds the function that resolves an event's people for one calendar. The
- * regular expressions are compiled once, so build it once per sync (or per
- * re-resolve) and call it for every event.
+ * Builds the function that resolves an event's people for one calendar. Group
+ * names expand to their members, wherever a person's name would be found and in
+ * the rules' people. The regular expressions are compiled once, so build it
+ * once per sync (or per re-resolve) and call it for every event.
  *
  * Rule patterns are compiled with the `i` flag only, as the config check does:
  * `u` would reject patterns the config accepts, such as `\-` or `\_`.
@@ -174,24 +223,32 @@ function compileNames(people: readonly DetectionPerson[]) {
 export function createPeopleResolver(
   calendar: DetectionCalendar,
   people: readonly DetectionPerson[],
+  groups: readonly DetectionGroup[] = [],
 ): (event: DetectableEvent) => ResolvedPeople {
-  const names = calendar.detect_people === false ? null : compileNames(people)
+  const names = calendar.detect_people === false ? null : compileNames(people, groups)
   const anywhere = calendar.detect_people === 'anywhere'
   const inTitle = calendar.detect_in.includes('title')
   const inDescription = calendar.detect_in.includes('description')
-  const rules = calendar.rules.map(rule => ({ pattern: new RegExp(rule.match, 'i'), people: rule.people }))
+  const membersOf = new Map(groups.map(group => [group.id, group.people]))
+  // A rule may list group ids as well as person ids.
+  const rules = calendar.rules.map(rule => ({
+    pattern: new RegExp(rule.match, 'i'),
+    people: rule.people.flatMap(id => membersOf.get(id) ?? [id]),
+  }))
 
   return (event) => {
     const lines = inDescription && event.description ? descriptionLines(event.description) : []
     const texts = inTitle ? [event.title, ...lines] : lines
 
-    // Step 1: names, title first and then each description line.
+    // Step 1: names, title first and then each description line. In each text the
+    // prefix people come first, then those of "for" clauses.
     const titlePrefix = names && inTitle ? names.prefixOf(event.title) : null
+    const titleFor = names && inTitle ? names.trailingForClauseOf(event.title) : null
     const named = names
-      ? texts.flatMap(text => anywhere ? names.idsIn(text) : names.prefixOf(text)?.personIds ?? [])
+      ? texts.flatMap(text => anywhere ? names.idsIn(text) : [...names.prefixOf(text)?.personIds ?? [], ...names.forIdsIn(text)])
       : []
     if (named.length > 0) {
-      return { personIds: unique(named), displayTitle: displayTitleOf(event.title, calendar, titlePrefix), matchedBy: 'name' }
+      return { personIds: unique(named), displayTitle: displayTitleOf(event.title, calendar, titlePrefix, titleFor), matchedBy: 'name' }
     }
 
     // Step 2: keyword rules, for each text in turn.
@@ -210,18 +267,26 @@ export function resolvePeople(
   event: DetectableEvent,
   calendar: DetectionCalendar,
   people: readonly DetectionPerson[],
+  groups: readonly DetectionGroup[] = [],
 ): ResolvedPeople {
-  return createPeopleResolver(calendar, people)(event)
+  return createPeopleResolver(calendar, people, groups)(event)
 }
 
 function unique(ids: string[]): string[] {
   return [...new Set(ids)]
 }
 
-/** The title with its name prefix removed, when the calendar asks for that and what is left is worth showing. */
-function displayTitleOf(title: string, calendar: DetectionCalendar, prefix: NamePrefix | null): string {
-  if (!calendar.strip_names || !prefix || prefix.dangling) return title
-  const rest = title.slice(prefix.end).trim()
+/**
+ * The title with its name prefix and its trailing "for" clause removed, when the
+ * calendar asks for that and what is left is worth showing.
+ */
+function displayTitleOf(title: string, calendar: DetectionCalendar, prefix: NamePrefix | null, forClause: ForClause | null): string {
+  if (!calendar.strip_names) return title
+  const start = prefix && !prefix.dangling ? prefix.end : 0
+  const end = forClause ? Math.max(forClause.start, start) : title.length
+  if (start === 0 && end === title.length) return title
+  const kept = title.slice(start, end)
+  const rest = (forClause ? kept.replace(TRAILING_SEPARATORS, '') : kept).trim()
   // A names-only title, or one that leaves nothing but punctuation, stays as it was.
   return /[\p{L}\p{N}]/u.test(rest) ? rest : title
 }

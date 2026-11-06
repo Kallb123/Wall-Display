@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { createPeopleResolver } from '../../../shared/people'
-import type { CalendarConfig, Person, SyncConfig } from '../../config/schema'
+import type { CalendarConfig, Group, Person, SyncConfig } from '../../config/schema'
 import type { Db } from '../../db/client'
 import { syncStatus } from '../../db/schema'
 import { safeErrorMessage } from '../errors'
@@ -21,6 +21,8 @@ export interface SyncIcsArgs {
   calendar: CalendarConfig
   /** Everyone in the config, for person detection. */
   people: readonly Person[]
+  /** Groups of people, for person detection. */
+  groups?: readonly Group[]
   /** The display time zone. */
   timeZone: string
   sync: SyncConfig
@@ -39,11 +41,11 @@ export type SyncIcsResult =
  * the (URL-free) reason in `sync_status` and leaving the stored events as they
  * were.
  */
-export async function syncIcsCalendar({ db, calendar, people, timeZone, sync, now = new Date(), fetch: fetchFn }: SyncIcsArgs): Promise<SyncIcsResult> {
+export async function syncIcsCalendar({ db, calendar, people, groups = [], timeZone, sync, now = new Date(), fetch: fetchFn }: SyncIcsArgs): Promise<SyncIcsResult> {
   if (calendar.source.type !== 'ics') throw new Error(`calendar "${calendar.id}" is not an ICS calendar`)
   const { url } = calendar.source
 
-  ensureCalendarRow(db, calendar, people)
+  ensureCalendarRow(db, calendar, people, groups)
   const window = syncWindow(now, timeZone, sync.months_back, sync.months_ahead)
   // What the stored events were expanded for. A feed that hasn't changed still
   // has to be read again when the window moves (a new month), or the zone or
@@ -65,7 +67,7 @@ export async function syncIcsCalendar({ db, calendar, people, timeZone, sync, no
     }
 
     const { events, warnings } = expandIcs(response.body, window, { timeZone })
-    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people))
+    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people, groups))
     // Only now, with the events safely stored, remember the validators.
     recordSyncStatus(db, calendar.id, {
       lastAttemptAt: attemptedAt,

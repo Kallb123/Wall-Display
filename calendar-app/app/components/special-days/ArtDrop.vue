@@ -163,7 +163,8 @@ function dragOver() {
 
 .art.tall {
   flex: none;
-  width: 128px;
+  /* Wide enough for "Portrait extra layer" to stay on one line, so the drops beside it line up. */
+  width: 156px;
 }
 
 .drop {

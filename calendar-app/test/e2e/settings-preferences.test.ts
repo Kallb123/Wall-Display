@@ -58,8 +58,8 @@ describe('the preferences API', async () => {
       {
         id: 'hallway',
         name: 'Hallway',
-        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, burn_in: true, night_text: 'none' },
-        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, burn_in: true, night_text: 'none' },
+        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, burn_in: true, night_text: 'none', orientation: 'auto' },
+        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, burn_in: true, night_text: 'none', orientation: 'auto' },
         changed: [],
       },
     ])
@@ -108,6 +108,16 @@ describe('the preferences API', async () => {
     expect(overview!.theme).toBe('dark')
   })
 
+  it('PUT .../displays/:id saves an orientation, and GET /api/displays shows it', async () => {
+    const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { orientation: 'portrait' } } })
+
+    expect(status.displays[0]).toMatchObject({ values: { orientation: 'portrait' }, config: { orientation: 'auto' } })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ orientation: 'portrait' })
+
+    await $fetch('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { reset: ['orientation'] } })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ orientation: 'auto' })
+  })
+
   it('PUT .../displays/:id with reset goes back to the config\'s value', async () => {
     const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { reset: ['theme', 'week_hours'] } })
 
@@ -120,6 +130,7 @@ describe('the preferences API', async () => {
 
     const cases: [unknown, Record<string, unknown>][] = [
       [{ set: { theme: 'blue' } }, { theme: expect.any(String) }],
+      [{ set: { orientation: 'sideways' } }, { orientation: expect.stringContaining('auto, landscape, portrait') }],
       [{ set: { colour: 'red' } }, { colour: expect.any(String) }],
       [{ set: { month_return_minutes: 5000 } }, { month_return_minutes: expect.any(String) }],
       [{ set: { week_hours: { from: 12, to: 8 } } }, { week_hours: expect.stringContaining('before') }],

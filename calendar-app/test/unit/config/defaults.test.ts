@@ -63,6 +63,7 @@ describe('defaults', () => {
       week_start: 'monday',
       burn_in: true,
       night_text: 'none',
+      orientation: 'auto',
       week_hours: { from: 7, to: 21 },
       schedules: [],
     })
@@ -162,6 +163,14 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.displays[0]).toMatchObject({ burn_in: false, night_text: 'first_event' })
+  })
+
+  it('keeps orientation as set on a display', async () => {
+    const raw = minimalConfig()
+    raw.displays[0].orientation = 'portrait'
+    const { config } = await load({ config: raw })
+
+    expect(config.displays[0]).toMatchObject({ orientation: 'portrait' })
   })
 
   it('keeps week_hours as set on a display', async () => {

@@ -26,6 +26,7 @@ describe('reading preferences from the config', () => {
       week_hours: { from: 7, to: 21 },
       burn_in: true,
       night_text: 'none',
+      orientation: 'auto',
     })
     expect(readDisplayPreferences(config.displays[1]!).theme).toBe('dark')
   })

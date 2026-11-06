@@ -38,6 +38,7 @@ export function readDisplayPreferences(display: DisplayConfig): DisplayPreferenc
     week_hours: { from: display.week_hours.from, to: display.week_hours.to },
     burn_in: display.burn_in,
     night_text: display.night_text,
+    orientation: display.orientation,
   }
 }
 
@@ -66,6 +67,7 @@ const displaySchemas: Record<DisplayPreferenceKey, z.ZodType> = {
   week_hours: displayFields.week_hours,
   burn_in: displayFields.burn_in,
   night_text: displayFields.night_text,
+  orientation: displayFields.orientation,
 }
 
 const sharedSchemas: Record<SharedPreferenceKey, z.ZodType> = {

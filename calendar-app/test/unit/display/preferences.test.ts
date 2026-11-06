@@ -22,6 +22,7 @@ const values: DisplayPreferences = {
   week_hours: { from: 7, to: 21 },
   burn_in: true,
   night_text: 'none',
+  orientation: 'auto',
 }
 
 describe('sameValue', () => {
@@ -94,6 +95,7 @@ describe('labels', () => {
 
   it.each([
     ['theme', 'dark', 'Dark'],
+    ['orientation', 'portrait', 'Portrait'],
     ['burn_in', true, 'on'],
     ['month_return_minutes', 5, '5 min'],
     ['week_hours', { from: 7, to: 21 }, '07:00 to 21:00'],

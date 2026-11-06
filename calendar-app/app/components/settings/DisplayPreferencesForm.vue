@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ChevronDown } from 'lucide-vue-next'
-import { NIGHT_TEXTS } from '../../../shared/display'
+import { NIGHT_TEXTS, ORIENTATIONS } from '../../../shared/display'
 import { DISPLAY_PREFERENCE_KEYS } from '../../../shared/settings'
 import type { DisplayPreferenceKey, DisplayPreferences, DisplayPreferencesEntry, PreferencesUpdate } from '../../../shared/settings'
 import {
   MONTH_STYLE_LABELS,
   NIGHT_TEXT_LABELS,
+  ORIENTATION_LABELS,
   THEME_LABELS,
   WEEK_START_LABELS,
   draftOf,
@@ -19,9 +20,9 @@ import {
 } from '~/utils/preferences'
 import '~/assets/special-days-form.css'
 
-// One display's preferences (PR 5.6): theme, month style, week start, how long
-// a pinned month stays, the hours the week view draws, burn-in shifting and
-// the night view's text. The form edits a draft; Save sends only the keys
+// One display's preferences (PR 5.6): theme, month style, orientation
+// (PR 5.10), week start, how long a pinned month stays, the hours the week
+// view draws, burn-in shifting and the night view's text. The form edits a draft; Save sends only the keys
 // that were edited and Reset (beside a key with a saved change) drops that
 // change. The page does the sending, and tells the form what the server
 // refused in `errors`.
@@ -111,6 +112,24 @@ function setMinutes(event: Event) {
           <label v-for="(label, value) in MONTH_STYLE_LABELS" :key="value" class="sd-pill">
             <input v-model="draft.month_style" type="radio" :name="id('month_style')" :value="value" :data-testid="`month_style-${value}`">
             <span class="face">{{ label }}</span>
+          </label>
+        </div>
+      </SettingsPreferenceField>
+
+      <SettingsPreferenceField
+        :scope="entry.id"
+        name="orientation"
+        label="Orientation"
+        :changed="changed('orientation')"
+        :config-text="configText('orientation')"
+        hint="Auto is portrait when the screen is taller than it is wide. A link can set it for one device."
+        :error="errors.orientation"
+        @reset="reset('orientation')"
+      >
+        <div class="sd-pills" role="radiogroup" aria-label="Orientation">
+          <label v-for="value in ORIENTATIONS" :key="value" class="sd-pill">
+            <input v-model="draft.orientation" type="radio" :name="id('orientation')" :value="value" :data-testid="`orientation-${value}`">
+            <span class="face">{{ ORIENTATION_LABELS[value] }}</span>
           </label>
         </div>
       </SettingsPreferenceField>

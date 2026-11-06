@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { NIGHT_TEXTS, scheduleIdSchema, VIEWS } from '../../shared/display'
+import { NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -170,6 +170,12 @@ export const displayFields = {
   /** What the night view shows under its clock (PR 5.2). `next_alarm` needs the top-level `alarm` block. */
   night_text: z.enum(NIGHT_TEXTS),
   /**
+   * Which way up the display is laid out (PR 5.10): `auto` follows the shape of
+   * the window (portrait when it is taller than it is wide), the others fix it.
+   * `?orientation=` on the display's URL overrides this for one device.
+   */
+  orientation: z.enum(ORIENTATIONS),
+  /**
    * The hours the week view draws in full, `from` to `to` (PR 5.1). The hours
    * before `from` and from `to` on are folded into a thin band at the top and
    * bottom of each day, so a quiet night does not use up the screen. Whole
@@ -190,6 +196,7 @@ const display = z.strictObject({
   week_start: displayFields.week_start.default('monday'),
   burn_in: displayFields.burn_in.default(true),
   night_text: displayFields.night_text.default('none'),
+  orientation: displayFields.orientation.default('auto'),
   week_hours: displayFields.week_hours.default({ from: 7, to: 21 }),
   /** Built-in schedules (PR 5.4): rules that change the view at set times. Each can be turned off from Home Assistant. */
   schedules: z.array(schedule).default([]),

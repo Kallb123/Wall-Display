@@ -125,6 +125,7 @@ const hallwayPreferences: DisplayPreferences = {
   week_hours: { from: 7, to: 21 },
   burn_in: true,
   night_text: 'none',
+  orientation: 'auto',
 }
 
 const sharedPreferences: SharedPreferences = {
@@ -145,9 +146,9 @@ const preferences: PreferencesStatus = {
     {
       id: 'kitchen',
       name: 'Kitchen',
-      values: { ...hallwayPreferences, theme: 'dark', month_style: 'classic', week_start: 'sunday', night_text: 'first_event' },
+      values: { ...hallwayPreferences, theme: 'dark', month_style: 'classic', week_start: 'sunday', night_text: 'first_event', orientation: 'portrait' },
       config: { ...hallwayPreferences, month_style: 'classic' },
-      changed: ['theme', 'week_start', 'night_text'],
+      changed: ['theme', 'week_start', 'night_text', 'orientation'],
     },
   ],
   shared: {

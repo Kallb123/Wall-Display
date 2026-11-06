@@ -484,6 +484,8 @@ The app holds one state document per display (multiple displays are supported vi
   "view": "month",
   "month": null,
   "month_set_at": null,
+  "week": null,
+  "week_set_at": null,
   "screen": "on",
   "photo_source": "immich",
   "last_calendar_view": "month",
@@ -499,6 +501,8 @@ The app holds one state document per display (multiple displays are supported vi
 
 - `month` is `null` when the month view follows the current month, which is the normal case. Otherwise it is a pinned month such as `"2026-12"`, limited to 12 months either side of today. A pinned month goes back to `null` when the view changes away from `month`, when someone picks the current month, and after `month_return_minutes` with no month change (default 15, set per display). So the wall never stays stuck on another month.
 - `month_set_at` is the time (an ISO 8601 instant) the pinned month was last set. `month_return_minutes` counts from it, and it is `null` whenever `month` is. Every `set_month` that pins a month restarts the count, even for the month already shown. `set_month` also switches the view to `month`, since a month only means something there.
+- `week` is the same for the weeks: `null` when the week view follows the current week, otherwise the first day of a pinned week as `YYYY-MM-DD` (a Monday, or a Sunday if the display's `week_start` is `sunday`), limited to 52 weeks either side of the current one. `set_week` takes any real date, which it moves to the first day of its week, or `current`, `prev` or `next`. The pin goes back to `null` when the view is not one that shows a week (`WEEK_VIEWS` in `shared/display.ts`, today only `week`), when someone picks the current week, and after `month_return_minutes` (one setting for a browsed month or week). A change of `week_start` on the settings page moves a pinned week to the first day of its week at once. `set_week` switches the view to `week` unless the view is already one of `WEEK_VIEWS`.
+- `week_set_at` is to `week` what `month_set_at` is to `month`: the instant the pinned week was last set, `null` whenever `week` is, and restarted by every `set_week` that pins a week.
 - `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
 - `schedules_off` lists the ids of the display's schedules that are turned off (§7.8), sorted. It is empty when every schedule is on. A state stored before the field existed gets `[]`.
 - `schedule` is `null` unless a schedule window is in charge of the view. Then it is `{ "schedule": "mornings", "rule": 0, "view": "agenda", "return_view": "month" }`: the schedule's id, the index of its rule, the view the window put on the wall and the view to go back to at its end. The command handler drops it as soon as the view is anything but `view`, or the schedule is turned off (§7.8). A state stored before the field existed gets `null`.
@@ -530,6 +534,8 @@ The base is `wallcal/<display_id>/`.
 | `…/view/state` | app → | current view (retained) |
 | `…/month/set` | → app | `YYYY-MM` \| `current` \| `prev` \| `next` |
 | `…/month/state` | app → | the month the month view shows, as `YYYY-MM` (retained) |
+| `…/week/set` | → app | `YYYY-MM-DD` (any day of the wanted week) \| `current` \| `prev` \| `next` |
+| `…/week/state` | app → | the first day of the week the week view shows, as `YYYY-MM-DD` (retained). The current week when none is pinned, by the display's `week_start` as the settings page last set it |
 | `…/screen/set` | → app | `on` \| `off` |
 | `…/screen/state` | app → | desired screen state (retained) |
 | `…/photo_source/set` / `state` | ↔ | `immich` \| `google` \| `local` (which provider photo frame mode uses) |
@@ -565,6 +571,8 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | View | `select` |
 | Month shown | `sensor` (`YYYY-MM`) |
 | Previous month, Next month, This month | `button`s |
+| Week shown | `sensor` (`YYYY-MM-DD`, the week's first day) |
+| Previous week, Next week, This week | `button`s |
 | Screen | `switch` |
 | Photo source | `select` |
 | Brightness | `number` (slider) |
@@ -602,7 +610,7 @@ button:
   long: ha               # ignored by the app; HA automation decides
 ```
 
-A gesture is one of `next_view`, `toggle_photo`, `next_photo`, `toggle_screen`, `next_month`, `prev_month`, `this_month`, `refresh`, `ha` and `none`. `buttonCommand(action, state)` in `server/control/button.ts` turns each into the command the control service applies (`next_photo` is `photo_next`, `toggle_screen` is `set_screen` to the opposite of the screen now, `ha` and `none` are no command at all), so the button handling only has to look the gesture up and apply what comes back.
+A gesture is one of `next_view`, `toggle_photo`, `next_photo`, `toggle_screen`, `next_month`, `prev_month`, `this_month`, `next_week`, `prev_week`, `this_week`, `refresh`, `ha` and `none`. `buttonCommand(action, state)` in `server/control/button.ts` turns each into the command the control service applies (`next_photo` is `photo_next`, `toggle_screen` is `set_screen` to the opposite of the screen now, `ha` and `none` are no command at all), so the button handling only has to look the gesture up and apply what comes back.
 
 The app subscribes to `…/pi/button`, looks the gesture up in `button:` and applies what `buttonCommand(...)` returns through `applyCommand()`, so it works with HA down as long as the broker is up. A retained press is ignored, so one is never replayed on a reconnect.
 
@@ -661,6 +669,7 @@ Working versions with the generated entity IDs, broker setup and a dashboard are
 - **Screen.** A card with a power icon, the state ("On" or "Off, panel in standby") and a toggle. While the screen is off, the controls below fade to half opacity but still work.
 - **On the wall.** Large tiles for Agenda, Month, Week and Night in a 2×2 grid, plus a full-width Photo frame tile. The active view is filled with the accent colour.
 - **Month shown.** Only while Month is the active view. It has back and forward arrows and a dropdown of months, covering 12 months either side of the current one. A "Back to this month" link appears when another month is shown. These send `set_month` (§7.1).
+- **Week shown.** Only while the active view is one that shows a week (`WEEK_VIEWS`, today Week). The same card: back and forward arrows (disabled at 52 weeks either side) and a dropdown of weeks, each named as the week view titles it (for example "26 Oct to 1 Nov"). A "Back to this week" link appears when another week is shown. These send `set_week` (§7.1).
 - **Photos from.** A segmented control (Immich, Google, Folder) for `photo_source`, and a "Next photo" button that briefly reads "Skipped" (two seconds) to confirm. The server says which sources are set up (`photo_sources` in `GET /api/displays`, names only): the others are disabled and marked "Not set up", and the control shows the source the wall really uses, which is the first one that is set up when the display's own choice isn't. "Next photo" is off while the wall isn't on the photo frame, with a line saying so. With no source set up (no `photos` block) the Photo frame tile and this section are left out, because the wall would have nothing to show; the tile stays, lit, if the wall is on the photo view anyway.
 - **More.** Brightness and Refresh calendars. These aren't in the mocks yet, so they sit in a plain section at the bottom until they are designed.
 

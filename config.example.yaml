@@ -96,7 +96,7 @@ displays:
     name: Hallway
     theme: light # light | dark
     month_style: soft # soft | classic
-    month_return_minutes: 15 # a month picked on the remote reverts to this month after this long (1-1440)
+    month_return_minutes: 15 # a month or week picked on the remote reverts to the current one after this long (1-1440)
     week_start: monday # monday | sunday
     burn_in: true # default true; slowly shift the content and move the photo frame's clock between corners, against burn-in
     night_text: first_event # none (default) | first_event | next_alarm; the line under the night view's clock. next_alarm needs the alarm block above
@@ -130,6 +130,7 @@ displays:
 #   next_photo     the next photo (and the photo wait starts again)
 #   toggle_screen  the screen off, or on
 #   next_month, prev_month, this_month   change the month shown
+#   next_week, prev_week, this_week      change the week shown
 #   refresh        sync the calendars now
 #   ha             the app does nothing; a Home Assistant automation decides
 #   none           nothing at all

@@ -214,4 +214,12 @@ describe('the preferences API', async () => {
 
     for (const peer of [wall, remote, late]) peer.socket.close()
   })
+
+  it('GET /display.webmanifest follows the theme saved on the settings page', async () => {
+    await $fetch('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { theme: 'dark' } } })
+    expect(await $fetch('/display.webmanifest?id=hallway')).toMatchObject({ background_color: '#2e2b25', theme_color: '#2e2b25' })
+
+    await $fetch('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { reset: ['theme'] } })
+    expect(await $fetch('/display.webmanifest?id=hallway')).toMatchObject({ background_color: '#f5ead8', theme_color: '#f5ead8' })
+  })
 })

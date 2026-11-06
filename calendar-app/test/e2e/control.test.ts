@@ -162,6 +162,54 @@ describe('display state, commands and the WebSocket', async () => {
     }
   })
 
+  it('GET /display.webmanifest names the display and opens it fullscreen, with its own icons', async () => {
+    const response = await fetch('/display.webmanifest?id=hallway')
+
+    expect(response.headers.get('content-type')).toContain('application/manifest+json')
+    expect(await response.json()).toEqual({
+      name: 'Hallway wall',
+      short_name: 'Hallway wall',
+      id: '/display?id=hallway',
+      start_url: '/display?id=hallway',
+      scope: '/display',
+      display: 'fullscreen',
+      display_override: ['fullscreen', 'standalone'],
+      orientation: 'any',
+      background_color: '#f5ead8',
+      theme_color: '#f5ead8',
+      icons: [
+        { src: '/icons/display-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icons/display-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/icons/display-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
+    })
+  })
+
+  it('GET /display.webmanifest uses the first display when no id is given, and answers 404 for an unknown one', async () => {
+    expect(await $fetch<{ id: string }>('/display.webmanifest')).toMatchObject({ id: '/display?id=hallway' })
+    await expect($fetch('/display.webmanifest?id=garage')).rejects.toMatchObject(reason(404, 'Unknown display "garage"'))
+  })
+
+  it('serves the display icons, the favicons and the service worker', async () => {
+    const types: Record<string, string> = {
+      '/icons/display-192.png': 'image/png',
+      '/icons/display-512.png': 'image/png',
+      '/icons/display-maskable-512.png': 'image/png',
+      '/icons/display-apple-touch-icon.png': 'image/png',
+      '/icons/display.svg': 'image/svg+xml',
+      '/favicon.svg': 'image/svg+xml',
+      '/favicon-32.png': 'image/png',
+      '/favicon.ico': 'image/',
+      '/display-sw.js': 'javascript',
+    }
+    for (const [path, type] of Object.entries(types)) {
+      const response = await fetch(path)
+      expect(response.status, path).toBe(200)
+      expect(response.headers.get('content-type'), path).toContain(type)
+    }
+    expect(await (await fetch('/display-sw.js')).text()).toContain('addEventListener(\'fetch\'')
+  })
+
   it('tells a new socket there is no weather when the config has no weather block, and GET /api/weather says so', async () => {
     const display = connect('display=hallway&role=display')
     await display.opened

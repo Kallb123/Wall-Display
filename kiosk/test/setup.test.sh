@@ -99,6 +99,10 @@ for bad in 1920 1920x 'x1080' '1920x1080@' 'big'; do
   setup --target "$T" --user kiosk --url "$URL" --mode "$bad"
   assert_eq "bad mode [$bad] exits 2" 2 "$RC"
 done
+for bad in 45 360 -90 left 90.5; do
+  setup --target "$T" --user kiosk --url "$URL" --rotate "$bad"
+  assert_eq "bad rotate [$bad] exits 2" 2 "$RC"
+done
 setup --target "$T" --user kiosk --url "$URL" --frobnicate
 assert_eq "unknown option exits 2" 2 "$RC"
 setup --target "$T" --user kiosk --url
@@ -125,6 +129,7 @@ assert_contains "progress lines start with ==>" "$WORK/out" "==> "
 assert_eq "kiosk.conf URL round-trips" "$URL" "$(conf_value "$T" WALLCAL_URL)"
 assert_eq "kiosk.conf compositor defaults to labwc" labwc "$(conf_value "$T" WALLCAL_COMPOSITOR)"
 assert_eq "kiosk.conf mode defaults to 2560x1440" 2560x1440 "$(conf_value "$T" WALLCAL_MODE)"
+assert_eq "kiosk.conf rotate defaults to 0" 0 "$(conf_value "$T" WALLCAL_ROTATE)"
 assert_true "launcher installed and executable" test -x "$T/usr/local/bin/wallcal-kiosk"
 assert_true "session script installed and executable" test -x "$T/usr/local/bin/wallcal-kiosk-session"
 assert_true "flags file installed" cmp "$K/chromium-flags.conf" "$T/etc/wallcal-kiosk/chromium-flags.conf"
@@ -163,6 +168,15 @@ setup --target "$T" --user kiosk --compositor labwc
 setup --target "$T" --user kiosk --mode 1920x1080
 assert_eq "compositor kept when only --mode is given" labwc "$(conf_value "$T" WALLCAL_COMPOSITOR)"
 assert_eq "mode saved from the re-run" 1920x1080 "$(conf_value "$T" WALLCAL_MODE)"
+setup --target "$T" --user kiosk --rotate 90
+assert_eq "--rotate 90 exits 0" 0 "$RC"
+assert_eq "rotate saved" 90 "$(conf_value "$T" WALLCAL_ROTATE)"
+assert_eq "mode kept when only --rotate is given" 1920x1080 "$(conf_value "$T" WALLCAL_MODE)"
+setup --target "$T" --user kiosk --mode auto
+assert_eq "rotate kept when only --mode is given" 90 "$(conf_value "$T" WALLCAL_ROTATE)"
+setup --target "$T" --user kiosk --rotate 0
+assert_eq "rotate reset to 0" 0 "$(conf_value "$T" WALLCAL_ROTATE)"
+setup --target "$T" --user kiosk --mode 1920x1080
 assert_eq "re-runs still leave one block" 1 "$(count_lines "$profile" '# >>> wallcal-kiosk >>>')"
 
 # 7. consoleblank=600 is replaced, not duplicated

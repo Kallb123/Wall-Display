@@ -62,6 +62,7 @@ Use the server's name or IP address for `<server>` and the display's `id` from y
 
 ```sh
 sudo ./setup.sh --url URL [--user NAME] [--compositor labwc|cage] [--mode WxH[@R]|auto]
+                    [--rotate 0|90|180|270]
 ```
 
 | Option | Meaning |
@@ -70,10 +71,21 @@ sudo ./setup.sh --url URL [--user NAME] [--compositor labwc|cage] [--mode WxH[@R
 | `--user NAME` | The user who is logged in and runs the kiosk. Default: the user who ran `sudo`. It can't be `root`. |
 | `--compositor labwc\|cage` | Default `labwc`. `cage` is a fallback if `labwc` gives you trouble. |
 | `--mode WxH[@R]\|auto` | The HDMI mode to ask for, such as `2560x1440` or `2560x1440@60`. `auto` keeps the monitor's preferred mode. Default `2560x1440`. |
+| `--rotate 0\|90\|180\|270` | Turn the picture by this many degrees, for a panel mounted in portrait. Default `0`. See Portrait mounting. |
 
 The display page is a 2560×1440 stage that scales to fit. On a 4K panel, asking for 1440p keeps Chromium responsive on the Pi and the monitor scales it up.
 
 `./setup.sh --help` prints the usage. A bad option or value stops the script with exit status 2 before it changes anything.
+
+## Portrait mounting
+
+To hang the panel in portrait, rotate it with `--rotate 90` (or `--rotate 270`, depending on which way it is hung):
+
+```sh
+sudo ./wall-display/kiosk/setup.sh --rotate 90
+```
+
+The launcher passes `--transform` to `wlr-randr` along with the mode. The display page's `auto` orientation then sees a portrait window and lays out portrait. Leave `--mode` at the panel's native mode (such as `2560x1440`): the transform turns it. With `--rotate 0` (the default) and `--mode auto`, the launcher doesn't call `wlr-randr` at all.
 
 ## Changing settings later
 
@@ -83,7 +95,7 @@ Run `setup.sh` again with only the option you want to change. Options you leave 
 sudo ./wall-display/kiosk/setup.sh --mode auto
 ```
 
-You can also edit `/etc/wallcal-kiosk/kiosk.conf`, which has three keys: `WALLCAL_URL`, `WALLCAL_COMPOSITOR` and `WALLCAL_MODE`. Either way, apply the change with `sudo reboot` or `sudo systemctl restart getty@tty1`.
+You can also edit `/etc/wallcal-kiosk/kiosk.conf`, which has four keys: `WALLCAL_URL`, `WALLCAL_COMPOSITOR`, `WALLCAL_MODE` and `WALLCAL_ROTATE`. Either way, apply the change with `sudo reboot` or `sudo systemctl restart getty@tty1`.
 
 ## Extra Chromium flags
 
@@ -116,7 +128,7 @@ Delete that file and restart `getty@tty1` again to bring the kiosk back.
 
 | Path | What |
 |---|---|
-| `/etc/wallcal-kiosk/kiosk.conf` | The URL, compositor and mode. Rewritten each run. |
+| `/etc/wallcal-kiosk/kiosk.conf` | The URL, compositor, mode and rotation. Rewritten each run. |
 | `/etc/wallcal-kiosk/chromium-flags.conf` | The Chromium flags. Replaced each run. |
 | `/etc/wallcal-kiosk/chromium-flags.local.conf` | Your extra flags. Never touched. |
 | `/etc/wallcal-kiosk/disabled` | If it exists, `tty1` gives a normal shell. Never touched. |

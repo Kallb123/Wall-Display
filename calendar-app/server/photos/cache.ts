@@ -1,12 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { PhotoRendition } from '../../shared/photos'
 import type { Db } from '../db/client'
 import type { RenderedPhoto } from './render'
-import { cachedAssets, clearCached, getAsset, recordCached } from './store'
+import { cachedRenditions, clearCached, getRendition, recordCached } from './store'
 
 // The rendered photos on disk (architecture §5.1): named after a hash of their
 // bytes, so the same picture is stored once however many assets render to it.
+// A photo has one file per rendition (the shape of stage it was drawn for), and
+// each is cached, shown and evicted on its own.
 // The cache has a size cap; over it, the photos shown least recently go first,
 // and never one a display is showing now. Synchronous on purpose, like the
 // special day art files: writing a file, noting it in the database and
@@ -37,31 +40,36 @@ export interface PhotoCacheOptions {
   log?: Pick<Console, 'info' | 'warn' | 'error'>
 }
 
+export interface EvictedRendition {
+  id: string
+  rendition: PhotoRendition
+}
+
 export interface PhotoCache {
   /** Whether the file is on disk. */
   has: (file: string) => boolean
-  /** Stores a rendered photo for the asset, notes it in the database, and evicts if that put the cache over its cap. Returns the file name. */
-  store: (assetId: string, rendered: RenderedPhoto) => string
-  /** Evicts, least recently shown first, until the cache is under its cap. Returns the assets evicted. */
-  evict: () => string[]
-  /** Deletes those of `files` that no asset refers to and that are not protected. */
+  /** Stores a rendered photo for the asset in this rendition, notes it in the database, and evicts if that put the cache over its cap. Returns the file name. */
+  store: (assetId: string, rendition: PhotoRendition, rendered: RenderedPhoto) => string
+  /** Evicts, least recently shown first, until the cache is under its cap. Returns the renditions evicted. */
+  evict: () => EvictedRendition[]
+  /** Deletes those of `files` that no rendition refers to and that are not protected. */
   release: (files: Iterable<string>) => void
   /** Deletes files nothing refers to, and leftover temporary files. For start-up. */
   sweep: () => void
-  /** The bytes the cached files take (a file shared by several assets counts once). */
+  /** The bytes the cached files take (a file shared by several renditions counts once). */
   bytes: () => number
 }
 
 export function createPhotoCache(options: PhotoCacheOptions): PhotoCache {
   const { db, dir, maxBytes, protect, now = () => new Date(), log = console } = options
 
-  /** Each file in use, with its size and how many assets refer to it. */
+  /** Each file in use, with its size and how many renditions refer to it. */
   function usage() {
     const files = new Map<string, { bytes: number, refs: number }>()
-    for (const row of cachedAssets(db)) {
-      const entry = files.get(row.cacheFile!) ?? { bytes: row.cacheBytes ?? 0, refs: 0 }
+    for (const row of cachedRenditions(db)) {
+      const entry = files.get(row.cacheFile) ?? { bytes: row.cacheBytes, refs: 0 }
       entry.refs++
-      files.set(row.cacheFile!, entry)
+      files.set(row.cacheFile, entry)
     }
     return files
   }
@@ -78,7 +86,7 @@ export function createPhotoCache(options: PhotoCacheOptions): PhotoCache {
   const cache: PhotoCache = {
     has: file => PHOTO_FILE_NAME.test(file) && existsSync(join(dir, file)),
 
-    store(assetId, rendered) {
+    store(assetId, rendition, rendered) {
       const file = photoFileName(rendered.data)
       mkdirSync(dir, { recursive: true })
       // Written under a temporary name and renamed, so a crash never leaves half a photo under a real name.
@@ -91,8 +99,8 @@ export function createPhotoCache(options: PhotoCacheOptions): PhotoCache {
         rmSync(temp, { force: true })
         throw error
       }
-      const before = getAsset(db, assetId)?.cacheFile
-      recordCached(db, assetId, {
+      const before = getRendition(db, assetId, rendition)?.cacheFile
+      recordCached(db, assetId, rendition, {
         cacheFile: file,
         cacheBytes: rendered.data.length,
         width: rendered.width,
@@ -112,20 +120,20 @@ export function createPhotoCache(options: PhotoCacheOptions): PhotoCache {
       if (total <= maxBytes) return []
 
       const keep = protect()
-      // Least recently shown first. A photo never shown counts from when it was fetched.
-      const rows = cachedAssets(db).sort((a, b) => {
-        const when = (row: typeof a) => (row.lastShownAt ?? row.fetchedAt ?? row.createdAt).getTime()
-        return when(a) - when(b) || a.id.localeCompare(b.id)
+      // Least recently shown first. A rendition never shown counts from when it was fetched.
+      const rows = cachedRenditions(db).sort((a, b) => {
+        const when = (row: typeof a) => (row.lastShownAt ?? row.fetchedAt).getTime()
+        return when(a) - when(b) || a.assetId.localeCompare(b.assetId) || a.rendition.localeCompare(b.rendition)
       })
-      const evicted: string[] = []
+      const evicted: EvictedRendition[] = []
       for (const row of rows) {
         if (total <= maxBytes) break
-        const file = row.cacheFile!
+        const file = row.cacheFile
         if (keep.has(file)) continue
-        clearCached(db, row.id)
-        evicted.push(row.id)
+        clearCached(db, row.assetId, row.rendition)
+        evicted.push({ id: row.assetId, rendition: row.rendition })
         const entry = files.get(file)!
-        // A file shared with another asset stays until the last of them goes.
+        // A file shared with another rendition stays until the last of them goes.
         if (--entry.refs === 0) {
           remove(file)
           total -= entry.bytes

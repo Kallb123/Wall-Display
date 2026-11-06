@@ -190,6 +190,7 @@ describe('photosStatus', () => {
   const API_KEY = 'immich-api-key-1234567890'
   const config = {
     interval_seconds: 45,
+    match_orientation: false,
     landscape_only: true,
     cache_max_mb: 512,
     immich: { url: `http://immich.local:2283/reverse/proxy?token=${API_KEY}`, api_key: API_KEY, mode: 'albums' as const, album_ids: ['a'], random: { count: 200, person_ids: [] } },
@@ -207,11 +208,19 @@ describe('photosStatus', () => {
     expect(photosStatus({ config: undefined, status: undefined })).toEqual({ configured: false })
   })
 
+  it('reports photos of the other shape as left out when either switch is on, and shown when neither is', () => {
+    const matching = (changes: { match_orientation: boolean, landscape_only: boolean }) => photosStatus({ config: { ...config, ...changes }, status: running })
+
+    expect(matching({ match_orientation: true, landscape_only: false })).toMatchObject({ match_orientation: true })
+    expect(matching({ match_orientation: false, landscape_only: true })).toMatchObject({ match_orientation: true })
+    expect(matching({ match_orientation: false, landscape_only: false })).toMatchObject({ match_orientation: false })
+  })
+
   it('shows each source with its pool, cached count and last listing, and the cache against its cap', () => {
     expect(photosStatus({ config, status: running })).toEqual({
       configured: true,
       interval_seconds: 45,
-      landscape_only: true,
+      match_orientation: true,
       cache_bytes: 300 * 1024 * 1024,
       cache_max_bytes: 512 * 1024 * 1024,
       google_ignored: false,

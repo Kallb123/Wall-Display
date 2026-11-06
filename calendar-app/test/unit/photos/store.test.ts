@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { getAsset, listPool, loadPlaylist, savePlaylist, syncListing } from '../../../server/photos/store'
+import { cachedRenditions, clearCached, getAsset, getRendition, listPool, loadPlaylist, markShown, recordCached, savePlaylist, syncListing } from '../../../server/photos/store'
 import { migratedMemoryDb } from '../db/helpers'
 
 const NOW = new Date('2026-10-28T12:00:00Z')
+const LATER = new Date('2026-10-28T13:00:00Z')
+
+const record = (cacheFile: string, bytes = 5) => ({ cacheFile, cacheBytes: bytes, width: 1600, height: 900, orientation: 'landscape' as const })
 
 describe('syncListing', () => {
   it('adds the photos of a listing, with their shape when the provider knows it', () => {
@@ -15,7 +18,8 @@ describe('syncListing', () => {
     ], NOW)
 
     expect(result).toEqual({ added: 3, removed: 0, files: [] })
-    expect(getAsset(db, 'local:a.jpg')).toMatchObject({ provider: 'local', providerAssetId: 'a.jpg', width: 1600, height: 900, orientation: 'landscape', takenAt: new Date('2024-01-02T03:04:05Z'), cacheFile: null })
+    expect(getAsset(db, 'local:a.jpg')).toMatchObject({ provider: 'local', providerAssetId: 'a.jpg', width: 1600, height: 900, orientation: 'landscape', takenAt: new Date('2024-01-02T03:04:05Z'), lastShownAt: null })
+    expect(getRendition(db, 'local:a.jpg', 'landscape')).toBeUndefined()
     expect(getAsset(db, 'local:b.jpg')).toMatchObject({ orientation: 'portrait' })
     // Not known until it is rendered.
     expect(getAsset(db, 'local:c.jpg')).toMatchObject({ width: 0, height: 0, orientation: 'landscape', takenAt: null })
@@ -32,15 +36,20 @@ describe('syncListing', () => {
     expect(getAsset(db, 'local:a.jpg')).toMatchObject({ width: 900, height: 1600, takenAt: new Date('2020-01-01T00:00:00Z') })
   })
 
-  it('removes photos that are no longer listed, and returns their cache files', () => {
+  it('removes photos that are no longer listed, and returns the cache files of all their renditions', () => {
     const { db } = migratedMemoryDb()
     syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }, { providerAssetId: 'b.jpg' }], NOW)
-    db.$client.prepare(`update photo_assets set cache_file = 'f1', cache_bytes = 5 where id = 'local:b.jpg'`).run()
+    recordCached(db, 'local:a.jpg', 'landscape', record('keep'), NOW)
+    recordCached(db, 'local:b.jpg', 'landscape', record('f1'), NOW)
+    recordCached(db, 'local:b.jpg', 'portrait', record('f2'), NOW)
 
     const result = syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }], NOW)
 
-    expect(result).toEqual({ added: 0, removed: 1, files: ['f1'] })
+    expect(result.added).toBe(0)
+    expect(result.removed).toBe(1)
+    expect(result.files.sort()).toEqual(['f1', 'f2'])
     expect(listPool(db, 'local').map(row => row.id)).toEqual(['local:a.jpg'])
+    expect(cachedRenditions(db).map(row => row.cacheFile)).toEqual(['keep'])
   })
 
   it('only touches its own provider', () => {
@@ -61,6 +70,59 @@ describe('syncListing', () => {
 
     expect(result.added).toBe(1200)
     expect(listPool(db, 'local')).toHaveLength(1200)
+  })
+})
+
+describe('renditions', () => {
+  it('are kept per photo and shape, and noting one records what the original turned out to be', () => {
+    const { db } = migratedMemoryDb()
+    syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }], NOW)
+
+    recordCached(db, 'local:a.jpg', 'landscape', record('l1'), NOW)
+    recordCached(db, 'local:a.jpg', 'portrait', { ...record('p1', 9), width: 900, height: 1600, orientation: 'portrait' }, NOW)
+
+    expect(getRendition(db, 'local:a.jpg', 'landscape')).toMatchObject({ cacheFile: 'l1', cacheBytes: 5, fetchedAt: NOW, lastShownAt: null })
+    expect(getRendition(db, 'local:a.jpg', 'portrait')).toMatchObject({ cacheFile: 'p1', cacheBytes: 9 })
+    expect(getAsset(db, 'local:a.jpg')).toMatchObject({ width: 900, height: 1600, orientation: 'portrait' })
+    expect(cachedRenditions(db)).toHaveLength(2)
+  })
+
+  it('are replaced when stored again, keeping when they were last shown', () => {
+    const { db } = migratedMemoryDb()
+    syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }], NOW)
+    recordCached(db, 'local:a.jpg', 'landscape', record('l1'), NOW)
+    markShown(db, 'local:a.jpg', 'landscape', NOW)
+
+    recordCached(db, 'local:a.jpg', 'landscape', record('l2', 7), LATER)
+
+    expect(getRendition(db, 'local:a.jpg', 'landscape')).toMatchObject({ cacheFile: 'l2', cacheBytes: 7, fetchedAt: LATER, lastShownAt: NOW })
+    expect(cachedRenditions(db)).toHaveLength(1)
+  })
+
+  it('are cleared one at a time', () => {
+    const { db } = migratedMemoryDb()
+    syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }], NOW)
+    recordCached(db, 'local:a.jpg', 'landscape', record('l1'), NOW)
+    recordCached(db, 'local:a.jpg', 'portrait', record('p1'), NOW)
+
+    clearCached(db, 'local:a.jpg', 'portrait')
+
+    expect(getRendition(db, 'local:a.jpg', 'portrait')).toBeUndefined()
+    expect(getRendition(db, 'local:a.jpg', 'landscape')).toMatchObject({ cacheFile: 'l1' })
+    expect(getAsset(db, 'local:a.jpg')).toBeDefined()
+  })
+
+  it('mark the photo and the shape shown, and no other shape', () => {
+    const { db } = migratedMemoryDb()
+    syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }], NOW)
+    recordCached(db, 'local:a.jpg', 'landscape', record('l1'), NOW)
+    recordCached(db, 'local:a.jpg', 'portrait', record('p1'), NOW)
+
+    markShown(db, 'local:a.jpg', 'portrait', LATER)
+
+    expect(getAsset(db, 'local:a.jpg')).toMatchObject({ lastShownAt: LATER })
+    expect(getRendition(db, 'local:a.jpg', 'portrait')).toMatchObject({ lastShownAt: LATER })
+    expect(getRendition(db, 'local:a.jpg', 'landscape')).toMatchObject({ lastShownAt: null })
   })
 })
 

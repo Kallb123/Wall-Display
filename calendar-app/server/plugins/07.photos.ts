@@ -42,9 +42,10 @@ export default defineNitroPlugin((nitroApp) => {
     dir: usePhotoDir(),
     providers,
     maxBytes: photos.cache_max_mb * 1024 * 1024,
-    landscapeOnly: photos.landscape_only,
+    // `landscape_only` is the older name of the same switch.
+    matchOrientation: photos.match_orientation || photos.landscape_only,
     // Loaded when the first photo is rendered, so sharp isn't read at boot.
-    render: async input => (await import('../photos/render')).renderPhoto(input),
+    render: async (input, rendition) => (await import('../photos/render')).renderPhoto(input, rendition),
   })
   setPhotos(service)
   service.start()

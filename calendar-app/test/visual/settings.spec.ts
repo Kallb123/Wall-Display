@@ -107,7 +107,7 @@ const MB = 1024 * 1024
 const photos: PhotosSettingsStatus = {
   configured: true,
   interval_seconds: 60,
-  landscape_only: true,
+  match_orientation: true,
   cache_bytes: 1536 * MB,
   cache_max_bytes: 2048 * MB,
   google_ignored: false,

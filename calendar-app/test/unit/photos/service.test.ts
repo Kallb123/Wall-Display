@@ -5,7 +5,7 @@ import type { PhotoSource } from '../../../shared/display'
 import { photoInfoSchema, photoUrl } from '../../../shared/photos'
 import { REFRESH_INTERVAL_MS, createPhotoService } from '../../../server/photos/service'
 import type { PhotoService, PhotoServiceOptions } from '../../../server/photos/service'
-import { listPool } from '../../../server/photos/store'
+import { getAsset, getRendition, listPool } from '../../../server/photos/store'
 import { migratedMemoryDb } from '../db/helpers'
 import { fakeProvider, fakeRender, quietLog, seeded, tempDir } from './helpers'
 import type { FakeProvider } from './helpers'
@@ -42,7 +42,7 @@ async function setup(
     dir,
     providers: Object.values(providers).map(fake => fake.provider),
     maxBytes: 1_000_000,
-    landscapeOnly: false,
+    matchOrientation: false,
     render: fakeRender(sizes, bytes),
     random: seeded(7),
     log,
@@ -124,7 +124,8 @@ describe('next', () => {
 
     await service.next('hallway', 'local')
 
-    expect(listPool(db, 'local')[0]).toMatchObject({ lastShownAt: now, fetchedAt: now })
+    expect(listPool(db, 'local')[0]).toMatchObject({ lastShownAt: now })
+    expect(getRendition(db, 'local:a', 'landscape')).toMatchObject({ lastShownAt: now, fetchedAt: now })
   })
 
   it('answers null when there is nothing in the pool', async () => {
@@ -234,7 +235,7 @@ describe('the cache', () => {
     }
 
     expect(files().length).toBeLessThanOrEqual(3)
-    const cached = listPool(db, 'local').filter(row => row.cacheFile).map(row => row.id)
+    const cached = listPool(db, 'local').filter(row => getRendition(db, row.id, 'landscape')).map(row => row.id)
     // The photo on the display is always one of them.
     expect(cached).toContain(shown.at(-1))
     expect(service.status().cache_bytes).toBeLessThanOrEqual(350)
@@ -246,9 +247,9 @@ describe('the cache', () => {
     for (let i = 0; i < 4; i++) {
       const photo = await service.next('hallway', 'local')
       await service.idle()
-      const row = listPool(db, 'local').find(item => item.id === photo!.id)!
-      expect(row.cacheFile).not.toBeNull()
-      expect(photo!.url).toBe(photoUrl(row.cacheFile!))
+      const rendition = getRendition(db, photo!.id, 'landscape')
+      expect(rendition).toBeDefined()
+      expect(photo!.url).toBe(photoUrl(rendition!.cacheFile))
     }
   })
 
@@ -261,8 +262,7 @@ describe('the cache', () => {
       await service.idle()
     }
 
-    const row = listPool(db, 'local').find(item => item.id === onKitchen!.id)!
-    expect(row.cacheFile).not.toBeNull()
+    expect(getRendition(db, onKitchen!.id, 'landscape')).toBeDefined()
   })
 
   it('removes a photo from the cache once the provider no longer lists it, except the one on a display', async () => {
@@ -393,48 +393,175 @@ describe('photos that can\'t be drawn', () => {
   })
 })
 
-describe('landscape only', () => {
-  it('leaves out portrait photos the provider listed with their size', async () => {
-    const context = await setup({ local: ['wide1', 'tall', 'wide2'] }, { landscapeOnly: true })
-    context.providers.local!.items.set('tall', { width: 900, height: 1600 })
-    await context.service.refresh()
+describe('renditions', () => {
+  it('renders a portrait request to a file of its own, apart from the landscape one of the same photo', async () => {
+    const { service, db, files } = await listed(await setup({ local: ['a'] }))
 
-    const shown: string[] = []
-    for (let i = 0; i < 6; i++) shown.push((await context.service.next('hallway', 'local'))!.id)
+    const landscape = await service.next('hallway', 'local', 'landscape')
+    const portrait = await service.next('hallway', 'local', 'portrait')
 
-    expect(new Set(shown)).toEqual(new Set(['local:wide1', 'local:wide2']))
-    expect(context.providers.local!.fetched).not.toContain('tall')
+    expect(portrait!.id).toBe(landscape!.id)
+    expect(portrait!.url).not.toBe(landscape!.url)
+    expect(getRendition(db, 'local:a', 'landscape')!.cacheFile).toBe(landscape!.url.split('/').pop())
+    expect(getRendition(db, 'local:a', 'portrait')!.cacheFile).toBe(portrait!.url.split('/').pop())
+    expect(files()).toHaveLength(2)
   })
 
-  it('finds out a photo is portrait when it renders it, and passes over it from then on', async () => {
-    const context = await setup({ local: ['wide', 'tall'] }, { landscapeOnly: true, sizes: { tall: [900, 1600] } })
+  it('is landscape when no rendition is named', async () => {
+    const { service, db } = await listed(await setup({ local: ['a'] }))
+
+    await service.next('hallway', 'local')
+
+    expect(getRendition(db, 'local:a', 'landscape')).toBeDefined()
+    expect(getRendition(db, 'local:a', 'portrait')).toBeUndefined()
+  })
+
+  it('prepares the photo after this one in the same rendition', async () => {
+    const { service, db } = await listed(await setup({ local: ['a', 'b', 'c'] }))
+
+    await service.next('hallway', 'local', 'portrait')
+    await service.idle()
+
+    expect(listPool(db, 'local').filter(row => getRendition(db, row.id, 'portrait'))).toHaveLength(2)
+    expect(listPool(db, 'local').filter(row => getRendition(db, row.id, 'landscape'))).toHaveLength(0)
+  })
+
+  it('keeps one playlist for both shapes of a display', async () => {
+    const { service } = await listed(await setup({ local: ['a', 'b', 'c'] }))
+
+    const shown = [
+      (await service.next('hallway', 'local', 'landscape'))!.id,
+      (await service.next('hallway', 'local', 'portrait'))!.id,
+      (await service.next('hallway', 'local', 'landscape'))!.id,
+    ]
+
+    expect(new Set(shown).size).toBe(3)
+  })
+
+  it('protects the photo a display shows in each rendition from eviction', async () => {
+    // Room for two files, and a photo in two shapes on one display is two.
+    const { service, db } = await listed(await setup({ local: ['a', 'b', 'c', 'd'] }, { maxBytes: 200, bytes: 100 }))
+    const landscape = await service.next('hallway', 'local', 'landscape')
+    const portrait = await service.next('hallway', 'local', 'portrait')
+
+    for (let i = 0; i < 3; i++) {
+      await service.next('kitchen', 'local', 'landscape')
+      await service.idle()
+    }
+
+    expect(getRendition(db, landscape!.id, 'landscape')?.cacheFile).toBe(landscape!.url.split('/').pop())
+    expect(getRendition(db, portrait!.id, 'portrait')?.cacheFile).toBe(portrait!.url.split('/').pop())
+  })
+
+  it('counts a photo as cached when any of its renditions is', async () => {
+    const context = await listed(await setup({ local: ['a', 'b'] }))
+
+    await context.service.next('hallway', 'local', 'portrait')
+    await context.service.idle()
+
+    expect(context.service.status().providers[0]).toMatchObject({ photos: 2, cached: 2 })
+  })
+})
+
+describe('matching the orientation', () => {
+  /** Two wide photos and two tall ones, all sized by the listing. */
+  async function mixed(matchOrientation: boolean) {
+    const context = await setup({ local: ['wide1', 'tall1', 'wide2', 'tall2'] }, { matchOrientation, sizes: { tall1: [900, 1600], tall2: [900, 1600] } })
+    for (const id of ['tall1', 'tall2']) context.providers.local!.items.set(id, { width: 900, height: 1600 })
+    await context.service.refresh()
+    return context
+  }
+  const rounds = async (context: Setup, rendition: 'landscape' | 'portrait', count: number, displayId = 'hallway') => {
+    const shown: string[] = []
+    for (let i = 0; i < count; i++) shown.push((await context.service.next(displayId, 'local', rendition))!.id)
+    return shown
+  }
+
+  it('leaves out portrait photos on a landscape display, and never fetches them', async () => {
+    const context = await mixed(true)
+
+    const shown = await rounds(context, 'landscape', 6)
+    await context.service.idle()
+
+    expect(new Set(shown)).toEqual(new Set(['local:wide1', 'local:wide2']))
+    expect(context.providers.local!.fetched).not.toContain('tall1')
+    expect(context.providers.local!.fetched).not.toContain('tall2')
+  })
+
+  it('leaves out landscape photos on a portrait display', async () => {
+    const context = await mixed(true)
+
+    const shown = await rounds(context, 'portrait', 6)
+    await context.service.idle()
+
+    expect(new Set(shown)).toEqual(new Set(['local:tall1', 'local:tall2']))
+    expect(context.providers.local!.fetched).not.toContain('wide1')
+  })
+
+  it('serves the photos it passed over to a display of the other shape', async () => {
+    const context = await mixed(true)
+
+    // A landscape request goes first and passes over the tall ones, which keep their place.
+    const wide = await rounds(context, 'landscape', 2)
+    const tall = await rounds(context, 'portrait', 2)
+
+    expect(new Set(wide)).toEqual(new Set(['local:wide1', 'local:wide2']))
+    expect(new Set(tall)).toEqual(new Set(['local:tall1', 'local:tall2']))
+  })
+
+  it('keeps a round going for each shape without one starving the other', async () => {
+    const context = await mixed(true)
+
+    const shown: string[] = []
+    for (let i = 0; i < 2; i++) {
+      shown.push((await context.service.next('hallway', 'local', 'landscape'))!.id)
+      shown.push((await context.service.next('hallway', 'local', 'portrait'))!.id)
+    }
+
+    expect(new Set(shown)).toEqual(new Set(['local:wide1', 'local:wide2', 'local:tall1', 'local:tall2']))
+  })
+
+  it('shows photos of every shape on either display when it is off', async () => {
+    const context = await mixed(false)
+
+    expect(new Set(await rounds(context, 'portrait', 4))).toEqual(new Set(['local:wide1', 'local:wide2', 'local:tall1', 'local:tall2']))
+  })
+
+  it('finds out a photo has the other shape when it renders it, and passes over it from then on', async () => {
+    const context = await setup({ local: ['wide', 'tall'] }, { matchOrientation: true, sizes: { tall: [900, 1600] } })
     context.providers.local!.items.set('wide', undefined)
     context.providers.local!.items.set('tall', undefined)
     await context.service.refresh()
 
-    const shown: string[] = []
-    for (let i = 0; i < 5; i++) shown.push((await context.service.next('hallway', 'local'))!.id)
+    const shown = await rounds(context, 'landscape', 5)
 
     expect(new Set(shown)).toEqual(new Set(['local:wide']))
+    expect(getAsset(context.db, 'local:tall')).toMatchObject({ orientation: 'portrait', width: 900, height: 1600 })
+    // And it is there for a portrait display.
+    expect(new Set(await rounds(context, 'portrait', 3, 'kitchen'))).toEqual(new Set(['local:tall']))
   })
 
-  it('shows portrait photos when it is off', async () => {
-    const context = await setup({ local: ['wide', 'tall'] })
+  it('answers null when no photo has the shape asked for', async () => {
+    const context = await setup({ local: ['tall'] }, { matchOrientation: true, sizes: { tall: [900, 1600] } })
     context.providers.local!.items.set('tall', { width: 900, height: 1600 })
     await context.service.refresh()
 
-    const shown = new Set<string>()
-    for (let i = 0; i < 4; i++) shown.add((await context.service.next('hallway', 'local'))!.id)
-
-    expect(shown).toEqual(new Set(['local:wide', 'local:tall']))
+    expect(await context.service.next('hallway', 'local', 'landscape')).toBeNull()
+    expect((await context.service.next('hallway', 'local', 'portrait'))!.id).toBe('local:tall')
   })
 
-  it('answers null when every photo is portrait', async () => {
-    const context = await setup({ local: ['tall'] }, { landscapeOnly: true })
-    context.providers.local!.items.set('tall', { width: 900, height: 1600 })
-    await context.service.refresh()
+  it('only offers the cached photos of the right shape when the provider is down', async () => {
+    const context = await mixed(true)
+    await rounds(context, 'portrait', 2)
+    await context.service.idle()
+    context.providers.local!.fetchFails = true
+    context.providers.local!.listFails = true
 
-    expect(await context.service.next('hallway', 'local')).toBeNull()
+    const shown = await rounds(context, 'portrait', 4)
+
+    expect(new Set(shown)).toEqual(new Set(['local:tall1', 'local:tall2']))
+    // Nothing of the other shape is cached, and nothing can be fetched.
+    expect(await context.service.next('hallway', 'local', 'landscape')).toBeNull()
   })
 })
 

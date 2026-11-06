@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach } from 'vitest'
 import type { PhotoSource } from '../../../shared/display'
+import type { PhotoRendition } from '../../../shared/photos'
 import { PhotoRenderError } from '../../../server/photos/render'
 import type { RenderedPhoto } from '../../../server/photos/render'
 import type { Random } from '../../../server/photos/playlist'
@@ -72,15 +73,16 @@ export function fakeProvider(id: PhotoSource, ids: string[] = []): FakeProvider 
 
 /**
  * A render that doesn't draw anything: the "image" is the photo's id padded to
- * `bytes`, so every photo is a different file of a known size. `sizes` gives a
+ * `bytes` (with the rendition after it, for a portrait one), so every photo is a
+ * different file of a known size, and its two renditions are two files. `sizes` gives a
  * photo's true size by id (default 1600×900), and the id `bad` can't be rendered.
  */
 export function fakeRender(sizes: Record<string, [number, number]> = {}, bytes = 100) {
-  return async (input: Buffer): Promise<RenderedPhoto> => {
+  return async (input: Buffer, rendition: PhotoRendition = 'landscape'): Promise<RenderedPhoto> => {
     const id = input.toString()
     if (id === 'bad' || id.endsWith('/bad')) throw new PhotoRenderError('The photo can\'t be read')
     const [width, height] = sizes[id] ?? [1600, 900]
-    return { data: Buffer.from(id.padEnd(bytes, '.')), width, height, orientation: height > width ? 'portrait' : 'landscape' }
+    return { data: Buffer.from((rendition === 'portrait' ? `${id}@portrait` : id).padEnd(bytes, '.')), width, height, orientation: height > width ? 'portrait' : 'landscape' }
   }
 }
 

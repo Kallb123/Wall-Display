@@ -176,4 +176,16 @@ describe('peek', () => {
 
     expect(peek(playlist, ids(3), seeded(1))).toBeNull()
   })
+
+  it('gives the first acceptable photo at or after the position', () => {
+    const { playlist } = takeMany(ids(5), 1)
+    const [, second, third, fourth] = playlist.order
+
+    expect(peek(playlist, ids(5), seeded(1), id => id !== second)).toBe(third)
+    expect(peek(playlist, ids(5), seeded(1), id => id === fourth)).toBe(fourth)
+    // Photos already shown this round do not count, and nothing acceptable left is null.
+    expect(peek(playlist, ids(5), seeded(1), id => id === playlist.order[0])).toBeNull()
+    expect(peek(playlist, ids(5), seeded(1), () => false)).toBeNull()
+    expect(take(playlist, ids(5), seeded(1), id => id !== second).id).toBe(third)
+  })
 })

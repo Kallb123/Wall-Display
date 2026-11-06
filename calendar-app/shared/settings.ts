@@ -129,7 +129,8 @@ export type PhotosSettingsStatus =
       configured: true
       /** How long each photo stays while a display is on the photo frame. */
       interval_seconds: number
-      landscape_only: boolean
+      /** Whether a display is shown only photos of its own shape (`match_orientation`, or the older `landscape_only`, either of which turns it on). */
+      match_orientation: boolean
       /** Bytes of rendered photos on disk, and the cap (`cache_max_mb`) they are kept under. */
       cache_bytes: number
       cache_max_bytes: number

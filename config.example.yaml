@@ -219,12 +219,14 @@ mqtt:
   discovery_prefix: homeassistant # default homeassistant; change only if Home Assistant's MQTT integration uses another
 
 # Photo frame mode. Leave out if you don't use it. The photos are rendered on
-# the server to one 2560x1440 WebP each (portraits and other shapes are fitted
-# over a blurred copy of themselves) and kept in photos/ in the data folder, so
-# the wall only decodes one image and keeps rotating if a source is down.
+# the server to one WebP each, the shape of the display (2560x1440, or 1440x2560
+# on a portrait display). A photo that is not that shape is fitted over a blurred
+# copy of itself. They are kept in photos/ in the data folder, so the wall only
+# decodes one image and keeps rotating if a source is down.
 photos:
   interval_seconds: 60 # at least 5; how long each photo stays while a display is on the photo view (also on the /settings Displays tab)
-  landscape_only: false # true leaves portrait photos out of the rotation
+  match_orientation: false # true shows each display only photos of its own shape: no portrait photos on a landscape display, no landscape ones on a portrait display
+  # landscape_only: false # the older name of match_orientation, which it still means
   cache_max_mb: 2048 # size cap of the rendered photos; the ones shown longest ago go first
   immich: # photos from Immich. Previews only (thumbnail?size=preview), never the originals
     url: http://immich.local:2283 # may have a path if Immich is behind a reverse proxy; no user name or password in it

@@ -1,14 +1,15 @@
-import { and, eq, isNotNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { PhotoSource } from '../../shared/display'
+import type { PhotoRendition } from '../../shared/photos'
 import type { Db } from '../db/client'
-import { photoAssets, photoPlaylists } from '../db/schema'
-import type { PhotoAssetRow, PhotoOrientation } from '../db/schema'
+import { photoAssets, photoPlaylists, photoRenditions } from '../db/schema'
+import type { PhotoAssetRow, PhotoOrientation, PhotoRenditionRow } from '../db/schema'
 import type { Playlist } from './playlist'
 import type { PhotoListing } from './types'
 
-// The photo tables: what each provider's pool holds and which photos are in the
-// cache (`photo_assets`), and where each display is in its playlist
-// (`photo_playlists`). Plain reads and writes, all synchronous, so the cache and
+// The photo tables: what each provider's pool holds (`photo_assets`), which
+// rendered files of them are in the cache (`photo_renditions`, one per shape of
+// stage), and where each display is in its playlist (`photo_playlists`). Plain reads and writes, all synchronous, so the cache and
 // the service can use them without anything else happening in between.
 
 /** The id of a photo in `photo_assets`. */
@@ -22,7 +23,7 @@ const BATCH = 200
 export interface SyncResult {
   added: number
   removed: number
-  /** Cache files the removed photos pointed at. The caller deletes those nothing else refers to. */
+  /** Cache files the removed photos' renditions pointed at. The caller deletes those nothing else refers to. */
   files: string[]
 }
 
@@ -71,9 +72,11 @@ export function syncListing(db: Db, provider: PhotoSource, listing: readonly Pho
     let removed = 0
     for (const row of stored.values()) {
       if (listed.has(row.id)) continue
+      // The renditions would go with the photo anyway; deleted here so their files are known.
+      for (const rendition of tx.select().from(photoRenditions).where(eq(photoRenditions.assetId, row.id)).all()) files.push(rendition.cacheFile)
+      tx.delete(photoRenditions).where(eq(photoRenditions.assetId, row.id)).run()
       tx.delete(photoAssets).where(eq(photoAssets.id, row.id)).run()
       removed++
-      if (row.cacheFile) files.push(row.cacheFile)
     }
     return { added: inserts.length, removed, files }
   })
@@ -88,9 +91,14 @@ export function getAsset(db: Db, id: string): PhotoAssetRow | undefined {
   return db.select().from(photoAssets).where(eq(photoAssets.id, id)).get()
 }
 
-/** The photos that have a file in the cache. */
-export function cachedAssets(db: Db): PhotoAssetRow[] {
-  return db.select().from(photoAssets).where(isNotNull(photoAssets.cacheFile)).all()
+/** The file a photo has in the cache for a shape of stage, if any. */
+export function getRendition(db: Db, id: string, rendition: PhotoRendition): PhotoRenditionRow | undefined {
+  return db.select().from(photoRenditions).where(and(eq(photoRenditions.assetId, id), eq(photoRenditions.rendition, rendition))).get()
+}
+
+/** Every rendered file in the cache. */
+export function cachedRenditions(db: Db): PhotoRenditionRow[] {
+  return db.select().from(photoRenditions).all()
 }
 
 export interface RenderedRecord {
@@ -101,18 +109,31 @@ export interface RenderedRecord {
   orientation: PhotoOrientation
 }
 
-/** Notes that a photo is now in the cache, with the size and shape its image turned out to have. */
-export function recordCached(db: Db, id: string, record: RenderedRecord, now: Date): void {
-  db.update(photoAssets).set({ ...record, fetchedAt: now }).where(eq(photoAssets.id, id)).run()
+/**
+ * Notes that a photo is now in the cache in this rendition, and the size and
+ * shape its original turned out to have. A rendition stored again keeps when it
+ * was last shown.
+ */
+export function recordCached(db: Db, id: string, rendition: PhotoRendition, record: RenderedRecord, now: Date): void {
+  const { cacheFile, cacheBytes, ...shape } = record
+  db.transaction((tx) => {
+    tx.update(photoAssets).set(shape).where(eq(photoAssets.id, id)).run()
+    tx.insert(photoRenditions)
+      .values({ assetId: id, rendition, cacheFile, cacheBytes, fetchedAt: now })
+      .onConflictDoUpdate({ target: [photoRenditions.assetId, photoRenditions.rendition], set: { cacheFile, cacheBytes, fetchedAt: now } })
+      .run()
+  })
 }
 
-/** Notes that a photo's file is gone from the cache. */
-export function clearCached(db: Db, id: string): void {
-  db.update(photoAssets).set({ cacheFile: null, cacheBytes: null }).where(eq(photoAssets.id, id)).run()
+/** Notes that a photo's file in this rendition is gone from the cache. */
+export function clearCached(db: Db, id: string, rendition: PhotoRendition): void {
+  db.delete(photoRenditions).where(and(eq(photoRenditions.assetId, id), eq(photoRenditions.rendition, rendition))).run()
 }
 
-export function markShown(db: Db, id: string, now: Date): void {
+/** Notes that a display has shown the photo, as the photo and as this rendition of it. */
+export function markShown(db: Db, id: string, rendition: PhotoRendition, now: Date): void {
   db.update(photoAssets).set({ lastShownAt: now }).where(eq(photoAssets.id, id)).run()
+  db.update(photoRenditions).set({ lastShownAt: now }).where(and(eq(photoRenditions.assetId, id), eq(photoRenditions.rendition, rendition))).run()
 }
 
 export function loadPlaylist(db: Db, displayId: string, provider: PhotoSource): Playlist {

@@ -131,9 +131,9 @@ function lastListingTitle(success: string | null): string | undefined {
             </dd>
           </div>
           <div class="fact">
-            <dt>Portrait photos</dt>
-            <dd data-testid="photo-landscape">
-              {{ configured.landscape_only ? 'Left out' : 'Shown' }}
+            <dt>Photos of the other shape</dt>
+            <dd data-testid="photo-match-orientation">
+              {{ configured.match_orientation ? 'Left out' : 'Shown' }}
             </dd>
           </div>
           <div class="fact">

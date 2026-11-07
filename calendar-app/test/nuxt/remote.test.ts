@@ -221,6 +221,7 @@ describe('the remote page', () => {
   describe('the photo frame', () => {
     const photoTile = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.find('[data-testid="tile-photo"]')
     const segment = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper'], source: string) => wrapper.find<HTMLButtonElement>(`[data-testid="photo-source-${source}"]`)
+    const weekPhotoTile = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.find('[data-testid="tile-week_photo"]')
     const nextButton = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.find<HTMLButtonElement>('[data-testid="photo-next"]')
 
     it('is left out when the server has no photo source: no tile, no "Photos from"', async () => {
@@ -238,12 +239,13 @@ describe('the remote page', () => {
       expect(wrapper.find('[data-testid="photos-from"]').exists()).toBe(false)
     })
 
-    it('has a full-width Photo frame tile after the other views, which sends set_view photo', async () => {
+    it('has half-width Photo frame and Week + photo tiles after Night, which send set_view', async () => {
       photoSources = ['local']
       const { wrapper } = await mountRemote({ view: 'month' })
 
-      expect(wrapper.findAll('.tile').map(tile => tile.text())).toEqual(['Agenda', 'Month', 'Week', 'Day parts', 'Night', 'Photo frame'])
-      expect(photoTile(wrapper).classes()).toContain('wide')
+      expect(wrapper.findAll('.tile').map(tile => tile.text())).toEqual(['Agenda', 'Month', 'Week', 'Day parts', 'Night', 'Photo frame', 'Week + photo'])
+      expect(photoTile(wrapper).classes()).not.toContain('wide')
+      expect(weekPhotoTile(wrapper).classes()).not.toContain('wide')
       expect(photoTile(wrapper).attributes('aria-pressed')).toBe('false')
 
       await photoTile(wrapper).trigger('click')
@@ -252,6 +254,35 @@ describe('the remote page', () => {
       expect(sent()).toEqual([{ type: 'set_view', view: 'photo' }])
       expect(photoTile(wrapper).attributes('aria-pressed')).toBe('true')
       expect(wrapper.find('[data-testid="tile-month"]').attributes('aria-pressed')).toBe('false')
+    })
+
+    it('sends set_view week_photo from the Week + photo tile, which is the only one pressed then', async () => {
+      photoSources = ['local']
+      const { wrapper } = await mountRemote({ view: 'month' })
+
+      await weekPhotoTile(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_view', view: 'week_photo' }])
+      expect(weekPhotoTile(wrapper).attributes('aria-pressed')).toBe('true')
+      expect(photoTile(wrapper).attributes('aria-pressed')).toBe('false')
+    })
+
+    it('leaves out the Week + photo tile with no photo source, unless the wall is on it', async () => {
+      const off = await mountRemote({ view: 'month' })
+      expect(weekPhotoTile(off.wrapper).exists()).toBe(false)
+
+      const on = await mountRemote({ view: 'week_photo' })
+      expect(weekPhotoTile(on.wrapper).attributes('aria-pressed')).toBe('true')
+      expect(photoTile(on.wrapper).attributes('aria-pressed')).toBe('false')
+    })
+
+    it('enables Next photo on the week and photo view too', async () => {
+      photoSources = ['local']
+      const { wrapper } = await mountRemote({ view: 'week_photo' })
+
+      expect(nextButton(wrapper).attributes('disabled')).toBeUndefined()
+      expect(wrapper.find('[data-testid="photo-next-reason"]').exists()).toBe(false)
     })
 
     it('marks the source in use, and sends set_photo_source for another that is set up', async () => {
@@ -342,7 +373,7 @@ describe('the remote page', () => {
 
       expect(nextButton(wrapper).attributes('disabled')).toBeDefined()
       expect(nextButton(wrapper).attributes('aria-describedby')).toBe('next-photo-reason')
-      expect(wrapper.find('[data-testid="photo-next-reason"]').text()).toBe('Turn on the photo frame to skip photos.')
+      expect(wrapper.find('[data-testid="photo-next-reason"]').text()).toBe('Turn on the photo frame or the week and photo view to skip photos.')
       // The source can be picked ahead of switching.
       expect(segment(wrapper, 'local').attributes('disabled')).toBeUndefined()
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, Power, Rows3, Settings, SkipForward, X } from 'lucide-vue-next'
-import { MONTH_RANGE, WEEK_RANGE, WEEK_VIEWS, currentMonth, currentWeek, monthDiff, weekDiff } from '../../shared/display'
+import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, PanelTop, Power, Rows3, Settings, SkipForward, X } from 'lucide-vue-next'
+import { MONTH_RANGE, WEEK_RANGE, WEEK_VIEWS, currentMonth, currentWeek, monthDiff, showsPhotos, weekDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
 import { reconnectDelay } from '~/utils/backoff'
 import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
@@ -102,7 +102,7 @@ useHead({
   ],
 })
 
-// Four calendar views fill the 2x2 grid; Night (and the photo frame) get a full-width tile each beneath it.
+// Four calendar views fill the 2x2 grid; Night gets a full-width tile beneath it, then the photo frame and the week and photo view share a row.
 const TILES: { view: View, label: string, icon: Component, wide?: boolean }[] = [
   { view: 'agenda', label: 'Agenda', icon: ListTodo },
   { view: 'month', label: 'Month', icon: CalendarDays },
@@ -119,12 +119,15 @@ function setView(next: View) {
 // up; with none (no `photos` block) the wall has nothing to show, so the tile
 // and the "Photos from" section are left out, unless the wall is on the photo
 // view anyway (Home Assistant put it there), when the tile stays to show it.
+// The week and photo view has a photo pane, so its tile follows the same rule.
 const photoSources = computed(() => settings.value?.photo_sources ?? [])
 const photosConfigured = computed(() => photoSources.value.length > 0)
-const showPhotoTile = computed(() => photosConfigured.value || view.value === 'photo')
+const showPhotoTile = computed(() => photosConfigured.value || view.value === 'photo' || view.value === 'week_photo')
 /** The source the wall really uses: the server falls back when the chosen one isn't set up. */
 const photoSource = computed(() => effectivePhotoSource(state.value?.photo_source ?? 'immich', photoSources.value))
 const photoViewOn = computed(() => view.value === 'photo')
+// "Next photo" works wherever a photo pane is showing: the photo frame and the week and photo view.
+const photosShown = computed(() => view.value !== undefined && showsPhotos(view.value))
 
 function setPhotoSource(source: PhotoSource) {
   void commands.send({ type: 'set_photo_source', photo_source: source })
@@ -307,11 +310,11 @@ function submitPin() {
               <AppIcon :icon="tile.icon" :size="32" />
               {{ tile.label }}
             </button>
-            <!-- The Night and Photo frame tiles sit under the 2x2 grid, full width. -->
+            <!-- Night sits under the 2x2 grid, full width; the photo frame and week and photo tiles share the row below it. -->
             <button
               v-if="showPhotoTile"
               type="button"
-              class="tile wide"
+              class="tile"
               :class="{ active: photoViewOn }"
               :aria-pressed="photoViewOn"
               data-testid="tile-photo"
@@ -319,6 +322,18 @@ function submitPin() {
             >
               <AppIcon :icon="Images" :size="32" />
               Photo frame
+            </button>
+            <button
+              v-if="showPhotoTile"
+              type="button"
+              class="tile"
+              :class="{ active: view === 'week_photo' }"
+              :aria-pressed="view === 'week_photo'"
+              data-testid="tile-week_photo"
+              @click="setView('week_photo')"
+            >
+              <AppIcon :icon="PanelTop" :size="32" />
+              Week + photo
             </button>
           </div>
         </section>
@@ -451,8 +466,8 @@ function submitPin() {
             <button
               type="button"
               class="button next-photo"
-              :disabled="!photoViewOn"
-              :aria-describedby="photoViewOn ? undefined : 'next-photo-reason'"
+              :disabled="!photosShown"
+              :aria-describedby="photosShown ? undefined : 'next-photo-reason'"
               aria-live="polite"
               data-testid="photo-next"
               @click="nextPhoto"
@@ -460,8 +475,8 @@ function submitPin() {
               <AppIcon :icon="SkipForward" :size="22" />
               {{ skipped ? 'Skipped' : 'Next photo' }}
             </button>
-            <p v-if="!photoViewOn" id="next-photo-reason" class="hint reason" data-testid="photo-next-reason">
-              Turn on the photo frame to skip photos.
+            <p v-if="!photosShown" id="next-photo-reason" class="hint reason" data-testid="photo-next-reason">
+              Turn on the photo frame or the week and photo view to skip photos.
             </p>
           </div>
         </section>

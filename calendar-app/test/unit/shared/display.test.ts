@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMonths, addWeeks, commandSchema, currentMonth, currentWeek, DEFAULT_DAY_PARTS, DEFAULT_PREVIEW_SECONDS, displayStateSchema, firstDayOfWeek, monthDiff, NEXT_VIEW_ORDER, RETURN_VIEWS, VIEWS, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../../shared/display'
+import { addMonths, addWeeks, commandSchema, currentMonth, currentWeek, DEFAULT_DAY_PARTS, DEFAULT_PREVIEW_SECONDS, displayStateSchema, firstDayOfWeek, monthDiff, NEXT_VIEW_ORDER, PHOTO_VIEWS, RETURN_VIEWS, showsPhotos, VIEWS, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../../shared/display'
 
 describe('the display state schema', () => {
   it('fills in every field from nothing', () => {
@@ -224,11 +224,18 @@ describe('months', () => {
 })
 
 describe('views', () => {
-  it('lists the week by part of day view, and steps through it last', () => {
-    expect(VIEWS).toEqual(['month', 'week', 'week_parts', 'agenda', 'photo', 'night'])
-    expect(NEXT_VIEW_ORDER).toEqual(['month', 'agenda', 'week', 'week_parts'])
+  it('lists the week by part of day and the week and photo views, and steps through them last', () => {
+    expect(VIEWS).toEqual(['month', 'week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night'])
+    expect(NEXT_VIEW_ORDER).toEqual(['month', 'agenda', 'week', 'week_parts', 'week_photo'])
     expect(RETURN_VIEWS).toContain('week_parts')
+    expect(RETURN_VIEWS).toContain('week_photo')
     expect(commandSchema.parse({ type: 'set_view', view: 'week_parts' })).toEqual({ type: 'set_view', view: 'week_parts' })
+    expect(commandSchema.parse({ type: 'set_view', view: 'week_photo' })).toEqual({ type: 'set_view', view: 'week_photo' })
+  })
+
+  it('shows photos on the photo frame and the week and photo view only', () => {
+    expect(PHOTO_VIEWS).toEqual(['photo', 'week_photo'])
+    expect(VIEWS.filter(showsPhotos)).toEqual(['week_photo', 'photo'])
   })
 
   it('has the default parts of the day', () => {
@@ -247,7 +254,7 @@ describe('weeks', () => {
   })
 
   it('lists the views that follow a pinned week, within the views there are', () => {
-    expect(WEEK_VIEWS).toEqual(['week', 'week_parts'])
+    expect(WEEK_VIEWS).toEqual(['week', 'week_parts', 'week_photo'])
     expect(WEEK_RANGE).toBe(52)
   })
 

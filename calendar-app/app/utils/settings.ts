@@ -165,6 +165,7 @@ const VIEW_LABELS: Record<View, string> = {
   month: 'Month',
   week: 'Week',
   week_parts: 'Week by part of day',
+  week_photo: 'Week and photo',
   agenda: 'Agenda',
   photo: 'Photo frame',
   night: 'Night',

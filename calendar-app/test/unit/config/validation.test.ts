@@ -578,6 +578,20 @@ describe('schedules', () => {
     expect(message).toContain('displays[0].schedules[0].rules[0].view: is photo, but there is no "photos" block')
   })
 
+  it('refuses a week_photo rule without a photos block, naming the rule', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ view: 'week_photo' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].view: is week_photo, but there is no "photos" block')
+  })
+
+  it('takes a week_photo rule with a photos block', async () => {
+    const raw = minimalConfig()
+    raw.photos = { immich: { url: 'http://immich.local', api_key: 'k' } }
+    raw.displays[0].schedules = [schedule({ rules: [rule({ view: 'week_photo' })] })]
+
+    expect((await load({ config: raw })).config.displays[0]!.schedules[0]!.rules[0]!.view).toBe('week_photo')
+  })
+
   it('takes a photo rule with a photos block', async () => {
     const raw = minimalConfig()
     raw.photos = { immich: { url: 'http://immich.local', api_key: 'k' } }

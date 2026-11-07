@@ -105,7 +105,7 @@ The entities use names relative to the device, so HA normally generates the IDs 
 
 | Name | Entity ID | What it does |
 |---|---|---|
-| View | `select.wall_calendar_view` | `month`, `week`, `week_parts` (week by part of day), `agenda`, `photo`, `night` or `next`. |
+| View | `select.wall_calendar_view` | `month`, `week`, `week_parts` (week by part of day), `week_photo` (week with a photo pane), `agenda`, `photo`, `night` or `next`. |
 | Month shown | `sensor.wall_calendar_month_shown` | The month the month view shows, as `YYYY-MM`. |
 | Previous month, Next month, This month | `button.wall_calendar_previous_month`, `button.wall_calendar_next_month`, `button.wall_calendar_this_month` | Change the month shown. |
 | Week shown | `sensor.wall_calendar_week_shown` | The first day of the week the week view shows, as `YYYY-MM-DD`. |
@@ -117,7 +117,7 @@ The entities use names relative to the device, so HA normally generates the IDs 
 | Auto brightness | `switch.wall_calendar_auto_brightness` | Turns the built-in brightness policy on or off. Config category. Turn it off when a Home Assistant automation sets the brightness, so the two don't fight (see [Brightness, driven by an automation](#brightness-driven-by-an-automation-needs-the-pi-agent)). |
 | Schedule <name> | `switch.wall_calendar_schedule_morning_agenda` | One for each schedule in the display's config, for a schedule named "Morning agenda". Turns that schedule on or off. Config category. The entity ID follows the schedule's name, and the object ID the app publishes follows its `id` (`schedule_daytime_photos` for `daytime-photos`). Turning a schedule off leaves the wall as it is. Removing a schedule from the config leaves its switch in HA until you delete it there (see [Schedules, driven by automations](#schedules-driven-by-automations)). |
 | Message | `text.wall_calendar_message` | Shows a banner on the wall (up to 200 characters). Text only: no icon, and no time limit, so it stays until cleared. Clear the box to remove it. The box empties by itself when the message runs out or is cleared elsewhere. |
-| Next photo | `button.wall_calendar_next_photo` | Shows the next photo at once and starts the wait for the one after it again, so a skip is never followed straight away by a scheduled change. Does nothing visible unless the wall is on the `photo` view. |
+| Next photo | `button.wall_calendar_next_photo` | Shows the next photo at once and starts the wait for the one after it again, so a skip is never followed straight away by a scheduled change. Does nothing visible unless the wall is on the `photo` or `week_photo` view. |
 | Refresh calendars | `button.wall_calendar_refresh_calendars` | Syncs every calendar now. |
 | Last sync | `sensor.wall_calendar_last_sync` | When a sync last succeeded (a timestamp, diagnostic). Unknown until the first successful sync. |
 | Special day | `sensor.wall_calendar_special_day` | The name of today's special day, or empty when there is none. If two fall on one date, it is the one that comes first by precedence (a one-off before a yearly one, then the most recently edited). Unknown until the app has worked out today's special days. |
@@ -259,7 +259,7 @@ The first automation sets the agenda at 06:30 and the second goes back to the mo
 
 ### Photo frame
 
-Setting the View select to `photo` puts the wall on the photo frame, and any other view takes it off. While the wall is on it, the app changes the photo every `photos.interval_seconds` (60 by default), whichever source it is using, and **Next photo** changes it at once and starts that wait again. The Photo source select picks where the photos come from. Both need a `photos` block in the app's config (see the README); without one the photo view just says it has no photos.
+Setting the View select to `photo` puts the wall on the photo frame, and any other view takes it off, except `week_photo`, which keeps a photo pane beside the week and rotates photos just the same. While the wall is on one of them, the app changes the photo every `photos.interval_seconds` (60 by default), whichever source it is using, and **Next photo** changes it at once and starts that wait again. The Photo source select picks where the photos come from. Both need a `photos` block in the app's config (see the README); without one the photo view just says it has no photos.
 
 For example, the photo frame in the evening, when nobody is cooking and the calendar isn't needed, and the month view back in the morning:
 

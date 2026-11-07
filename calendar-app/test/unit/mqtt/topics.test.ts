@@ -187,6 +187,7 @@ describe('parseCommandPayload', () => {
   it('turns view/set into a view, and next into the next view', () => {
     expect(command('view/set', 'agenda')).toEqual({ type: 'set_view', view: 'agenda' })
     expect(command('view/set', 'night')).toEqual({ type: 'set_view', view: 'night' })
+    expect(command('view/set', 'week_photo')).toEqual({ type: 'set_view', view: 'week_photo' })
     expect(command('view/set', 'next')).toEqual({ type: 'next_view' })
   })
 

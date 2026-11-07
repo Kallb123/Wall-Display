@@ -7,7 +7,7 @@ import { $fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { DisplayState, ServerMessage } from '../../shared/display'
 
 // The photo frame's rotation on the real server: while the display is on the
-// photo view the server tells it to move on every `photos.interval_seconds`
+// photo view (or the week and photo view) the server tells it to move on every `photos.interval_seconds`
 // (5 here, the least the config allows), a `photo_next` command does so at once
 // and starts the wait again, and leaving the view stops it. The tests build on
 // each other and take a few real seconds.
@@ -98,7 +98,16 @@ describe('the photo rotation', async () => {
     expect(display.nexts[before + 1]! - display.nexts[before]!).toBeGreaterThanOrEqual(INTERVAL_MS - 500)
   })
 
-  it('stops when the display leaves the photo view', async () => {
+  it('keeps going on the week and photo view, which also shows photos', async () => {
+    expect((await command({ type: 'set_view', view: 'week_photo' })).view).toBe('week_photo')
+    const before = display.nexts.length
+
+    await until(display, before + 1, INTERVAL_MS + 3000)
+    await until(display, before + 2, INTERVAL_MS + 3000)
+    expect(display.nexts[before + 1]! - display.nexts[before]!).toBeGreaterThanOrEqual(INTERVAL_MS - 500)
+  })
+
+  it('stops when the display leaves the photo views', async () => {
     await command({ type: 'set_view', view: 'agenda' })
     await sleep(100)
     const count = display.nexts.length

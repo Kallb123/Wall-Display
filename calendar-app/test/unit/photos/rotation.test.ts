@@ -110,6 +110,30 @@ describe('the photo rotation', () => {
     expect(emitted).toEqual(['hallway'])
   })
 
+  it('runs on the week and photo view too, and keeps its timer when moving between the two photo views', () => {
+    const { emitted, rotation, setView } = setup()
+    setView('hallway', 'week_photo')
+    expect(rotation.isRunning('hallway')).toBe(true)
+    vi.advanceTimersByTime(50 * SECOND)
+
+    setView('hallway', 'photo')
+    setView('hallway', 'week_photo')
+    vi.advanceTimersByTime(10 * SECOND)
+    expect(emitted).toEqual(['hallway'])
+
+    setView('hallway', 'week')
+    expect(rotation.isRunning('hallway')).toBe(false)
+    vi.advanceTimersByTime(10 * INTERVAL * SECOND)
+    expect(emitted).toEqual(['hallway'])
+  })
+
+  it('starts at once for a display that is already on the week and photo view', () => {
+    const { emitted } = setup({ hallway: 'week_photo' })
+    vi.advanceTimersByTime(INTERVAL * SECOND)
+
+    expect(emitted).toEqual(['hallway'])
+  })
+
   it('is not pushed back by other changes to a display on the photo view', () => {
     const { emitted, setView } = setup()
     setView('hallway', 'photo')

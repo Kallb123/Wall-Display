@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  LAYOUT_COMPONENTS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
-  layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
+  DEFAULT_DAY_GRID, LAYOUT_COMPONENTS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
+  layoutDayGrids, layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
 } from '../../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput, LayoutArrangement, LayoutComponent, LayoutRow } from '../../../shared/layouts'
 
@@ -240,5 +240,78 @@ describe('transposeArrangement', () => {
     const before = structuredClone(landscape)
     transposeArrangement(landscape)
     expect(landscape).toEqual(before)
+  })
+})
+
+describe('the day grid pane', () => {
+  const daysPane = (grid?: unknown, size = 1) => ({ component: 'days', size, ...(grid === undefined ? {} : { grid }) })
+  const withDays = (landscapeGrid?: unknown, portraitGrid?: unknown) => ({
+    name: 'Days',
+    landscape: { rows: [{ size: 1, panes: [daysPane(landscapeGrid)] }] },
+    portrait: { rows: [{ size: 1, panes: [daysPane(portraitGrid)] }] },
+  })
+  const grid = { rows: 2, columns: 4, start: 'today' }
+
+  it('comes between the agenda and the photo, and is not a view', () => {
+    expect(LAYOUT_COMPONENTS).toEqual(['month', 'week', 'week_parts', 'agenda', 'days', 'photo'])
+    expect(layoutShowsCalendar({ components: ['days'] })).toBe(true)
+  })
+
+  it('accepts a days pane with a grid, and keeps the grid', () => {
+    const parsed = customLayoutInputSchema.parse(withDays(grid, { rows: 4, columns: 2, start: 'week' }))
+    expect(parsed.landscape.rows[0]!.panes[0]!.grid).toEqual(grid)
+    expect(parsed.portrait.rows[0]!.panes[0]!.grid).toEqual({ rows: 4, columns: 2, start: 'week' })
+    expect(DEFAULT_DAY_GRID).toEqual({ rows: 2, columns: 4, start: 'today' })
+  })
+
+  it('needs the grid on a days pane', () => {
+    expect(problem(withDays(undefined, grid))).toBe('landscape.rows.0.panes.0.grid: must have a grid (rows, columns and start) on a days pane')
+    expect(problem(withDays(grid, undefined))).toBe('portrait.rows.0.panes.0.grid: must have a grid (rows, columns and start) on a days pane')
+  })
+
+  it('rejects a grid on any other pane', () => {
+    const value = { ...photoWeek, landscape: { rows: [row(1, ['photo', 2])] }, portrait: { rows: [row(1, ['photo', 2])] } }
+    ;(value.landscape.rows[0]!.panes[0] as { grid?: unknown }).grid = grid
+    expect(problem(value)).toBe('landscape.rows.0.panes.0.grid: must not be set on a photo pane, only on a days pane')
+  })
+
+  it('holds the grid to its bounds, whole numbers and known starts', () => {
+    expect(problem(withDays({ ...grid, rows: 0 }, grid))).toBe('landscape.rows.0.panes.0.grid.rows: must be from 1 to 6')
+    expect(problem(withDays({ ...grid, rows: 7 }, grid))).toBe('landscape.rows.0.panes.0.grid.rows: must be from 1 to 6')
+    expect(problem(withDays({ ...grid, columns: 8 }, grid))).toBe('landscape.rows.0.panes.0.grid.columns: must be from 1 to 7')
+    expect(problem(withDays({ ...grid, columns: 0 }, grid))).toBe('landscape.rows.0.panes.0.grid.columns: must be from 1 to 7')
+    expect(problem(withDays({ ...grid, columns: 2.5 }, grid))).toBe('landscape.rows.0.panes.0.grid.columns: must be a whole number')
+    expect(problem(withDays({ ...grid, start: 'tomorrow' }, grid))).toBe('landscape.rows.0.panes.0.grid.start: must be today or week')
+    expect(customLayoutInputSchema.safeParse(withDays({ rows: 6, columns: 7, start: 'week' }, { rows: 1, columns: 1, start: 'today' })).success).toBe(true)
+  })
+
+  it('rejects a field it does not know in the grid', () => {
+    expect(customLayoutInputSchema.safeParse(withDays({ ...grid, gap: 4 }, grid)).success).toBe(false)
+  })
+
+  it('still accepts layouts stored before the day grid existed', () => {
+    expect(customLayoutInputSchema.safeParse(photoWeek).success).toBe(true)
+    expect(customLayoutSchema.safeParse(stored()).success).toBe(true)
+  })
+
+  it('swaps rows and columns when an arrangement is turned, in all three shapes, and keeps the start', () => {
+    const days = (rows: number, columns: number, size = 1) => ({ component: 'days' as const, size, grid: { rows, columns, start: 'week' as const } })
+    const turned = (input: LayoutArrangement) => transposeArrangement(input).rows.flatMap(r => r.panes).find(p => p.component === 'days')!.grid
+
+    // One row of panes becomes a column of rows.
+    expect(turned({ rows: [{ size: 1, panes: [days(2, 4), { component: 'photo', size: 1 }] }] })).toEqual({ rows: 4, columns: 2, start: 'week' })
+    // A column of rows becomes one row.
+    expect(turned({ rows: [{ size: 1, panes: [days(2, 4)] }, { size: 1, panes: [{ component: 'photo', size: 1 }] }] })).toEqual({ rows: 4, columns: 2, start: 'week' })
+    // A true grid.
+    expect(turned({ rows: [{ size: 1, panes: [days(3, 5), { component: 'photo', size: 1 }] }, { size: 1, panes: [{ component: 'agenda', size: 1 }, { component: 'week', size: 1 }] }] })).toEqual({ rows: 5, columns: 3, start: 'week' })
+    // Other panes gain no grid.
+    expect(transposeArrangement({ rows: [{ size: 1, panes: [days(2, 4), { component: 'photo', size: 1 }] }] }).rows[1]!.panes[0]).toEqual({ component: 'photo', size: 1 })
+  })
+
+  it('lists the grids of an arrangement or a whole layout', () => {
+    const input = customLayoutInputSchema.parse(withDays(grid, { rows: 4, columns: 2, start: 'week' }))
+    expect(layoutDayGrids(input.landscape)).toEqual([grid])
+    expect(layoutDayGrids(input)).toEqual([grid, { rows: 4, columns: 2, start: 'week' }])
+    expect(layoutDayGrids(photoWeek)).toEqual([])
   })
 })

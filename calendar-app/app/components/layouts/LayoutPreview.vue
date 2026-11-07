@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, Images, ListTodo, Rows3 } from 'lucide-vue-next'
+import { CalendarDays, CalendarRange, Images, LayoutGrid, ListTodo, Rows3 } from 'lucide-vue-next'
 import type { LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
 import { COMPONENT_LABELS } from '~/utils/layoutEditor'
 
@@ -30,6 +30,7 @@ const ICONS: Record<LayoutComponent, Component> = {
   week: CalendarRange,
   week_parts: Rows3,
   agenda: ListTodo,
+  days: LayoutGrid,
   photo: Images,
 }
 

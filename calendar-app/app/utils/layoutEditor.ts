@@ -27,6 +27,7 @@ export const COMPONENT_LABELS: Record<LayoutComponent, string> = {
   week: 'Week',
   week_parts: 'Day parts',
   agenda: 'Agenda',
+  days: 'Days',
   photo: 'Photo',
 }
 

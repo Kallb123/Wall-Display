@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LayoutArrangement } from '../../../shared/layouts'
-import { COMPONENT_MINIMUMS, layoutPanes, paneFit, photoPillAtTopRight } from '../../../app/utils/layouts'
+import { COMPONENT_MINIMUMS, MIN_DAY_TILE, layoutPanes, paneFit, photoPillAtTopRight } from '../../../app/utils/layouts'
 import { stageFor, weekPhotoPanes } from '../../../app/utils/views'
 
 const LANDSCAPE = { width: 2560, height: 1440 }
@@ -144,5 +144,39 @@ describe('photoPillAtTopRight', () => {
 
     expect(photoPillAtTopRight(left, LANDSCAPE.width, 'top-right')).toBe(false)
     expect(photoPillAtTopRight(below, LANDSCAPE.width, 'top-right')).toBe(false)
+  })
+})
+
+describe('the day grid pane', () => {
+  const grid = { rows: 2, columns: 4, start: 'today' as const }
+
+  it('layoutPanes carries the grid of a days pane, and only that', () => {
+    const arrangement: LayoutArrangement = { rows: [{ size: 1, panes: [{ component: 'days', size: 3, grid }, { component: 'photo', size: 1 }] }] }
+    const [days, photo] = layoutPanes(arrangement, { width: 2560, height: 1440 })
+
+    expect(days!.grid).toEqual(grid)
+    expect(photo).not.toHaveProperty('grid')
+  })
+
+  it('draws a roomy grid at its real size, in the shape of its box', () => {
+    const fit = paneFit('days', { width: 2560, height: 1440 }, grid)
+
+    expect(fit).toEqual({ stage: { width: 2560, height: 1440, orientation: 'landscape' }, scale: 1 })
+    expect(paneFit('days', { width: 1440, height: 2560 }, { rows: 4, columns: 2, start: 'today' }).stage.orientation).toBe('portrait')
+  })
+
+  it('scales down so each tile keeps its minimum, by the tighter side', () => {
+    expect(MIN_DAY_TILE).toEqual({ width: 320, height: 240 })
+    // 4 columns want 1280 wide and 2 rows want 480 high: the width is short by half.
+    const fit = paneFit('days', { width: 640, height: 960 }, grid)
+
+    expect(fit.scale).toBe(0.5)
+    expect(fit.stage).toEqual({ width: 1280, height: 1920, orientation: 'portrait' })
+    // The height is the tight side here.
+    expect(paneFit('days', { width: 2560, height: 240 }, grid).scale).toBe(0.5)
+  })
+
+  it('never scales up', () => {
+    expect(paneFit('days', { width: 5000, height: 5000 }, { rows: 1, columns: 1, start: 'week' }).scale).toBe(1)
   })
 })

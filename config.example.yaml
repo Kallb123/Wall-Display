@@ -110,6 +110,8 @@ displays:
     # weekdays, weekends or a list such as [mon, wed, fri]. from later than to
     # wraps past midnight, and days is then the day the window starts. A rule
     # that needs the photo frame (view: photo) needs the photos block below.
+    # view: custom shows one of the custom layouts built on the settings page
+    # (Layouts tab) and needs the layout's id, which that page shows.
     # The rules act only at their start and end: at the end the wall goes back to
     # the view from before the window (if nobody has changed it), and a view
     # chosen by hand lasts until the next start or end. Each schedule gets a
@@ -123,6 +125,12 @@ displays:
         name: Daytime photos
         rules:
           - { view: photo, from: "10:00", to: "16:00", days: weekdays }
+      # A custom layout, by its id. A layout that does not exist (or has been
+      # deleted) is skipped when the window starts, with a warning in the log.
+      # - id: evenings
+      #   name: Kitchen board
+      #   rules:
+      #     - { view: custom, layout: kitchen, from: "17:00", to: "21:00" }
 
 # What the physical button does (the Pi agent's button: sensors.button in the
 # agent's config). Each gesture is one of:

@@ -57,6 +57,8 @@ export default defineNitroPlugin((nitroApp) => {
         bus: useEventBus(),
         displayIds: settings.config().displays.map(display => display.id),
         getState: displayId => control.getState(displayId),
+        // The layouts plugin (02) starts before this one.
+        layouts: () => useLayouts().summaries(),
         intervalSeconds: photos.interval_seconds,
       })
     : undefined

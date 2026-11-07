@@ -15,7 +15,7 @@ import type { DisplayControl } from './service'
 // timers and a fake or real control.
 
 /** The part of a schedule's config the policy reads. */
-export type PolicySchedule = Pick<ScheduleConfig, 'id' | 'name'> & { rules: readonly Pick<ScheduleRule, 'view' | 'from' | 'to' | 'days'>[] }
+export type PolicySchedule = Pick<ScheduleConfig, 'id' | 'name'> & { rules: readonly Pick<ScheduleRule, 'view' | 'layout' | 'from' | 'to' | 'days'>[] }
 
 type PolicyRule = PolicySchedule['rules'][number]
 
@@ -140,6 +140,8 @@ export interface SchedulePolicyOptions {
   displays: readonly { id: string, schedules: readonly PolicySchedule[] }[]
   timeZone: string
   control: Pick<DisplayControl, 'getState' | 'applyCommand'>
+  /** The ids of the custom layouts there are now (PR 5.17), asked when a window starts, because the library changes while this runs. A rule that names another layout is skipped with a warning. Default: not checked here, so the control's refusal to start it stands alone. */
+  layoutIds?: () => readonly string[]
   /** For tests. Default: the real time. */
   now?: () => Date
   /** For tests. Default: the console. */
@@ -156,7 +158,7 @@ function describe(error: unknown): string {
 }
 
 export function createSchedulePolicy(options: SchedulePolicyOptions): SchedulePolicy {
-  const { displays, timeZone, control, now = () => new Date(), log = console } = options
+  const { displays, timeZone, control, layoutIds, now = () => new Date(), log = console } = options
   const withSchedules = displays.filter(display => display.schedules.length > 0)
   let lastChecked = now()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -169,11 +171,12 @@ export function createSchedulePolicy(options: SchedulePolicyOptions): SchedulePo
   /** Applies one command and logs it when the wall's view really changed. */
   function send(displayId: string, schedule: PolicySchedule | undefined, rule: PolicyRule | undefined, command: ControlCommand, what: string): void {
     try {
-      const before = control.getState(displayId).view
-      const after = control.applyCommand(displayId, command).view
-      if (after === before) return
+      const before = control.getState(displayId)
+      const after = control.applyCommand(displayId, command)
+      if (after.view === before.view && after.layout === before.layout) return
       const name = schedule && rule ? `${schedule.name} (${clock(rule)})` : what
-      log.info(`[schedule] ${displayId}: ${name} ${command.type === 'schedule_start' ? `starts, so the wall shows ${after}` : `ends, so the wall goes back to ${after}`}`)
+      const shown = after.view === 'custom' && after.layout !== null ? `custom layout ${after.layout}` : after.view
+      log.info(`[schedule] ${displayId}: ${name} ${command.type === 'schedule_start' ? `starts, so the wall shows ${shown}` : `ends, so the wall goes back to ${shown}`}`)
     } catch (error) {
       log.error(`[schedule] ${displayId}: could not apply ${command.type} for "${what}": ${describe(error)}`)
     }
@@ -188,7 +191,7 @@ export function createSchedulePolicy(options: SchedulePolicyOptions): SchedulePo
         if (window === null) continue
         const schedule = display.schedules.find(candidate => candidate.id === window.schedule)
         const rule = schedule?.rules[window.rule]
-        if (rule && rule.view === window.view && ruleInProgress(rule, timeZone, at)) continue
+        if (rule && rule.view === window.view && (rule.view !== 'custom' || rule.layout === window.layout) && ruleInProgress(rule, timeZone, at)) continue
         send(display.id, schedule, rule, { type: 'schedule_end', schedule: window.schedule, rule: window.rule }, window.schedule)
       } catch (error) {
         log.error(`[schedule] ${display.id}: could not check the schedule window: ${describe(error)}`)
@@ -225,8 +228,12 @@ export function createSchedulePolicy(options: SchedulePolicyOptions): SchedulePo
           const rule = schedule.rules[boundary.ruleIndex]!
           // The reducer ignores a turned-off schedule's start, but its end must not touch a window either.
           if (control.getState(display.id).schedules_off.includes(schedule.id)) continue
+          if (boundary.kind === 'start' && rule.view === 'custom' && layoutIds && !layoutIds().includes(rule.layout ?? '')) {
+            log.warn(`[schedule] ${display.id}: ${schedule.name} (${clock(rule)}) shows layout "${rule.layout}", which does not exist, so it is skipped`)
+            continue
+          }
           const command: ControlCommand = boundary.kind === 'start'
-            ? { type: 'schedule_start', schedule: schedule.id, rule: boundary.ruleIndex, view: rule.view }
+            ? { type: 'schedule_start', schedule: schedule.id, rule: boundary.ruleIndex, view: rule.view, ...(rule.layout !== undefined && { layout: rule.layout }) }
             : { type: 'schedule_end', schedule: schedule.id, rule: boundary.ruleIndex }
           send(display.id, schedule, rule, command, schedule.id)
         }

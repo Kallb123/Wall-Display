@@ -54,7 +54,7 @@ function event(changes: Partial<CalendarEvent> = {}): CalendarEvent {
 }
 
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
-  view: 'photo', stage: { width: 2560, height: 1440, orientation: 'landscape' }, events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, weather: null, specialDays: NO_SPECIAL_DAYS,
+  view: 'photo', stage: { width: 2560, height: 1440, orientation: 'landscape' }, events: [], now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, dayParts: { afternoon: 12, evening: 17 }, weather: null, specialDays: NO_SPECIAL_DAYS,
   displayId: 'hallway', photoNext: 0, socketOpens: 0, ...overrides,
 })
 

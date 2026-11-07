@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { currentMonth, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
+import { currentMonth, DEFAULT_DAY_PARTS, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
 import { specialDayArtUrl } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
@@ -11,6 +11,7 @@ import AgendaView from '~/components/views/AgendaView.vue'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import NightView from '~/components/views/NightView.vue'
 import PhotoView from '~/components/views/PhotoView.vue'
+import WeekPartsView from '~/components/views/WeekPartsView.vue'
 import WeekView from '~/components/views/WeekView.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
@@ -51,6 +52,7 @@ const viewComponents: Record<View, Component> = {
   // The Soft style, which is the one with a portrait layout (PR 5.12). The Classic one arrives in PR 5.7, will be chosen here by `month_style`, and would need a portrait layout of its own.
   month: MonthSoftView,
   week: WeekView,
+  week_parts: WeekPartsView,
   agenda: AgendaView,
   photo: PhotoView,
   night: NightView,
@@ -212,6 +214,8 @@ const viewProps = computed<ViewProps | null>(() => {
     weekStart: display.week_start,
     // Settings cached before week_hours existed lack it.
     weekHours: display.week_hours ?? DEFAULT_WEEK_HOURS,
+    // Settings cached before day_parts existed lack it.
+    dayParts: display.day_parts ?? DEFAULT_DAY_PARTS,
     weekOf: weekDate,
     weather: weather.value,
     specialDays: activeSpecialDays.value ? { tiles: activeSpecialDays.value.tiles, takeover: takeover.value } : NO_SPECIAL_DAYS,

@@ -1,4 +1,4 @@
-import type { MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
+import type { DayParts, MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -16,12 +16,12 @@ import type { StageOrientation } from './stage'
 // .nuxt/tsconfig, which a clean build (the Docker image) may not have done yet.
 
 /** The views a special day's takeover changes. The photo frame and night views never do (architecture §6.3). */
-export const CALENDAR_VIEWS = ['month', 'week', 'agenda'] as const satisfies readonly View[]
+export const CALENDAR_VIEWS = ['month', 'week', 'week_parts', 'agenda'] as const satisfies readonly View[]
 
 export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
-/** The views with a portrait layout: all of them since PR 5.13. A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
-export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week']
+/** The views with a portrait layout: all of them since PR 5.13 (the week by part of day has the week's stacked head and taller rows, not a layout of its own). A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
+export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week', 'week_parts']
 
 export const hasPortraitLayout = (view: View): boolean => PORTRAIT_VIEWS.includes(view)
 
@@ -55,6 +55,8 @@ export interface ViewProps {
   weekOf: string
   /** The hours the week view draws in full (the display's `week_hours`); the rest are folded into a thin band at each end. */
   weekHours: WeekHours
+  /** Where the week by part of day splits the day (the display's `day_parts`): the whole hours at which the afternoon and the evening begin. */
+  dayParts: DayParts
   /** The current conditions and the daily forecast, or null for none (no weather set up, or not heard yet). A view draws no weather at all then. */
   weather: WeatherSnapshot | null
   /** The day a week starts on, for the month grid. */

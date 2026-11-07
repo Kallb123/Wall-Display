@@ -177,12 +177,13 @@ Config is checked when the app starts, and unknown keys are errors, so a typo st
 
 ### 4.1 Views
 
-Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`) and `night` use a plain themed background. **Photo frame** (`photo`) is its own mode and is the only place photos appear. The one exception is a special day's takeover art (see §6.3), which is illustration made for the palette, not a photo.
+Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`, `week_parts`) and `night` use a plain themed background. **Photo frame** (`photo`) is its own mode and is the only place photos appear. The one exception is a special day's takeover art (see §6.3), which is illustration made for the palette, not a photo.
 
 | View | Group | Contents |
 |---|---|---|
 | `month` | Calendar | Month grid, a side panel with today and the next three days (each with its weather), month title, special day art. See §4.4. |
 | `week` | Calendar | 7-day columns with timed blocks on an hour scale, an all-day strip, and a "now" line. See §4.5. |
+| `week_parts` | Calendar | The week with its axes flipped: seven day rows, each split into morning, afternoon and evening, with the all-day events in the row's head. See §4.5a. |
 | `agenda` | Calendar | Today and tomorrow in large type. The default for mornings. |
 | `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
 | `night` | Ambient | A very dim clock on pure black, whatever the theme. Used when the room is dark but you want the screen on. A line under the clock is set per display with `night_text`: nothing (`none`, the default), the first timed event in the next 24 hours (`first_event`), or the next alarm (`next_alarm`, read from Home Assistant, see §7.4). |
@@ -276,14 +277,27 @@ The week view shows seven day columns, from the display's `week_start`, for the 
 
 The layout is a pure function in `shared/week-layout.ts`: given the week, now, the time zone, the week start, `week_hours`, the optional `maxTracks` and the events (each already carrying its people), it returns the title, the seven days, the strip's bars and "+N more" labels, the blocks with their tracks, the "+N" chips for blocks left out, the two bands and the now line. The view draws it and adds nothing. The events come from the same fetch as the month view, whose grid covers this week; a pinned week outside it is fetched with it, as a range of its own.
 
+### 4.5a Week by part of day
+
+`week_parts` is the week view with its axes flipped (PR 5.16). The closest explored design is mock 4q ([4q](design/mocks/4q.png)), the week as a list: one rounded row per day, with the date, weekday and weather on the left and the events as badge, time and title lines. Here the seven days, from the display's `week_start`, are rows, and each row is split into three columns, **morning**, **afternoon** and **evening**, instead of an hour scale. The week shown, the title, the tints, the tile art and the takeover greeting are the week view's (§4.5), and the events come from the same fetch.
+
+- **Parts.** The boundaries are the display's `day_parts` (`afternoon` and `evening`, whole hours, `1 <= afternoon < evening <= 23`, default 12 and 17; the morning runs from midnight). A header row names them with their hours (`Morning 00–12`, `Afternoon 12–17`, `Evening 17–24`).
+- **Head.** Each row has a head on the left: the date number (today's in the accent pill) and weekday, that day's forecast, special day art, then up to two all-day, multi-day or past-midnight events as small bars (badge, and the start time first for a timed one on the day it starts), and a "+N" chip for the rest. They are ordered by start and then longest first, as the week view's strip.
+- **Cells.** Every other timed event is a line in the cell of the part it **starts** in, by the wall clock in the display's time zone (so a clock change day still works; an event starting exactly on a boundary is in the later part): badge, start time and title with an ellipsis, in start order. A cell holds `LANDSCAPE_CELL_ITEMS` (4) lines on the landscape stage and `PORTRAIT_CELL_ITEMS` (8) on the portrait one; when there are more, the last line is "+N more" and `cellItems - 1` events show.
+- **Now and past.** Today's row has today's background, and the cell of the part we are in has the sage outline, in place of a "now" line. Past days are under one veil and events that are over are dimmed.
+- **Portrait.** There is no separate layout: the same structure fills the stage, and the rows share its height, so they are about 165 px tall on 2560×1440 (a cell holds four lines) and about 320 px on 1440×2560 (eight). The head stacks its parts in one column where landscape puts the bars beside the date. Type sizes are the same px on both.
+
+The layout is a pure function in `shared/week-parts-layout.ts`: given the week, now, the time zone, the week start, `day_parts`, the events (each already carrying its people) and the optional `cellItems`, it returns the title, the three part headings, the seven rows (head, three cells, today and past flags) and where now is. The view (`WeekPartsView.vue`) draws it and adds nothing.
+
 ### 4.6 Portrait
 
-A display can be portrait (1440×2560) as well as landscape (2560×1440). The `orientation` preference (`auto`, `landscape`, `portrait`) chooses the stage (PR 5.10, §4.2). Type sizes, radii and badge sizes are the same px as landscape, because a rotated panel is viewed from the same distance; only the layout changes. A view without a portrait layout would be drawn on the landscape stage and letterboxed, but every view has one now: the night view since PR 5.10, the agenda and the photo frame since PR 5.11, the month since PR 5.12 and the week since PR 5.13. The letterbox stays for views added later. A Pi kiosk on a portrait-mounted panel turns its output with `setup.sh --rotate` (`kiosk/README.md`), and the page's `auto` then sees a portrait window. The mocks are 4a to 4r (§4.3), with pictures in [`docs/design/mocks/`](design/mocks/).
+A display can be portrait (1440×2560) as well as landscape (2560×1440). The `orientation` preference (`auto`, `landscape`, `portrait`) chooses the stage (PR 5.10, §4.2). Type sizes, radii and badge sizes are the same px as landscape, because a rotated panel is viewed from the same distance; only the layout changes. A view without a portrait layout would be drawn on the landscape stage and letterboxed, but every view has one now: the night view since PR 5.10, the agenda and the photo frame since PR 5.11, the month since PR 5.12, the week since PR 5.13 and the week by part of day, which shares the week's stacked head and has taller rows, with PR 5.16. The letterbox stays for views added later. A Pi kiosk on a portrait-mounted panel turns its output with `setup.sh --rotate` (`kiosk/README.md`), and the page's `auto` then sees a portrait window. The mocks are 4a to 4r (§4.3), with pictures in [`docs/design/mocks/`](design/mocks/).
 
 | View | Portrait layout | Mock |
 |---|---|---|
 | `month` (Soft) | Month title, then a sage **today band** across the top: the date in large type, the weekday, current weather and high/low on the left, today's events on the right (seven rows, the last of them "+N more" when there are more). Five week rows below get taller cells with **six lanes** a day. Timed rows in the grid show the badge and title only, because the time doesn't fit a ~180 px cell; times appear in the band and the strip. A **strip of three cards** at the bottom holds the next three days, each with weather and up to four events. | [4a](design/mocks/4a.png), [4b](design/mocks/4b.png) |
 | `week` | Seven columns of about 170 px on the `week_hours` scale (08:00–21:00 in the mock), with a 64 px hour gutter. The heading stacks date, weekday and weather. The all-day strip keeps three lanes. `maxTracks` is 2: an event past the second track becomes a "+N" chip at its start time, on the column's right edge. Two-line blocks wrap the title (up to three lines); blocks under 50 minutes are one line with badge and title. | [4c](design/mocks/4c.png), [4d](design/mocks/4d.png) |
+| `week_parts` | The same layout as landscape: a 300 px head (date, weather, up to two all-day bars and "+N") and three cells in the rest of the width. The rows are about 320 px tall instead of 165, so a cell holds eight lines before "+N more" (`PORTRAIT_CELL_ITEMS`) and not four. The greeting sits under the title. | none (as 4q) |
 | `agenda` | Today's sage card (about 60% of the height, with the clock in its header) is stacked above tomorrow's tile. Rows, badges and the now marker are unchanged from landscape. | [4e](design/mocks/4e.png), [4f](design/mocks/4f.png) |
 | `photo` | Photos are rendered at 1440×2560. A portrait photo fills the screen; a landscape one is fitted over its blurred copy. The pill is unchanged and still walks the four corners. | [4g](design/mocks/4g.jpg), [4h](design/mocks/4h.jpg) |
 | `night` | The same block on the portrait stage (PR 5.10). It drifts across a taller area. | [4i](design/mocks/4i.png) |
@@ -296,7 +310,7 @@ A display can be portrait (1440×2560) as well as landscape (2560×1440). The `o
 
 **Not adopted (explored).** Both are candidates for later views, not part of PRs 5.10 to 5.15.
 
-- The week as a list, one rounded row per day with events in two columns and past days folded ([4q](design/mocks/4q.png)).
+- The week as a list, one rounded row per day with events in two columns and past days folded ([4q](design/mocks/4q.png)). Its rows are the starting point of the week by part of day (§4.5a), which splits each row into three parts instead.
 - Today by person, one column per person on an hour scale ([4r](design/mocks/4r.png)).
 
 ### 4.7 Later option: photo behind the calendar

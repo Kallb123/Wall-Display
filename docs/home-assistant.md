@@ -105,7 +105,7 @@ The entities use names relative to the device, so HA normally generates the IDs 
 
 | Name | Entity ID | What it does |
 |---|---|---|
-| View | `select.wall_calendar_view` | `month`, `week`, `agenda`, `photo`, `night` or `next`. |
+| View | `select.wall_calendar_view` | `month`, `week`, `week_parts` (week by part of day), `agenda`, `photo`, `night` or `next`. |
 | Month shown | `sensor.wall_calendar_month_shown` | The month the month view shows, as `YYYY-MM`. |
 | Previous month, Next month, This month | `button.wall_calendar_previous_month`, `button.wall_calendar_next_month`, `button.wall_calendar_this_month` | Change the month shown. |
 | Week shown | `sensor.wall_calendar_week_shown` | The first day of the week the week view shows, as `YYYY-MM-DD`. |

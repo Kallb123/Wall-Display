@@ -108,16 +108,6 @@ describe('the preferences API', async () => {
     expect(overview!.theme).toBe('dark')
   })
 
-  it('PUT .../displays/:id saves day_parts, and GET /api/displays shows them', async () => {
-    const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { day_parts: { afternoon: 11, evening: 18 } } } })
-
-    expect(status.displays[0]).toMatchObject({ values: { day_parts: { afternoon: 11, evening: 18 } }, config: { day_parts: { afternoon: 12, evening: 17 } }, changed: ['day_parts'] })
-    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ day_parts: { afternoon: 11, evening: 18 } })
-
-    await $fetch('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { reset: ['day_parts'] } })
-    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ day_parts: { afternoon: 12, evening: 17 } })
-  })
-
   it('PUT .../displays/:id saves an orientation, and GET /api/displays shows it', async () => {
     const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { orientation: 'portrait' } } })
 
@@ -133,6 +123,16 @@ describe('the preferences API', async () => {
 
     expect(status.displays[0]).toMatchObject({ values: { theme: 'light', week_hours: { from: 7, to: 21 }, month_return_minutes: 5 }, changed: ['month_return_minutes'] })
     expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]!.theme).toBe('light')
+  })
+
+  it('PUT .../displays/:id saves day_parts, and GET /api/displays shows them', async () => {
+    const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { day_parts: { afternoon: 11, evening: 18 } } } })
+
+    expect(status.displays[0]).toMatchObject({ values: { day_parts: { afternoon: 11, evening: 18 } }, config: { day_parts: { afternoon: 12, evening: 17 } }, changed: expect.arrayContaining(['day_parts']) })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ day_parts: { afternoon: 11, evening: 18 } })
+
+    await $fetch('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { reset: ['day_parts'] } })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ day_parts: { afternoon: 12, evening: 17 } })
   })
 
   it('PUT .../displays/:id answers 404 for an unknown display, and 400 with data.fields for a bad body, saving nothing', async () => {

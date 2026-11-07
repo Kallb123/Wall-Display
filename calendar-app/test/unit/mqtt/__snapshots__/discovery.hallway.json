@@ -10,6 +10,7 @@
       "options": [
         "month",
         "week",
+        "week_parts",
         "agenda",
         "photo",
         "night"

@@ -39,6 +39,31 @@ const grid = layout(
   { rows: [row(1, ['month', 1], ['week', 1]), row(1, ['agenda', 1], ['week_parts', 1])] },
 )
 
+const dayGrid = (id: string, rows: number, columns: number, start: 'today' | 'week'): CustomLayout => {
+  const arrangement: LayoutArrangement = { rows: [{ size: 1, panes: [{ component: 'days', size: 1, grid: { rows, columns, start } }] }] }
+  return layout(id, arrangement, arrangement)
+}
+
+const daysAlone = dayGrid('days-alone', 2, 4, 'today')
+
+// A 3 by 7 grid from the start of the week beside the agenda; the agenda keeps its
+// column and the grid is scaled down to fit the rest.
+const daysAndAgenda = layout(
+  'days-agenda',
+  { rows: [row(1, ['days', 2], ['agenda', 1])] },
+  { rows: [row(1, ['days', 1]), row(1, ['agenda', 1])] },
+)
+daysAndAgenda.landscape.rows[0]!.panes[0]!.grid = { rows: 3, columns: 7, start: 'week' }
+daysAndAgenda.portrait.rows[0]!.panes[0]!.grid = { rows: 3, columns: 2, start: 'week' }
+
+const photoAboveDays = layout(
+  'photo-days',
+  { rows: [row(1, ['photo', 1], ['days', 2])] },
+  { rows: [row(1, ['photo', 1]), row(2, ['days', 1])] },
+)
+photoAboveDays.landscape.rows[0]!.panes[1]!.grid = { rows: 2, columns: 3, start: 'today' }
+photoAboveDays.portrait.rows[1]!.panes[0]!.grid = { rows: 4, columns: 2, start: 'today' }
+
 /** Opens `display` showing `shown`, and waits for every pane to be drawn. */
 async function open(page: Page, display: string, shown: CustomLayout) {
   await page.route('**/api/photos/next**', route => route.fulfill({ json: { photo: null } }))
@@ -83,6 +108,28 @@ test.describe('landscape', () => {
   })
 })
 
+test.describe('landscape day grid', () => {
+  test('a 2 by 4 day grid alone, light theme', async ({ page }) => {
+    await open(page, 'hallway', daysAlone)
+
+    await expect(page.getByTestId('day-tile')).toHaveCount(8)
+    await expect(page).toHaveScreenshot('custom-days-light.png')
+  })
+
+  test('a 2 by 4 day grid alone, dark theme', async ({ page }) => {
+    await open(page, 'kitchen', daysAlone)
+
+    await expect(page).toHaveScreenshot('custom-days-dark.png')
+  })
+
+  test('a 3 by 7 day grid from the start of the week beside the agenda', async ({ page }) => {
+    await open(page, 'hallway', daysAndAgenda)
+
+    await expect(page.getByTestId('day-tile')).toHaveCount(21)
+    await expect(page).toHaveScreenshot('custom-days-week-agenda-light.png')
+  })
+})
+
 test.describe('portrait', () => {
   test.use({ viewport: { width: 1440, height: 2560 } })
 
@@ -104,5 +151,19 @@ test.describe('portrait', () => {
     await open(page, 'hallway', grid)
 
     await expect(page).toHaveScreenshot('custom-grid-portrait-light.png')
+  })
+
+  test('a 3 by 2 day grid above the agenda, from the start of the week', async ({ page }) => {
+    await open(page, 'hallway', daysAndAgenda)
+
+    await expect(page.getByTestId('day-tile')).toHaveCount(6)
+    await expect(page).toHaveScreenshot('custom-days-week-agenda-portrait-light.png')
+  })
+
+  test('a 4 by 2 day grid below a photo', async ({ page }) => {
+    await open(page, 'hallway', photoAboveDays)
+
+    await expect(page.getByTestId('day-tile')).toHaveCount(8)
+    await expect(page).toHaveScreenshot('custom-photo-days-portrait-light.png')
   })
 })

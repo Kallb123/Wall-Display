@@ -187,7 +187,7 @@ Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`, `
 | `agenda` | Calendar | Today and tomorrow in large type. The default for mornings. |
 | `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
 | `week_photo` | Hybrid | The photo frame and the week side by side: a photo pane with a compact pill (no next-event chip) and the week in its narrow layout under a short title. See §4.6. |
-| `custom` | Hybrid | A user-defined layout: the views above (month, week, week by part of day, agenda, photo frame) arranged into rows and panes, from a shared library edited on the settings page and the remote. See §4.8. |
+| `custom` | Hybrid | A user-defined layout: the views above (month, week, week by part of day, agenda, photo frame), and a grid of day tiles (the day grid, §4.8a), arranged into rows and panes, from a shared library edited on the settings page and the remote. See §4.8. |
 | `night` | Ambient | A very dim clock on pure black, whatever the theme. Used when the room is dark but you want the screen on. A line under the clock is set per display with `night_text`: nothing (`none`, the default), the first timed event in the next 24 hours (`first_event`), or the next alarm (`next_alarm`, read from Home Assistant, see §7.4). |
 
 Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show, which month the month view shows, which week the week view shows and, for `custom`, which layout. The page never decides for itself.
@@ -327,17 +327,18 @@ Not planned for the first release. If it's added, it should be opt-in per view a
 
 ### 4.8 Custom layouts
 
-The `custom` view (PR 5.17) shows a **layout**: the existing view components arranged into rows and panes. It exists so that a wall can have, say, a photo beside the week above an agenda, without a new fixed hybrid for every combination (`week_photo` is one such layout, built by hand). The components are the same Vue components the full-screen views use (`MonthSoftView`, `WeekView`, `WeekPartsView`, `AgendaView` and `PhotoView`), not copies, so an improvement to one carries over to every layout.
+The `custom` view (PR 5.17) shows a **layout**: the existing view components arranged into rows and panes. It exists so that a wall can have, say, a photo beside the week above an agenda, without a new fixed hybrid for every combination (`week_photo` is one such layout, built by hand). The components are the same Vue components the full-screen views use (`MonthSoftView`, `WeekView`, `WeekPartsView`, `AgendaView` and `PhotoView`), not copies, plus one component that exists only for layouts, the day grid (`DayGridView`, §4.8a), so an improvement to one carries over to every layout.
 
 **The model** (`shared/layouts.ts`, pure, so the server, the display and both editors share it).
 
 - **A shared library.** Layouts are stored in SQLite (`custom_layouts`) and any display can show any layout. A layout has an `id` (a slug of its name, shaped like a schedule's id, and the thing `config.yaml` names), a `name` (1 to 60 characters, unique without regard to case, because Home Assistant's select uses names as its options) and two arrangements.
 - **Two arrangements.** `landscape` and `portrait` are edited independently, and the display uses the one for its stage. A new layout's portrait arrangement starts as the landscape one turned on its side (`transposeArrangement`: a single row of panes becomes a column of rows, a column becomes one row, and a grid takes the j-th pane of every row as the j-th portrait row), so `[photo | week]` becomes the photo above the week, as `week_photo` does.
 - **Rows of panes.** An arrangement is 1 to 4 rows, each of 1 to 4 panes. A row's `size` is its share of the stage's height against the other rows, and a pane's `size` its share of the row's width against its neighbours. Both are whole-number weights from 1 to 4.
-- **Each component once.** A pane holds one of `month`, `week`, `week_parts`, `agenda` or `photo`, and no component is used twice in an arrangement. Both arrangements hold exactly the same set of components, so the server can say whether a layout shows a week or photos without knowing which way up the device is. The zod schemas (`customLayoutInputSchema`, `customLayoutSchema`) enforce all of this, and so does the API.
+- **Each component once.** A pane holds one of `month`, `week`, `week_parts`, `agenda`, `photo` or `days` (the day grid, §4.8a), and no component is used twice in an arrangement. Both arrangements hold exactly the same set of components, so the server can say whether a layout shows a week or photos without knowing which way up the device is. The zod schemas (`customLayoutInputSchema`, `customLayoutSchema`) enforce all of this, and so does the API.
+- **The day grid's options.** A `days` pane also has a `grid`: `rows` (1 to 6), `columns` (1 to 7) and `start` (`today` or `week`). It is required on a `days` pane and refused on any other, and because the landscape and portrait arrangements each have their own `days` pane, each has its own grid (say 2×4 in landscape and 4×2 in portrait). `transposeArrangement` swaps a `days` pane's rows and columns. Layouts stored before PR 5.18 have no `days` pane and stay valid. `layoutDayGrids` lists the grids of both arrangements, which is what the display needs to know which events to fetch.
 - **What the server keeps of a layout.** The control service only needs `LayoutSummary` (`id`, `name`, `components`). `layoutShowsWeek` (week or week by part of day), `layoutShowsMonth`, `layoutShowsPhotos` and `layoutShowsCalendar` (any component but the photo) answer the questions the rest of the app asks, and `viewShowsWeek`, `viewShowsMonth` and `viewShowsPhotos` extend the built-in views' lists (`WEEK_VIEWS` and the photo views) to `custom` with such a layout.
 
-**The editor's rules** (`app/utils/layoutEditor.ts`, pure and always returning a valid input). Components are switched on and off with chips: a new one goes at the end of the last row of each arrangement if that row has room, otherwise in a new row, and the last component cannot be removed. In either arrangement a selected pane moves left, right, up or down (up and down put it at the end of the neighbouring row, making a new row at the top or bottom if there is none and the limit allows), a pane or a row is made wider or narrower, taller or shorter by one step, and a row moves up or down. "Start again from landscape" on the portrait side replaces the portrait arrangement with the transposed landscape one. The photo chip is disabled and marked "Not set up" when no photo source is configured, unless the layout already has a photo pane. There is no drag and drop: the editor works with buttons so that it is usable on a phone.
+**The editor's rules** (`app/utils/layoutEditor.ts`, pure and always returning a valid input). Components are switched on and off with chips (Month, Week, Day parts, Agenda, Photo and Days): a new one goes at the end of the last row of each arrangement if that row has room, otherwise in a new row, and the last component cannot be removed. In either arrangement a selected pane moves left, right, up or down (up and down put it at the end of the neighbouring row, making a new row at the top or bottom if there is none and the limit allows), a pane or a row is made wider or narrower, taller or shorter by one step, and a row moves up or down. "Start again from landscape" on the portrait side replaces the portrait arrangement with the transposed landscape one. The photo chip is disabled and marked "Not set up" when no photo source is configured, unless the layout already has a photo pane. With a day grid pane selected, Rows and Columns each have a minus and a plus (within 1 to 6 and 1 to 7) and Starts chooses Today or Start of week; they change the grid of the arrangement being edited, so the landscape and portrait grids are set separately. Transposing swaps the rows and columns. The preview draws the grid faintly inside the pane. There is no drag and drop: the editor works with buttons so that it is usable on a phone.
 
 **How it is drawn** (`CustomLayoutView.vue`, with the geometry in `app/utils/layouts.ts`, pure).
 
@@ -350,16 +351,30 @@ The `custom` view (PR 5.17) shows a **layout**: the existing view components arr
   | `week` | 1800×1000 | 1000×1200 |
   | `week_parts` | 1700×1000 | 1100×1400 |
   | `agenda` | 2400×1350 | 1300×2300 |
+  | `days` | none | none |
   | `photo` | none | none |
 
-  `paneFit(component, box)` gives the virtual stage the component is laid out on and a scale. A box at least as big as the minimum is drawn at its real size (scale 1). A smaller one is drawn on a stage of the box's shape that is just big enough (`scale = min(1, width / min width, height / min height)`, stage = box ÷ scale) and shrunk with a CSS transform, so nothing overflows. The photo has no minimum and draws to any box.
+  `paneFit(component, box)` gives the virtual stage the component is laid out on and a scale. A box at least as big as the minimum is drawn at its real size (scale 1). A smaller one is drawn on a stage of the box's shape that is just big enough (`scale = min(1, width / min width, height / min height)`, stage = box ÷ scale) and shrunk with a CSS transform, so nothing overflows. The photo has no minimum and draws to any box. The day grid has no fixed minimum either: what must not get too small is a tile, so its minimum is the grid's own, `columns` by `rows` tiles of at least 320×240 px (`MIN_DAY_TILE`), and `scale = min(1, width / (columns · 320), height / (rows · 240))`. A 2×4 grid therefore needs a pane of 1280×480 before it is shrunk. Its virtual stage has the box's orientation.
 - **Which layout orientation a component uses.** The `portrait` layout when the pane is taller than it is wide, otherwise `landscape`. The exception is the week, which uses its narrow seven-column layout whenever the pane is under 1800 px wide (`WEEK_WIDE_MIN_WIDTH`), as `week_photo`'s 1460 px pane does.
 - **`pane`.** Each view is given its virtual stage and `pane: true` in `ViewProps`, except when the layout is a single pane filling the stage, which is the full view and not a pane of one.
 - **Takeovers.** A special day's takeover (§6.3) applies to a custom layout when it shows any calendar component (`layoutShowsCalendar`), and its palette and greeting reach every calendar pane. The photo pane is never taken over: it covers its pane, as in `week_photo`.
 - **The photo pane.** It asks for the rendition of its own shape, as in `week_photo` (§4.6): `portrait` when the pane is taller than it is wide, otherwise `landscape`. It shows the `--tile` colour until the first photo has loaded, and has the compact pill without the next-event chip. Rotation and Next photo are the photo frame's (§5.1) and run while the layout has a photo pane.
+- **Events.** The display fetches events for the days of every day grid in the layout (`dayGridRanges`, `app/utils/eventRanges.ts`), from the first tile to the end of the last, on top of the ranges the month and the week need, and skips a range an existing fetch already covers.
 - **Offline badge.** The badge is top right, which the pill may also want. It moves to the left when the layout's photo pane touches the stage's top right corner and the pill is in the pane's top right corner (`photoPillAtTopRight`).
 - **No layout.** A `custom` view whose layout is not chosen, has been deleted or has not arrived yet shows a quiet centred "No layout" in the display face. The server never leaves a display like that for long: a deleted layout is replaced by the month view (§7.1).
 - **Offline.** The display keeps the library with the rest of its last-known state in `localStorage` (§4.2), so a reload while the server is down still draws the layout. A cache from before PR 5.17 has no layouts and loads with none.
+
+### 4.8a Day grid
+
+The day grid (`days`, PR 5.18) is a grid of day tiles, `rows` by `columns`, filled left to right and then top to bottom, one consecutive day in each. It is a layout component and not a view: it is not in `VIEWS`, the remote has no tile for it, and MQTT and Home Assistant know nothing of it. A layout with a single `days` pane is a full-screen day grid. It is drawn by `DayGridView.vue` from the output of `dayGridLayout` (`shared/day-grid-layout.ts`, pure), and its sizes are constants in `app/utils/dayGrid.ts`, so the number of lines a tile holds and what is drawn cannot drift apart.
+
+- **What a tile shows.** A head with the weekday, the date number, the month (on the first tile and on the 1st of every month), the day's forecast icon and high when there is one, and "N events". Under it the day's events as rounded cards, the title on the first line and the time on the second, with the people's badges on the right. All-day events come first, then timed events by start. A timed event that began on an earlier day shows `Until 11:30`, and one that takes the whole day is treated as all-day. A tile that is too short for its text clips it and never spills.
+- **Overflow.** A tile holds as many lines as its height allows (`dayGridCellItems`, at least one). When the day has more events than that, the last line gives way to "+N more", so the tile always says how many it is not showing. The tile's count is of all the day's events.
+- **Today and the past.** Today's tile is tinted and its date filled, as in the month. A timed event that is over is dimmed. With `start: 'week'` the days before today are under the month's veil.
+- **Where it starts.** `today` puts today in the first tile. `week` puts the first day of this week there, a Monday or a Sunday by the display's `week_start`, so a 3×7 grid is this week and the two after it.
+- **Weather, special days and takeovers.** The forecast is the one the other views use. A special day's tint and art are drawn on its tile as in the month (§6.3), and a takeover reaches the grid through the stage's palette like the other calendar panes (§4.8).
+- **Always today.** The grid is relative to the real today. It does not follow a pinned month or week, so a layout with a month pane and a day grid can show two different periods, and the grid is unaffected by the pin's expiry.
+- **Size.** A tile is drawn at least 320×240 px; a pane with more tiles than fit at that size is drawn on a bigger stage and scaled down (§4.8).
 
 ## 5. Photo frame mode
 
@@ -967,7 +982,7 @@ wall-display/
 ├── calendar-app/                # Nuxt 4 app (Vue UI + Nitro server)
 │   ├── app/                     # Vue side
 │   │   ├── pages/               # display.vue, remote.vue, settings/ (calendars, photos, special-days, layouts, displays)
-│   │   ├── components/          # views/ (agenda, month-soft, month-classic, week, photo, night, custom-layout), layouts/ (editor, preview, manager), widgets/
+│   │   ├── components/          # views/ (agenda, month-soft, month-classic, week, photo, night, custom-layout, day-grid), layouts/ (editor, preview, manager), widgets/
 │   │   ├── assets/              # tokens.css (Organic), themes and palettes
 │   │   └── composables/         # useDisplaySocket, useClock, …
 │   ├── server/                  # Nitro side
@@ -984,7 +999,7 @@ wall-display/
 │   │   ├── control/             # state.ts, commands.ts, policies.ts, schedule.ts
 │   │   ├── mqtt/                # client.ts, discovery.ts
 │   │   └── db/                  # Drizzle schema + migrations
-│   ├── shared/                  # types and pure logic used by client and server (month-layout.ts, special-days.ts, layouts.ts)
+│   ├── shared/                  # types and pure logic used by client and server (month-layout.ts, special-days.ts, layouts.ts, day-grid-layout.ts)
 │   ├── public/                  # icons/ (remote and display app icons), favicon, display-sw.js (service worker)
 │   ├── config.dev.yaml          # config for pnpm dev (fixture calendars, no secrets)
 │   ├── nuxt.config.ts

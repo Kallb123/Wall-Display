@@ -121,8 +121,8 @@ describe('takeoverInForce', () => {
 
 describe('isCalendarView', () => {
   it('is month, week, week by part of day and agenda', () => {
-    expect([...CALENDAR_VIEWS]).toEqual(['month', 'week', 'week_parts', 'agenda'])
-    expect(['month', 'week', 'week_parts', 'agenda', 'photo', 'night'].map(view => isCalendarView(view as never))).toEqual([true, true, true, true, false, false])
+    expect([...CALENDAR_VIEWS]).toEqual(['month', 'week', 'week_parts', 'week_photo', 'agenda'])
+    expect(['month', 'week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night'].map(view => isCalendarView(view as never))).toEqual([true, true, true, true, true, false, false])
   })
 })
 

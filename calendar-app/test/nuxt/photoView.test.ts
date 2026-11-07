@@ -536,3 +536,34 @@ describe('the pill', () => {
     expect(view.wrapper.find('[data-testid="photo-clock"]').text()).toBe('10:31')
   })
 })
+
+describe('as a pane of the week and photo view', () => {
+  const pane = (overrides: Partial<ViewProps> = {}): Partial<ViewProps> => ({ view: 'week_photo', stage: { width: 1440, height: 1000, orientation: 'landscape' }, pane: true, ...overrides })
+
+  it('asks for the rendition the pane\'s shape wants', async () => {
+    answers = [gives(A), gives(B)]
+    const view = await open(pane())
+    expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'landscape' }])
+
+    await view.update(pane({ stage: { width: 1100, height: 1440, orientation: 'portrait' } }))
+    expect(requests.map(request => request.query).at(-1)).toEqual({ display: 'hallway', orientation: 'portrait' })
+  })
+
+  it('has the compact pill, and leaves the next event to the week', async () => {
+    answers = [gives(A)]
+    const view = await open(pane({ events: [event()], weather }))
+
+    expect(view.wrapper.find('[data-testid="photo-pill"]').classes()).toContain('compact')
+    expect(view.wrapper.find('[data-testid="photo-clock"]').text()).toBe('09:41')
+    expect(view.wrapper.find('[data-testid="photo-weather"]').exists()).toBe(true)
+    expect(view.wrapper.find('[data-testid="photo-next-event"]').exists()).toBe(false)
+  })
+
+  it('has the ordinary pill when it is not a pane', async () => {
+    answers = [gives(A)]
+    const view = await open({ events: [event()] })
+
+    expect(view.wrapper.find('[data-testid="photo-pill"]').classes()).not.toContain('compact')
+    expect(view.wrapper.find('[data-testid="photo-next-event"]').exists()).toBe(true)
+  })
+})

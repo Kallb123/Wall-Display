@@ -30,6 +30,12 @@ import type { ViewProps } from '../../utils/views'
 // corners (`photoCorner`, PR 5.3) so no corner is lit for ever. It takes a top
 // corner while the overlay banner, at the bottom centre, is showing, so the two
 // never meet.
+//
+// As a pane of the week and photo view (`pane`, PR 5.14, mock 4k) it fills the
+// box it is given, which is a part of the stage, and the pill is the compact
+// one from the mock, 48 px in from the pane's corner. The next event is left
+// off, as the week beside it already shows it. Fetching is the same: the pane's
+// own shape, not the stage's, decides which rendition is asked for.
 const props = defineProps<ViewProps>()
 
 /** The length of the crossfade. */
@@ -163,7 +169,7 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
 </script>
 
 <template>
-  <section class="view" data-testid="photo-view">
+  <section class="view" :class="{ pane }" data-testid="photo-view">
     <img
       v-for="(url, index) in layers"
       :key="index"
@@ -176,7 +182,7 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
     >
 
     <div v-if="top === null" class="empty" data-testid="photo-empty">
-      <AppIcon :icon="ImageOff" :size="140" />
+      <AppIcon :icon="ImageOff" :size="pane ? 96 : 140" />
       <p class="calm">
         No photos yet
       </p>
@@ -184,16 +190,16 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
 
     <!-- Keyed by the corner, so a move fades the pill out where it was and in where it goes. -->
     <Transition name="pill-move" mode="out-in">
-      <div :key="corner" class="pill" :class="`corner-${corner}`" :data-corner="corner" data-testid="photo-pill">
+      <div :key="corner" class="pill" :class="[`corner-${corner}`, { compact: pane }]" :data-corner="corner" data-testid="photo-pill">
         <div class="line">
           <span class="clock" data-testid="photo-clock">{{ time }}</span>
           <span v-if="weatherNow" class="weather" :title="weatherNow.label ?? undefined" data-testid="photo-weather">
-            <AppIcon v-if="weatherNow.icon" :icon="weatherNow.icon" :size="64" />
+            <AppIcon v-if="weatherNow.icon" :icon="weatherNow.icon" :size="pane ? 48 : 64" />
             <span v-if="weatherNow.temperature">{{ weatherNow.temperature }}</span>
           </span>
         </div>
 
-        <div v-if="upcoming" class="next" data-testid="photo-next-event">
+        <div v-if="upcoming && !pane" class="next" data-testid="photo-next-event">
           <span class="marker" :style="{ background: upcoming.event.people[0]?.colour ?? 'rgba(255, 255, 255, 0.6)' }" />
           <span class="when" data-testid="photo-next-time">{{ upcoming.time }}</span>
           <span class="what" data-testid="photo-next-title">{{ upcoming.event.display_title }}</span>
@@ -210,6 +216,8 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
   overflow: hidden;
   /* Its own stacking context, so the layers' and the pill's z-indexes stay inside it and the overlay banner and the dimmer, which come after it in the stage, still paint over all of it. */
   isolation: isolate;
+  /* So the pane's sizes could be asked of the box it is in rather than of the stage. */
+  container-type: size;
 }
 
 /* Every layer fills the stage. The server already made the photo the stage's shape, so `cover` crops nothing worth having. */
@@ -250,6 +258,15 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
   margin: 0;
   font-family: var(--font-display);
   font-size: 96px;
+}
+
+/* Smaller in a pane of the hybrid view (mock 4k): less to give up of a photo that is only 1000 px high or 1100 px wide. */
+.pane .empty {
+  gap: 20px;
+}
+
+.pane .calm {
+  font-size: 64px;
 }
 
 /* Dark glass in white, not the theme's colours: it has to read on a snowfield as well as a night sky. It sits in a corner, never the bottom centre where the overlay banner is or the top centre where the preview badge is. */
@@ -297,6 +314,46 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
   display: flex;
   align-items: center;
   gap: 48px;
+}
+
+/* The compact pill of the hybrid view, from the mock: one line, 48 px in from the pane's corner. */
+.pill.compact {
+  max-width: calc(100% - 96px);
+  padding: 22px 40px 22px 34px;
+  border-radius: 32px;
+}
+
+.pill.compact.corner-top-left {
+  top: 48px;
+  left: 48px;
+}
+
+.pill.compact.corner-top-right {
+  top: 48px;
+  right: 48px;
+}
+
+.pill.compact.corner-bottom-right {
+  right: 48px;
+  bottom: 48px;
+}
+
+.pill.compact.corner-bottom-left {
+  bottom: 48px;
+  left: 48px;
+}
+
+.compact .line {
+  gap: 36px;
+}
+
+.compact .clock {
+  font-size: 96px;
+}
+
+.compact .weather {
+  gap: 12px;
+  font-size: 54px;
 }
 
 .clock {

@@ -577,6 +577,17 @@ describe('burn-in shifting', () => {
     expect(side()).toBe('left')
   })
 
+  it('gives the offline badge the other side for the week and photo view only where its photo pane has the stage\'s top right', async () => {
+    const wall = await openWall({ state: state({ view: 'week_photo' }) })
+    const side = () => wall.wrapper.findComponent({ name: 'OfflineBadge' }).props('side')
+    expect(wall.wrapper.find('[data-testid="week-photo-view"]').classes()).toContain('landscape')
+
+    // Landscape: the photo is on the left, so top right belongs to the week.
+    await wall.tick(15 * 60_000)
+    expect(wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')).toBe('top-right')
+    expect(side()).toBe('right')
+  })
+
   it('does not move the offline badge for a view that has no pill', async () => {
     const wall = await openWall()
     await wall.jump(15 * 60_000)
@@ -764,6 +775,21 @@ describe('orientation', () => {
 
     expect(stageSize(wall)).toEqual([1440, 2560])
     expect(wall.stage().attributes('data-orientation')).toBe('portrait')
+  })
+
+  it('is the 1440×2560 stage for the week and photo view in a portrait window, with the photo on top', async () => {
+    resizeWindow(720, 1280)
+    const wall = await openWall({ state: state({ view: 'week_photo' }) })
+
+    expect(wall.stage().attributes('data-orientation')).toBe('portrait')
+    expect(wall.wrapper.find('[data-testid="week-photo-view"]').classes()).toContain('portrait')
+    const side = () => wall.wrapper.findComponent({ name: 'OfflineBadge' }).props('side')
+    expect(side()).toBe('right')
+
+    // The photo pane has the stage's top right here, so the badge gives way.
+    await wall.tick(15 * 60_000)
+    expect(wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')).toBe('top-right')
+    expect(side()).toBe('left')
   })
 
   it('letterboxes a view with no portrait layout on the landscape stage, in a portrait window', async () => {

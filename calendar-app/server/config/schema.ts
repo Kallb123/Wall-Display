@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
+import { layoutIdSchema, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -138,9 +138,11 @@ const days = z.union([
   .transform(list => WEEKDAYS.filter(day => list.includes(day)))
 
 // One window of a built-in schedule (PR 5.4): the wall shows `view` from `from` until `to`, in the config's time zone,
-// on the days listed. A window with `from` after `to` runs past midnight, and `days` names the day it starts.
+// on the days listed (the custom view needs the `layout` it shows). A window with `from` after `to` runs past midnight, and `days` names the day it starts.
 const scheduleRule = z.strictObject({
   view: z.enum(VIEWS, { error: `must be one of ${VIEWS.join(', ')}` }),
+  /** The id of the custom layout (PR 5.17) when `view` is custom. The layouts live in the database, so whether it exists is checked when the window starts. */
+  layout: layoutIdSchema.optional(),
   from: time,
   to: time,
   days: days.default([...WEEKDAYS]),
@@ -482,7 +484,7 @@ type RawConfig = {
   people: { id: string, name: string, aliases: string[] }[]
   groups: { id: string, name: string, aliases: string[], people: string[] }[]
   calendars: { id: string, person: string, rules: { people: string[] }[], source: { type: string } }[]
-  displays: { id: string, night_text: string, schedules: { id: string, rules: { view: string }[] }[] }[]
+  displays: { id: string, night_text: string, schedules: { id: string, rules: { view: string, layout?: string | undefined }[] }[] }[]
   homeassistant?: unknown
   photos?: unknown
   weather?: unknown
@@ -572,6 +574,9 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
     unique(display.schedules, ['displays', index, 'schedules'])
     display.schedules.forEach((schedule, scheduleIndex) => {
       schedule.rules.forEach((rule, ruleIndex) => {
+        const ruleIssue = (field: string, message: string): void => issue(['displays', index, 'schedules', scheduleIndex, 'rules', ruleIndex, field], message)
+        if (rule.view === 'custom' && rule.layout === undefined) ruleIssue('layout', 'is missing: a custom view needs the id of the layout it shows')
+        if (rule.view !== 'custom' && rule.layout !== undefined) ruleIssue('layout', `is set, but the view is ${rule.view}: only a custom view shows a layout`)
         if ((rule.view === 'photo' || rule.view === 'week_photo') && !config.photos) {
           const why = rule.view === 'photo' ? 'the photo frame would have nothing to show' : "the week and photo view's photo pane would have nothing to show"
           issue(['displays', index, 'schedules', scheduleIndex, 'rules', ruleIndex, 'view'], `is ${rule.view}, but there is no "photos" block (${why})`)

@@ -4,6 +4,7 @@ import { createEventBus } from '../../../server/events/bus'
 import { startPhotoRotation } from '../../../server/photos/rotation'
 import type { PhotoRotation } from '../../../server/photos/rotation'
 import type { View } from '../../../shared/display'
+import type { LayoutSummary } from '../../../shared/layouts'
 
 // The rotation timers with a real bus and fake timers. The views are a table
 // the test changes, announced with `state.updated` as the control service does.
@@ -21,7 +22,7 @@ function setup(views: Record<string, View> = { hallway: 'month', kitchen: 'month
     displayIds: Object.keys(views),
     getState: (id) => {
       if (!(id in views)) throw new Error(`Unknown display "${id}"`)
-      return { view: views[id]! }
+      return { view: views[id]!, layout: null }
     },
     intervalSeconds,
     log,
@@ -278,5 +279,103 @@ describe('setIntervalSeconds', () => {
     rotation.setIntervalSeconds(10)
 
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+// PR 5.17: a custom layout with a photo pane keeps the photos moving.
+describe('the photo rotation with custom layouts', () => {
+  const withPhoto: LayoutSummary = { id: 'board', name: 'Board', components: ['month', 'photo'] }
+  const withoutPhoto: LayoutSummary = { id: 'plain', name: 'Plain', components: ['week', 'agenda'] }
+
+  function setupLayouts(library: LayoutSummary[], state: { view: View, layout: string | null }) {
+    const bus = createEventBus()
+    const emitted: string[] = []
+    bus.on('photo.next', ({ displayId }) => emitted.push(displayId))
+    const current = { ...state }
+    const rotation = startPhotoRotation({
+      bus,
+      displayIds: ['hallway'],
+      getState: () => ({ ...current }),
+      layouts: () => library,
+      intervalSeconds: INTERVAL,
+      log: { warn: vi.fn(), error: vi.fn() },
+    })
+    running.push(rotation)
+    const show = (view: View, layout: string | null) => {
+      Object.assign(current, { view, layout })
+      bus.emit('state.updated', { displayId: 'hallway', state: { ...defaultDisplayState(), view, layout } })
+    }
+    /** The library changes as the layouts service announces it. */
+    const replace = (next: LayoutSummary[]) => {
+      library.splice(0, library.length, ...next)
+      bus.emit('layouts.updated', { layouts: [] })
+    }
+    return { emitted, rotation, show, replace }
+  }
+
+  it('runs while a custom layout with a photo pane is up', () => {
+    const { emitted, rotation, show } = setupLayouts([withPhoto, withoutPhoto], { view: 'month', layout: null })
+
+    show('custom', 'board')
+    expect(rotation.isRunning('hallway')).toBe(true)
+    vi.advanceTimersByTime(INTERVAL * SECOND)
+    expect(emitted).toEqual(['hallway'])
+  })
+
+  it('does not run for a custom layout without a photo pane, or one that is not in the library', () => {
+    const { rotation, show } = setupLayouts([withPhoto, withoutPhoto], { view: 'month', layout: null })
+
+    show('custom', 'plain')
+    expect(rotation.isRunning('hallway')).toBe(false)
+    show('custom', 'deleted')
+    expect(rotation.isRunning('hallway')).toBe(false)
+  })
+
+  it('starts at once when the display is already on such a layout', () => {
+    const { rotation } = setupLayouts([withPhoto], { view: 'custom', layout: 'board' })
+
+    expect(rotation.isRunning('hallway')).toBe(true)
+  })
+
+  it('stops when the display moves to a layout with no photo pane, and keeps going between two that have one', () => {
+    const second: LayoutSummary = { id: 'slides', name: 'Slides', components: ['photo'] }
+    const { rotation, show } = setupLayouts([withPhoto, withoutPhoto, second], { view: 'month', layout: null })
+
+    show('custom', 'board')
+    vi.advanceTimersByTime(30 * SECOND)
+    show('custom', 'slides')
+    expect(vi.getTimerCount()).toBe(1)
+    show('custom', 'plain')
+    expect(rotation.isRunning('hallway')).toBe(false)
+  })
+
+  it('looks again when a layout gains a photo pane, and when it loses it', () => {
+    const library = [{ ...withoutPhoto }]
+    const { rotation, replace } = setupLayouts(library, { view: 'custom', layout: 'plain' })
+    expect(rotation.isRunning('hallway')).toBe(false)
+
+    replace([{ ...withoutPhoto, components: ['week', 'photo'] }])
+    expect(rotation.isRunning('hallway')).toBe(true)
+
+    replace([{ ...withoutPhoto }])
+    expect(rotation.isRunning('hallway')).toBe(false)
+  })
+
+  it('does not restart a running timer when the layouts change but the photo pane stays', () => {
+    const { emitted, replace } = setupLayouts([withPhoto], { view: 'custom', layout: 'board' })
+    vi.advanceTimersByTime(40 * SECOND)
+
+    replace([{ ...withPhoto, name: 'Renamed' }])
+    vi.advanceTimersByTime(20 * SECOND)
+
+    expect(emitted).toEqual(['hallway'])
+  })
+
+  it('stops when the layout on show is deleted', () => {
+    const { rotation, replace } = setupLayouts([withPhoto], { view: 'custom', layout: 'board' })
+
+    replace([])
+
+    expect(rotation.isRunning('hallway')).toBe(false)
   })
 })

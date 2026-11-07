@@ -374,7 +374,9 @@ describe('the bridge and a broker', () => {
 })
 
 describe('Home Assistant discovery', () => {
-  const configs = discoveryMessages({ prefix: 'homeassistant', display: { id: 'hallway', name: 'Hallway' }, displayCount: 1 })
+  // With no custom layouts the Layout select's config goes out empty, to remove it. A broker keeps no empty retained message, so a late subscriber sees every config but that one; a live subscriber sees it.
+  const published = discoveryMessages({ prefix: 'homeassistant', display: { id: 'hallway', name: 'Hallway' }, displayCount: 1 })
+  const configs = published.filter(message => message.payload !== '')
 
   it('keeps the configs on the broker, and publishes them again when Home Assistant says it is online', async () => {
     const broker = await startBroker()
@@ -392,9 +394,9 @@ describe('Home Assistant discovery', () => {
     // Home Assistant restarting while the app runs: its birth message asks for them again.
     await ha.client.publishAsync('homeassistant/status', 'online', { qos: 1 })
 
-    await until('the configs again', () => ha.received.filter(message => message.topic !== 'homeassistant/status').length >= configs.length)
+    await until('the configs again', () => ha.received.filter(message => message.topic !== 'homeassistant/status').length >= published.length)
     const again = ha.received.filter(message => message.topic !== 'homeassistant/status')
-    expect(again.map(({ topic, payload }) => ({ topic, payload }))).toEqual(configs)
+    expect(again.map(({ topic, payload }) => ({ topic, payload }))).toEqual(published)
   })
 })
 

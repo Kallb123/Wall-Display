@@ -1,4 +1,5 @@
 import type { DayParts, MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
+import type { CustomLayout } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -21,7 +22,7 @@ export const CALENDAR_VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'age
 export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
 /** The views with a portrait layout: all of them since PR 5.13 and the hybrid since PR 5.14 (the week by part of day has the week's stacked head and taller rows, not a layout of its own). A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
-export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week', 'week_parts', 'week_photo']
+export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week', 'week_parts', 'week_photo', 'custom']
 
 export const hasPortraitLayout = (view: View): boolean => PORTRAIT_VIEWS.includes(view)
 
@@ -72,6 +73,8 @@ export interface ViewProps {
   stage: Stage
   /** Drawn as a pane of a hybrid view (PR 5.14): the photo frame is a compact pill with no next event, the week has the short title. */
   pane?: boolean
+  /** The custom view only: the layout to draw, or null when there is none (not chosen, deleted, or not heard yet). */
+  layout?: CustomLayout | null
   /** The events fetched for the shown month and the next few days, sorted by start. */
   events: CalendarEvent[]
   /** The current moment, ticking. Views work out "today" from it in `timezone`. */

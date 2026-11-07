@@ -3,6 +3,7 @@ import { displayStateSchema } from '../../../shared/display'
 import type { Command, DisplayState, View } from '../../../shared/display'
 import { defaultDisplayState, expireState, nextExpiry, reduceCommand } from '../../../server/control/commands'
 import type { ControlCommand, ControlContext } from '../../../server/control/commands'
+import type { LayoutSummary } from '../../../shared/layouts'
 
 // The rules for what each command does and what time takes away, with a clock
 // set by the test. Europe/London, while the process itself runs in Auckland.
@@ -13,8 +14,8 @@ const RETURN_MINUTES = 15
 /** Wed 28 Oct 2026, 12:00 in London (GMT). */
 const NOW = new Date('2026-10-28T12:00:00Z')
 
-function ctx(now: Date | string = NOW, monthReturnMinutes = RETURN_MINUTES, weekStart: ControlContext['weekStart'] = 'monday', photosConfigured = true): ControlContext {
-  return { now: new Date(now), timeZone: 'Europe/London', monthReturnMinutes, weekStart, photosConfigured }
+function ctx(now: Date | string = NOW, monthReturnMinutes = RETURN_MINUTES, weekStart: ControlContext['weekStart'] = 'monday', photosConfigured = true, layouts: LayoutSummary[] = []): ControlContext {
+  return { now: new Date(now), timeZone: 'Europe/London', monthReturnMinutes, weekStart, photosConfigured, layouts }
 }
 
 function state(overrides: Partial<DisplayState> = {}): DisplayState {
@@ -768,5 +769,238 @@ describe('set_schedule', () => {
     const before = state()
 
     expect(set(before, 'alpha', true)).toEqual(before)
+  })
+})
+
+// PR 5.17: the custom view and the layouts it shows.
+describe('custom layouts', () => {
+  const kitchen: LayoutSummary = { id: 'kitchen', name: 'Kitchen', components: ['week', 'agenda'] }
+  const board: LayoutSummary = { id: 'board', name: 'Board', components: ['month', 'photo'] }
+  const slides: LayoutSummary = { id: 'slides', name: 'Slides', components: ['photo'] }
+  // By name, as the layouts service lists them: Board, Kitchen, Slides.
+  const layouts = [board, kitchen, slides]
+  const withLayouts = (list: LayoutSummary[] = layouts, photos = true) => ctx(NOW, RETURN_MINUTES, 'monday', photos, list)
+  const run = (from: DisplayState, command: ControlCommand, context = withLayouts()) => reduceCommand(from, command, context)
+
+  describe('set_layout', () => {
+    it('shows the layout in the custom view', () => {
+      expect(run(state(), { type: 'set_layout', layout: 'kitchen' })).toMatchObject({ view: 'custom', layout: 'kitchen' })
+    })
+
+    it('changes nothing for a layout that is not in the library', () => {
+      const before = state({ view: 'agenda' })
+
+      expect(run(before, { type: 'set_layout', layout: 'garage' })).toMatchObject({ view: 'agenda', layout: null })
+    })
+
+    it('keeps a pinned month when the layout shows a month, and drops it when it does not', () => {
+      const pin = pinned('2026-12')
+
+      expect(run(pin, { type: 'set_layout', layout: 'board' })).toMatchObject({ view: 'custom', month: '2026-12' })
+      expect(run(pin, { type: 'set_layout', layout: 'kitchen' })).toMatchObject({ view: 'custom', month: null, month_set_at: null })
+    })
+  })
+
+  describe('set_view custom', () => {
+    it('shows the layout the display last had', () => {
+      const before = state({ view: 'agenda', layout: 'kitchen' })
+
+      expect(run(before, { type: 'set_view', view: 'custom' })).toMatchObject({ view: 'custom', layout: 'kitchen' })
+    })
+
+    it('shows the first layout by name when there is no last one, or it has gone', () => {
+      expect(run(state(), { type: 'set_view', view: 'custom' })).toMatchObject({ view: 'custom', layout: 'board' })
+      expect(run(state({ layout: 'deleted' }), { type: 'set_view', view: 'custom' })).toMatchObject({ view: 'custom', layout: 'board' })
+    })
+
+    it('changes nothing when there are no layouts', () => {
+      const before = state({ view: 'agenda' })
+
+      expect(run(before, { type: 'set_view', view: 'custom' }, withLayouts([]))).toMatchObject({ view: 'agenda', layout: null })
+    })
+
+    it('leaves the layout in place when the view changes away, so the custom view comes back to it', () => {
+      const away = run(state({ view: 'custom', layout: 'kitchen' }), { type: 'set_view', view: 'agenda' })
+
+      expect(away).toMatchObject({ view: 'agenda', layout: 'kitchen' })
+      expect(run(away, { type: 'set_view', view: 'custom' })).toMatchObject({ view: 'custom', layout: 'kitchen' })
+    })
+
+    it('comes back to the layout from toggle_photo', () => {
+      const photo = run(state({ view: 'custom', layout: 'kitchen' }), { type: 'toggle_photo' })
+
+      expect(photo).toMatchObject({ view: 'photo', last_calendar_view: 'custom', layout: 'kitchen' })
+      expect(run(photo, { type: 'toggle_photo' })).toMatchObject({ view: 'custom', layout: 'kitchen' })
+    })
+  })
+
+  describe('next_view', () => {
+    const next = (from: DisplayState, context = withLayouts()) => run(from, { type: 'next_view' }, context)
+
+    it('steps from the last built-in view to the first layout by name', () => {
+      expect(next(state({ view: 'week_photo' }))).toMatchObject({ view: 'custom', layout: 'board' })
+    })
+
+    it('steps through the layouts by name, then wraps to the month', () => {
+      let current = state({ view: 'custom', layout: 'board' })
+      const seen: string[] = []
+      for (let i = 0; i < 4; i++) {
+        current = next(current)
+        seen.push(current.view === 'custom' ? `custom:${current.layout}` : current.view)
+      }
+
+      expect(seen).toEqual(['custom:kitchen', 'custom:slides', 'month', 'agenda'])
+    })
+
+    it('skips the layouts with a photo pane when no photo source is set up', () => {
+      const noPhotos = withLayouts(layouts, false)
+
+      expect(next(state({ view: 'week_parts' }), noPhotos)).toMatchObject({ view: 'custom', layout: 'kitchen' })
+      expect(next(state({ view: 'custom', layout: 'kitchen' }), noPhotos)).toMatchObject({ view: 'month' })
+    })
+
+    it('goes round the built-in views as before when there are no layouts', () => {
+      const none = withLayouts([])
+
+      expect(next(state({ view: 'week_photo' }), none).view).toBe('month')
+      expect(next(state({ view: 'month' }), none).view).toBe('agenda')
+    })
+
+    it('starts from the first view when the layout on show is no longer there', () => {
+      expect(next(state({ view: 'custom', layout: 'deleted' })).view).toBe('month')
+    })
+
+    it('keeps the last layout while on a built-in view', () => {
+      expect(next(state({ view: 'month', layout: 'kitchen' }))).toMatchObject({ view: 'agenda', layout: 'kitchen' })
+    })
+  })
+
+  describe('set_month and set_week', () => {
+    it('keep a custom view that shows a month, and switch to the month view when it does not', () => {
+      const month = { type: 'set_month', month: '2026-12' } as const
+
+      expect(run(state({ view: 'custom', layout: 'board' }), month)).toMatchObject({ view: 'custom', layout: 'board', month: '2026-12' })
+      expect(run(state({ view: 'custom', layout: 'kitchen' }), month)).toMatchObject({ view: 'month', month: '2026-12' })
+    })
+
+    it('keep a custom view that shows a week, and switch to the week view when it does not', () => {
+      const week = { type: 'set_week', week: '2026-12-07' } as const
+
+      expect(run(state({ view: 'custom', layout: 'kitchen' }), week)).toMatchObject({ view: 'custom', layout: 'kitchen', week: '2026-12-07' })
+      expect(run(state({ view: 'custom', layout: 'board' }), week)).toMatchObject({ view: 'week', week: '2026-12-07' })
+    })
+
+    it('treat a layout with the week by part of day as showing a week', () => {
+      const parts: LayoutSummary = { id: 'parts', name: 'Parts', components: ['week_parts'] }
+
+      expect(run(state({ view: 'custom', layout: 'parts' }), { type: 'set_week', week: '2026-12-07' }, withLayouts([parts]))).toMatchObject({ view: 'custom' })
+    })
+  })
+
+  describe('expireState', () => {
+    it('keeps a pinned month while a custom layout with a month is up, and drops it for one without', () => {
+      expect(expireState(pinned('2026-12', NOW, { view: 'custom', layout: 'board' }), withLayouts())).toMatchObject({ month: '2026-12' })
+      expect(expireState(pinned('2026-12', NOW, { view: 'custom', layout: 'kitchen' }), withLayouts())).toMatchObject({ month: null })
+    })
+
+    it('keeps a pinned week while a custom layout with a week is up, and drops it for one without', () => {
+      const week = (layout: string) => state({ view: 'custom', layout, week: '2026-12-07', week_set_at: NOW.toISOString() })
+
+      expect(expireState(week('kitchen'), withLayouts())).toMatchObject({ week: '2026-12-07' })
+      expect(expireState(week('board'), withLayouts())).toMatchObject({ week: null })
+    })
+
+    it('still returns a pinned month after the usual time on a custom layout', () => {
+      const later = ctx(new Date(NOW.getTime() + (RETURN_MINUTES + 1) * MINUTE), RETURN_MINUTES, 'monday', true, layouts)
+
+      expect(expireState(pinned('2026-12', NOW, { view: 'custom', layout: 'board' }), later)).toMatchObject({ month: null })
+    })
+
+    it('falls back to the month view when the layout on show is deleted', () => {
+      const shown = state({ view: 'custom', layout: 'kitchen' })
+
+      expect(expireState(shown, withLayouts([board]))).toMatchObject({ view: 'month', layout: null })
+    })
+
+    it('forgets a deleted layout that is not on show, and leaves the view alone', () => {
+      expect(expireState(state({ view: 'agenda', layout: 'kitchen' }), withLayouts([board]))).toMatchObject({ view: 'agenda', layout: null })
+    })
+
+    it('treats the custom view with no layout like one whose layout has gone', () => {
+      expect(expireState(state({ view: 'custom' }), withLayouts())).toMatchObject({ view: 'month', layout: null })
+    })
+
+    it('catches a return to a dead custom view on the same command', () => {
+      const photo = state({ view: 'photo', last_calendar_view: 'custom', layout: 'deleted' })
+
+      expect(run(photo, { type: 'toggle_photo' })).toMatchObject({ view: 'month', layout: null })
+    })
+
+    it('returns the same object when nothing changed', () => {
+      const fine = state({ view: 'custom', layout: 'kitchen' })
+
+      expect(expireState(fine, withLayouts())).toBe(fine)
+    })
+
+    it('drops the schedule window along with a deleted layout', () => {
+      const shown = state({ view: 'custom', layout: 'kitchen', schedule: { schedule: 'evenings', rule: 0, view: 'custom', return_view: 'agenda', layout: 'kitchen', return_layout: null } })
+
+      expect(expireState(shown, withLayouts([board]))).toMatchObject({ view: 'month', schedule: null })
+    })
+  })
+
+  describe('schedule windows', () => {
+    const start = (view: View, layout?: string): ControlCommand => ({ type: 'schedule_start', schedule: 'evenings', rule: 0, view, ...(layout !== undefined && { layout }) })
+    const end: ControlCommand = { type: 'schedule_end', schedule: 'evenings', rule: 0 }
+    const play = (from: DisplayState, ...commands: ControlCommand[]) => commands.reduce((current, command) => run(current, command), from)
+
+    it('puts the layout up and remembers the view and layout from before', () => {
+      expect(play(state({ view: 'agenda', layout: 'slides' }), start('custom', 'kitchen'))).toMatchObject({
+        view: 'custom',
+        layout: 'kitchen',
+        schedule: { schedule: 'evenings', rule: 0, view: 'custom', return_view: 'agenda', layout: 'kitchen', return_layout: 'slides' },
+      })
+    })
+
+    it('goes back to the view and the layout from before when it ends', () => {
+      expect(play(state({ view: 'custom', layout: 'board' }), start('custom', 'kitchen'), end)).toMatchObject({ view: 'custom', layout: 'board', schedule: null })
+      expect(play(state({ view: 'agenda' }), start('custom', 'kitchen'), end)).toMatchObject({ view: 'agenda', layout: null, schedule: null })
+    })
+
+    it('leaves a wall already on that view and layout alone, but not one on another layout', () => {
+      const same = state({ view: 'custom', layout: 'kitchen' })
+
+      expect(play(same, start('custom', 'kitchen'))).toMatchObject({ view: 'custom', layout: 'kitchen', schedule: null })
+      expect(play(same, start('custom', 'board'))).toMatchObject({ layout: 'board', schedule: { return_view: 'custom', return_layout: 'kitchen' } })
+    })
+
+    it('starts nothing for a layout that is not in the library, or a custom rule with none', () => {
+      const before = state({ view: 'agenda' })
+
+      expect(play(before, start('custom', 'deleted'))).toMatchObject({ view: 'agenda', layout: null, schedule: null })
+      expect(play(before, start('custom'))).toMatchObject({ view: 'agenda', layout: null, schedule: null })
+    })
+
+    it('keeps the first return view and layout when one window follows another', () => {
+      const later: ControlCommand = { type: 'schedule_start', schedule: 'later', rule: 1, view: 'custom', layout: 'board' }
+      const chained = play(state({ view: 'agenda' }), start('custom', 'kitchen'), later)
+
+      expect(chained).toMatchObject({ view: 'custom', layout: 'board', schedule: { schedule: 'later', return_view: 'agenda', return_layout: null } })
+    })
+
+    it('lets another layout chosen by hand release the window, so its end does nothing', () => {
+      const manual = play(state({ view: 'agenda' }), start('custom', 'kitchen'), { type: 'set_layout', layout: 'board' })
+
+      expect(manual.schedule).toBeNull()
+      expect(play(manual, end)).toMatchObject({ view: 'custom', layout: 'board' })
+    })
+
+    it('keeps the window when the same layout is chosen again', () => {
+      expect(play(state({ view: 'agenda' }), start('custom', 'kitchen'), { type: 'set_layout', layout: 'kitchen' }).schedule).not.toBeNull()
+    })
+
+    it('records no layout for a window on a built-in view', () => {
+      expect(play(state({ view: 'month', layout: 'slides' }), start('agenda'))).toMatchObject({ layout: 'slides', schedule: { layout: null, return_layout: 'slides' } })
+    })
   })
 })

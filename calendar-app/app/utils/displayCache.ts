@@ -1,5 +1,7 @@
 import { displayStateSchema, nextAlarmSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm } from '../../shared/display'
+import { customLayoutSchema } from '../../shared/layouts'
+import type { CustomLayout } from '../../shared/layouts'
 import type { CalendarEvent } from '../../shared/types/events'
 import { specialDaysResolutionSchema } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
@@ -22,6 +24,8 @@ export interface DisplayCache {
   special_days: SpecialDaysResolution | null
   /** The last next alarm the server sent, or null for none. Optional: an entry from before PR 5.2 has none, and loads as null. */
   alarm?: NextAlarm
+  /** The custom layouts the server last sent. An entry from before PR 5.17 has none, and loads as an empty list. */
+  layouts?: CustomLayout[]
   /** When it was saved, as an ISO 8601 instant. */
   saved_at: string
 }
@@ -46,6 +50,13 @@ export function loadCache(storage: Storage | null | undefined, displayId: string
     const weather = weatherSnapshotSchema.safeParse(data.weather)
     const specialDays = specialDaysResolutionSchema.safeParse(data.special_days)
     const alarm = nextAlarmSchema.safeParse(data.alarm)
+    // Layouts one by one, so one that no longer parses costs only itself.
+    const layouts = Array.isArray(data.layouts)
+      ? data.layouts.flatMap((layout) => {
+          const parsed = customLayoutSchema.safeParse(layout)
+          return parsed.success ? [parsed.data] : []
+        })
+      : []
     return {
       settings: data.settings as unknown as DisplaySettings,
       state: state.data,
@@ -53,6 +64,7 @@ export function loadCache(storage: Storage | null | undefined, displayId: string
       weather: weather.success ? weather.data : null,
       special_days: specialDays.success ? specialDays.data : null,
       alarm: alarm.success ? alarm.data : null,
+      layouts,
       saved_at: data.saved_at,
     }
   } catch {

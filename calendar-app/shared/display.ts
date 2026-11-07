@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { addDays, dayOfWeek, todayIn } from './dates'
+import type { CustomLayout } from './layouts'
 import type { SpecialDaysResolution } from './special-days'
 import type { WeatherSnapshot } from './weather'
 
@@ -9,7 +10,7 @@ import type { WeatherSnapshot } from './weather'
 // the config. Every state field has a default, so a stored document that
 // predates a newer field still parses.
 
-export const VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night'] as const
+export const VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night', 'custom'] as const
 export type View = (typeof VIEWS)[number]
 
 /** The calendar views `next_view` steps through. From any other view it goes to the first. */
@@ -18,8 +19,9 @@ export const NEXT_VIEW_ORDER = ['month', 'agenda', 'week', 'week_parts', 'week_p
 /**
  * The views `toggle_photo` can go back to: every view but the photo frame.
  * Night is one too: it is whatever was on the wall before the photos came on.
+ * So is a custom layout (PR 5.17), which comes back with the same layout.
  */
-export const RETURN_VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'agenda', 'night'] as const satisfies readonly View[]
+export const RETURN_VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'agenda', 'night', 'custom'] as const satisfies readonly View[]
 
 /**
  * The views that show one week and follow a pinned week (`state.week`). Later
@@ -91,6 +93,14 @@ export const MAX_PREVIEW_SECONDS = 600
 export const SCHEDULE_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 export const scheduleIdSchema = z.string().regex(SCHEDULE_ID_PATTERN, 'must be lowercase letters, digits and hyphens, starting with a letter or digit')
 
+/**
+ * A custom layout's id (PR 5.17): a slug of its name, shaped like a schedule's
+ * id. It lives here, beside `scheduleIdSchema`, because the state and the
+ * schedule window name layouts and shared/layouts.ts imports this file.
+ */
+export const LAYOUT_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
+export const layoutIdSchema = z.string().max(64, 'must be at most 64 characters').regex(LAYOUT_ID_PATTERN, 'must be lowercase letters, digits and hyphens, starting with a letter or digit')
+
 /** A month as `YYYY-MM`. */
 export type MonthKey = string
 
@@ -129,7 +139,8 @@ export const previewSchema = z.union([
 /**
  * The schedule window that put the view on the wall (PR 5.4, architecture §7.8):
  * the schedule's id, the rule's index in its `rules`, the view the rule shows,
- * and the view to go back to when the window ends. It is null when no window
+ * and the view to go back to when the window ends. For a custom view it also
+ * holds the layout the rule put up and the layout to go back to (PR 5.17). It is null when no window
  * is in charge, and goes as soon as the view changes to anything else, so a
  * view chosen by hand is never undone.
  */
@@ -138,6 +149,10 @@ export const scheduleWindowSchema = z.strictObject({
   rule: z.number().int().min(0),
   view: z.enum(VIEWS),
   return_view: z.enum(VIEWS),
+  /** The layout the window put up, when its view is custom. */
+  layout: layoutIdSchema.nullable().default(null),
+  /** The state's `layout` from before the window, which the end puts back. */
+  return_layout: layoutIdSchema.nullable().default(null),
 })
 
 export const displayStateSchema = z.object({
@@ -162,6 +177,8 @@ export const displayStateSchema = z.object({
   overlay: overlaySchema.nullable().default(null),
   /** The special day or scene being previewed on the wall, or null. */
   preview: previewSchema.nullable().default(null),
+  /** The layout the custom view shows. Sticky: it stays when the view changes away, so coming back to `custom` shows the same layout. */
+  layout: layoutIdSchema.nullable().default(null),
   /** The ids of this display's schedules that are turned off (from Home Assistant). A schedule not listed is on. Sorted, no repeats. */
   schedules_off: z.array(scheduleIdSchema).default([]),
   /** The schedule window in charge of the view, or null. Kept by the command handler. */
@@ -187,6 +204,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('set_auto_presence'), auto_presence: z.boolean() }),
   z.strictObject({ type: z.literal('set_auto_brightness'), auto_brightness: z.boolean() }),
   // Turns one of the display's built-in schedules on or off (PR 5.4). An id the display doesn't have is refused by the control service.
+  // Puts a custom layout on the wall (PR 5.17). An id with no layout is refused by the control service.
+  z.strictObject({ type: z.literal('set_layout'), layout: layoutIdSchema }),
   z.strictObject({ type: z.literal('set_schedule'), schedule: scheduleIdSchema, on: z.boolean() }),
   z.strictObject({
     type: z.literal('set_overlay'),
@@ -213,7 +232,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       .max(MAX_PREVIEW_SECONDS, `must be from ${MIN_PREVIEW_SECONDS} to ${MAX_PREVIEW_SECONDS}`)
       .default(DEFAULT_PREVIEW_SECONDS),
   }).refine(command => (command.id === undefined) !== (command.scene === undefined), { message: 'needs exactly one of id and scene' }),
-], { error: 'must be set_view, next_view, set_month, set_week, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_schedule, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
+], { error: 'must be set_view, next_view, set_month, set_week, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_schedule, set_layout, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
 
 export type Command = z.output<typeof commandSchema>
 export type CommandType = Command['type']
@@ -287,6 +306,8 @@ export type ServerMessage =
   | { type: 'alarm.updated', alarm: NextAlarm }
   /** To the display's sockets when its settings change on the settings page (PR 5.6), and to a new socket on connect. The whole of them, as `GET /api/displays` has them. */
   | { type: 'settings.updated', display_id: string, settings: DisplaySettings }
+  /** To every socket when the custom layouts change (PR 5.17), and to a new socket on connect. The whole library, by name. */
+  | { type: 'layouts.updated', layouts: CustomLayout[] }
 
 // Months, as `YYYY-MM` keys. Done with `Intl` and arithmetic, never the
 // process's time zone. A month's index is year * 12 + (month - 1).

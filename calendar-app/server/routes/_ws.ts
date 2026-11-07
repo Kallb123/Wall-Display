@@ -4,10 +4,10 @@ import { parseSocketQuery } from '../ws/query'
 import { getSocketHub } from '../ws/hub'
 
 // The WebSocket at `/_ws?display=<id>&role=display|remote`. A new connection
-// gets the display's whole state, the weather, the special days and the next
-// alarm (each null when there is none yet) and the display's settings, then
+// gets the display's whole state, the weather, the special days, the next
+// alarm (each null when there is none yet), the custom layouts and the display's settings, then
 // every `state.updated`, `events.updated`, `weather.updated`,
-// `special_days.updated`, `alarm.updated` and `settings.updated` (the control,
+// `special_days.updated`, `alarm.updated`, `layouts.updated` and `settings.updated` (the control,
 // weather, special days, alarm and settings plugins connect the event bus to the hub).
 // The display shows the state and the remote shows what the display is
 // showing, so both only listen.
@@ -34,6 +34,8 @@ export default defineWebSocketHandler({
     peer.send(JSON.stringify(specialDays))
     const alarm: ServerMessage = { type: 'alarm.updated', alarm: useAlarm()?.get() ?? null }
     peer.send(JSON.stringify(alarm))
+    const layouts: ServerMessage = { type: 'layouts.updated', layouts: useLayouts().get() }
+    peer.send(JSON.stringify(layouts))
     const settings: ServerMessage = {
       type: 'settings.updated',
       display_id: query.displayId,

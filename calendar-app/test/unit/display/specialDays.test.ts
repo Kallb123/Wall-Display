@@ -89,6 +89,14 @@ describe('takeoverInForce', () => {
     for (const view of CALENDAR_VIEWS) expect(takeoverInForce({ ...context, view })).toBe(takeover)
   })
 
+  it('takes over a custom view only if its layout shows a calendar component', () => {
+    const custom = { ...context, view: 'custom' as const }
+    expect(takeoverInForce({ ...custom, layout: { id: 'kitchen', name: 'Kitchen', components: ['photo', 'week'] } })).toBe(takeover)
+    expect(takeoverInForce({ ...custom, layout: { id: 'frame', name: 'Frame', components: ['photo'] } })).toBeNull()
+    expect(takeoverInForce({ ...custom, layout: null })).toBeNull()
+    expect(takeoverInForce(custom)).toBeNull()
+  })
+
   it('is null on the photo frame and the night view', () => {
     expect(takeoverInForce({ ...context, view: 'photo' })).toBeNull()
     expect(takeoverInForce({ ...context, view: 'night' })).toBeNull()

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IClientOptions } from 'mqtt'
 import type { Command, DisplayState } from '../../../shared/display'
+import type { LayoutSummary } from '../../../shared/layouts'
 import type { ButtonConfig, MqttConfig } from '../../../server/config/schema'
 import { defaultDisplayState, expireState, reduceCommand } from '../../../server/control/commands'
 import { createEventBus } from '../../../server/events/bus'
@@ -9,7 +10,7 @@ import type { EventBus } from '../../../server/events/bus'
 import { createMqttBridge, MAX_RECONNECT_MS, RECHECK_MS, reconnectDelayMs, STABLE_MS, STOP_WAIT_MS } from '../../../server/mqtt/client'
 import type { MqttBridge, MqttLink } from '../../../server/mqtt/client'
 import { discoveryMessages } from '../../../server/mqtt/discovery'
-import { COMMAND_TOPICS, lastSyncPayload, PI_BUTTON_TOPIC, PI_ILLUMINANCE_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
+import { COMMAND_TOPICS, lastSyncPayload, LAYOUT_SET_TOPIC, LAYOUT_STATE_TOPIC, PI_BUTTON_TOPIC, PI_ILLUMINANCE_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, specialDayPayload, STATE_TOPICS } from '../../../server/mqtt/topics'
 
 // The bridge with a fake MQTT client and fake timers: no network. The fake
 // records what is published and subscribed, and the test plays the broker by
@@ -97,7 +98,7 @@ class FakeClient extends EventEmitter implements MqttLink {
 }
 
 /** What a connection subscribes to besides Home Assistant's birth topic: the command topics and the Pi agent's button, presence and light sensor. */
-const OWN_TOPICS = [...COMMAND_TOPICS, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_ILLUMINANCE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`)
+const OWN_TOPICS = [...COMMAND_TOPICS, LAYOUT_SET_TOPIC, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_ILLUMINANCE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`)
 
 const bridges: MqttBridge[] = []
 
@@ -108,12 +109,14 @@ function emitSpecialDays(bus: EventBus): void {
 
 const SCHEDULES = [{ id: 'mornings', name: 'Morning agenda' }, { id: 'daytime-photos', name: 'Daytime photos' }]
 
-function setup(options: { displays?: string[], schedules?: Record<string, { id: string, name: string }[]>, config?: MqttConfig, button?: ButtonConfig, presence?: { report: (displayId: string, present: boolean | null) => void }, brightness?: { report: (displayId: string, lux: number) => void }, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined } = {}) {
+function setup(options: { displays?: string[], schedules?: Record<string, { id: string, name: string }[]>, config?: MqttConfig, button?: ButtonConfig, presence?: { report: (displayId: string, present: boolean | null) => void }, brightness?: { report: (displayId: string, lux: number) => void }, random?: () => number, lastSync?: () => Date | null, specialDay?: () => string | null | undefined, layouts?: LayoutSummary[] } = {}) {
   const displays = options.displays ?? ['hallway']
   const bus = createEventBus()
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const states = new Map(displays.map(id => [id, defaultDisplayState()]))
   const clients = new Map<string, FakeClient>()
+  // The custom layouts, which a test changes in place and announces with `layouts.updated`.
+  const library: LayoutSummary[] = options.layouts ?? []
 
   const control = {
     getState: vi.fn((displayId: string): DisplayState => {
@@ -123,7 +126,7 @@ function setup(options: { displays?: string[], schedules?: Record<string, { id: 
     }),
     weekStartOf: vi.fn((): 'monday' | 'sunday' => 'monday'),
     applyCommand: vi.fn((displayId: string, command: Command): DisplayState => {
-      const next = reduceCommand(control.getState(displayId), command, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15, weekStart: 'monday' })
+      const next = reduceCommand(control.getState(displayId), command, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15, weekStart: 'monday', photosConfigured: false, layouts: library })
       states.set(displayId, next)
       bus.emit('state.updated', { displayId, state: next })
       return next
@@ -142,6 +145,7 @@ function setup(options: { displays?: string[], schedules?: Record<string, { id: 
     displays: displays.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1), schedules: options.schedules?.[id] })),
     lastSync: options.lastSync,
     specialDay: options.specialDay,
+    layouts: () => library,
     timeZone: 'Europe/London',
     button: options.button,
     presence: options.presence,
@@ -157,7 +161,7 @@ function setup(options: { displays?: string[], schedules?: Record<string, { id: 
   const client = (id = 'hallway') => clients.get(id)!
   /** Every logged line, to look for what must never be there. */
   const logged = () => JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls])
-  return { bridge, bus, control, connect, log, client, logged, states }
+  return { bridge, bus, control, connect, log, client, logged, states, library }
 }
 
 beforeEach(() => {
@@ -233,7 +237,7 @@ describe('connecting', () => {
     const [first, ...rest] = client().published
     expect(first).toEqual({ topic: 'wallcal/hallway/availability', payload: 'online', qos: 1, retain: true })
     expect(client().subscribed).toEqual([{ topics: OWN_TOPICS, qos: 1 }])
-    expect(rest.map(message => message.topic)).toEqual([...STATE_TOPICS, PI_SCREEN_TOPIC].map(suffix => `wallcal/hallway/${suffix}`))
+    expect(rest.map(message => message.topic)).toEqual([...STATE_TOPICS, PI_SCREEN_TOPIC, LAYOUT_STATE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`))
     expect(rest.every(message => message.qos === 1 && message.retain)).toBe(true)
     expect(Object.fromEntries(rest.map(message => [message.topic.replace('wallcal/hallway/', ''), message.payload]))).toEqual({
       'view/state': 'month',
@@ -246,6 +250,7 @@ describe('connecting', () => {
       'auto_brightness/state': 'ON',
       'overlay/state': '',
       'pi/screen/set': 'on',
+      'layout/state': '',
     })
     expect(log.info).toHaveBeenCalledWith('[mqtt] hallway: connected to mqtt://broker.local:1883')
   })
@@ -260,7 +265,7 @@ describe('connecting', () => {
     expect(topics).toEqual([
       'wallcal/hallway/availability',
       ...configs,
-      ...[...STATE_TOPICS, PI_SCREEN_TOPIC].map(suffix => `wallcal/hallway/${suffix}`),
+      ...[...STATE_TOPICS, PI_SCREEN_TOPIC, LAYOUT_STATE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`),
     ])
   })
 
@@ -336,7 +341,7 @@ describe('publishing the state', () => {
     client().up()
     expect(client().payloadsOn('wallcal/hallway/availability')).toEqual(['online'])
     // Everything, not just the change: the broker may have lost it, and a new connection can't know.
-    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual(STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`))
+    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual([...STATE_TOPICS, LAYOUT_STATE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`))
     expect(client().payloadsOn('wallcal/hallway/view/state')).toEqual(['photo'])
   })
 
@@ -391,7 +396,7 @@ describe('publishing the state', () => {
 
     // What the control service does when the timer fires.
     vi.advanceTimersByTime(600 * SECOND)
-    const expired = expireState(states.get('hallway')!, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15, weekStart: 'monday' })
+    const expired = expireState(states.get('hallway')!, { now: new Date(), timeZone: 'Europe/London', monthReturnMinutes: 15, weekStart: 'monday', photosConfigured: false, layouts: [] })
     states.set('hallway', expired)
     bus.emit('state.updated', { displayId: 'hallway', state: expired })
 
@@ -919,7 +924,7 @@ describe('Home Assistant discovery', () => {
   })
 
   it('names the device "Wall Calendar" for one display, and "Wall Calendar <name>" for two or more', () => {
-    const deviceNames = (client: FakeClient) => [...new Set(configsIn(client).map(message => (JSON.parse(message.payload) as { device: { name: string } }).device.name))]
+    const deviceNames = (client: FakeClient) => [...new Set(configsIn(client).filter(message => message.payload !== '').map(message => (JSON.parse(message.payload) as { device: { name: string } }).device.name))]
     const one = setup()
     one.client().up()
     const two = setup({ displays: ['hallway', 'kitchen'] })
@@ -1305,7 +1310,7 @@ describe('last sync', () => {
 
     expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not read the last sync time: database is locked')
     expect(client().payloadsOn(TOPIC)).toEqual([])
-    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual(STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`))
+    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual([...STATE_TOPICS, LAYOUT_STATE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`))
 
     expect(() => bus.emit('sync.succeeded', { calendarId: 'family' })).not.toThrow()
     expect(log.error).toHaveBeenCalledTimes(2)
@@ -1408,7 +1413,7 @@ describe('special day', () => {
 
     expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not read today\'s special day: not ready')
     expect(client().payloadsOn(TOPIC)).toEqual([])
-    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual(STATE_TOPICS.map(suffix => `wallcal/hallway/${suffix}`))
+    expect(client().published.filter(message => message.topic.endsWith('/state')).map(message => message.topic)).toEqual([...STATE_TOPICS, LAYOUT_STATE_TOPIC].map(suffix => `wallcal/hallway/${suffix}`))
 
     expect(() => emitSpecialDays(bus)).not.toThrow()
     expect(log.error).toHaveBeenCalledTimes(2)
@@ -1744,6 +1749,7 @@ describe('schedules', () => {
       'wallcal/hallway/schedule/mornings/state',
       'wallcal/hallway/schedule/daytime-photos/state',
       'wallcal/hallway/pi/screen/set',
+      'wallcal/hallway/layout/state',
     ])
     expect(client().payloadsOn('wallcal/hallway/schedule/mornings/state')).toEqual(['ON'])
     expect(client().published.filter(message => message.topic.includes('/schedule/')).every(message => message.qos === 1 && message.retain)).toBe(true)
@@ -1868,5 +1874,141 @@ describe('schedules', () => {
     client().up()
 
     expect(client().published.some(message => message.topic.includes('schedule'))).toBe(false)
+  })
+})
+
+// PR 5.17: custom layouts in Home Assistant.
+describe('custom layouts', () => {
+  const KITCHEN: LayoutSummary = { id: 'kitchen', name: 'Kitchen board', components: ['week', 'agenda'] }
+  const SLIDES: LayoutSummary = { id: 'slides', name: 'Slides', components: ['photo'] }
+  const SET = 'wallcal/hallway/layout/set'
+  const STATE = 'wallcal/hallway/layout/state'
+  const SELECT = 'homeassistant/select/wallcal_hallway/layout/config'
+  const selectsIn = (client: FakeClient) => client.published.filter(message => message.topic === SELECT)
+
+  it('subscribes to the layout topic along with the other command topics', () => {
+    const { client } = setup({ config: { ...CONFIG, discovery: false } })
+
+    client().up()
+
+    expect(client().subscribed[0]!.topics).toContain(SET)
+  })
+
+  it('shows the layout named by id or by exact name, as the select in Home Assistant sends the name', () => {
+    const { client, control, states } = setup({ layouts: [KITCHEN, SLIDES] })
+    client().up()
+
+    client().message(SET, 'Kitchen board')
+    expect(states.get('hallway')).toMatchObject({ view: 'custom', layout: 'kitchen' })
+    client().message(SET, 'slides')
+    expect(states.get('hallway')).toMatchObject({ view: 'custom', layout: 'slides' })
+
+    expect(control.applyCommand.mock.calls).toEqual([
+      ['hallway', { type: 'set_layout', layout: 'kitchen' }],
+      ['hallway', { type: 'set_layout', layout: 'slides' }],
+    ])
+  })
+
+  it('warns about and ignores a layout it does not know, a name in the wrong case and an empty payload', () => {
+    const { client, control, log } = setup({ layouts: [KITCHEN] })
+    client().up()
+
+    client().message(SET, 'Garage')
+    client().message(SET, 'kitchen board')
+    client().message(SET, '')
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledTimes(3)
+    expect(log.warn).toHaveBeenCalledWith('[mqtt] hallway: ignored a message: layout/set: must be the id or exact name of a custom layout (got "Garage")')
+  })
+
+  it('ignores a retained layout message like every other command', () => {
+    const { client, control, log } = setup({ layouts: [KITCHEN] })
+    client().up()
+
+    client().message(SET, 'kitchen', true)
+
+    expect(control.applyCommand).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith(`[mqtt] hallway: ignored the retained message on ${SET} (publish an empty retained message there to remove it)`)
+  })
+
+  it('logs a layout the control refuses, without throwing', () => {
+    const { client, control, log } = setup({ layouts: [KITCHEN] })
+    control.applyCommand.mockImplementationOnce(() => { throw new Error('Unknown layout "kitchen"') })
+    client().up()
+
+    client().message(SET, 'kitchen')
+
+    expect(log.error).toHaveBeenCalledWith('[mqtt] hallway: could not apply the command from layout/set: Unknown layout "kitchen"')
+  })
+
+  it('publishes the name of the layout, empty when there is none, and again when it changes', () => {
+    const { client, control } = setup({ layouts: [KITCHEN, SLIDES] })
+    client().up()
+
+    control.applyCommand('hallway', { type: 'set_layout', layout: 'kitchen' })
+    control.applyCommand('hallway', { type: 'set_layout', layout: 'slides' })
+    control.applyCommand('hallway', { type: 'set_view', view: 'agenda' })
+
+    // The layout stays the setting while the view is something else, so nothing is published for that last one.
+    expect(client().payloadsOn(STATE)).toEqual(['', 'Kitchen board', 'Slides'])
+    expect(client().published.find(message => message.topic === STATE)).toMatchObject({ qos: 1, retain: true })
+  })
+
+  it('offers the layout names in the discovery config, and republishes it with the state when the layouts change', () => {
+    const { client, bus, library, states } = setup({ layouts: [KITCHEN] })
+    client().up()
+    expect(JSON.parse(selectsIn(client())[0]!.payload)).toMatchObject({ options: ['Kitchen board'] })
+    states.set('hallway', { ...defaultDisplayState(), view: 'custom', layout: 'kitchen' })
+    bus.emit('state.updated', { displayId: 'hallway', state: states.get('hallway')! })
+    expect(client().payloadsOn(STATE)).toEqual(['', 'Kitchen board'])
+
+    library.splice(0, library.length, SLIDES, { ...KITCHEN, name: 'Kitchen wall' })
+    bus.emit('layouts.updated', { layouts: [] })
+
+    expect(JSON.parse(selectsIn(client()).at(-1)!.payload)).toMatchObject({ options: ['Slides', 'Kitchen wall'] })
+    expect(client().payloadsOn(STATE)).toEqual(['', 'Kitchen board', 'Kitchen wall'])
+  })
+
+  it('removes the select with an empty retained config when the last layout goes, and publishes it again when one comes back', () => {
+    const { client, bus, library } = setup({ layouts: [KITCHEN] })
+    client().up()
+
+    library.length = 0
+    bus.emit('layouts.updated', { layouts: [] })
+    expect(selectsIn(client()).at(-1)).toMatchObject({ payload: '', qos: 1, retain: true })
+
+    library.push(SLIDES)
+    bus.emit('layouts.updated', { layouts: [] })
+    expect(JSON.parse(selectsIn(client()).at(-1)!.payload)).toMatchObject({ options: ['Slides'] })
+  })
+
+  it('publishes no select at connect without layouts, only the removal, and leaves discovery alone when it is off', () => {
+    const withoutLayouts = setup()
+    withoutLayouts.client().up()
+    expect(selectsIn(withoutLayouts.client())).toEqual([{ topic: SELECT, payload: '', qos: 1, retain: true }])
+
+    const off = setup({ config: { ...CONFIG, discovery: false }, layouts: [KITCHEN] })
+    off.client().up()
+    off.library.push(SLIDES)
+    off.client().clear()
+    off.bus.emit('layouts.updated', { layouts: [] })
+    expect(off.client().published.filter(message => message.topic.startsWith('homeassistant/'))).toEqual([])
+  })
+
+  it('does nothing about a layouts change while the connection is down or once it is stopped', async () => {
+    const { client, bus, library, bridge } = setup({ layouts: [KITCHEN] })
+    client().up()
+    client().down()
+    client().clear()
+
+    library.push(SLIDES)
+    bus.emit('layouts.updated', { layouts: [] })
+    expect(client().published).toEqual([])
+
+    await bridge.stop()
+    client().clear()
+    bus.emit('layouts.updated', { layouts: [] })
+    expect(client().published).toEqual([])
   })
 })

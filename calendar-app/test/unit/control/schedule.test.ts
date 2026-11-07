@@ -5,6 +5,7 @@ import type { ControlCommand } from '../../../server/control/commands'
 import { boundariesBetween, createSchedulePolicy, nextBoundaryAfter, occurrenceOn, ruleInProgress } from '../../../server/control/schedule'
 import type { PolicySchedule, SchedulePolicy } from '../../../server/control/schedule'
 import { MAX_TIMER_MS } from '../../../server/control/service'
+import type { LayoutComponent } from '../../../shared/layouts'
 
 // The schedule maths in Europe/London (while the process itself runs in
 // Auckland), then the policy with a fake control, which applies commands with the
@@ -235,6 +236,10 @@ interface Setup {
   schedules?: PolicySchedule[]
   displays?: { id: string, schedules: PolicySchedule[] }[]
   state?: Partial<DisplayState>
+  /** The custom layouts there are (PR 5.17). Default: none. */
+  layouts?: { id: string, name: string, components: LayoutComponent[] }[]
+  /** Whether the policy is told which layouts exist, so it can skip a rule for one that does not. Default: yes. */
+  checkLayouts?: boolean
   /** The clock the policy reads, if it should differ from the timers' (a delayed timer). */
   now?: () => Date
 }
@@ -251,12 +256,12 @@ function setup(options: Setup = {}) {
     applyCommand: vi.fn((displayId: string, command: ControlCommand): DisplayState => {
       applied.push({ displayId, command })
       if (failures.has(command.type)) throw new Error('disk full')
-      const next = reduceCommand(states.get(displayId)!, command, { now: new Date(), timeZone: TZ, monthReturnMinutes: 15 })
+      const next = reduceCommand(states.get(displayId)!, command, { now: new Date(), timeZone: TZ, monthReturnMinutes: 15, weekStart: 'monday', photosConfigured: true, layouts: options.layouts ?? [] })
       states.set(displayId, next)
       return next
     }),
   }
-  const policy = createSchedulePolicy({ displays, timeZone: TZ, control, log, ...(options.now ? { now: options.now } : {}) })
+  const policy = createSchedulePolicy({ displays, timeZone: TZ, control, log, ...(options.checkLayouts === false ? {} : { layoutIds: () => (options.layouts ?? []).map(layout => layout.id) }), ...(options.now ? { now: options.now } : {}) })
   policies.push(policy)
 
   const view = (displayId = 'hallway') => states.get(displayId)!.view
@@ -614,5 +619,68 @@ describe('at start', () => {
 
     advanceTo('2026-10-28T06:30:00Z')
     expect(view()).toBe('month')
+  })
+})
+
+// PR 5.17: rules that show a custom layout.
+describe('a window on a custom layout', () => {
+  const kitchen = { id: 'kitchen', name: 'Kitchen', components: ['week', 'agenda'] as LayoutComponent[] }
+  const evenings = schedule('evenings', [rule('17:00', '21:00', { view: 'custom', layout: 'kitchen' })], 'Kitchen board')
+
+  it('shows the layout at the start and goes back to the view and layout from before at the end', () => {
+    const { view, states, log } = setup({ schedules: [evenings], layouts: [kitchen], state: { view: 'week' } })
+
+    advanceTo('2026-10-28T17:00:00Z')
+    expect(view()).toBe('custom')
+    expect(states.get('hallway')).toMatchObject({ layout: 'kitchen', schedule: { layout: 'kitchen', return_view: 'week', return_layout: null } })
+    advanceTo('2026-10-28T21:00:00Z')
+    expect(states.get('hallway')).toMatchObject({ view: 'week', layout: null, schedule: null })
+
+    expect(log.info.mock.calls.map(call => call[0])).toEqual([
+      '[schedule] hallway: Kitchen board (17:00–21:00) starts, so the wall shows custom layout kitchen',
+      '[schedule] hallway: Kitchen board (17:00–21:00) ends, so the wall goes back to week',
+    ])
+  })
+
+  it('sends the layout with the start', () => {
+    const { applied } = setup({ schedules: [evenings], layouts: [kitchen] })
+
+    advanceTo('2026-10-28T17:00:00Z')
+
+    expect(applied[0]!.command).toEqual({ type: 'schedule_start', schedule: 'evenings', rule: 0, view: 'custom', layout: 'kitchen' })
+  })
+
+  it('skips a rule whose layout does not exist, with a warning, and does not touch the wall', () => {
+    const { view, applied, log } = setup({ schedules: [evenings], layouts: [], state: { view: 'week' } })
+
+    advanceTo('2026-10-28T17:00:00Z')
+
+    expect(view()).toBe('week')
+    expect(applied).toEqual([])
+    expect(log.warn).toHaveBeenCalledWith('[schedule] hallway: Kitchen board (17:00–21:00) shows layout "kitchen", which does not exist, so it is skipped')
+  })
+
+  it('still lets the control refuse a layout that has gone when the policy is not told the layouts', () => {
+    const { view } = setup({ schedules: [evenings], layouts: [], checkLayouts: false, state: { view: 'week' } })
+
+    advanceTo('2026-10-28T17:00:00Z')
+
+    expect(view()).toBe('week')
+  })
+
+  it('ends a window the app left behind when its rule now names another layout', () => {
+    vi.setSystemTime(new Date('2026-10-28T18:00:00Z'))
+    const held = { schedule: 'evenings', rule: 0, view: 'custom' as View, return_view: 'week' as View, layout: 'board', return_layout: null }
+    const { states } = setup({ schedules: [evenings], layouts: [kitchen], state: { view: 'custom', layout: 'board', schedule: held } })
+
+    expect(states.get('hallway')).toMatchObject({ view: 'week', schedule: null })
+  })
+
+  it('leaves a window in progress that names the same layout', () => {
+    vi.setSystemTime(new Date('2026-10-28T18:00:00Z'))
+    const held = { schedule: 'evenings', rule: 0, view: 'custom' as View, return_view: 'week' as View, layout: 'kitchen', return_layout: null }
+    const { states } = setup({ schedules: [evenings], layouts: [kitchen], state: { view: 'custom', layout: 'kitchen', schedule: held } })
+
+    expect(states.get('hallway')).toMatchObject({ view: 'custom', layout: 'kitchen' })
   })
 })

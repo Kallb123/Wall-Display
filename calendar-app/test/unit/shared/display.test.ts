@@ -17,6 +17,7 @@ describe('the display state schema', () => {
       auto_brightness: true,
       overlay: null,
       preview: null,
+      layout: null,
       schedules_off: [],
       schedule: null,
     })
@@ -225,7 +226,7 @@ describe('months', () => {
 
 describe('views', () => {
   it('lists the week by part of day and the week and photo views, and steps through them last', () => {
-    expect(VIEWS).toEqual(['month', 'week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night'])
+    expect(VIEWS).toEqual(['month', 'week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night', 'custom'])
     expect(NEXT_VIEW_ORDER).toEqual(['month', 'agenda', 'week', 'week_parts', 'week_photo'])
     expect(RETURN_VIEWS).toContain('week_parts')
     expect(RETURN_VIEWS).toContain('week_photo')

@@ -11,11 +11,15 @@ import {
   COMMAND_TOPICS,
   LAST_SYNC_TOPIC,
   lastSyncPayload,
+  LAYOUT_SET_TOPIC,
+  LAYOUT_STATE_TOPIC,
+  layoutStatePayload,
   OFFLINE,
   ONLINE,
   parseButtonPayload,
   parseCommandPayload,
   parseIlluminancePayload,
+  parseLayoutPayload,
   parsePresencePayload,
   parseSchedulePayload,
   parseScheduleTopic,
@@ -134,12 +138,12 @@ describe('the contract file', () => {
 })
 
 describe('the topics', () => {
-  it('has the app\'s command topics and the schedule switch template, and only those, going to the app', () => {
-    expect(namesWhere(topic => topic.direction === 'to_app')).toEqual(sorted([...COMMAND_TOPICS, SCHEDULE_SET_TEMPLATE]))
+  it('has the app\'s command topics, the layout topic and the schedule switch template, and only those, going to the app', () => {
+    expect(namesWhere(topic => topic.direction === 'to_app')).toEqual(sorted([...COMMAND_TOPICS, LAYOUT_SET_TOPIC, SCHEDULE_SET_TEMPLATE]))
   })
 
-  it('has the app\'s state, availability, last sync and special day topics going out of the app, and only those', () => {
-    const published = [...STATE_TOPICS, SCHEDULE_STATE_TEMPLATE, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]
+  it('has the app\'s state, layout, availability, last sync and special day topics going out of the app, and only those', () => {
+    const published = [...STATE_TOPICS, LAYOUT_STATE_TOPIC, SCHEDULE_STATE_TEMPLATE, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]
 
     expect(namesWhere(topic => topic.direction === 'from_app')).toEqual(sorted(published))
   })
@@ -160,9 +164,9 @@ describe('the topics', () => {
     expect(sorted(states)).toEqual(sorted(settings))
   })
 
-  it('retains state, availability, last sync and special day, and does not retain commands', () => {
-    for (const name of [...STATE_TOPICS, SCHEDULE_STATE_TEMPLATE, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
-    for (const name of [...COMMAND_TOPICS, SCHEDULE_SET_TEMPLATE]) expect(contract.topics[name]!.retained, name).toBe(false)
+  it('retains state, layout, availability, last sync and special day, and does not retain commands', () => {
+    for (const name of [...STATE_TOPICS, LAYOUT_STATE_TOPIC, SCHEDULE_STATE_TEMPLATE, AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, SPECIAL_DAY_TOPIC]) expect(contract.topics[name]!.retained, name).toBe(true)
+    for (const name of [...COMMAND_TOPICS, LAYOUT_SET_TOPIC, SCHEDULE_SET_TEMPLATE]) expect(contract.topics[name]!.retained, name).toBe(false)
   })
 })
 
@@ -220,6 +224,48 @@ describe('command payloads', () => {
       const accepted = parseCommandPayload(name as CommandTopic, payload).ok
       expect(accepted, `${name} ${JSON.stringify(payload)}`).toBe(contractAccepts(name, payload))
     }
+  })
+})
+
+describe('the layout topics', () => {
+  const layouts = [
+    { id: 'kitchen', name: 'Kitchen board', components: ['week' as const] },
+    { id: 'slides', name: 'Slides', components: ['photo' as const] },
+  ]
+
+  it('takes a layout\'s id or exact name on the set topic: the app parses every example and rejects every invalid example', () => {
+    const topic = contract.topics[LAYOUT_SET_TOPIC]!
+
+    for (const payload of topic.examples) expect(parseLayoutPayload(payload, layouts), `example ${JSON.stringify(payload)}`).toMatchObject({ ok: true, command: { type: 'set_layout' } })
+    for (const payload of topic.invalid_examples) expect(parseLayoutPayload(payload, layouts), `invalid example ${JSON.stringify(payload)}`).toMatchObject({ ok: false })
+  })
+
+  it('turns the name or the id into the layout\'s id, and nothing else', () => {
+    expect(parseLayoutPayload('Kitchen board', layouts)).toEqual({ ok: true, command: { type: 'set_layout', layout: 'kitchen' } })
+    expect(parseLayoutPayload('slides', layouts)).toEqual({ ok: true, command: { type: 'set_layout', layout: 'slides' } })
+    for (const payload of ['kitchen board', 'Kitchen board ', 'KITCHEN', ' slides', '']) expect(parseLayoutPayload(payload, layouts).ok, JSON.stringify(payload)).toBe(false)
+    expect(parseLayoutPayload('kitchen', [])).toMatchObject({ ok: false })
+  })
+
+  it('prefers a name over an id when a payload is both', () => {
+    const clash = [{ id: 'a', name: 'b', components: ['week' as const] }, { id: 'b', name: 'Other', components: ['week' as const] }]
+
+    expect(parseLayoutPayload('b', clash)).toEqual({ ok: true, command: { type: 'set_layout', layout: 'a' } })
+  })
+
+  it('publishes the name of the layout on show, and empty for none or one that has gone, each passing the state topic\'s schema', () => {
+    const state = (layout: string | null) => ({ ...defaultDisplayState(), layout })
+
+    expect(layoutStatePayload(state('kitchen'), layouts)).toBe('Kitchen board')
+    expect(layoutStatePayload(state(null), layouts)).toBe('')
+    expect(layoutStatePayload(state('deleted'), layouts)).toBe('')
+    for (const payload of ['Kitchen board', 'Slides', '']) expect(contractAccepts(LAYOUT_STATE_TOPIC, payload), payload).toBe(true)
+  })
+
+  it('has view topics that allow the custom view', () => {
+    expect(contractAccepts('view/set', 'custom')).toBe(true)
+    expect(contractAccepts('view/state', 'custom')).toBe(true)
+    expect(parseCommandPayload('view/set', 'custom')).toMatchObject({ ok: true, command: { type: 'set_view', view: 'custom' } })
   })
 })
 
@@ -326,7 +372,7 @@ describe('state payloads', () => {
   const NOW = new Date('2026-10-28T12:00:00Z')
   const states: [string, DisplayState][] = [
     ['the default', defaultDisplayState()],
-    ...(['month', 'week', 'agenda', 'photo', 'night'] as const).map(view => [`the ${view} view`, { ...defaultDisplayState(), view }] as [string, DisplayState]),
+    ...(['month', 'week', 'agenda', 'photo', 'night', 'custom'] as const).map(view => [`the ${view} view`, { ...defaultDisplayState(), view }] as [string, DisplayState]),
     ['the screen off', { ...defaultDisplayState(), screen: 'off' }],
     ['google photos', { ...defaultDisplayState(), photo_source: 'google' }],
     ['local photos', { ...defaultDisplayState(), photo_source: 'local' }],

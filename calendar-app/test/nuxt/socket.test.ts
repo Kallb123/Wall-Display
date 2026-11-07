@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
 import { useDisplaySocket } from '~/composables/useDisplaySocket'
+import type { CustomLayout } from '../../shared/layouts'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
@@ -322,6 +323,57 @@ describe('useDisplaySocket settings', () => {
     await nextTick()
 
     expect(socket.settings.value).toBeUndefined()
+    scope.stop()
+  })
+})
+
+describe('useDisplaySocket layouts', () => {
+  const layout: CustomLayout = {
+    id: 'kitchen',
+    name: 'Kitchen',
+    landscape: { rows: [{ size: 1, panes: [{ component: 'photo', size: 2 }, { component: 'week', size: 3 }] }] },
+    portrait: { rows: [{ size: 2, panes: [{ component: 'photo', size: 1 }] }, { size: 3, panes: [{ component: 'week', size: 1 }] }] },
+    created_at: '2026-10-28T12:00:00.000Z',
+    updated_at: '2026-10-28T12:00:00.000Z',
+  }
+
+  beforeEach(() => {
+    FakeSocket.all = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('has not heard any until the server sends them', () => {
+    const { socket, scope } = open()
+
+    expect(socket.layouts.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it('keeps the list, and then an empty one as the library being emptied', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'layouts.updated', layouts: [layout] })
+    expect(socket.layouts.value).toEqual([layout])
+
+    fake.push({ type: 'layouts.updated', layouts: [] })
+    expect(socket.layouts.value).toEqual([])
+    scope.stop()
+  })
+
+  it('drops a message with a layout that does not parse, and keeps the last good list', () => {
+    const { socket, scope, fake } = open()
+    fake.push({ type: 'layouts.updated', layouts: [layout] })
+
+    fake.push({ type: 'layouts.updated', layouts: [layout, { ...layout, id: 'Bad Id' }] })
+    fake.push({ type: 'layouts.updated', layouts: [{ ...layout, portrait: { rows: [] } }] })
+    fake.push({ type: 'layouts.updated', layouts: 'none' })
+    fake.push({ type: 'layouts.updated' })
+
+    expect(socket.layouts.value).toEqual([layout])
     scope.stop()
   })
 })

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Command, DisplayState } from '../../../shared/display'
-import { createDisplayControl, UnknownDisplayError, UnknownScheduleError } from '../../../server/control/service'
+import { defaultDisplayState } from '../../../server/control/commands'
+import { createDisplayControl, UnknownDisplayError, UnknownLayoutError, UnknownScheduleError } from '../../../server/control/service'
 import type { DisplayControl } from '../../../server/control/service'
+import type { LayoutSummary } from '../../../shared/layouts'
 import { loadDisplayState, saveDisplayState } from '../../../server/control/store'
 import { createEventBus } from '../../../server/events/bus'
 import { displayState } from '../../../server/db/schema'
@@ -67,7 +69,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null,
+      view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, layout: null, schedules_off: [], schedule: null,
     })
   })
 
@@ -493,12 +495,12 @@ describe('the store', () => {
     const old = { view: 'photo', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null }
     handle.db.insert(displayState).values({ displayId: 'hallway', state: old as never, updatedAt: new Date() }).run()
 
-    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', schedules_off: [], schedule: null })
+    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', layout: null, schedules_off: [], schedule: null })
   })
 
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, schedules_off: ['mornings'], schedule: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, layout: null, schedules_off: ['mornings'], schedule: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 
@@ -608,5 +610,96 @@ describe('updateDisplay', () => {
     const { control } = setup()
 
     expect(() => control.updateDisplay('garage', { month_return_minutes: 5, week_start: 'sunday' })).toThrow(UnknownDisplayError)
+  })
+})
+
+describe('custom layouts', () => {
+  const kitchen: LayoutSummary = { id: 'kitchen', name: 'Kitchen', components: ['week', 'agenda'] }
+  const board: LayoutSummary = { id: 'board', name: 'Board', components: ['month', 'photo'] }
+
+  function withLayouts(layouts: LayoutSummary[]) {
+    const { handle, bus, stateUpdates, log } = setup()
+    const control = createDisplayControl({ db: handle.db, displays: DISPLAYS, timeZone: 'Europe/London', bus, layouts, refresh: () => Promise.resolve([]), log })
+    controls.push(control)
+    return { control, handle, stateUpdates }
+  }
+
+  it('shows a layout from set_layout and remembers it', () => {
+    const { control, handle } = withLayouts([board, kitchen])
+
+    expect(control.applyCommand('hallway', { type: 'set_layout', layout: 'kitchen' })).toMatchObject({ view: 'custom', layout: 'kitchen' })
+    expect(loadDisplayState(handle.db, 'hallway')).toMatchObject({ view: 'custom', layout: 'kitchen' })
+  })
+
+  it('refuses a layout that is not in the library, and changes nothing', () => {
+    const { control } = withLayouts([kitchen])
+    const before = control.getState('hallway')
+
+    expect(() => control.applyCommand('hallway', { type: 'set_layout', layout: 'garage' })).toThrow(UnknownLayoutError)
+    expect(() => control.applyCommand('hallway', { type: 'set_layout', layout: 'garage' })).toThrow('Unknown layout "garage"')
+    expect(control.getState('hallway')).toEqual(before)
+  })
+
+  it('refuses every layout when there are none', () => {
+    const { control } = setup()
+
+    expect(() => control.applyCommand('hallway', { type: 'set_layout', layout: 'kitchen' })).toThrow(UnknownLayoutError)
+  })
+
+  it('takes up a layout added later with setLayouts', () => {
+    const { control } = setup()
+
+    control.setLayouts([kitchen])
+
+    expect(control.applyCommand('hallway', { type: 'set_layout', layout: 'kitchen' }).view).toBe('custom')
+  })
+
+  it('takes every display off a layout that is deleted, at once, and announces it', () => {
+    const { control, stateUpdates } = withLayouts([board, kitchen])
+    control.applyCommand('hallway', { type: 'set_layout', layout: 'kitchen' })
+    control.applyCommand('kitchen', { type: 'set_layout', layout: 'board' })
+    stateUpdates.mockClear()
+
+    control.setLayouts([board])
+
+    expect(control.getState('hallway')).toMatchObject({ view: 'month', layout: null })
+    expect(control.getState('kitchen')).toMatchObject({ view: 'custom', layout: 'board' })
+    expect(stateUpdates).toHaveBeenCalledTimes(1)
+    expect(stateUpdates.mock.calls[0]![0]).toMatchObject({ displayId: 'hallway', state: { view: 'month' } })
+  })
+
+  it('announces nothing when the layouts change but no display is affected', () => {
+    const { control, stateUpdates } = withLayouts([board, kitchen])
+    stateUpdates.mockClear()
+
+    control.setLayouts([board, { ...kitchen, name: 'Renamed' }])
+
+    expect(stateUpdates).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the month view for a stored custom view whose layout has gone, when it starts', () => {
+    const { handle, bus } = setup()
+    saveDisplayState(handle.db, 'hallway', { ...defaultDisplayState(), view: 'custom', layout: 'deleted' })
+
+    const control = createDisplayControl({ db: handle.db, displays: DISPLAYS, timeZone: 'Europe/London', bus, layouts: [kitchen], refresh: () => Promise.resolve([]) })
+    controls.push(control)
+
+    expect(control.getState('hallway')).toMatchObject({ view: 'month', layout: null })
+  })
+
+  it('applies a pinned month to a custom layout with a month, and keeps the view', () => {
+    const { control } = withLayouts([board, kitchen])
+    control.applyCommand('hallway', { type: 'set_layout', layout: 'board' })
+
+    expect(control.applyCommand('hallway', setMonth('2026-12'))).toMatchObject({ view: 'custom', layout: 'board', month: '2026-12' })
+
+    vi.advanceTimersByTime((RETURN_MINUTES + 1) * MINUTE)
+    expect(control.getState('hallway')).toMatchObject({ view: 'custom', month: null })
+  })
+
+  it('lets a schedule start put a layout up', () => {
+    const { control } = withLayouts([kitchen])
+
+    expect(control.applyCommand('hallway', { type: 'schedule_start', schedule: 'mornings', rule: 0, view: 'custom', layout: 'kitchen' })).toMatchObject({ view: 'custom', layout: 'kitchen', schedule: { layout: 'kitchen' } })
   })
 })

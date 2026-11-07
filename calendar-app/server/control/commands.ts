@@ -1,5 +1,7 @@
-import { addMonths, addWeeks, currentMonth, currentWeek, displayStateSchema, firstDayOfWeek, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER, showsPhotos, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../shared/display'
+import { addMonths, addWeeks, currentMonth, currentWeek, displayStateSchema, firstDayOfWeek, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER, showsPhotos, WEEK_RANGE, weekDiff } from '../../shared/display'
 import type { Command, DisplayState, MonthKey, View, WeekKey } from '../../shared/display'
+import { layoutShowsPhotos, viewShowsMonth, viewShowsWeek } from '../../shared/layouts'
+import type { LayoutSummary } from '../../shared/layouts'
 
 /**
  * The commands only the schedule policy sends (PR 5.4): a schedule window
@@ -7,7 +9,7 @@ import type { Command, DisplayState, MonthKey, View, WeekKey } from '../../share
  * nor MQTT can send them. `rule` is the rule's index in the schedule's `rules`.
  */
 export type ScheduleCommand =
-  | { type: 'schedule_start', schedule: string, rule: number, view: View }
+  | { type: 'schedule_start', schedule: string, rule: number, view: View, layout?: string }
   | { type: 'schedule_end', schedule: string, rule: number }
 
 /** Every command the control service applies: the public ones, and the schedule policy's. */
@@ -28,6 +30,8 @@ export interface ControlContext {
   weekStart: 'monday' | 'sunday'
   /** Whether a photo source is set up. Without one `next_view` skips the week and photo view, whose photo pane would be empty. */
   photosConfigured: boolean
+  /** The custom layouts (PR 5.17), by name. What `set_layout` may name, and what `next_view` steps through after the built-in views. */
+  layouts: readonly LayoutSummary[]
 }
 
 const MINUTE_MS = 60_000
@@ -36,16 +40,39 @@ export function defaultDisplayState(): DisplayState {
   return displayStateSchema.parse({})
 }
 
-/** The first of the views `next_view` steps through that follows `view`, wrapping round. The views that show photos are left out when no photo source is set up. */
-function viewAfter(view: View, photosConfigured: boolean): View {
-  const order = NEXT_VIEW_ORDER.filter(candidate => photosConfigured || !showsPhotos(candidate))
-  const index = (NEXT_VIEW_ORDER as readonly View[]).indexOf(view)
+/** The layout the display's `layout` field names, if it is still in the library. */
+function layoutOf(state: Pick<DisplayState, 'layout'>, ctx: Pick<ControlContext, 'layouts'>): LayoutSummary | undefined {
+  return state.layout === null ? undefined : ctx.layouts.find(layout => layout.id === state.layout)
+}
+
+/** One stop of `next_view`: a built-in view, or a custom layout. */
+type Stop = { view: View, layout: null } | { view: 'custom', layout: LayoutSummary }
+
+/**
+ * Where `next_view` goes from the current view: the built-in order, then the
+ * custom layouts by name, then round again. The views that show photos, and the
+ * layouts with a photo pane, are left out when no photo source is set up.
+ */
+function viewAfter(state: DisplayState, ctx: ControlContext): Pick<DisplayState, 'view' | 'layout'> {
+  const stops: Stop[] = [
+    ...NEXT_VIEW_ORDER.map((view): Stop => ({ view, layout: null })),
+    ...ctx.layouts.map((layout): Stop => ({ view: 'custom', layout })),
+  ]
+  const available = (stop: Stop): boolean => ctx.photosConfigured || !(stop.layout ? layoutShowsPhotos(stop.layout) : showsPhotos(stop.view))
+  const index = stops.findIndex(stop => stop.layout ? state.view === 'custom' && stop.layout.id === state.layout : stop.view === state.view)
   // From a view outside the order the first view is next; from one that was left out (week_photo without photos) the one after it in the full order is.
-  for (let step = 1; step <= NEXT_VIEW_ORDER.length; step++) {
-    const candidate = NEXT_VIEW_ORDER[(index + step) % NEXT_VIEW_ORDER.length]!
-    if (order.includes(candidate)) return candidate
+  for (let step = 1; step <= stops.length; step++) {
+    const stop = stops[(index + step) % stops.length]!
+    if (available(stop)) return { view: stop.view, layout: stop.layout ? stop.layout.id : state.layout }
   }
-  return order[0]!
+  return { view: stops[0]!.view, layout: state.layout }
+}
+
+/** `set_view`. The custom view shows the layout the display last had if it is still there, else the first layout, and with no layouts at all it changes nothing. */
+function setView(state: DisplayState, view: View, ctx: ControlContext): DisplayState {
+  if (view !== 'custom') return { ...state, view }
+  const layout = layoutOf(state, ctx) ?? ctx.layouts[0]
+  return layout ? { ...state, view, layout: layout.id } : state
 }
 
 /** Where a `set_month` command points, before the clamp. */
@@ -59,18 +86,16 @@ function targetMonth(state: DisplayState, month: Extract<Command, { type: 'set_m
 }
 
 function setMonth(state: DisplayState, month: Extract<Command, { type: 'set_month' }>['month'], ctx: ControlContext): DisplayState {
+  // A custom layout with a month in it follows the pinned month, so it stays up; any other view gives way to the month view.
+  const view = viewShowsMonth(state.view, layoutOf(state, ctx)) ? state.view : 'month'
   const current = currentMonth(ctx.now, ctx.timeZone)
   const target = targetMonth(state, month, current)
   const clamped = addMonths(current, Math.max(-MONTH_RANGE, Math.min(MONTH_RANGE, monthDiff(current, target))))
-  // A month only means something in the month view, so asking for one shows it.
+  // A month only means something in a view that shows one, so asking for one shows it.
   // Every pick of another month restarts the return clock, even the same one again: someone is browsing.
   return clamped === current
-    ? { ...state, view: 'month', month: null, month_set_at: null }
-    : { ...state, view: 'month', month: clamped, month_set_at: ctx.now.toISOString() }
-}
-
-function isWeekView(view: View): boolean {
-  return (WEEK_VIEWS as readonly View[]).includes(view)
+    ? { ...state, view, month: null, month_set_at: null }
+    : { ...state, view, month: clamped, month_set_at: ctx.now.toISOString() }
 }
 
 /** Where a `set_week` command points, before the clamp. */
@@ -87,9 +112,9 @@ function setWeek(state: DisplayState, week: Extract<Command, { type: 'set_week' 
   const current = currentWeek(ctx.now, ctx.timeZone, ctx.weekStart)
   const target = targetWeek(state, week, current, ctx)
   const clamped = addWeeks(current, Math.max(-WEEK_RANGE, Math.min(WEEK_RANGE, weekDiff(current, target))))
-  // A week only means something in a week view, so asking for one shows it, unless a view that follows it is already up.
+  // A week only means something in a week view, so asking for one shows it, unless a view that follows it is already up (a custom layout with a week counts).
   // Every pick restarts the return clock, even the same week again: someone is browsing.
-  const view = isWeekView(state.view) ? state.view : 'week'
+  const view = viewShowsWeek(state.view, layoutOf(state, ctx)) ? state.view : 'week'
   return clamped === current
     ? { ...state, view, week: null, week_set_at: null }
     : { ...state, view, week: clamped, week_set_at: ctx.now.toISOString() }
@@ -105,41 +130,52 @@ export function reduceCommand(state: DisplayState, command: ControlCommand, ctx:
   return expireState(releaseSchedule(rememberView(state, apply(state, command, ctx))), ctx)
 }
 
+/** Whether `window` still holds the wall: the view is the one it put there and, for a custom view, so is the layout. */
+function holdsWall(state: DisplayState, window: NonNullable<DisplayState['schedule']>): boolean {
+  return window.view === state.view && (window.view !== 'custom' || window.layout === state.layout)
+}
+
 /**
- * Drops the schedule window once it no longer holds the wall: the view is not
- * the one it put there (someone, or a policy, changed it), or its schedule has
- * been turned off. Its end then changes nothing, so a manual choice lasts
- * until the next rule boundary. Done for every command, like `rememberView`.
+ * Drops the schedule window once it no longer holds the wall: the view (or, for
+ * a custom view, the layout) is not the one it put there because someone, or a
+ * policy, changed it, or its schedule has been turned off. Its end then changes
+ * nothing, so a manual choice lasts until the next rule boundary. Done for
+ * every command, like `rememberView`.
  */
 function releaseSchedule(state: DisplayState): DisplayState {
   const window = state.schedule
   if (window === null) return state
-  return window.view !== state.view || state.schedules_off.includes(window.schedule) ? { ...state, schedule: null } : state
+  return !holdsWall(state, window) || state.schedules_off.includes(window.schedule) ? { ...state, schedule: null } : state
 }
 
 /**
- * A schedule window starting: the wall shows the rule's view, and the window
- * remembers where to go back to. A wall already on that view, with no window
- * in charge, is left alone (someone chose it) and nothing is remembered. When
- * another window is still in charge, the new one takes over its return view,
- * so overlapping or back-to-back windows end on the view from before the first.
+ * A schedule window starting: the wall shows the rule's view (and, for a custom
+ * view, its layout), and the window remembers where to go back to. A wall
+ * already on that view and layout, with no window in charge, is left alone
+ * (someone chose it) and nothing is remembered. When another window is still in
+ * charge, the new one takes over its return view and layout, so overlapping or
+ * back-to-back windows end on what was up before the first. A custom rule whose
+ * layout is not in the library starts nothing.
  */
-function startSchedule(state: DisplayState, command: Extract<ScheduleCommand, { type: 'schedule_start' }>): DisplayState {
+function startSchedule(state: DisplayState, command: Extract<ScheduleCommand, { type: 'schedule_start' }>, ctx: ControlContext): DisplayState {
   if (state.schedules_off.includes(command.schedule)) return state
-  const held = state.schedule !== null && state.schedule.view === state.view ? state.schedule : null
-  if (held === null && state.view === command.view) return state
+  const layout = command.view === 'custom' ? (command.layout ?? null) : null
+  if (command.view === 'custom' && !ctx.layouts.some(known => known.id === layout)) return state
+  const held = state.schedule !== null && holdsWall(state, state.schedule) ? state.schedule : null
+  if (held === null && state.view === command.view && (layout === null || state.layout === layout)) return state
   return {
     ...state,
     view: command.view,
-    schedule: { schedule: command.schedule, rule: command.rule, view: command.view, return_view: held?.return_view ?? state.view },
+    layout: layout ?? state.layout,
+    schedule: { schedule: command.schedule, rule: command.rule, view: command.view, return_view: held?.return_view ?? state.view, layout, return_layout: held ? held.return_layout : state.layout },
   }
 }
 
-/** A schedule window ending: back to the view from before it, but only if that window still holds the wall. */
+/** A schedule window ending: back to the view and layout from before it, but only if that window still holds the wall. */
 function endSchedule(state: DisplayState, command: Extract<ScheduleCommand, { type: 'schedule_end' }>): DisplayState {
   const window = state.schedule
   if (window === null || window.schedule !== command.schedule || window.rule !== command.rule) return state
-  return window.view === state.view ? { ...state, view: window.return_view, schedule: null } : { ...state, schedule: null }
+  return holdsWall(state, window) ? { ...state, view: window.return_view, layout: window.return_layout, schedule: null } : { ...state, schedule: null }
 }
 
 /** `schedules_off` with `id` added or removed, sorted so equal sets compare equal. */
@@ -161,8 +197,8 @@ function rememberView(before: DisplayState, after: DisplayState): DisplayState {
 
 function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext): DisplayState {
   switch (command.type) {
-    case 'set_view': return { ...state, view: command.view }
-    case 'next_view': return { ...state, view: viewAfter(state.view, ctx.photosConfigured) }
+    case 'set_view': return setView(state, command.view, ctx)
+    case 'next_view': return { ...state, ...viewAfter(state, ctx) }
     case 'toggle_photo': return { ...state, view: state.view === 'photo' ? state.last_calendar_view : 'photo' }
     case 'set_month': return setMonth(state, command.month, ctx)
     case 'set_week': return setWeek(state, command.week, ctx)
@@ -173,7 +209,9 @@ function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext
     case 'set_auto_brightness': return { ...state, auto_brightness: command.auto_brightness }
     // Turning a schedule off leaves the wall as it is; `releaseSchedule` forgets its window.
     case 'set_schedule': return { ...state, schedules_off: scheduleSwitched(state.schedules_off, command.schedule, command.on) }
-    case 'schedule_start': return startSchedule(state, command)
+    // The service refuses an id that is not in the library before it gets here; if one does arrive, nothing changes.
+    case 'set_layout': return ctx.layouts.some(layout => layout.id === command.layout) ? { ...state, view: 'custom', layout: command.layout } : state
+    case 'schedule_start': return startSchedule(state, command, ctx)
     case 'schedule_end': return endSchedule(state, command)
     case 'set_overlay': {
       const { overlay } = command
@@ -192,6 +230,18 @@ function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext
   }
 }
 
+/**
+ * Forgets a `layout` that is not in the library any more, and puts the month view
+ * in place of a custom view that has no layout to show. The schedule window goes
+ * with it, as it no longer holds the wall.
+ */
+function dropDeadLayout(state: DisplayState, ctx: ControlContext): DisplayState {
+  if (layoutOf(state, ctx) !== undefined) return state
+  if (state.view !== 'custom' && state.layout === null) return state
+  const next = state.view === 'custom' ? { ...state, view: 'month' as const, layout: null } : { ...state, layout: null }
+  return releaseSchedule(next)
+}
+
 /** When the pinned month goes back to following the current one, or null if nothing is pinned. */
 function monthReturnsAt(state: DisplayState, ctx: ControlContext): Date | null {
   if (state.month === null || state.month_set_at === null) return null
@@ -206,10 +256,14 @@ function weekReturnsAt(state: DisplayState, ctx: ControlContext): Date | null {
 
 /**
  * Applies the rules that depend on time and on the view:
- * - a pinned month goes when the view is not `month`, after `month_return_minutes`,
+ * - a layout that is no longer in the library is forgotten, and a custom view
+ *   showing it (or no layout at all) becomes the month view, so a deleted layout
+ *   never leaves the wall blank, however the view came to be custom again;
+ * - a pinned month goes when the view does not show a month (`month`, or a custom
+ *   layout with a month in it), after `month_return_minutes`,
  *   when it has become the current month (the calendar rolled over) and when it
  *   has fallen out of the 12-month range;
- * - a pinned week goes when the view is not a week view, after
+ * - a pinned week goes when the view does not show a week, after
  *   `month_return_minutes` (one setting for months and weeks), when it has
  *   become the current week and when it is more than 52 weeks out; if the
  *   display's week start changed, it is moved to the first day of its week;
@@ -219,14 +273,15 @@ function weekReturnsAt(state: DisplayState, ctx: ControlContext): Date | null {
  * Returns the same object when nothing changed, so a caller can skip a write.
  */
 export function expireState(state: DisplayState, ctx: ControlContext): DisplayState {
-  let next = state
+  let next = dropDeadLayout(state, ctx)
+  const layout = layoutOf(next, ctx)
 
   if (state.month === null) {
     if (state.month_set_at !== null) next = { ...next, month_set_at: null }
   } else {
     const returnsAt = monthReturnsAt(state, ctx)
     const current = currentMonth(ctx.now, ctx.timeZone)
-    const stale = state.view !== 'month'
+    const stale = !viewShowsMonth(next.view, layout)
       // Without a time to count from, nothing would ever send it back.
       || returnsAt === null
       || ctx.now.getTime() >= returnsAt.getTime()
@@ -242,7 +297,7 @@ export function expireState(state: DisplayState, ctx: ControlContext): DisplaySt
     const current = currentWeek(ctx.now, ctx.timeZone, ctx.weekStart)
     // The week start is a setting that can change: keep the pin on a first day.
     const week = firstDayOfWeek(state.week, ctx.weekStart)
-    const stale = !isWeekView(state.view)
+    const stale = !viewShowsWeek(next.view, layout)
       || returnsAt === null
       || ctx.now.getTime() >= returnsAt.getTime()
       || week === current

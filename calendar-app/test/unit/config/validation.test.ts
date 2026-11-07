@@ -600,6 +600,30 @@ describe('schedules', () => {
     expect((await load({ config: raw })).config.displays[0]!.schedules[0]!.rules[0]!.view).toBe('photo')
   })
 
+  it('takes a custom rule with the id of a layout', async () => {
+    const [only] = await schedulesOf([schedule({ rules: [rule({ view: 'custom', layout: 'kitchen' })] })])
+
+    expect(only!.rules[0]).toMatchObject({ view: 'custom', layout: 'kitchen' })
+  })
+
+  it('refuses a custom rule without a layout, naming the rule', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ view: 'custom' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].layout: is missing')
+  })
+
+  it('refuses a layout on a rule for any other view', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ view: 'agenda', layout: 'kitchen' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].layout: is set, but the view is agenda')
+  })
+
+  it('refuses a layout that is not an id', async () => {
+    const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ view: 'custom', layout: 'Kitchen Board' })] })] })
+
+    expect(message).toContain('displays[0].schedules[0].rules[0].layout')
+  })
+
   it('refuses a view that does not exist', async () => {
     const message = await messageFor((c) => { c.displays[0].schedules = [schedule({ rules: [rule({ view: 'clock' })] })] })
 

@@ -3,7 +3,7 @@ import { hasPortraitLayout, LANDSCAPE_PHOTO_PANE_WIDTH, PORTRAIT_PHOTO_PANE_HEIG
 
 describe('the views with a portrait layout', () => {
   it('are all of them: the night, agenda, photo, month, week, week by part of day and week and photo views', () => {
-    expect([...PORTRAIT_VIEWS].sort()).toEqual(['agenda', 'month', 'night', 'photo', 'week', 'week_parts', 'week_photo'])
+    expect([...PORTRAIT_VIEWS].sort()).toEqual(['agenda', 'custom', 'month', 'night', 'photo', 'week', 'week_parts', 'week_photo'])
     expect(hasPortraitLayout('week')).toBe(true)
     expect(hasPortraitLayout('week_parts')).toBe(true)
     expect(hasPortraitLayout('week_photo')).toBe(true)

@@ -1,5 +1,6 @@
 import { commandSchema } from '../../../../shared/display'
 import type { DisplayState } from '../../../../shared/display'
+import { UnknownLayoutError } from '../../../control/service'
 import { getScene } from '../../../special-days/scenes'
 import { getSpecialDay } from '../../../special-days/store'
 
@@ -30,5 +31,11 @@ export default defineEventHandler(async (event): Promise<DisplayState> => {
     throw createError({ statusCode: 404, statusMessage: 'Not Found', message: `Display "${id}" has no schedule "${command.schedule}"` })
   }
 
-  return control.applyCommand(id, command)
+  try {
+    return control.applyCommand(id, command)
+  } catch (error) {
+    // The library can change between a check and the command, so the service has the last word.
+    if (error instanceof UnknownLayoutError) throw createError({ statusCode: 404, statusMessage: 'Not Found', message: error.message })
+    throw error
+  }
 })

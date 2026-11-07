@@ -177,7 +177,7 @@ Config is checked when the app starts, and unknown keys are errors, so a typo st
 
 ### 4.1 Views
 
-Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`, `week_parts`) and `night` use a plain themed background. **Photo frame** (`photo`) is its own mode and, with the week and photo hybrid (`week_photo`), which has a pane for it, is the only place photos appear. The one exception is a special day's takeover art (see §6.3), which is illustration made for the palette, not a photo.
+Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`, `week_parts`) and `night` use a plain themed background. **Photo frame** (`photo`) is its own mode and, with the week and photo hybrid (`week_photo`), which has a pane for it, is the only place photos appear, apart from the photo pane a custom layout can have (`custom`, §4.8). The one exception is a special day's takeover art (see §6.3), which is illustration made for the palette, not a photo.
 
 | View | Group | Contents |
 |---|---|---|
@@ -187,9 +187,10 @@ Views fall into two groups. The **calendar views** (`agenda`, `month`, `week`, `
 | `agenda` | Calendar | Today and tomorrow in large type. The default for mornings. |
 | `photo` | Photo frame | Fullscreen rotating photos with a small clock and a "next event" chip. No calendar grid. |
 | `week_photo` | Hybrid | The photo frame and the week side by side: a photo pane with a compact pill (no next-event chip) and the week in its narrow layout under a short title. See §4.6. |
+| `custom` | Hybrid | A user-defined layout: the views above (month, week, week by part of day, agenda, photo frame) arranged into rows and panes, from a shared library edited on the settings page and the remote. See §4.8. |
 | `night` | Ambient | A very dim clock on pure black, whatever the theme. Used when the room is dark but you want the screen on. A line under the clock is set per display with `night_text`: nothing (`none`, the default), the first timed event in the next 24 hours (`first_event`), or the next alarm (`next_alarm`, read from Home Assistant, see §7.4). |
 
-Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show, which month the month view shows and which week the week view shows. The page never decides for itself.
+Views are plain front-end routes inside one page (`/display`). The server tells the page which view to show, which month the month view shows, which week the week view shows and, for `custom`, which layout. The page never decides for itself.
 
 ### 4.2 Rendering
 
@@ -292,7 +293,7 @@ The layout is a pure function in `shared/week-parts-layout.ts`: given the week, 
 
 ### 4.6 Portrait
 
-A display can be portrait (1440×2560) as well as landscape (2560×1440). The `orientation` preference (`auto`, `landscape`, `portrait`) chooses the stage (PR 5.10, §4.2). Type sizes, radii and badge sizes are the same px as landscape, because a rotated panel is viewed from the same distance; only the layout changes. A view without a portrait layout would be drawn on the landscape stage and letterboxed, but every view has one now: the night view since PR 5.10, the agenda and the photo frame since PR 5.11, the month since PR 5.12, the week since PR 5.13, the week by part of day, which shares the week's stacked head and has taller rows, with PR 5.16, and the week and photo hybrid with PR 5.14. The letterbox stays for views added later. A Pi kiosk on a portrait-mounted panel turns its output with `setup.sh --rotate` (`kiosk/README.md`), and the page's `auto` then sees a portrait window. The mocks are 4a to 4r (§4.3), with pictures in [`docs/design/mocks/`](design/mocks/).
+A display can be portrait (1440×2560) as well as landscape (2560×1440). The `orientation` preference (`auto`, `landscape`, `portrait`) chooses the stage (PR 5.10, §4.2). Type sizes, radii and badge sizes are the same px as landscape, because a rotated panel is viewed from the same distance; only the layout changes. A view without a portrait layout would be drawn on the landscape stage and letterboxed, but every view has one now: the night view since PR 5.10, the agenda and the photo frame since PR 5.11, the month since PR 5.12, the week since PR 5.13, the week by part of day, which shares the week's stacked head and has taller rows, with PR 5.16, and the week and photo hybrid with PR 5.14. A custom layout (PR 5.17) has a portrait arrangement of its own (§4.8). The letterbox stays for views added later. A Pi kiosk on a portrait-mounted panel turns its output with `setup.sh --rotate` (`kiosk/README.md`), and the page's `auto` then sees a portrait window. The mocks are 4a to 4r (§4.3), with pictures in [`docs/design/mocks/`](design/mocks/).
 
 | View | Portrait layout | Mock |
 |---|---|---|
@@ -302,6 +303,7 @@ A display can be portrait (1440×2560) as well as landscape (2560×1440). The `o
 | `agenda` | Today's sage card (about 60% of the height, with the clock in its header) is stacked above tomorrow's tile. Rows, badges and the now marker are unchanged from landscape. | [4e](design/mocks/4e.png), [4f](design/mocks/4f.png) |
 | `photo` | Photos are rendered at 1440×2560. A portrait photo fills the screen; a landscape one is fitted over its blurred copy. The pill is unchanged and still walks the four corners. | [4g](design/mocks/4g.jpg), [4h](design/mocks/4h.jpg) |
 | `week_photo` | The photo pane across the top and the week below it. See Hybrid views, below. | [4k](design/mocks/4k.jpg), [4l](design/mocks/4l.jpg) |
+| `custom` | The layout's portrait arrangement, edited independently of its landscape one. See §4.8. | none |
 | `night` | The same block on the portrait stage (PR 5.10). It drifts across a taller area. | [4i](design/mocks/4i.png) |
 | Special days | A takeover changes the palette and shows the greeting at the top of the today band. The 2560×1440 full-screen art is not shown in portrait; the day's or scene's 1440×2560 portrait art is (PR 5.11a), and a day with none shows the palette, greeting and tile art only. Tile tints and tile art are as in landscape; in the week view the tint is lighter (16%) because the tiles are full height. | [4j](design/mocks/4j.png) |
 
@@ -312,7 +314,7 @@ A display can be portrait (1440×2560) as well as landscape (2560×1440). The `o
   - **Compact pill.** The pill is smaller than the photo frame's (a 96 px clock, 54 px weather text, 48 px from the pane's corner) and has no next-event chip, because the week beside it already shows what is next. It still walks the corners of its pane with burn-in shifting, and the offline badge moves to the left when the pill is top right and its pane touches the stage's top right corner (the photo view, or this view on the portrait stage). An empty pool shows a smaller "No photos yet" in the pane.
   - **The week pane.** It always uses the week's narrow seven-column layout (stacked heads, two tracks), in both stages. The title is short: the range as `26 Oct – 1 Nov` (`2 – 8 Nov` within a month, `28 Dec – 3 Jan` across a year) with a muted label beside it, `This week`, `Next week` or `Last week`, and otherwise the year of the week's first day. The week pinned with `set_week` is the one shown, and a takeover's palette and greeting apply to the week pane; the photo pane is never taken over.
   - **Controls.** `set_week` keeps the view on `week_photo` (it is one of `WEEK_VIEWS`), so the remote's week picker shows. `next_view` includes it, last, but skips it when no photo source is set up, since its photo pane would be empty; `set_view` to it is still allowed, as for `photo`. `toggle_photo` goes from it to the photo frame and back, as from any calendar view, and a schedule rule for it needs the `photos` block.
-- **`month_week`** (PR 5.15): a compact month across the top 1000 px (title, weekday header, five rows of tiles with the date, today highlight, special day tint and art, and one 16 px dot per person, in calendar order), and the week below. In landscape: the compact month on the left (980 px) in place of the side panel. ([4m](design/mocks/4m.png), [4n](design/mocks/4n.png), [4p](design/mocks/4p.png))
+- **`month_week`** (PR 5.15, not built; better done as a compact-month component that custom layouts place, §4.8, than as another fixed hybrid): a compact month across the top 1000 px (title, weekday header, five rows of tiles with the date, today highlight, special day tint and art, and one 16 px dot per person, in calendar order), and the week below. In landscape: the compact month on the left (980 px) in place of the side panel. ([4m](design/mocks/4m.png), [4n](design/mocks/4n.png), [4p](design/mocks/4p.png))
 
 **Not adopted (explored).** Both are candidates for later views, not part of PRs 5.10 to 5.15.
 
@@ -322,6 +324,42 @@ A display can be portrait (1440×2560) as well as landscape (2560×1440). The `o
 ### 4.7 Later option: photo behind the calendar
 
 Not planned for the first release. If it's added, it should be opt-in per view and keep readability first: calendar panels sit on a heavily blurred, darkened layer, with an automatic contrast check that falls back to the plain background if a photo is too bright or busy. Photo frame mode stays the main way to show photos.
+
+### 4.8 Custom layouts
+
+The `custom` view (PR 5.17) shows a **layout**: the existing view components arranged into rows and panes. It exists so that a wall can have, say, a photo beside the week above an agenda, without a new fixed hybrid for every combination (`week_photo` is one such layout, built by hand). The components are the same Vue components the full-screen views use (`MonthSoftView`, `WeekView`, `WeekPartsView`, `AgendaView` and `PhotoView`), not copies, so an improvement to one carries over to every layout.
+
+**The model** (`shared/layouts.ts`, pure, so the server, the display and both editors share it).
+
+- **A shared library.** Layouts are stored in SQLite (`custom_layouts`) and any display can show any layout. A layout has an `id` (a slug of its name, shaped like a schedule's id, and the thing `config.yaml` names), a `name` (1 to 60 characters, unique without regard to case, because Home Assistant's select uses names as its options) and two arrangements.
+- **Two arrangements.** `landscape` and `portrait` are edited independently, and the display uses the one for its stage. A new layout's portrait arrangement starts as the landscape one turned on its side (`transposeArrangement`: a single row of panes becomes a column of rows, a column becomes one row, and a grid takes the j-th pane of every row as the j-th portrait row), so `[photo | week]` becomes the photo above the week, as `week_photo` does.
+- **Rows of panes.** An arrangement is 1 to 4 rows, each of 1 to 4 panes. A row's `size` is its share of the stage's height against the other rows, and a pane's `size` its share of the row's width against its neighbours. Both are whole-number weights from 1 to 4.
+- **Each component once.** A pane holds one of `month`, `week`, `week_parts`, `agenda` or `photo`, and no component is used twice in an arrangement. Both arrangements hold exactly the same set of components, so the server can say whether a layout shows a week or photos without knowing which way up the device is. The zod schemas (`customLayoutInputSchema`, `customLayoutSchema`) enforce all of this, and so does the API.
+- **What the server keeps of a layout.** The control service only needs `LayoutSummary` (`id`, `name`, `components`). `layoutShowsWeek` (week or week by part of day), `layoutShowsMonth`, `layoutShowsPhotos` and `layoutShowsCalendar` (any component but the photo) answer the questions the rest of the app asks, and `viewShowsWeek`, `viewShowsMonth` and `viewShowsPhotos` extend the built-in views' lists (`WEEK_VIEWS` and the photo views) to `custom` with such a layout.
+
+**The editor's rules** (`app/utils/layoutEditor.ts`, pure and always returning a valid input). Components are switched on and off with chips: a new one goes at the end of the last row of each arrangement if that row has room, otherwise in a new row, and the last component cannot be removed. In either arrangement a selected pane moves left, right, up or down (up and down put it at the end of the neighbouring row, making a new row at the top or bottom if there is none and the limit allows), a pane or a row is made wider or narrower, taller or shorter by one step, and a row moves up or down. "Start again from landscape" on the portrait side replaces the portrait arrangement with the transposed landscape one. The photo chip is disabled and marked "Not set up" when no photo source is configured, unless the layout already has a photo pane. There is no drag and drop: the editor works with buttons so that it is usable on a phone.
+
+**How it is drawn** (`CustomLayoutView.vue`, with the geometry in `app/utils/layouts.ts`, pure).
+
+- **Pane boxes.** `layoutPanes(arrangement, stage)` splits the stage height between the rows and each row's width between its panes by their weights, in whole pixels, with the last row and pane taking the remainder so everything tiles exactly. There are no gaps, because the views have their own padding. Each box also records which of its corners are rounded: a corner is square only when both its edges lie on the stage's border. Only the photo pane uses this: it gets 64 px inner corners, as `week_photo`'s does, so a photo above the week has its lower corners rounded.
+- **Scale to fit.** A view has a design minimum below which it would clip or overflow (`COMPONENT_MINIMUMS`, found by rendering them, in px):
+
+  | Component | Landscape | Portrait |
+  |---|---|---|
+  | `month` | 2200×1300 | 1300×2300 |
+  | `week` | 1800×1000 | 1000×1200 |
+  | `week_parts` | 1700×1000 | 1100×1400 |
+  | `agenda` | 2400×1350 | 1300×2300 |
+  | `photo` | none | none |
+
+  `paneFit(component, box)` gives the virtual stage the component is laid out on and a scale. A box at least as big as the minimum is drawn at its real size (scale 1). A smaller one is drawn on a stage of the box's shape that is just big enough (`scale = min(1, width / min width, height / min height)`, stage = box ÷ scale) and shrunk with a CSS transform, so nothing overflows. The photo has no minimum and draws to any box.
+- **Which layout orientation a component uses.** The `portrait` layout when the pane is taller than it is wide, otherwise `landscape`. The exception is the week, which uses its narrow seven-column layout whenever the pane is under 1800 px wide (`WEEK_WIDE_MIN_WIDTH`), as `week_photo`'s 1460 px pane does.
+- **`pane`.** Each view is given its virtual stage and `pane: true` in `ViewProps`, except when the layout is a single pane filling the stage, which is the full view and not a pane of one.
+- **Takeovers.** A special day's takeover (§6.3) applies to a custom layout when it shows any calendar component (`layoutShowsCalendar`), and its palette and greeting reach every calendar pane. The photo pane is never taken over: it covers its pane, as in `week_photo`.
+- **The photo pane.** It asks for the rendition of its own shape, as in `week_photo` (§4.6): `portrait` when the pane is taller than it is wide, otherwise `landscape`. It shows the `--tile` colour until the first photo has loaded, and has the compact pill without the next-event chip. Rotation and Next photo are the photo frame's (§5.1) and run while the layout has a photo pane.
+- **Offline badge.** The badge is top right, which the pill may also want. It moves to the left when the layout's photo pane touches the stage's top right corner and the pill is in the pane's top right corner (`photoPillAtTopRight`).
+- **No layout.** A `custom` view whose layout is not chosen, has been deleted or has not arrived yet shows a quiet centred "No layout" in the display face. The server never leaves a display like that for long: a deleted layout is replaced by the month view (§7.1).
+- **Offline.** The display keeps the library with the rest of its last-known state in `localStorage` (§4.2), so a reload while the server is down still draws the layout. A cache from before PR 5.17 has no layouts and loads with none.
 
 ## 5. Photo frame mode
 
@@ -515,20 +553,25 @@ The app holds one state document per display (multiple displays are supported vi
   "schedules_off": [],
   "schedule": null,
   "overlay": null,
-  "preview": null
+  "preview": null,
+  "layout": null
 }
 ```
 
 - `month` is `null` when the month view follows the current month, which is the normal case. Otherwise it is a pinned month such as `"2026-12"`, limited to 12 months either side of today. A pinned month goes back to `null` when the view changes away from `month`, when someone picks the current month, and after `month_return_minutes` with no month change (default 15, set per display). So the wall never stays stuck on another month.
 - `month_set_at` is the time (an ISO 8601 instant) the pinned month was last set. `month_return_minutes` counts from it, and it is `null` whenever `month` is. Every `set_month` that pins a month restarts the count, even for the month already shown. `set_month` also switches the view to `month`, since a month only means something there.
-- `week` is the same for the weeks: `null` when the week view follows the current week, otherwise the first day of a pinned week as `YYYY-MM-DD` (a Monday, or a Sunday if the display's `week_start` is `sunday`), limited to 52 weeks either side of the current one. `set_week` takes any real date, which it moves to the first day of its week, or `current`, `prev` or `next`. The pin goes back to `null` when the view is not one that shows a week (`WEEK_VIEWS` in `shared/display.ts`: `week`, `week_parts` and `week_photo`), when someone picks the current week, and after `month_return_minutes` (one setting for a browsed month or week). A change of `week_start` on the settings page moves a pinned week to the first day of its week at once. `set_week` switches the view to `week` unless the view is already one of `WEEK_VIEWS`.
+- `week` is the same for the weeks: `null` when the week view follows the current week, otherwise the first day of a pinned week as `YYYY-MM-DD` (a Monday, or a Sunday if the display's `week_start` is `sunday`), limited to 52 weeks either side of the current one. `set_week` takes any real date, which it moves to the first day of its week, or `current`, `prev` or `next`. The pin goes back to `null` when the view is not one that shows a week (`WEEK_VIEWS` in `shared/display.ts`: `week`, `week_parts` and `week_photo`, or `custom` with a layout that has a week or a week by part of day pane), when someone picks the current week, and after `month_return_minutes` (one setting for a browsed month or week). A change of `week_start` on the settings page moves a pinned week to the first day of its week at once. `set_week` switches the view to `week` unless the view is already one of `WEEK_VIEWS` or a custom layout with a week. The same goes for the month: a pinned month is kept while the view is `month` or a custom layout with a month pane, and `set_month` keeps such a layout up instead of switching to `month`. Pins are kept in a custom layout because the month and week panes follow them.
 - `week_set_at` is to `week` what `month_set_at` is to `month`: the instant the pinned week was last set, `null` whenever `week` is, and restarted by every `set_week` that pins a week.
-- `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
+- `layout` is the id of the custom layout the `custom` view shows, or `null`. It is **sticky**: it stays when the view changes away from `custom`, so `toggle_photo`, or the end of a schedule window, coming back to `custom` shows the same layout. `set_layout` (`{ "type": "set_layout", "layout": "kitchen" }`) puts the layout on the wall, which makes the view `custom`; an id that is not in the library is refused (a 404 on the HTTP API, logged on MQTT). `set_view` to `custom` shows the layout the display last had if it is still there, otherwise the first layout by name, and does nothing when there are no layouts. A state stored before the field existed gets `null`.
+- `last_calendar_view` is the last view that wasn't `photo` (`month` until there is one). The command handler keeps it, whichever input changed the view, and `toggle_photo` uses it: from any other view it goes to `photo`, and from `photo` it goes back to `last_calendar_view`. `custom` can be `last_calendar_view`, and then comes back with the display's `layout`. `toggle_photo` is the button's double press (`button.double`, §7.4), so it has no MQTT topic. A state stored before the field existed gets `month`.
 - `schedules_off` lists the ids of the display's schedules that are turned off (§7.8), sorted. It is empty when every schedule is on. A state stored before the field existed gets `[]`.
-- `schedule` is `null` unless a schedule window is in charge of the view. Then it is `{ "schedule": "mornings", "rule": 0, "view": "agenda", "return_view": "month" }`: the schedule's id, the index of its rule, the view the window put on the wall and the view to go back to at its end. The command handler drops it as soon as the view is anything but `view`, or the schedule is turned off (§7.8). A state stored before the field existed gets `null`.
+- `schedule` is `null` unless a schedule window is in charge of the view. Then it is `{ "schedule": "mornings", "rule": 0, "view": "agenda", "return_view": "month", "layout": null, "return_layout": null }`: the schedule's id, the index of its rule, the view the window put on the wall and the view to go back to at its end. For a custom view, `layout` is the layout the rule put up and `return_layout` the state's `layout` from before the window, which the end puts back. The command handler drops it as soon as the view is anything but `view` (or, for a custom view, the layout is anything but `layout`), or the schedule is turned off (§7.8). A state stored before the field existed gets `null`.
 - `overlay` is `null` when no message is shown. Otherwise it is `{ "text", "icon", "until" }`, where `until` (an ISO 8601 instant, or `null` to stay until cleared) is worked out from the command's `ttl`. The server clears the overlay when `until` passes, like any other change, so the display, the remote page and HA all see it go. HA gets the text on `overlay/state`, and an empty payload once it has gone.
+- A `layout` that is no longer in the library (deleted, or unknown) is set to `null` the next time the state settles, and if the view was `custom` it becomes `month`, so a deleted layout never leaves the wall blank. Editing a layout needs nothing: the display redraws from `layouts.updated` (§7.6). The same rule catches a `last_calendar_view` or a schedule's `return_view` of `custom` that comes back with a layout that has since gone.
 - `preview` is set while a special day preview runs (`{ "special_day": "christmas", "until": "…" }`, or `{ "scene": "birthday", "until": "…" }` for a scene) and clears itself when it ends (§6.5).
 - Per-display settings that rarely change, such as `theme` (`light` | `dark`), `month_style` (`soft` | `classic`), `month_return_minutes`, `week_hours`, `day_parts`, `burn_in` (on by default) and `night_text` (`none` | `first_event` | `next_alarm`), are not in this state. They come from config, and the settings page's Displays tab can change them while the app runs, as preferences stored on top of the config (§7.6).
+
+`next_view` goes round the built-in views in a fixed order, then through the custom layouts by name (`custom` with each layout in turn), then back to the first. It leaves out `week_photo`, and any layout with a photo pane, when no photo source is set up. With no layouts it behaves as before.
 
 Every input changes this state through the same command handler. Every change is broadcast to the display (WebSocket), to the remote page (WebSocket) and to HA (MQTT state topics). This keeps all inputs in sync.
 
@@ -550,8 +593,10 @@ The base is `wallcal/<display_id>/`.
 
 | Topic | Direction | Payload |
 |---|---|---|
-| `…/view/set` | → app | `month` \| `week` \| `week_parts` \| `week_photo` \| `agenda` \| `photo` \| `night` \| `next` |
+| `…/view/set` | → app | `month` \| `week` \| `week_parts` \| `week_photo` \| `agenda` \| `photo` \| `night` \| `custom` \| `next` |
 | `…/view/state` | app → | current view (retained) |
+| `…/layout/set` | → app | a custom layout's id or its exact name (which is what Home Assistant's Layout select sends). It shows that layout. A payload that names no layout is ignored and logged. |
+| `…/layout/state` | app → | the name of the layout in the state's `layout`, or empty when there is none (retained). It stays while the view is something else, and is published even when there are no layouts. |
 | `…/month/set` | → app | `YYYY-MM` \| `current` \| `prev` \| `next` |
 | `…/month/state` | app → | the month the month view shows, as `YYYY-MM` (retained) |
 | `…/week/set` | → app | `YYYY-MM-DD` (any day of the wanted week) \| `current` \| `prev` \| `next` |
@@ -589,6 +634,7 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | Entity | Type |
 |---|---|
 | View | `select` |
+| Layout | `select`, whose options are the custom layouts' names, by name. Left out while there are no layouts (see below). |
 | Month shown | `sensor` (`YYYY-MM`) |
 | Previous month, Next month, This month | `button`s |
 | Week shown | `sensor` (`YYYY-MM-DD`, the week's first day) |
@@ -616,6 +662,8 @@ The app and the agent publish **MQTT discovery** configs, so HA creates two devi
 | CPU temperature, uptime | diagnostic sensors |
 
 Removing a schedule from the config leaves its switch in HA until you delete it there.
+
+The Layout select is the exception to that: Home Assistant rejects a select with no options, so while the library is empty the app publishes an empty retained config for it, which removes it, and publishes the config again as soon as there is a layout. Its options are the layouts' names, so they are the options of the select and what `layout/set` is sent. Whenever the layouts change (one added, renamed or deleted), the app republishes the discovery configs and `layout/state` for every display, so the options are never stale. The View select gains `custom`, which shows the layout the display last had.
 
 The app also reads HA's REST API, but only for `homeassistant` calendar sources. It also reads a `weather` entity for the weather shown in the month view's side panel, the agenda and the photo frame pill. The server polls it, keeps the last good snapshot and sends changes as `weather.updated`. Without one, those views leave the weather out.
 
@@ -688,9 +736,10 @@ Working versions with the generated entity IDs, broker setup and a dashboard are
 - **Header.** The display's name (for example "Hallway") and a connection pill: *Connected*, *Reconnecting* or *Offline*, from the WebSocket.
 - **Screen.** A card with a power icon, the state ("On" or "Off, panel in standby") and a toggle. While the screen is off, the controls below fade to half opacity but still work.
 - **On the wall.** Large tiles for Agenda, Month, Week and Day parts (`week_parts`) in a 2×2 grid, then a full-width Night tile, then the Photo frame and Week + photo (`week_photo`) tiles side by side (a lone one is full width). The Photo frame tile is active only on `photo`. The active view is filled with the accent colour.
-- **Month shown.** Only while Month is the active view. It has back and forward arrows and a dropdown of months, covering 12 months either side of the current one. A "Back to this month" link appears when another month is shown. These send `set_month` (§7.1).
-- **Week shown.** Only while the active view is one that shows a week (`WEEK_VIEWS`: Week, Day parts and Week + photo). The same card: back and forward arrows (disabled at 52 weeks either side) and a dropdown of weeks, each named as the week view titles it (for example "26 Oct to 1 Nov"). A "Back to this week" link appears when another week is shown. These send `set_week` (§7.1).
-- **Photos from.** A segmented control (Immich, Google, Folder) for `photo_source`, and a "Next photo" button that briefly reads "Skipped" (two seconds) to confirm. The server says which sources are set up (`photo_sources` in `GET /api/displays`, names only): the others are disabled and marked "Not set up", and the control shows the source the wall really uses, which is the first one that is set up when the display's own choice isn't. "Next photo" is off while the wall is on neither the photo frame nor the week and photo view, with a line saying so. With no source set up (no `photos` block) the Photo frame and Week + photo tiles and this section are left out, because the wall would have nothing to show; a tile stays, lit, if the wall is on its view anyway.
+- **Layouts.** Under the view tiles, one tile for each custom layout (a grid icon and the layout's name), lit when the view is `custom` and the state's `layout` is that one. A tap sends `set_layout`. A layout with a photo pane is left out when no photo source is set up, unless it is the one showing. An **Edit layouts** button opens a full-height sheet, which can be closed, with the layout editor in its phone form (§7.6): the list and the editor take turns instead of sitting side by side.
+- **Month shown.** Only while Month is the active view, or a custom layout with a month pane. It has back and forward arrows and a dropdown of months, covering 12 months either side of the current one. A "Back to this month" link appears when another month is shown. These send `set_month` (§7.1).
+- **Week shown.** Only while the active view is one that shows a week (`WEEK_VIEWS`: Week, Day parts and Week + photo, or a custom layout with a week or a day parts pane). The same card: back and forward arrows (disabled at 52 weeks either side) and a dropdown of weeks, each named as the week view titles it (for example "26 Oct to 1 Nov"). A "Back to this week" link appears when another week is shown. These send `set_week` (§7.1).
+- **Photos from.** A segmented control (Immich, Google, Folder) for `photo_source`, and a "Next photo" button that briefly reads "Skipped" (two seconds) to confirm. The server says which sources are set up (`photo_sources` in `GET /api/displays`, names only): the others are disabled and marked "Not set up", and the control shows the source the wall really uses, which is the first one that is set up when the display's own choice isn't. "Next photo" is off while the wall is on neither the photo frame, the week and photo view nor a custom layout with a photo pane, with a line saying so. With no source set up (no `photos` block) the Photo frame and Week + photo tiles and this section are left out, because the wall would have nothing to show; a tile stays, lit, if the wall is on its view anyway.
 - **More.** Brightness, Refresh calendars and a link to the settings pages (§7.6). These aren't in the mocks yet, so they sit in a plain section at the bottom until they are designed.
 
 It talks to the same command handler as MQTT, so it works even if HA is down. It's for the local network only. You can set an optional shared PIN (`remote.pin`, 4 to 12 digits, usually via `!secret`) in the config. The page learns from `GET /api/remote` whether one is needed, asks for it once and sends it as an `X-Wallcal-Pin` header on every write. The server checks it in one middleware (`server/middleware/pin.ts`) that covers every request under `/api/` except GET, HEAD and OPTIONS, so no write route can forget to, and it runs before the route, so an unauthenticated caller can't learn which displays exist. It answers 401 for a missing or wrong PIN, compares it in constant time, and answers 429 to an address that sends 10 wrong ones in 5 minutes (counted from the socket's address, not `X-Forwarded-For`, and reset by the right PIN or when the window ends). Reading state and the WebSocket (`/_ws`) stay open. Don't expose it to the internet. If you need remote access, use HA's existing remote access.
@@ -704,6 +753,7 @@ It talks to the same command handler as MQTT, so it works even if HA is down. It
 | Calendars | Each calendar with its default person, whether name detection is on, source type, last sync and last error. "Refresh now". A list of recent events that fell back to the default person, with their titles, so you can add a rule or an alias. |
 | Photos | Read-only: each photo source with its mode or folder, photo and cached counts, last listing and last error; the cache size against `cache_max_mb`; the interval and whether photos of the other shape are left out (`match_orientation`). "Refresh now" lists the sources again. The Google Photos picker flow (§5.3) is not built yet. |
 | Special days | The special days editor (below). |
+| Layouts | The custom layouts editor (below). |
 | Displays | Each display's live state and connection, an "Open on another device" panel (the link to the display on the address the page was opened on, and a QR code of it, dark on white in both themes), its preferences (editable), and the preferences every display shares (editable). "Republish discovery". Over plain HTTP to a host other than `localhost` the panel notes that installing needs HTTPS. |
 
 **Special days editor.** The left column has a **Days** / **Scenes** switch above its list.
@@ -725,6 +775,25 @@ On a day with a scene, each field shows the scene's value, marked "From Birthday
 
 A selected scene has the same art, lead, takeover, greeting and palette fields, without a date, plus the list of days that use it, each a link to that day. It has **Delete** (or **Copy into days and delete** when it is in use), **Duplicate**, **Preview on wall** and **Save**. Saving a scene says how many days it changes.
 
+**Layouts tab.** The shared library of custom layouts (§4.8), in the same two-column shape as the special days editor, and the same component as the remote's Edit layouts sheet. The list shows a proportional picture of each layout, its name and "Shown on Hallway" for the displays that are on it, with an **Add** button. A selected layout has:
+
+- its name, and its id (shown for use in `config.yaml` schedules, §7.8);
+- a chip for each component (Month, Week, Day parts, Agenda, Photo), to switch it on or off;
+- a **Landscape** / **Portrait** switch and a picture of that arrangement, where tapping a pane selects it. For the selected pane: move left, right, up or down, wider or narrower; for its row: taller or shorter, up or down. On the portrait side, **Start again from landscape** replaces it with the landscape arrangement turned on its side;
+- **Show on wall** (a display picker if there is more than one), **Duplicate** ("Copy of …"), **Delete** (with a confirmation) and **Save**.
+
+A refused save shows the server's reasons beside the fields they name. Everything that writes needs the PIN, like any write.
+
+**Layouts API.** `GET /api/layouts` is open, like the other reads, and answers with the whole library by name. The writes are behind the PIN middleware:
+
+- `POST /api/layouts` takes `{ name, landscape, portrait }` and answers 201 with the layout, whose `id` is a slug of the name. A name another layout already has (without regard to case) is a 409.
+- `PUT /api/layouts/:id` replaces the layout and keeps its id. An unknown id is a 404, and a name clash a 409.
+- `POST /api/layouts/:id/duplicate` answers 201 with a copy named "Copy of …".
+- `DELETE /api/layouts/:id` answers 204. An unknown id is a 404. If a schedule rule in `config.yaml` names the layout it is a 409 whose message names the display and the schedule, because the layout lives in SQLite and the schedule in the config, and this is the only place the two meet.
+- A body that fails validation (§4.8) is a 400 naming the field.
+
+After every successful write the server reloads the library and sends `layouts.updated` (`{ "type": "layouts.updated", "layouts": [ … ] }`, the whole library) to every socket: the displays redraw, the settings tab and the remote refresh, the control service settles every display (a deleted layout on the wall gives way to the month view, §7.1), the photo rotation timer is judged again (a photo pane may have been added or removed), and MQTT republishes the Layout select (§7.4). A new socket gets `layouts.updated` on connect, after the state, as it gets the special days.
+
 **Preferences.** The Displays tab edits the settings that are worth changing while the app runs, without touching `config.yaml`:
 
 - for each display: `theme`, `month_style`, `week_start`, `month_return_minutes`, `week_hours`, `day_parts`, `burn_in`, `night_text` and `orientation` (§4.2);
@@ -734,7 +803,7 @@ A saved change is stored in SQLite (`preference_overrides`, one row per display 
 
 Every preference takes effect at once, with no restart. The display's page gets its new settings over the socket (`settings.updated`) and redraws, so the theme, week start, week hours, burn-in shifting, night text and orientation change on the wall straight away. A new `month_return_minutes` counts from when the month was pinned, so a month pinned longer ago than the new limit goes back at once. A new photo interval restarts the wait on a display that is showing photos. A new `off_after_minutes` applies to a wait already running, counted from when the room went empty. The brightness settings apply from the next reading, and the policy keeps what it remembered, so a wall it put on the night view still comes back when the room is light. The default view is not a preference: the state is stored, so a display only starts from a default once, the first time.
 
-Sources and secrets stay in YAML, as do ids, people, calendars, schedules, the button and MQTT. Special days and scenes, and the preferences, are stored in SQLite and edited here. The PIN that protects the remote also protects every write route under `/api` used by the settings pages, uploads included (§7.5: one middleware guards every non-GET request there).
+Sources and secrets stay in YAML, as do ids, people, calendars, schedules, the button and MQTT. Special days and scenes, custom layouts and the preferences are stored in SQLite and edited here. The PIN that protects the remote also protects every write route under `/api` used by the settings pages, uploads included (§7.5: one middleware guards every non-GET request there).
 
 **Settings API.** The pages read five open routes, none of which carries a secret (no feed URL, Home Assistant URL or token, MQTT username or password, Immich API key or PIN), and use four writes. Their shapes are in `shared/settings.ts`:
 
@@ -795,13 +864,14 @@ displays:
           - { view: photo, from: "10:00", to: "16:00", days: weekdays }
 ```
 
-- **Config.** A schedule has an `id` (a slug, unique within the display), an optional `name` (the id if left out, and the name HA shows) and a list of `rules`. A rule has a `view` (`month`, `week`, `week_parts`, `week_photo`, `agenda`, `photo` or `night`), `from` and `to` as `"HH:MM"`, and `days`. A `photo` or `week_photo` rule needs the `photos` block, as everywhere else.
+- **Config.** A schedule has an `id` (a slug, unique within the display), an optional `name` (the id if left out, and the name HA shows) and a list of `rules`. A rule has a `view` (`month`, `week`, `week_parts`, `week_photo`, `agenda`, `photo`, `night` or `custom`), `from` and `to` as `"HH:MM"`, and `days`. A `photo` or `week_photo` rule needs the `photos` block, as everywhere else.
+- **Custom layouts.** A `custom` rule also needs a `layout`, the id of a custom layout (shown in the layout's editor), such as `{ view: custom, layout: kitchen, from: "17:00", to: "21:00" }`; a `layout` on any other view is an error, and so is a `custom` rule without one. The config can't check that the layout exists, because layouts live in SQLite, so an unknown one is skipped when the window starts, with a warning in the log. A layout's photo pane is not checked against the `photos` block: the pane then says "No photos yet". A layout that a rule names can't be deleted (§7.6).
 - **Days.** `days` is `every_day` (the default), `weekdays`, `weekends`, or a list of `mon` to `sun`. It is stored as a list in week order.
 - **Past midnight.** `from` and `to` must differ. If `from` is later than `to`, the window runs past midnight, such as 22:00 to 06:00, and `days` names the day it starts. So `days: [fri]` with 22:00 to 06:00 runs from Friday 22:00 to Saturday 06:00.
 - **Time zone.** Times are wall-clock times in the config's `timezone` (Europe/London by default), the same as the quiet hours in §7.7. A time the clocks skip on a DST change day moves forward by the gap, and a time that is shown twice is the first one. An occurrence whose end is then not after its start is skipped.
 - **Edge-triggered.** The policy acts only at a window's start and end. Between them it never touches the wall, so a view chosen by hand, from the remote, HA or the button, lasts until the next boundary.
-- **Start.** The wall goes to the rule's `view`, and the state keeps the view it left as `return_view`. If the wall is already on that view, nothing changes and nothing is remembered, because someone chose it.
-- **End.** The wall goes back to `return_view`, but only if the window still holds it, which means nobody has changed the view since it started. If someone has, the wall is left as it is.
+- **Start.** The wall goes to the rule's `view`, and the state keeps the view it left as `return_view`. If the wall is already on that view (and, for a custom rule, that layout), nothing changes and nothing is remembered, because someone chose it.
+- **End.** The wall goes back to `return_view` (and, with it, `return_layout`), but only if the window still holds it, which means nobody has changed the view since it started, or for a custom view the layout. If someone has, the wall is left as it is.
 - **Same instant.** Starts are applied before ends, then in config order (the schedules in order, and each one's rules in order). So agenda from 06:30 to 09:00 followed by photos from 09:00 to 16:00 goes from the agenda straight to the photo frame, and the end at 16:00 returns to the view from before 06:30. Overlapping windows chain the same way: a window that starts while another holds the wall takes over its `return_view`, and the first window's end then does nothing, because it no longer holds the wall.
 - **Turned off.** A schedule that is off has its boundaries skipped, and turning it off leaves the wall as it is: a window that is showing stays on its view until someone changes it, and it won't go back. Turning it on again does nothing until its next start. A schedule is turned off with its HA switch, or with `{ "type": "set_schedule", "schedule": "mornings", "on": false }` on the HTTP API. An id the display doesn't have is a 404. The start and end the policy applies are internal: neither the API nor MQTT can send them.
 - **Restart.** A start that came while the app was down is not caught up, so a view someone chose before the restart isn't undone. A window that was showing when the app stopped is looked at again at start. If its rule has gone from the config (the schedule or the rule is missing, or the rule's view differs), or its window is no longer in progress, it is ended at once, so the wall never stays on a scheduled view because the app was down at the end.
@@ -896,8 +966,8 @@ Back up `./data` as well as `./config`. Special days and their art are only stor
 wall-display/
 ├── calendar-app/                # Nuxt 4 app (Vue UI + Nitro server)
 │   ├── app/                     # Vue side
-│   │   ├── pages/               # display.vue, remote.vue, settings/ (calendars, photos, special-days, displays)
-│   │   ├── components/          # views/ (agenda, month-soft, month-classic, week, photo, night), widgets/
+│   │   ├── pages/               # display.vue, remote.vue, settings/ (calendars, photos, special-days, layouts, displays)
+│   │   ├── components/          # views/ (agenda, month-soft, month-classic, week, photo, night, custom-layout), layouts/ (editor, preview, manager), widgets/
 │   │   ├── assets/              # tokens.css (Organic), themes and palettes
 │   │   └── composables/         # useDisplaySocket, useClock, …
 │   ├── server/                  # Nitro side
@@ -908,12 +978,13 @@ wall-display/
 │   │   ├── sources/             # ics.ts, homeassistant.ts
 │   │   ├── photos/              # immich.ts, google-picker.ts, local.ts, cache.ts
 │   │   ├── special-days/        # resolve.ts, art.ts (uploads, sanitising), midnight.ts
+│   │   ├── layouts/             # store.ts (custom layouts in SQLite), service.ts, state.ts, checks.ts
 │   │   ├── weather/             # HA weather entity + forecast cache
 │   │   ├── alarm/               # HA next-alarm entity, polled
 │   │   ├── control/             # state.ts, commands.ts, policies.ts, schedule.ts
 │   │   ├── mqtt/                # client.ts, discovery.ts
 │   │   └── db/                  # Drizzle schema + migrations
-│   ├── shared/                  # types and pure logic used by client and server (month-layout.ts, special-days.ts)
+│   ├── shared/                  # types and pure logic used by client and server (month-layout.ts, special-days.ts, layouts.ts)
 │   ├── public/                  # icons/ (remote and display app icons), favicon, display-sw.js (service worker)
 │   ├── config.dev.yaml          # config for pnpm dev (fixture calendars, no secrets)
 │   ├── nuxt.config.ts

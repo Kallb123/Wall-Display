@@ -9,23 +9,33 @@ import type { WeatherSnapshot } from './weather'
 // the config. Every state field has a default, so a stored document that
 // predates a newer field still parses.
 
-export const VIEWS = ['month', 'week', 'week_parts', 'agenda', 'photo', 'night'] as const
+export const VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night'] as const
 export type View = (typeof VIEWS)[number]
 
 /** The calendar views `next_view` steps through. From any other view it goes to the first. */
-export const NEXT_VIEW_ORDER = ['month', 'agenda', 'week', 'week_parts'] as const satisfies readonly View[]
+export const NEXT_VIEW_ORDER = ['month', 'agenda', 'week', 'week_parts', 'week_photo'] as const satisfies readonly View[]
 
 /**
  * The views `toggle_photo` can go back to: every view but the photo frame.
  * Night is one too: it is whatever was on the wall before the photos came on.
  */
-export const RETURN_VIEWS = ['month', 'week', 'week_parts', 'agenda', 'night'] as const satisfies readonly View[]
+export const RETURN_VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'agenda', 'night'] as const satisfies readonly View[]
 
 /**
  * The views that show one week and follow a pinned week (`state.week`). Later
  * week-based views join this list, so they are browsed like the week view.
  */
-export const WEEK_VIEWS = ['week', 'week_parts'] as const satisfies readonly View[]
+export const WEEK_VIEWS = ['week', 'week_parts', 'week_photo'] as const satisfies readonly View[]
+
+/**
+ * The views that show photos (PR 5.14): the photo frame, and the week and
+ * photo hybrid, whose photo pane is the photo frame in a box. The server's
+ * rotation timer runs while a display is on one of these, and "Next photo"
+ * works in all of them.
+ */
+export const PHOTO_VIEWS = ['photo', 'week_photo'] as const satisfies readonly View[]
+
+export const showsPhotos = (view: View): boolean => (PHOTO_VIEWS as readonly View[]).includes(view)
 
 // The same values as PHOTO_PROVIDERS in server/db/schema.ts, which shared code can't import.
 export const PHOTO_SOURCES = ['immich', 'google', 'local'] as const

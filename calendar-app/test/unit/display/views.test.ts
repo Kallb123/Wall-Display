@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { hasPortraitLayout, PORTRAIT_VIEWS, stageFor } from '../../../app/utils/views'
 
 describe('the views with a portrait layout', () => {
-  it('are all of them: the night, agenda, photo, month and week views', () => {
-    expect([...PORTRAIT_VIEWS].sort()).toEqual(['agenda', 'month', 'night', 'photo', 'week'])
+  it('are all of them: the night, agenda, photo, month, week and week by part of day views', () => {
+    expect([...PORTRAIT_VIEWS].sort()).toEqual(['agenda', 'month', 'night', 'photo', 'week', 'week_parts'])
     expect(hasPortraitLayout('week')).toBe(true)
+    expect(hasPortraitLayout('week_parts')).toBe(true)
   })
 
   it('give a portrait device the portrait stage, and a landscape one the landscape stage', () => {

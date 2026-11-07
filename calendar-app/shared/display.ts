@@ -9,23 +9,23 @@ import type { WeatherSnapshot } from './weather'
 // the config. Every state field has a default, so a stored document that
 // predates a newer field still parses.
 
-export const VIEWS = ['month', 'week', 'agenda', 'photo', 'night'] as const
+export const VIEWS = ['month', 'week', 'week_parts', 'agenda', 'photo', 'night'] as const
 export type View = (typeof VIEWS)[number]
 
 /** The calendar views `next_view` steps through. From any other view it goes to the first. */
-export const NEXT_VIEW_ORDER = ['month', 'agenda', 'week'] as const satisfies readonly View[]
+export const NEXT_VIEW_ORDER = ['month', 'agenda', 'week', 'week_parts'] as const satisfies readonly View[]
 
 /**
  * The views `toggle_photo` can go back to: every view but the photo frame.
  * Night is one too: it is whatever was on the wall before the photos came on.
  */
-export const RETURN_VIEWS = ['month', 'week', 'agenda', 'night'] as const satisfies readonly View[]
+export const RETURN_VIEWS = ['month', 'week', 'week_parts', 'agenda', 'night'] as const satisfies readonly View[]
 
 /**
  * The views that show one week and follow a pinned week (`state.week`). Later
  * week-based views join this list, so they are browsed like the week view.
  */
-export const WEEK_VIEWS = ['week'] as const satisfies readonly View[]
+export const WEEK_VIEWS = ['week', 'week_parts'] as const satisfies readonly View[]
 
 // The same values as PHOTO_PROVIDERS in server/db/schema.ts, which shared code can't import.
 export const PHOTO_SOURCES = ['immich', 'google', 'local'] as const
@@ -218,6 +218,19 @@ export interface WeekHours {
 export const DEFAULT_WEEK_HOURS: WeekHours = { from: 7, to: 21 }
 
 /**
+ * Where the week by part of day view (`week_parts`, PR 5.16) splits a day:
+ * morning is from midnight to `afternoon`, afternoon to `evening`, and evening
+ * to midnight. Whole hours, `1 <= afternoon < evening <= 23`.
+ */
+export interface DayParts {
+  afternoon: number
+  evening: number
+}
+
+/** The day parts when config does not say, and what the client uses for settings cached before `day_parts` existed. */
+export const DEFAULT_DAY_PARTS: DayParts = { afternoon: 12, evening: 17 }
+
+/**
  * A display's settings: what `GET /api/displays` returns, and what the page
  * needs that the state does not hold. They come from config, with any changes
  * saved on the settings page's Displays tab on top (PR 5.6), and the server
@@ -239,6 +252,8 @@ export const displaySettingsSchema = z.object({
   orientation: z.enum(ORIENTATIONS),
   /** The hours the week view draws in full; earlier and later hours are folded into a band. */
   week_hours: z.object({ from: z.number().int().min(0).max(23), to: z.number().int().min(1).max(24) }),
+  /** Where the week by part of day view splits a day (PR 5.16). The client takes settings cached before it existed as `DEFAULT_DAY_PARTS`. */
+  day_parts: z.object({ afternoon: z.number().int().min(1).max(22), evening: z.number().int().min(2).max(23) }),
   /**
    * The photo sources the server has set up, in the order a display falls back
    * to them (Immich, Google, folder). Empty with no `photos` block. The remote

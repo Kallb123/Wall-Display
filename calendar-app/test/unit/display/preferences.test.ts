@@ -20,6 +20,7 @@ const values: DisplayPreferences = {
   week_start: 'monday',
   month_return_minutes: 5,
   week_hours: { from: 7, to: 21 },
+  day_parts: { afternoon: 12, evening: 17 },
   burn_in: true,
   night_text: 'none',
   orientation: 'auto',
@@ -43,8 +44,9 @@ describe('saveUpdate', () => {
     const draft = draftOf(values)
     draft.theme = 'dark'
     draft.week_hours.to = 22
-    expect(editedKeys(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual(['theme', 'week_hours'])
-    expect(saveUpdate(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual({ set: { theme: 'dark', week_hours: { from: 7, to: 22 } } })
+    draft.day_parts.evening = 18
+    expect(editedKeys(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual(['theme', 'week_hours', 'day_parts'])
+    expect(saveUpdate(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual({ set: { theme: 'dark', week_hours: { from: 7, to: 22 }, day_parts: { afternoon: 12, evening: 18 } } })
   })
 
   it('does not send a key that was edited and put back', () => {
@@ -99,6 +101,7 @@ describe('labels', () => {
     ['burn_in', true, 'on'],
     ['month_return_minutes', 5, '5 min'],
     ['week_hours', { from: 7, to: 21 }, '07:00 to 21:00'],
+    ['day_parts', { afternoon: 12, evening: 17 }, 'afternoon from 12:00, evening from 17:00'],
     ['quiet_hours', { from: '22:00', to: '07:00' }, '22:00 to 07:00'],
     ['quiet_hours', null, 'none'],
     ['night_above_lux', null, 'twice the dark level'],

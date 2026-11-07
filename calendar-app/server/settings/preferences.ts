@@ -36,6 +36,7 @@ export function readDisplayPreferences(display: DisplayConfig): DisplayPreferenc
     week_start: display.week_start,
     month_return_minutes: display.month_return_minutes,
     week_hours: { from: display.week_hours.from, to: display.week_hours.to },
+    day_parts: { afternoon: display.day_parts.afternoon, evening: display.day_parts.evening },
     burn_in: display.burn_in,
     night_text: display.night_text,
     orientation: display.orientation,
@@ -65,6 +66,7 @@ const displaySchemas: Record<DisplayPreferenceKey, z.ZodType> = {
   week_start: displayFields.week_start,
   month_return_minutes: displayFields.month_return_minutes,
   week_hours: displayFields.week_hours,
+  day_parts: displayFields.day_parts,
   burn_in: displayFields.burn_in,
   night_text: displayFields.night_text,
   orientation: displayFields.orientation,
@@ -181,7 +183,7 @@ export function capabilitiesOf(config: Pick<AppConfig, 'alarm' | 'photos'>): Cap
 /**
  * The rules that look at more than one value, for one display's whole set.
  * Messages go under the key the page shows them against. (`week_hours.from`
- * before `to` is part of the field's own schema, as both are in the one value.)
+ * before `to`, and `day_parts.afternoon` before `evening`, are part of the field's own schema, as both are in the one value.)
  */
 export function checkDisplayValues(values: DisplayPreferences, capabilities: Pick<Capabilities, 'alarm'>): Fields {
   const fields: Fields = {}
@@ -302,7 +304,7 @@ export function mergeOverrides(config: AppConfig, overrides: Overrides): AppConf
   const displays = config.displays.map((display) => {
     const own = overrides.displays[display.id]
     if (!own || Object.keys(own).length === 0) return display
-    return Object.freeze({ ...display, ...own, ...(own.week_hours ? { week_hours: Object.freeze({ ...own.week_hours }) } : {}) })
+    return Object.freeze({ ...display, ...own, ...(own.week_hours ? { week_hours: Object.freeze({ ...own.week_hours }) } : {}), ...(own.day_parts ? { day_parts: Object.freeze({ ...own.day_parts }) } : {}) })
   })
 
   const shared = overrides.shared

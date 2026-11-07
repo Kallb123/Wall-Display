@@ -185,6 +185,15 @@ export const displayFields = {
     from: z.number().int('must be a whole number').min(0, 'must be from 0 to 23').max(23, 'must be from 0 to 23'),
     to: z.number().int('must be a whole number').min(1, 'must be from 1 to 24').max(24, 'must be from 1 to 24'),
   }).refine(hours => hours.from < hours.to, { message: 'week_hours.from must be before week_hours.to' }),
+  /**
+   * Where the week by part of day view splits a day (PR 5.16): morning is from
+   * midnight to `afternoon`, afternoon to `evening`, evening to midnight. Whole
+   * hours, `afternoon` 1 to 22 and `evening` 2 to 23, `afternoon` before `evening`.
+   */
+  day_parts: z.strictObject({
+    afternoon: z.number().int('must be a whole number').min(1, 'must be from 1 to 22').max(22, 'must be from 1 to 22'),
+    evening: z.number().int('must be a whole number').min(2, 'must be from 2 to 23').max(23, 'must be from 2 to 23'),
+  }).refine(parts => parts.afternoon < parts.evening, { message: 'day_parts.afternoon must be before day_parts.evening' }),
 }
 
 const display = z.strictObject({
@@ -198,6 +207,7 @@ const display = z.strictObject({
   night_text: displayFields.night_text.default('none'),
   orientation: displayFields.orientation.default('auto'),
   week_hours: displayFields.week_hours.default({ from: 7, to: 21 }),
+  day_parts: displayFields.day_parts.default({ afternoon: 12, evening: 17 }),
   /** Built-in schedules (PR 5.4): rules that change the view at set times. Each can be turned off from Home Assistant. */
   schedules: z.array(schedule).default([]),
 })

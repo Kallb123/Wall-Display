@@ -22,7 +22,7 @@ import '~/assets/special-days-form.css'
 
 // One display's preferences (PR 5.6): theme, month style, orientation
 // (PR 5.10), week start, how long a pinned month stays, the hours the week
-// view draws, burn-in shifting and the night view's text. The form edits a draft; Save sends only the keys
+// view draws, where the week by part of day view splits a day (PR 5.16), burn-in shifting and the night view's text. The form edits a draft; Save sends only the keys
 // that were edited and Reset (beside a key with a saved change) drops that
 // change. The page does the sending, and tells the form what the server
 // refused in `errors`.
@@ -75,6 +75,8 @@ const describedby = (key: string, hint = false) => [hint ? `pref-${props.entry.i
 
 const FROM_HOURS = Array.from({ length: 24 }, (_, hour) => hour)
 const TO_HOURS = Array.from({ length: 24 }, (_, hour) => hour + 1)
+const AFTERNOON_HOURS = Array.from({ length: 22 }, (_, hour) => hour + 1)
+const EVENING_HOURS = Array.from({ length: 22 }, (_, hour) => hour + 2)
 
 function setMinutes(event: Event) {
   // A blank box is null, which the server turns away with a message of its own.
@@ -191,6 +193,35 @@ function setMinutes(event: Event) {
           <span class="sd-select">
             <select v-model.number="draft.week_hours.to" class="sd-input" aria-label="To" :aria-invalid="invalid('week_hours')" data-testid="week_hours-to">
               <option v-for="hour in TO_HOURS" :key="hour" :value="hour">{{ hourLabel(hour) }}</option>
+            </select>
+            <AppIcon :icon="ChevronDown" :size="20" />
+          </span>
+        </div>
+      </SettingsPreferenceField>
+
+      <SettingsPreferenceField
+        :scope="entry.id"
+        name="day_parts"
+        label="Parts of the day"
+        label-id="day-parts-label"
+        :changed="changed('day_parts')"
+        :config-text="configText('day_parts')"
+        hint="Where the week by part of day view splits a day into morning, afternoon and evening."
+        :error="errors.day_parts"
+        @reset="reset('day_parts')"
+      >
+        <div class="pair" role="group" aria-labelledby="day-parts-label">
+          <span class="to" aria-hidden="true">Afternoon from</span>
+          <span class="sd-select">
+            <select v-model.number="draft.day_parts.afternoon" class="sd-input" aria-label="Afternoon from" :aria-invalid="invalid('day_parts')" data-testid="day_parts-afternoon">
+              <option v-for="hour in AFTERNOON_HOURS" :key="hour" :value="hour">{{ hourLabel(hour) }}</option>
+            </select>
+            <AppIcon :icon="ChevronDown" :size="20" />
+          </span>
+          <span class="to" aria-hidden="true">Evening from</span>
+          <span class="sd-select">
+            <select v-model.number="draft.day_parts.evening" class="sd-input" aria-label="Evening from" :aria-invalid="invalid('day_parts')" data-testid="day_parts-evening">
+              <option v-for="hour in EVENING_HOURS" :key="hour" :value="hour">{{ hourLabel(hour) }}</option>
             </select>
             <AppIcon :icon="ChevronDown" :size="20" />
           </span>

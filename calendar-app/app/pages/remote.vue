@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, Power, Settings, SkipForward, X } from 'lucide-vue-next'
+import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, Power, Rows3, Settings, SkipForward, X } from 'lucide-vue-next'
 import { MONTH_RANGE, WEEK_RANGE, WEEK_VIEWS, currentMonth, currentWeek, monthDiff, weekDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
 import { reconnectDelay } from '~/utils/backoff'
@@ -102,11 +102,13 @@ useHead({
   ],
 })
 
-const TILES: { view: View, label: string, icon: Component }[] = [
+// Four calendar views fill the 2x2 grid; Night (and the photo frame) get a full-width tile each beneath it.
+const TILES: { view: View, label: string, icon: Component, wide?: boolean }[] = [
   { view: 'agenda', label: 'Agenda', icon: ListTodo },
   { view: 'month', label: 'Month', icon: CalendarDays },
   { view: 'week', label: 'Week', icon: CalendarRange },
-  { view: 'night', label: 'Night', icon: Moon },
+  { view: 'week_parts', label: 'Day parts', icon: Rows3 },
+  { view: 'night', label: 'Night', icon: Moon, wide: true },
 ]
 
 function setView(next: View) {
@@ -297,7 +299,7 @@ function submitPin() {
               :key="tile.view"
               type="button"
               class="tile"
-              :class="{ active: view === tile.view }"
+              :class="{ active: view === tile.view, wide: tile.wide }"
               :aria-pressed="view === tile.view"
               :data-testid="`tile-${tile.view}`"
               @click="setView(tile.view)"
@@ -305,7 +307,7 @@ function submitPin() {
               <AppIcon :icon="tile.icon" :size="32" />
               {{ tile.label }}
             </button>
-            <!-- The Photo frame tile sits under the 2x2 grid, full width. -->
+            <!-- The Night and Photo frame tiles sit under the 2x2 grid, full width. -->
             <button
               v-if="showPhotoTile"
               type="button"

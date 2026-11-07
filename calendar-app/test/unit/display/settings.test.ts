@@ -232,6 +232,7 @@ describe('the display state labels', () => {
   it('names the views, the photo sources and the screen', () => {
     expect(viewLabel('agenda')).toBe('Agenda')
     expect(viewLabel('photo')).toBe('Photo frame')
+    expect(viewLabel('week_parts')).toBe('Week by part of day')
     expect(photoSourceLabel('google')).toBe('Google Photos')
     expect(photoSourceLabel('immich')).toBe('Immich')
     expect(screenLabel('on')).toBe('On')

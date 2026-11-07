@@ -19,7 +19,7 @@ import { OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES } from '~/utils/overlay'
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
 mockNuxtImport('$fetch', () => fetchMock)
 
-const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [] }
+const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, photo_sources: [] }
 const NOW = new Date('2026-10-28T09:41:00Z')
 
 class FakeSocket {
@@ -167,7 +167,7 @@ describe('the remote page', () => {
     const { wrapper } = await mountRemote({ view: 'month' })
     const pressed = () => wrapper.findAll('.tile').filter(tile => tile.attributes('aria-pressed') === 'true').map(tile => tile.text())
 
-    expect(wrapper.findAll('.tile').map(tile => tile.text())).toEqual(['Agenda', 'Month', 'Week', 'Night'])
+    expect(wrapper.findAll('.tile').map(tile => tile.text())).toEqual(['Agenda', 'Month', 'Week', 'Day parts', 'Night'])
     expect(pressed()).toEqual(['Month'])
 
     await wrapper.find('[data-testid="tile-agenda"]').trigger('click')
@@ -175,6 +175,16 @@ describe('the remote page', () => {
 
     expect(sent()).toEqual([{ type: 'set_view', view: 'agenda' }])
     expect(pressed()).toEqual(['Agenda'])
+  })
+
+  it('has a Day parts tile that shows the week by part of day', async () => {
+    const { wrapper } = await mountRemote({ view: 'month' })
+
+    await wrapper.find('[data-testid="tile-week_parts"]').trigger('click')
+    await flushPromises()
+
+    expect(sent()).toEqual([{ type: 'set_view', view: 'week_parts' }])
+    expect(wrapper.find('[data-testid="tile-week_parts"]').attributes('aria-pressed')).toBe('true')
   })
 
   it('keeps the latest tap\'s answer when an earlier one comes back after it', async () => {
@@ -228,11 +238,11 @@ describe('the remote page', () => {
       expect(wrapper.find('[data-testid="photos-from"]').exists()).toBe(false)
     })
 
-    it('has a full-width Photo frame tile after the four views, which sends set_view photo', async () => {
+    it('has a full-width Photo frame tile after the other views, which sends set_view photo', async () => {
       photoSources = ['local']
       const { wrapper } = await mountRemote({ view: 'month' })
 
-      expect(wrapper.findAll('.tile').map(tile => tile.text())).toEqual(['Agenda', 'Month', 'Week', 'Night', 'Photo frame'])
+      expect(wrapper.findAll('.tile').map(tile => tile.text())).toEqual(['Agenda', 'Month', 'Week', 'Day parts', 'Night', 'Photo frame'])
       expect(photoTile(wrapper).classes()).toContain('wide')
       expect(photoTile(wrapper).attributes('aria-pressed')).toBe('false')
 
@@ -423,13 +433,16 @@ describe('the remote page', () => {
   describe('the week picker', () => {
     const SET_AT = '2026-10-28T09:41:00.000Z'
 
-    it('shows only in the week view', async () => {
+    it('shows only in the views that show a week', async () => {
       const { wrapper } = await mountRemote({ view: 'month' })
       expect(wrapper.find('[data-testid="week-picker"]').exists()).toBe(false)
 
       const week = await mountRemote({ view: 'week' })
       expect(week.wrapper.find('[data-testid="week-picker"]').exists()).toBe(true)
       expect(week.wrapper.find('[data-testid="month-picker"]').exists()).toBe(false)
+
+      const parts = await mountRemote({ view: 'week_parts' })
+      expect(parts.wrapper.find('[data-testid="week-picker"]').exists()).toBe(true)
     })
 
     it('offers 105 weeks, each named by its first day, and shows the pinned one, or this week', async () => {

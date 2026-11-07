@@ -13,7 +13,7 @@ import weather from './fixtures/weather.json' with { type: 'json' }
 
 // The portrait stage (PR 5.10, architecture §4.2): a 1440×2560 window, as a
 // panel hung on its side shows it. The night view, the agenda, the photo frame
-// the month and the week have portrait layouts, which is every view. The window is the
+// the month, the week and the week by part of day have portrait layouts, which is every view. The window is the
 // shape of the panel, so `auto` finds portrait by itself, and `?orientation=` is
 // checked as well. The landscape pictures are in the other specs, which must
 // not change.
@@ -588,6 +588,112 @@ test.describe('the week', () => {
     await expect(page.locator('[data-testid="day-tile"][data-special="halloween"]')).toHaveAttribute('data-date', '2026-10-31')
     await expectWeekInside(page)
     await expect(page).toHaveScreenshot('portrait-week-takeover.png')
+  })
+})
+
+// The week by part of day (PR 5.16): the same structure as in landscape, with
+// rows of about 340 px instead of 190, so a cell holds eight lines and not
+// four. The crowded week puts nine events in Tuesday's morning, which ends in
+// "+N more" at eight lines, and three all-day ones in Monday's head.
+test.describe('the week by part of day', () => {
+  const HALLOWEEN = new Date('2026-10-31T09:41:00Z')
+  const crowd = (id: number, title: string, start: string, extra: Partial<CalendarEvent> = {}): CalendarEvent => ({
+    ...swimming, id, title, display_title: title, start, end: start, ...extra,
+  })
+  const crowded: CalendarEvent[] = [
+    ...events,
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(index => crowd(900 + index, `Lesson ${index}`, `2026-10-27T0${index}:00:00.000Z`, { end: `2026-10-27T0${index}:30:00.000Z` })),
+    ...[1, 2, 3].map(index => crowd(920 + index, `Day trip ${index}`, '2026-10-26', { end: '2026-10-27', all_day: true, start_date: '2026-10-26', end_date: '2026-10-27' })),
+  ]
+
+  const box = async (locator: Locator) => (await locator.boundingBox())!
+
+  /** Nothing is cut off: the rows fill the stage's margins, and every line and label lies inside its row and is whole. */
+  async function expectPartsInside(page: Page) {
+    const rows = await page.getByTestId('day-row').evaluateAll(elements => elements.map((element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect()
+      return { left, right, top, bottom }
+    }))
+    expect(rows).toHaveLength(7)
+    expect(Math.max(...rows.map(row => row.bottom))).toBeLessThanOrEqual(2560 - 48 + 0.5)
+    expect(Math.max(...rows.map(row => row.right))).toBeLessThanOrEqual(1440 - 40 + 0.5)
+    const title = await box(page.getByTestId('week-title'))
+    expect(title.x).toBeGreaterThanOrEqual(40)
+    expect(title.y + title.height).toBeLessThanOrEqual(Math.min(...rows.map(row => row.top)))
+    const greeting = page.getByTestId('greeting')
+    if (await greeting.count()) {
+      const line = await box(greeting)
+      expect(line.x + line.width).toBeLessThanOrEqual(1440 - 40)
+      expect(line.y).toBeGreaterThanOrEqual(title.y + title.height)
+      expect(line.y + line.height).toBeLessThanOrEqual(Math.min(...rows.map(row => row.top)))
+    }
+    for (const row of rows) expect(row.bottom - row.top).toBeGreaterThan(300)
+
+    // Every cell shows all its lines: none is pushed out of the bottom of its row.
+    const cut = await page.getByTestId('part-cell').evaluateAll(elements => elements.filter(element => element.scrollHeight > element.clientHeight + 1).map(element => element.textContent))
+    expect(cut).toEqual([])
+    const items = await page.locator('[data-testid="event"], [data-testid="more"], [data-testid="head-more"]').evaluateAll(elements => elements.map((element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect()
+      return { left, right, top, bottom, text: element.textContent!.replace(/\s+/g, ' ').trim() }
+    }))
+    expect(items.length).toBeGreaterThan(0)
+    for (const item of items) {
+      const middle = (item.top + item.bottom) / 2
+      const row = rows.find(candidate => middle >= candidate.top && middle <= candidate.bottom)
+      expect(row, item.text).toBeDefined()
+      expect(item.bottom, item.text).toBeLessThanOrEqual(row!.bottom + 0.5)
+      expect(item.right, item.text).toBeLessThanOrEqual(row!.right + 0.5)
+    }
+  }
+
+  test('26 October to 1 November, light theme', async ({ page }) => {
+    await playServer(page, { view: 'week_parts' }, events, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-orientation', 'portrait')
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'light')
+    await expect(page.getByTestId('week-title')).toHaveText('26 October – 1 November 2026')
+    await expect(page.getByTestId('now-part')).toHaveCount(1)
+    const last = await box(page.getByTestId('day-row').last())
+    expect(last.x + last.width).toBeCloseTo(1400, 0)
+    expect(last.y + last.height).toBeCloseTo(2560 - 48, 0)
+    await expectPartsInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-parts-light.png')
+  })
+
+  test('26 October to 1 November, dark theme', async ({ page }) => {
+    await playServer(page, { view: 'week_parts' }, events, weather)
+    await page.goto('/display?id=kitchen')
+    await settle(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'dark')
+    await expectPartsInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-parts-dark.png')
+  })
+
+  test('a crowded week fills a cell with eight lines, and ends it in "+N more"', async ({ page }) => {
+    await playServer(page, { view: 'week_parts' }, crowded, weather)
+    await page.goto('/display?id=hallway')
+    await settle(page)
+
+    const tuesday = page.locator('[data-testid="day-row"][data-date="2026-10-27"] [data-part="morning"]')
+    await expect(tuesday.getByTestId('event')).toHaveCount(7)
+    await expect(tuesday.getByTestId('more')).toContainText('+2 more')
+    await expect(page.locator('[data-testid="day-row"][data-date="2026-10-26"]').getByTestId('head-more')).toContainText('+2')
+    await expectPartsInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-parts-crowded.png')
+  })
+
+  test('Halloween puts its greeting under the title, in the night palette', async ({ page }) => {
+    await playServer(page, { view: 'week_parts' }, events, weather, { now: HALLOWEEN, specialDays: specialDaysOn('2026-10-31') })
+    await page.goto('/display?id=hallway')
+    await settleWithArt(page)
+
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-palette', 'night')
+    await expect(page.getByTestId('greeting')).toHaveText('Happy Halloween!')
+    await expectPartsInside(page)
+    await expect(page).toHaveScreenshot('portrait-week-parts-takeover.png')
   })
 })
 

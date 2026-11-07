@@ -6,6 +6,7 @@ import { layoutPanes, paneFit } from '../../utils/layouts'
 import type { PaneBox } from '../../utils/layouts'
 import type { ViewProps } from '../../utils/views'
 import AgendaView from './AgendaView.vue'
+import DayGridView from './DayGridView.vue'
 import MonthSoftView from './MonthSoftView.vue'
 import PhotoView from './PhotoView.vue'
 import WeekPartsView from './WeekPartsView.vue'
@@ -27,13 +28,13 @@ import WeekView from './WeekView.vue'
 // every calendar pane; the photo covers its own.
 const props = defineProps<ViewProps>()
 
-// The day grid's view arrives with its own change; until then its pane draws nothing.
-const components: Partial<Record<LayoutComponent, Component>> = {
+const components: Record<LayoutComponent, Component> = {
   month: MonthSoftView,
   week: WeekView,
   week_parts: WeekPartsView,
   agenda: AgendaView,
   photo: PhotoView,
+  days: DayGridView,
 }
 
 const arrangement = computed(() => {
@@ -77,7 +78,7 @@ const boxStyle = (box: PaneBox) => ({
         :style="{ width: `${fit.stage.width}px`, height: `${fit.stage.height}px`, transform: fit.scale === 1 ? undefined : `scale(${fit.scale})` }"
         :data-scale="fit.scale"
       >
-        <component :is="components[box.component]" v-if="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" />
+        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" />
       </div>
     </div>
   </section>

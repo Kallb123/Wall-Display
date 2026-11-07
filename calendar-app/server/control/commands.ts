@@ -131,7 +131,7 @@ function startSchedule(state: DisplayState, command: Extract<ScheduleCommand, { 
   return {
     ...state,
     view: command.view,
-    schedule: { schedule: command.schedule, rule: command.rule, view: command.view, return_view: held?.return_view ?? state.view },
+    schedule: { schedule: command.schedule, rule: command.rule, view: command.view, return_view: held?.return_view ?? state.view, layout: null, return_layout: null },
   }
 }
 
@@ -173,6 +173,8 @@ function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext
     case 'set_auto_brightness': return { ...state, auto_brightness: command.auto_brightness }
     // Turning a schedule off leaves the wall as it is; `releaseSchedule` forgets its window.
     case 'set_schedule': return { ...state, schedules_off: scheduleSwitched(state.schedules_off, command.schedule, command.on) }
+    // PR 5.17: the control work fills this in.
+    case 'set_layout': return state
     case 'schedule_start': return startSchedule(state, command)
     case 'schedule_end': return endSchedule(state, command)
     case 'set_overlay': {

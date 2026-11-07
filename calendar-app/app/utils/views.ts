@@ -21,7 +21,7 @@ export const CALENDAR_VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'age
 export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
 /** The views with a portrait layout: all of them since PR 5.13 and the hybrid since PR 5.14 (the week by part of day has the week's stacked head and taller rows, not a layout of its own). A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
-export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week', 'week_parts', 'week_photo']
+export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week', 'week_parts', 'week_photo', 'custom']
 
 export const hasPortraitLayout = (view: View): boolean => PORTRAIT_VIEWS.includes(view)
 

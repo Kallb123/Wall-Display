@@ -67,7 +67,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, schedules_off: [], schedule: null,
+      view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, layout: null, schedules_off: [], schedule: null,
     })
   })
 
@@ -493,12 +493,12 @@ describe('the store', () => {
     const old = { view: 'photo', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null }
     handle.db.insert(displayState).values({ displayId: 'hallway', state: old as never, updatedAt: new Date() }).run()
 
-    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', schedules_off: [], schedule: null })
+    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', layout: null, schedules_off: [], schedule: null })
   })
 
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, schedules_off: ['mornings'], schedule: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, layout: null, schedules_off: ['mornings'], schedule: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 

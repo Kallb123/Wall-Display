@@ -1,0 +1,186 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterAll, describe, expect, it } from 'vitest'
+import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
+import type { ServerMessage } from '../../shared/display'
+import type { CustomLayout } from '../../shared/layouts'
+import { PIN_HEADER } from '../../shared/remote'
+
+// The layouts API, on the dev config with `remote.pin` set: the writes need
+// the PIN, and the tests send it. The tests build on each other, in order.
+describe('custom layouts', async () => {
+  const appDir = fileURLToPath(new URL('../..', import.meta.url))
+  const dir = mkdtempSync(join(tmpdir(), 'wallcal-e2e-'))
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+  const configFile = join(dir, 'config.yaml')
+  writeFileSync(configFile, `${readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`)}\nremote:\n  pin: "2468"\n`)
+
+  await setup({
+    browser: false,
+    env: {
+      WALLCAL_CONFIG_FILE: configFile,
+      WALLCAL_DATA_DIR: join(dir, 'data'),
+    },
+  })
+
+  const reason = (statusCode: number, message: string) => ({ statusCode, data: { message: expect.stringContaining(message) } })
+  const right = { [PIN_HEADER]: '2468' }
+  const wrong = { [PIN_HEADER]: '1357' }
+
+  const kitchen = {
+    name: 'Kitchen',
+    landscape: { rows: [{ size: 1, panes: [{ component: 'photo', size: 2 }, { component: 'week', size: 3 }] }] },
+    portrait: { rows: [{ size: 2, panes: [{ component: 'photo', size: 1 }] }, { size: 3, panes: [{ component: 'week', size: 1 }] }] },
+  }
+
+  const send = <T>(method: string, path: string, body?: unknown, headers: Record<string, string> = right) =>
+    $fetch<T>(path, { method: method as 'POST', body: body as Record<string, unknown>, headers })
+  const raw = (method: string, path: string, headers: Record<string, string> = right) => fetch(path, { method, headers })
+  const create = (body: unknown, headers?: Record<string, string>) => send<CustomLayout>('POST', '/api/layouts', body, headers)
+  const update = (id: string, body: unknown, headers?: Record<string, string>) => send<CustomLayout>('PUT', `/api/layouts/${id}`, body, headers)
+
+  /** A socket that collects what the server sends. */
+  function connect(query: string) {
+    const socket = new WebSocket(url(`/_ws?${query}`).replace(/^http/, 'ws'))
+    const messages: ServerMessage[] = []
+    const waiting: (() => void)[] = []
+    socket.addEventListener('message', (event) => {
+      messages.push(JSON.parse(String(event.data)) as ServerMessage)
+      for (const wake of waiting.splice(0)) wake()
+    })
+    const opened = new Promise<void>((resolve, reject) => {
+      socket.addEventListener('open', () => resolve())
+      socket.addEventListener('error', () => reject(new Error('the socket did not open')))
+    })
+    /** Resolves with the first message from index `from` on that passes `match`. */
+    async function next(match: (message: ServerMessage) => boolean, from = 0): Promise<ServerMessage> {
+      const deadline = Date.now() + 10_000
+      for (;;) {
+        const found = messages.slice(from).find(match)
+        if (found) return found
+        if (Date.now() > deadline) throw new Error(`no matching message, got ${JSON.stringify(messages)}`)
+        await new Promise<void>((resolve) => {
+          waiting.push(resolve)
+          setTimeout(resolve, 200)
+        })
+      }
+    }
+    return { socket, messages, opened, next }
+  }
+
+  const isLayouts = (message: ServerMessage): message is Extract<ServerMessage, { type: 'layouts.updated' }> => message.type === 'layouts.updated'
+
+  it('GET /api/layouts is empty to begin with, and open without the PIN', async () => {
+    expect(await $fetch('/api/layouts')).toEqual([])
+  })
+
+  it('needs the PIN for every write', async () => {
+    await expect(create(kitchen, {})).rejects.toMatchObject({ statusCode: 401 })
+    await expect(create(kitchen, wrong)).rejects.toMatchObject({ statusCode: 401 })
+    expect((await raw('PUT', '/api/layouts/kitchen', {})).status).toBe(401)
+    expect((await raw('DELETE', '/api/layouts/kitchen', {})).status).toBe(401)
+    expect((await raw('POST', '/api/layouts/kitchen/duplicate', {})).status).toBe(401)
+    expect(await $fetch('/api/layouts')).toEqual([])
+  })
+
+  it('POST /api/layouts answers 201 with the new layout, id and all', async () => {
+    const response = await fetch('/api/layouts', { method: 'POST', body: JSON.stringify(kitchen), headers: { ...right, 'content-type': 'application/json' } })
+    const created = await response.json() as CustomLayout
+
+    expect(response.status).toBe(201)
+    expect(created).toEqual({
+      id: 'kitchen',
+      ...kitchen,
+      created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+      updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+    })
+    expect(await $fetch('/api/layouts')).toEqual([created])
+  })
+
+  it('answers a bad body with a 400 that names the field', async () => {
+    await expect(create({ ...kitchen, name: '' })).rejects.toMatchObject(reason(400, 'name must not be empty'))
+    await expect(create({ ...kitchen, name: undefined })).rejects.toMatchObject(reason(400, 'name'))
+    await expect(create({ ...kitchen, landscape: { rows: [] } })).rejects.toMatchObject(reason(400, 'landscape.rows must have at least one row'))
+    await expect(create({ ...kitchen, landscape: { rows: [{ size: 9, panes: [{ component: 'photo', size: 1 }, { component: 'week', size: 1 }] }] } })).rejects.toMatchObject(reason(400, 'landscape.rows.0.size must be from 1 to 4'))
+    await expect(create({ ...kitchen, portrait: { rows: [{ size: 1, panes: [{ component: 'photo', size: 1 }] }] } })).rejects.toMatchObject(reason(400, 'portrait must show the same components as landscape'))
+    await expect(create({ ...kitchen, id: 'other' })).rejects.toMatchObject(reason(400, 'id is not a field of a layout'))
+    await expect(create(null)).rejects.toMatchObject({ statusCode: 400 })
+    await expect(update('kitchen', { ...kitchen, name: 'x'.repeat(61) })).rejects.toMatchObject(reason(400, 'name must be at most 60 characters'))
+    expect(await $fetch<CustomLayout[]>('/api/layouts')).toHaveLength(1)
+  })
+
+  it('answers 404 for an unknown layout', async () => {
+    await expect(update('nothing', kitchen)).rejects.toMatchObject(reason(404, 'Unknown layout "nothing"'))
+    expect((await raw('DELETE', '/api/layouts/nothing')).status).toBe(404)
+    expect((await raw('POST', '/api/layouts/nothing/duplicate')).status).toBe(404)
+  })
+
+  it('answers 409 for a name another layout has, ignoring case', async () => {
+    await expect(create({ ...kitchen, name: 'KITCHEN' })).rejects.toMatchObject(reason(409, 'There is already a layout called "KITCHEN"'))
+    const hall = await create({ ...kitchen, name: 'Hall' })
+    await expect(update(hall.id, { ...kitchen, name: 'kitchen' })).rejects.toMatchObject(reason(409, 'There is already a layout called "kitchen"'))
+    expect(await update(hall.id, { ...kitchen, name: 'Hall' })).toMatchObject({ id: 'hall', name: 'Hall' })
+  })
+
+  it('PUT /api/layouts/:id replaces the layout and keeps its id', async () => {
+    const before = (await $fetch<CustomLayout[]>('/api/layouts')).find(layout => layout.id === 'kitchen')!
+    const edited = { ...kitchen, name: 'Kitchen wall', landscape: { rows: [{ size: 1, panes: [{ component: 'week', size: 1 }, { component: 'photo', size: 1 }] }] } }
+
+    const updated = await update('kitchen', edited)
+
+    expect(updated).toMatchObject({ id: 'kitchen', name: 'Kitchen wall', landscape: edited.landscape, created_at: before.created_at })
+    expect(updated.updated_at >= before.updated_at).toBe(true)
+  })
+
+  it('POST /api/layouts/:id/duplicate answers 201 with a copy', async () => {
+    const response = await fetch('/api/layouts/kitchen/duplicate', { method: 'POST', headers: right })
+    const copy = await response.json() as CustomLayout
+
+    expect(response.status).toBe(201)
+    expect(copy).toMatchObject({ id: 'copy-of-kitchen-wall', name: 'Copy of Kitchen wall' })
+    expect(copy.landscape).toEqual((await $fetch<CustomLayout[]>('/api/layouts')).find(layout => layout.id === 'kitchen')!.landscape)
+  })
+
+  it('lists by name', async () => {
+    const names = (await $fetch<CustomLayout[]>('/api/layouts')).map(layout => layout.name)
+
+    expect(names).toEqual(['Copy of Kitchen wall', 'Hall', 'Kitchen wall'])
+  })
+
+  it('sends the layouts to a new socket on connect, and again to every socket after a change', async () => {
+    const hallway = connect('display=hallway&role=display')
+    const remote = connect('display=hallway&role=remote')
+    await Promise.all([hallway.opened, remote.opened])
+
+    const onConnect = await hallway.next(isLayouts)
+    expect((onConnect as { layouts: CustomLayout[] }).layouts.map(layout => layout.id)).toEqual(['copy-of-kitchen-wall', 'hall', 'kitchen'])
+    await remote.next(isLayouts)
+
+    const seen = [hallway.messages.length, remote.messages.length] as const
+    await update('hall', { ...kitchen, name: 'Hall way' })
+
+    for (const [socket, from] of [[hallway, seen[0]], [remote, seen[1]]] as const) {
+      const pushed = await socket.next(message => isLayouts(message) && message.layouts.some(layout => layout.name === 'Hall way'), from)
+      expect((pushed as { layouts: CustomLayout[] }).layouts.map(layout => layout.name)).toEqual(['Copy of Kitchen wall', 'Hall way', 'Kitchen wall'])
+    }
+    hallway.socket.close()
+    remote.socket.close()
+  })
+
+  // TODO(PR 5.17 schedules): the config schema does not allow `layout` on a rule yet. Once it does, run this
+  // test on a config whose schedule names the layout, and expect a 409 naming the display and the schedule.
+  it.skip('answers 409 when deleting a layout a schedule rule names', async () => {
+    await expect(raw('DELETE', '/api/layouts/kitchen').then(response => response.status)).resolves.toBe(409)
+  })
+
+  it('DELETE /api/layouts/:id answers 204 and the layout is gone', async () => {
+    const response = await raw('DELETE', '/api/layouts/copy-of-kitchen-wall')
+
+    expect(response.status).toBe(204)
+    expect((await $fetch<CustomLayout[]>('/api/layouts')).map(layout => layout.id)).toEqual(['hall', 'kitchen'])
+    expect((await raw('DELETE', '/api/layouts/copy-of-kitchen-wall')).status).toBe(404)
+  })
+})

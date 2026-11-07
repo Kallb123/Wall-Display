@@ -6,6 +6,7 @@
 // `useEventBus()` in server/utils/.
 
 import type { DisplayState, NextAlarm } from '../../shared/display'
+import type { CustomLayout } from '../../shared/layouts'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
@@ -25,6 +26,8 @@ export interface BusEvents {
   'special_days.updated': { specialDays: SpecialDaysResolution }
   /** The next alarm changed (or was first read). `alarm` is an ISO 8601 instant, or null for none. */
   'alarm.updated': { alarm: NextAlarm }
+  /** The custom layouts changed (PR 5.17). `layouts` is the whole new library, by name. */
+  'layouts.updated': { layouts: CustomLayout[] }
   /**
    * Preferences saved on the settings page changed what is in force (PR 5.6).
    * `displayIds` are the displays whose own preferences changed; `shared` is

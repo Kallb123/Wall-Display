@@ -244,6 +244,25 @@ export const preferenceOverrides = sqliteTable('preference_overrides', {
   updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date()),
 })
 
+/**
+ * The shared library of custom layouts (PR 5.17): view components arranged
+ * into rows and panes, one arrangement for a landscape wall and one for a
+ * portrait wall, both as JSON in the shape of `LayoutArrangement` in
+ * shared/layouts.ts. The id is a slug of the name. The unique index on the
+ * lower-cased name keeps Home Assistant's select, which uses names as its
+ * options, unambiguous.
+ */
+export const customLayouts = sqliteTable('custom_layouts', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  landscape: text('landscape').notNull(),
+  portrait: text('portrait').notNull(),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
+}, table => [
+  uniqueIndex('custom_layouts_name_idx').on(sql`lower(${table.name})`),
+])
+
 export type CalendarRow = typeof calendars.$inferSelect
 export type NewCalendarRow = typeof calendars.$inferInsert
 export type EventRow = typeof events.$inferSelect
@@ -264,3 +283,5 @@ export type SpecialDayRow = typeof specialDays.$inferSelect
 export type NewSpecialDayRow = typeof specialDays.$inferInsert
 export type PreferenceOverrideRow = typeof preferenceOverrides.$inferSelect
 export type NewPreferenceOverrideRow = typeof preferenceOverrides.$inferInsert
+export type CustomLayoutRow = typeof customLayouts.$inferSelect
+export type NewCustomLayoutRow = typeof customLayouts.$inferInsert

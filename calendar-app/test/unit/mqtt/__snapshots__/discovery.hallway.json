@@ -14,7 +14,8 @@
         "week_photo",
         "agenda",
         "photo",
-        "night"
+        "night",
+        "custom"
       ],
       "availability_topic": "wallcal/hallway/availability",
       "payload_available": "online",

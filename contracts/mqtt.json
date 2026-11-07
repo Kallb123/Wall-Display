@@ -19,6 +19,7 @@
             "agenda",
             "photo",
             "night",
+            "custom",
             "next"
           ]
         }
@@ -29,6 +30,7 @@
         "week_photo",
         "agenda",
         "night",
+        "custom",
         "next"
       ],
       "invalid_examples": [
@@ -54,7 +56,8 @@
             "week_photo",
             "agenda",
             "photo",
-            "night"
+            "night",
+            "custom"
           ]
         }
       },

@@ -9,6 +9,7 @@ import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
 import AgendaView from '~/components/views/AgendaView.vue'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
+import CustomLayoutView from '~/components/views/CustomLayoutView.vue'
 import NightView from '~/components/views/NightView.vue'
 import PhotoView from '~/components/views/PhotoView.vue'
 import WeekPartsView from '~/components/views/WeekPartsView.vue'
@@ -58,6 +59,8 @@ const viewComponents: Record<View, Component> = {
   agenda: AgendaView,
   photo: PhotoView,
   night: NightView,
+  // PR 5.17: the display work draws the layout's panes.
+  custom: CustomLayoutView,
 }
 const viewFor = (view: View): Component => viewComponents[view]
 

@@ -47,7 +47,7 @@ describe('runMigrations', () => {
       .prepare(`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '\\_\\_%' escape '\\' order by name`)
       .all()
       .map(row => (row as { name: string }).name)
-    expect(tables).toEqual(['calendars', 'display_state', 'events', 'photo_assets', 'photo_playlists', 'photo_renditions', 'preference_overrides', 'special_day_scenes', 'special_days', 'sync_status'])
+    expect(tables).toEqual(['calendars', 'custom_layouts', 'display_state', 'events', 'photo_assets', 'photo_playlists', 'photo_renditions', 'preference_overrides', 'special_day_scenes', 'special_days', 'sync_status'])
     expect(result.applied).toBe(result.total)
     expect(result.applied).toBeGreaterThan(0)
   })
@@ -151,8 +151,8 @@ describe('runMigrations', () => {
     insert.run({ id: 'bare', cache_file: file, cache_bytes: null, fetched_at: null, last_shown_at: null })
     insert.run({ id: 'listed', cache_file: null, cache_bytes: null, fetched_at: null, last_shown_at: null })
 
-    // 0006, and 0007 after it.
-    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(2)
+    // 0006, then 0007 and 0008 after it.
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(3)
 
     expect(handle.sqlite.prepare('select * from photo_renditions order by asset_id').all()).toEqual([
       { asset_id: 'bare', rendition: 'landscape', cache_file: file, cache_bytes: 0, fetched_at: 1000, last_shown_at: null },
@@ -180,7 +180,7 @@ describe('runMigrations', () => {
     handle.sqlite.prepare(`insert into special_day_scenes (id, name, lead, takeover, full_art, palette, created_at, updated_at) values ('spooky', 'Spooky', 'day', 1, 'scene-full.webp', 'ember', 0, 0)`).run()
     handle.sqlite.prepare(`insert into special_days (id, name, month, day, repeat, scene_id, full_art, extra_art, created_at, updated_at) values ('halloween', 'Halloween', 10, 31, 'yearly', 'spooky', 'day-full.webp', 'day-extra.webp', 0, 0)`).run()
 
-    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(1)
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(2)
 
     expect(handle.sqlite.prepare('select full_art, full_art_portrait from special_day_scenes').all()).toEqual([{ full_art: 'scene-full.webp', full_art_portrait: null }])
     expect(handle.sqlite.prepare('select full_art, full_art_portrait, extra_art, extra_art_portrait from special_days').all()).toEqual([

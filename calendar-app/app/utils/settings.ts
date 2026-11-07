@@ -169,6 +169,7 @@ const VIEW_LABELS: Record<View, string> = {
   agenda: 'Agenda',
   photo: 'Photo frame',
   night: 'Night',
+  custom: 'Custom layout',
 }
 
 export function viewLabel(view: View): string {

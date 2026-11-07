@@ -1,4 +1,4 @@
-import type { NightText, Orientation, Theme, WeekHours } from '../../shared/display'
+import type { DayParts, NightText, Orientation, Theme, WeekHours } from '../../shared/display'
 import type { NightAction, PreferencesUpdate, QuietHours } from '../../shared/settings'
 import { requestFailure } from './remote'
 
@@ -36,6 +36,10 @@ export function preferenceText(key: string, value: unknown): string {
     case 'week_hours': {
       const { from, to } = value as WeekHours
       return `${hourLabel(from)} to ${hourLabel(to)}`
+    }
+    case 'day_parts': {
+      const { afternoon, evening } = value as DayParts
+      return `afternoon from ${hourLabel(afternoon)}, evening from ${hourLabel(evening)}`
     }
     case 'quiet_hours': {
       const { from, to } = value as QuietHours

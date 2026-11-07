@@ -164,6 +164,7 @@ export function mqttLinkChip(state: MqttLinkState, error: string | null): ChipSt
 const VIEW_LABELS: Record<View, string> = {
   month: 'Month',
   week: 'Week',
+  week_parts: 'Week by part of day',
   agenda: 'Agenda',
   photo: 'Photo frame',
   night: 'Night',

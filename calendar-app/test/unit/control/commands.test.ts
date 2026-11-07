@@ -131,7 +131,7 @@ describe('when the pinned month goes back to following the current month', () =>
   })
 
   it('drops it for every other view', () => {
-    for (const view of ['week', 'agenda', 'photo', 'night'] as const) {
+    for (const view of ['week', 'week_parts', 'agenda', 'photo', 'night'] as const) {
       expect(reduceCommand(pinned('2026-12'), { type: 'set_view', view }, ctx()).month).toBeNull()
     }
   })
@@ -267,6 +267,38 @@ describe('set_week', () => {
   })
 })
 
+describe('the week by part of day view', () => {
+  it('is set by set_view, and keeps a pinned week like the week view', () => {
+    expect(reduceCommand(state(), { type: 'set_view', view: 'week_parts' }, ctx()).view).toBe('week_parts')
+    expect(reduceCommand(pinnedWeek('2026-12-07'), { type: 'set_view', view: 'week_parts' }, ctx())).toMatchObject({ view: 'week_parts', week: '2026-12-07' })
+  })
+
+  it('stays on it when the week is changed, and pages from the week shown', () => {
+    const start = pinnedWeek('2026-12-07', NOW, { view: 'week_parts' })
+
+    expect(reduceCommand(start, setWeek('next'), ctx())).toMatchObject({ view: 'week_parts', week: '2026-12-14' })
+    expect(reduceCommand(state({ view: 'week_parts' }), setWeek('next'), ctx())).toMatchObject({ view: 'week_parts', week: '2026-11-02' })
+  })
+
+  it('goes to the week view only when the week is set from another view', () => {
+    expect(reduceCommand(state({ view: 'agenda' }), setWeek('next'), ctx()).view).toBe('week')
+  })
+
+  it('keeps the pinned week while it is shown, and drops it when another view is set', () => {
+    const start = pinnedWeek('2026-12-07', NOW, { view: 'week_parts' })
+
+    expect(expireState(start, ctx()).week).toBe('2026-12-07')
+    expect(reduceCommand(start, { type: 'set_view', view: 'month' }, ctx())).toMatchObject({ week: null, week_set_at: null })
+  })
+
+  it('is what toggle_photo goes back to', () => {
+    const photo = reduceCommand(state({ view: 'week_parts' }), { type: 'toggle_photo' }, ctx())
+
+    expect(photo).toMatchObject({ view: 'photo', last_calendar_view: 'week_parts' })
+    expect(reduceCommand(photo, { type: 'toggle_photo' }, ctx()).view).toBe('week_parts')
+  })
+})
+
 describe('when the pinned week goes back to following the current week', () => {
   it('drops it when the view changes away from week, and keeps it for week', () => {
     expect(reduceCommand(pinnedWeek('2026-12-07'), { type: 'set_view', view: 'month' }, ctx())).toMatchObject({ week: null, week_set_at: null })
@@ -327,10 +359,11 @@ describe('when the pinned week goes back to following the current week', () => {
 describe('next_view', () => {
   const viewsFrom = (view: DisplayState['view']) => reduceCommand(state({ view }), { type: 'next_view' }, ctx()).view
 
-  it('cycles month, agenda, week and back', () => {
+  it('cycles month, agenda, week, week by part of day and back', () => {
     expect(viewsFrom('month')).toBe('agenda')
     expect(viewsFrom('agenda')).toBe('week')
-    expect(viewsFrom('week')).toBe('month')
+    expect(viewsFrom('week')).toBe('week_parts')
+    expect(viewsFrom('week_parts')).toBe('month')
   })
 
   it('goes to the first calendar view from photo and night', () => {

@@ -19,6 +19,7 @@ const displayValues: DisplayPreferences = {
   week_start: 'monday',
   month_return_minutes: 5,
   week_hours: { from: 7, to: 21 },
+  day_parts: { afternoon: 12, evening: 17 },
   burn_in: true,
   night_text: 'none',
   orientation: 'auto',
@@ -144,6 +145,8 @@ describe('the display preferences', () => {
     expect((card.find('[data-testid="month_return_minutes"]').element as HTMLInputElement).value).toBe('5')
     expect((card.find('[data-testid="week_hours-from"]').element as HTMLSelectElement).value).toBe('7')
     expect((card.find('[data-testid="week_hours-to"]').element as HTMLSelectElement).value).toBe('21')
+    expect((card.find('[data-testid="day_parts-afternoon"]').element as HTMLSelectElement).value).toBe('12')
+    expect((card.find('[data-testid="day_parts-evening"]').element as HTMLSelectElement).value).toBe('17')
     expect(card.find('[data-testid="burn_in"]').attributes('aria-checked')).toBe('true')
     expect(card.find('[data-testid="mark-changed"]').exists()).toBe(false)
     expect(card.find('[data-testid="save"]').attributes('disabled')).toBeDefined()
@@ -199,6 +202,32 @@ describe('the display preferences', () => {
     await flushPromises()
 
     expect(puts()[0]!.body).toEqual({ set: { week_hours: { from: 7, to: 22 }, month_return_minutes: 12 } })
+  })
+
+  it('sends changed parts of the day as whole hours', async () => {
+    const wrapper = await open()
+    const card = hallway(wrapper)
+
+    await card.find('[data-testid="day_parts-afternoon"]').setValue('11')
+    await card.find('[data-testid="day_parts-evening"]').setValue('18')
+    await card.find('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(puts()[0]!.body).toEqual({ set: { day_parts: { afternoon: 11, evening: 18 } } })
+  })
+
+  it('shows the server\'s message under the parts of the day when it refuses them', async () => {
+    refuse = () => {
+      throw refusal(400, 'day_parts: afternoon must be before evening', { fields: { day_parts: 'afternoon must be before evening' } })
+    }
+    const wrapper = await open()
+    const card = hallway(wrapper)
+
+    await card.find('[data-testid="day_parts-afternoon"]').setValue('18')
+    await card.find('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(card.find('[data-pref="day_parts"] [data-testid="field-error"]').text()).toBe('afternoon must be before evening')
   })
 
   it('Reset sends reset for that key and goes back to the config\'s value', async () => {

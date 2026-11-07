@@ -1,4 +1,4 @@
-import type { DisplayState, NightText, Orientation, PhotoSource, SocketRole, Theme, WeekHours } from './display'
+import type { DayParts, DisplayState, NightText, Orientation, PhotoSource, SocketRole, Theme, WeekHours } from './display'
 
 // What the settings pages (architecture §7.6) and the server agree on. Pure
 // types: no I/O, and no imports from server/, so the pages can use them too.
@@ -154,6 +154,8 @@ export interface DisplayPreferences {
   month_return_minutes: number
   /** Whole hours: `from` 0 to 23, `to` 1 to 24, `from` before `to`. */
   week_hours: WeekHours
+  /** Whole hours where the week by part of day view splits a day: `afternoon` 1 to 22, `evening` 2 to 23, `afternoon` before `evening`. */
+  day_parts: DayParts
   burn_in: boolean
   /** `next_alarm` needs the config's `alarm` block. */
   night_text: NightText
@@ -161,7 +163,7 @@ export interface DisplayPreferences {
   orientation: Orientation
 }
 
-export const DISPLAY_PREFERENCE_KEYS = ['theme', 'month_style', 'week_start', 'month_return_minutes', 'week_hours', 'burn_in', 'night_text', 'orientation'] as const satisfies readonly (keyof DisplayPreferences)[]
+export const DISPLAY_PREFERENCE_KEYS = ['theme', 'month_style', 'week_start', 'month_return_minutes', 'week_hours', 'day_parts', 'burn_in', 'night_text', 'orientation'] as const satisfies readonly (keyof DisplayPreferences)[]
 export type DisplayPreferenceKey = (typeof DISPLAY_PREFERENCE_KEYS)[number]
 
 /** A quiet hours window: `HH:MM` times in the config's time zone, which must differ and may wrap midnight. */

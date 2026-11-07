@@ -58,8 +58,8 @@ describe('the preferences API', async () => {
       {
         id: 'hallway',
         name: 'Hallway',
-        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, burn_in: true, night_text: 'none', orientation: 'auto' },
-        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, burn_in: true, night_text: 'none', orientation: 'auto' },
+        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, burn_in: true, night_text: 'none', orientation: 'auto' },
+        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, burn_in: true, night_text: 'none', orientation: 'auto' },
         changed: [],
       },
     ])
@@ -108,6 +108,16 @@ describe('the preferences API', async () => {
     expect(overview!.theme).toBe('dark')
   })
 
+  it('PUT .../displays/:id saves day_parts, and GET /api/displays shows them', async () => {
+    const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { day_parts: { afternoon: 11, evening: 18 } } } })
+
+    expect(status.displays[0]).toMatchObject({ values: { day_parts: { afternoon: 11, evening: 18 } }, config: { day_parts: { afternoon: 12, evening: 17 } }, changed: ['day_parts'] })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ day_parts: { afternoon: 11, evening: 18 } })
+
+    await $fetch('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { reset: ['day_parts'] } })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ day_parts: { afternoon: 12, evening: 17 } })
+  })
+
   it('PUT .../displays/:id saves an orientation, and GET /api/displays shows it', async () => {
     const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { orientation: 'portrait' } } })
 
@@ -134,6 +144,7 @@ describe('the preferences API', async () => {
       [{ set: { colour: 'red' } }, { colour: expect.any(String) }],
       [{ set: { month_return_minutes: 5000 } }, { month_return_minutes: expect.any(String) }],
       [{ set: { week_hours: { from: 12, to: 8 } } }, { week_hours: expect.stringContaining('before') }],
+      [{ set: { day_parts: { afternoon: 17, evening: 12 } } }, { day_parts: expect.stringContaining('before') }],
       [{ set: { theme: 'dark' }, reset: ['theme'] }, { theme: expect.stringContaining('both') }],
       [{ set: { night_text: 'next_alarm' } }, { night_text: expect.stringContaining('alarm') }],
       [[1], { _: expect.any(String) }],

@@ -88,7 +88,7 @@ let eventsAnswer: CalendarEvent[]
 
 function server(url: string, options?: { query?: Record<string, string> }) {
   requests.push({ url, query: options?.query })
-  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, ...settingsExtra }]
+  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, ...settingsExtra }]
   if (url === '/api/events') return { events: eventsAnswer }
   if (url === '/api/special-days/preview') {
     const answer = previewAnswer(options?.query ?? {})
@@ -589,7 +589,7 @@ describe('settings changed on the settings page', () => {
   const update = (changes: Record<string, unknown>) => ({
     type: 'settings.updated',
     display_id: 'hallway',
-    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [], ...changes },
+    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, photo_sources: [], ...changes },
   })
 
   it('re-themes the wall at once', async () => {
@@ -819,7 +819,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])
 
-    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, photo_sources: [] } })
+    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, photo_sources: [] } })
     await flushPromises()
     expect(stageSize(wall)).toEqual([2560, 1440])
   })

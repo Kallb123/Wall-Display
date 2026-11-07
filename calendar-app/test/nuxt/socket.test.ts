@@ -268,6 +268,7 @@ describe('useDisplaySocket settings', () => {
     orientation: 'auto',
     night_text: 'first_event',
     week_hours: { from: 6, to: 22 },
+    day_parts: { afternoon: 11, evening: 18 },
     photo_sources: ['local'],
   }
 

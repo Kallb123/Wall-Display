@@ -24,6 +24,7 @@ describe('reading preferences from the config', () => {
       week_start: 'monday',
       month_return_minutes: 15,
       week_hours: { from: 7, to: 21 },
+      day_parts: { afternoon: 12, evening: 17 },
       burn_in: true,
       night_text: 'none',
       orientation: 'auto',
@@ -97,6 +98,9 @@ describe('reading an update', () => {
     ['a week_hours with from at or after to', { set: { week_hours: { from: 10, to: 10 } } }, { week_hours: expect.stringContaining('before') }],
     ['a week_hours out of range', { set: { week_hours: { from: 0, to: 25 } } }, { week_hours: expect.stringContaining('to must be from 1 to 24') }],
     ['a week_hours with an extra key', { set: { week_hours: { from: 1, to: 2, x: 3 } } }, { week_hours: expect.stringContaining('"x"') }],
+    ['a day_parts with afternoon at or after evening', { set: { day_parts: { afternoon: 17, evening: 17 } } }, { day_parts: expect.stringContaining('before') }],
+    ['a day_parts out of range', { set: { day_parts: { afternoon: 0, evening: 17 } } }, { day_parts: expect.stringContaining('afternoon must be from 1 to 22') }],
+    ['a day_parts with an extra key', { set: { day_parts: { afternoon: 12, evening: 17, x: 3 } } }, { day_parts: expect.stringContaining('"x"') }],
     ['a key in both set and reset', { set: { theme: 'dark' }, reset: ['theme'] }, { theme: expect.stringContaining('both') }],
   ])('refuses %s', (_name, body, fields) => {
     expect(parseDisplayUpdate(body)).toEqual({ ok: false, fields })
@@ -172,10 +176,10 @@ describe('keeping the stored keys that still fit', () => {
   it('ignores an unknown key and a bad value, and says why', () => {
     const config = parsedConfig(ALARM)
 
-    const { kept, ignored } = keepDisplayOverridesThatFit({ theme: 'dark', month_return_minutes: 0, default_view: 'week', week_hours: { from: 9, to: 9 } }, config.displays[0]!, { alarm: true })
+    const { kept, ignored } = keepDisplayOverridesThatFit({ theme: 'dark', month_return_minutes: 0, default_view: 'week', week_hours: { from: 9, to: 9 }, day_parts: { afternoon: 18, evening: 6 } }, config.displays[0]!, { alarm: true })
 
     expect(kept).toEqual({ theme: 'dark' })
-    expect(ignored.map(item => item.key).sort()).toEqual(['default_view', 'month_return_minutes', 'week_hours'])
+    expect(ignored.map(item => item.key).sort()).toEqual(['day_parts', 'default_view', 'month_return_minutes', 'week_hours'])
   })
 
   it('ignores night_text next_alarm once the alarm block is gone', () => {
@@ -206,7 +210,7 @@ describe('merging overrides into the config', () => {
     const before = JSON.stringify(config)
 
     const merged = mergeOverrides(config, {
-      displays: { hallway: { theme: 'dark', week_hours: { from: 6, to: 22 }, burn_in: false } },
+      displays: { hallway: { theme: 'dark', week_hours: { from: 6, to: 22 }, day_parts: { afternoon: 11, evening: 18 }, burn_in: false } },
       shared: { photo_interval_seconds: 20, off_after_minutes: 3 },
     })
 
@@ -216,7 +220,8 @@ describe('merging overrides into the config', () => {
     expect(Object.isFrozen(merged.displays)).toBe(true)
     expect(Object.isFrozen(merged.displays[0])).toBe(true)
     expect(Object.isFrozen(merged.policies.auto_presence)).toBe(true)
-    expect(merged.displays[0]).toMatchObject({ id: 'hallway', theme: 'dark', burn_in: false, week_hours: { from: 6, to: 22 }, week_start: 'monday' })
+    expect(merged.displays[0]).toMatchObject({ id: 'hallway', theme: 'dark', burn_in: false, week_hours: { from: 6, to: 22 }, day_parts: { afternoon: 11, evening: 18 }, week_start: 'monday' })
+    expect(Object.isFrozen((merged.displays[0] as { day_parts: object }).day_parts)).toBe(true)
     expect(merged.displays[1]).toBe(config.displays[1])
     expect(merged.photos).toMatchObject({ interval_seconds: 20 })
     expect(merged.policies.auto_presence.off_after_minutes).toBe(3)

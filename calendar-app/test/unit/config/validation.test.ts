@@ -281,6 +281,31 @@ describe('validation errors name the field', () => {
     expect(message).toContain('displays[0].week_hours.start: unknown setting')
   })
 
+  it('day_parts with afternoon not before evening', async () => {
+    const message = await messageFor((c) => { c.displays[0].day_parts = { afternoon: 17, evening: 17 } })
+
+    expect(message).toContain('displays[0].day_parts')
+    expect(message).toContain('day_parts.afternoon must be before day_parts.evening')
+  })
+
+  it('day_parts out of range', async () => {
+    expect(await messageFor((c) => { c.displays[0].day_parts = { afternoon: 0, evening: 17 } })).toContain('displays[0].day_parts.afternoon: must be from 1 to 22')
+    expect(await messageFor((c) => { c.displays[0].day_parts = { afternoon: 12, evening: 24 } })).toContain('displays[0].day_parts.evening: must be from 2 to 23')
+    expect(await messageFor((c) => { c.displays[0].day_parts = { afternoon: 12, evening: 1 } })).toContain('displays[0].day_parts.evening: must be from 2 to 23')
+  })
+
+  it('day_parts that are not whole hours', async () => {
+    const message = await messageFor((c) => { c.displays[0].day_parts = { afternoon: 12.5, evening: 17 } })
+
+    expect(message).toContain('displays[0].day_parts.afternoon: must be a whole number')
+  })
+
+  it('day_parts with an unknown key', async () => {
+    const message = await messageFor((c) => { c.displays[0].day_parts = { afternoon: 12, evening: 17, night: 22 } })
+
+    expect(message).toContain('displays[0].day_parts.night: unknown setting')
+  })
+
   it('night_text next_alarm without an alarm block', async () => {
     const message = await messageFor((c) => { c.displays[0].night_text = 'next_alarm' })
 
@@ -469,6 +494,12 @@ describe('schedules', () => {
     raw.displays[0].schedules = schedules
     return (await load({ config: raw })).config.displays[0]!.schedules
   }
+
+  it('takes a rule that shows the week by part of day view', async () => {
+    const [only] = await schedulesOf([schedule({ rules: [rule({ view: 'week_parts' })] })])
+
+    expect(only!.rules[0]).toMatchObject({ view: 'week_parts' })
+  })
 
   it('is empty by default, and the name defaults to the id', async () => {
     expect((await load({ config: minimalConfig() })).config.displays[0]!.schedules).toEqual([])

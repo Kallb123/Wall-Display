@@ -65,6 +65,7 @@ describe('defaults', () => {
       night_text: 'none',
       orientation: 'auto',
       week_hours: { from: 7, to: 21 },
+      day_parts: { afternoon: 12, evening: 17 },
       schedules: [],
     })
   })
@@ -179,6 +180,14 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.displays[0]!.week_hours).toEqual({ from: 0, to: 24 })
+  })
+
+  it('keeps day_parts as set on a display', async () => {
+    const raw = minimalConfig()
+    raw.displays[0].day_parts = { afternoon: 11, evening: 18 }
+    const { config } = await load({ config: raw })
+
+    expect(config.displays[0]!.day_parts).toEqual({ afternoon: 11, evening: 18 })
   })
 
   it('keeps a year of events either side of this month unless told otherwise', async () => {

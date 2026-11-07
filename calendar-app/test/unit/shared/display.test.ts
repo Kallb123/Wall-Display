@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMonths, addWeeks, commandSchema, currentMonth, currentWeek, DEFAULT_PREVIEW_SECONDS, displayStateSchema, firstDayOfWeek, monthDiff, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../../shared/display'
+import { addMonths, addWeeks, commandSchema, currentMonth, currentWeek, DEFAULT_DAY_PARTS, DEFAULT_PREVIEW_SECONDS, displayStateSchema, firstDayOfWeek, monthDiff, NEXT_VIEW_ORDER, RETURN_VIEWS, VIEWS, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../../shared/display'
 
 describe('the display state schema', () => {
   it('fills in every field from nothing', () => {
@@ -223,6 +223,19 @@ describe('months', () => {
   })
 })
 
+describe('views', () => {
+  it('lists the week by part of day view, and steps through it last', () => {
+    expect(VIEWS).toEqual(['month', 'week', 'week_parts', 'agenda', 'photo', 'night'])
+    expect(NEXT_VIEW_ORDER).toEqual(['month', 'agenda', 'week', 'week_parts'])
+    expect(RETURN_VIEWS).toContain('week_parts')
+    expect(commandSchema.parse({ type: 'set_view', view: 'week_parts' })).toEqual({ type: 'set_view', view: 'week_parts' })
+  })
+
+  it('has the default parts of the day', () => {
+    expect(DEFAULT_DAY_PARTS).toEqual({ afternoon: 12, evening: 17 })
+  })
+})
+
 describe('weeks', () => {
   it('finds the first day of the week that holds a date', () => {
     // Wed 28 October 2026.
@@ -234,7 +247,7 @@ describe('weeks', () => {
   })
 
   it('lists the views that follow a pinned week, within the views there are', () => {
-    expect(WEEK_VIEWS).toEqual(['week'])
+    expect(WEEK_VIEWS).toEqual(['week', 'week_parts'])
     expect(WEEK_RANGE).toBe(52)
   })
 

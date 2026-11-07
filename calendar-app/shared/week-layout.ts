@@ -178,7 +178,7 @@ export interface WeekLayout {
   now: NowLine | null
 }
 
-const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+export const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 const clockFormatters = new Map<string, Intl.DateTimeFormat>()
@@ -188,7 +188,7 @@ const clockFormatters = new Map<string, Intl.DateTimeFormat>()
  * the wall clock rather than worked out from differences between instants, so a
  * day with a clock change still lines up with its hour labels.
  */
-function wallMinutes(instant: number, timeZone: string): number {
+export function wallMinutes(instant: number, timeZone: string): number {
   let formatter = clockFormatters.get(timeZone)
   if (!formatter) {
     formatter = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })

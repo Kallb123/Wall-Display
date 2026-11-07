@@ -107,8 +107,8 @@ describe('DayGridView', () => {
 
     const day = tile(wrapper, '2026-10-28')
     const shown = day.findAll('[data-testid="event"]').length
-    // A 2 by 4 grid on the landscape stage has tiles 672 px tall: six lines, the last given to the "+N more".
-    expect(shown).toBe(5)
+    // A 2 by 4 grid on the landscape stage has tiles 672 px tall: six cards, and the shorter "+N more" line still fits under all six.
+    expect(shown).toBe(6)
     expect(day.find('[data-testid="more"]').text()).toBe(`+${12 - shown} more`)
     expect(tile(wrapper, '2026-10-29').find('[data-testid="more"]').exists()).toBe(false)
   })

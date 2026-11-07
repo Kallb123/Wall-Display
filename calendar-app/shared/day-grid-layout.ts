@@ -32,6 +32,12 @@ export interface DayGridLayoutInput {
   events: CalendarEvent[]
   /** The most lines in a tile, at least 1. `DEFAULT_CELL_ITEMS` when left out. */
   cellItems?: number
+  /**
+   * The most events a full tile shows above its "+N more" line, from 0 to
+   * `cellItems`. The line is shorter than an event, so it can leave room for as
+   * many events as a tile without it. `cellItems - 1` when left out.
+   */
+  overflowItems?: number
 }
 
 /** One event in a tile. */
@@ -90,13 +96,13 @@ export function dayGridDays(grid: DayGrid, today: string, weekStart: 'monday' | 
 
 /**
  * Lays out the grid. When a day has more events than `cellItems`, it shows
- * `cellItems - 1` of them and `more` counts the rest, so the "+N more" line
- * takes the last line, as in the week by part of day. With `cellItems` of 1 and
- * more than one event, that means no events at all and only "+N more"; a lone
- * event always shows.
+ * `overflowItems` of them (by default `cellItems - 1`, so the "+N more" line
+ * takes the last line, as in the week by part of day) and `more` counts the
+ * rest. A day with no more events than `cellItems` shows them all.
  */
-export function dayGridLayout({ now, timeZone, weekStart, grid, events, cellItems = DEFAULT_CELL_ITEMS }: DayGridLayoutInput): DayGridLayout {
+export function dayGridLayout({ now, timeZone, weekStart, grid, events, cellItems = DEFAULT_CELL_ITEMS, overflowItems }: DayGridLayoutInput): DayGridLayout {
   const limit = Math.max(1, Math.floor(cellItems))
+  const fullLimit = Math.min(limit, Math.max(0, Math.floor(overflowItems ?? limit - 1)))
   const today = todayIn(now, timeZone)
   const nowInstant = now.getTime()
   const { first } = dayGridDays(grid, today, weekStart)
@@ -109,7 +115,7 @@ export function dayGridLayout({ now, timeZone, weekStart, grid, events, cellItem
       ...found.timed.map(entry => ({ entry, allDay: false })),
     ]
     const full = all.length > limit
-    const shown = full ? all.slice(0, limit - 1) : all
+    const shown = full ? all.slice(0, fullLimit) : all
     const day = Number(date.slice(8, 10))
     return {
       date,

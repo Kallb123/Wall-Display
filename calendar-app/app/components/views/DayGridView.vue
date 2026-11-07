@@ -4,7 +4,7 @@ import { paletteAccent, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import {
   DAY_CARD_GAP, DAY_CARD_HEIGHT, DAY_GRID_GAP, DAY_GRID_PADDING, DAY_HEAD_GAP, DAY_HEAD_HEIGHT, DAY_MORE_HEIGHT, DAY_TILE_PADDING,
-  dayGridCellItems, dayTileHeight,
+  dayGridCellItems, dayGridOverflowItems, dayTileHeight,
 } from '../../utils/dayGrid'
 import type { ViewProps } from '../../utils/views'
 import { dayGridLayout } from '../../../shared/day-grid-layout'
@@ -39,7 +39,9 @@ const props = defineProps<ViewProps>()
 
 const grid = computed(() => props.dayGrid ?? DEFAULT_DAY_GRID)
 
-const cellItems = computed(() => dayGridCellItems(dayTileHeight(props.stage.height, grid.value.rows)))
+const tileHeight = computed(() => dayTileHeight(props.stage.height, grid.value.rows))
+const cellItems = computed(() => dayGridCellItems(tileHeight.value))
+const overflowItems = computed(() => dayGridOverflowItems(tileHeight.value))
 
 const layout = computed(() => dayGridLayout({
   now: props.now,
@@ -48,6 +50,7 @@ const layout = computed(() => dayGridLayout({
   grid: grid.value,
   events: props.events,
   cellItems: cellItems.value,
+  overflowItems: overflowItems.value,
 }))
 
 /** The weather icon and the day's high, or null when the forecast has neither. */

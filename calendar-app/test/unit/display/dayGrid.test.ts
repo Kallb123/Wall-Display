@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   DAY_CARD_GAP, DAY_CARD_HEIGHT, DAY_GRID_GAP, DAY_GRID_PADDING, DAY_HEAD_GAP, DAY_HEAD_HEIGHT, DAY_MORE_HEIGHT, DAY_TILE_PADDING,
-  dayGridCellItems, dayTileHeight, dayTileWidth,
+  dayGridCellItems, dayGridOverflowItems, dayTileHeight, dayTileWidth,
 } from '../../../app/utils/dayGrid'
+import { MIN_DAY_TILE } from '../../../app/utils/layouts'
 import { MAX_DAY_GRID_ROWS } from '../../../shared/layouts'
 
 describe('dayTileHeight and dayTileWidth', () => {
@@ -42,9 +43,32 @@ describe('dayGridCellItems', () => {
         const tile = dayTileHeight(stage, rows)
         const items = dayGridCellItems(tile)
         const used = 2 * DAY_TILE_PADDING + DAY_HEAD_HEIGHT + DAY_HEAD_GAP + items * DAY_CARD_HEIGHT + (items - 1) * DAY_CARD_GAP
-        // Only a tile too short for a single card (the minimum tile is scaled up to 240 by paneFit) may exceed itself, and then it clips.
+        // Only a tile too short for a single card (paneFit never draws one shorter than MIN_DAY_TILE) may exceed itself, and then it clips.
         if (items > 1) expect(used).toBeLessThanOrEqual(tile)
       }
     }
+  })
+})
+
+describe('dayGridOverflowItems', () => {
+  /** The height of a tile holding `n` cards and the "+N more" line exactly. */
+  const holding = (n: number) => 2 * DAY_TILE_PADDING + DAY_HEAD_HEIGHT + DAY_HEAD_GAP + n * (DAY_CARD_HEIGHT + DAY_CARD_GAP) + DAY_MORE_HEIGHT
+
+  it('counts the cards that fit with the "+N more" line under them', () => {
+    for (const n of [1, 2, 5]) {
+      expect(dayGridOverflowItems(holding(n))).toBe(n)
+      expect(dayGridOverflowItems(holding(n) - 1)).toBe(n - 1)
+    }
+  })
+
+  it('is never more than the cards a tile holds without the line, nor less than 0', () => {
+    for (let height = 0; height <= 2600; height += 7) {
+      expect(dayGridOverflowItems(height)).toBeLessThanOrEqual(dayGridCellItems(height))
+      expect(dayGridOverflowItems(height)).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('keeps one card beside the line in the smallest tile drawn', () => {
+    expect(dayGridOverflowItems(MIN_DAY_TILE.height)).toBe(1)
   })
 })

@@ -16,7 +16,7 @@ export const DAY_HEAD_GAP = 10
 export const DAY_CARD_HEIGHT = 74
 /** Between cards. */
 export const DAY_CARD_GAP = 8
-/** The "+N more" line. It is shorter than a card and takes the place of one, so it always fits. */
+/** The "+N more" line, under the last card. It is shorter than a card, so a full tile can often keep as many cards (`dayGridOverflowItems`). */
 export const DAY_MORE_HEIGHT = 36
 
 /** The height of one tile when `rows` of them share a stage of `stageHeight`. */
@@ -37,4 +37,14 @@ export function dayTileWidth(stageWidth: number, columns: number): number {
 export function dayGridCellItems(tileHeight: number): number {
   const room = tileHeight - 2 * DAY_TILE_PADDING - DAY_HEAD_HEIGHT - DAY_HEAD_GAP
   return Math.max(1, Math.floor((room + DAY_CARD_GAP) / (DAY_CARD_HEIGHT + DAY_CARD_GAP)))
+}
+
+/**
+ * How many cards a full tile of `tileHeight` shows above its "+N more" line:
+ * as many as fit with the line under them, so it is `dayGridCellItems` or one
+ * fewer. A tile at least `MIN_DAY_TILE` tall (app/utils/layouts.ts) holds one.
+ */
+export function dayGridOverflowItems(tileHeight: number): number {
+  const room = tileHeight - 2 * DAY_TILE_PADDING - DAY_HEAD_HEIGHT - DAY_HEAD_GAP - DAY_MORE_HEIGHT
+  return Math.min(dayGridCellItems(tileHeight), Math.max(0, Math.floor(room / (DAY_CARD_HEIGHT + DAY_CARD_GAP))))
 }

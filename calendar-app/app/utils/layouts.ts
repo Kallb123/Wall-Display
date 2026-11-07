@@ -101,8 +101,8 @@ export const COMPONENT_MINIMUMS: Record<Exclude<LayoutComponent, 'photo' | 'days
   agenda: { landscape: { width: 2400, height: 1350 }, portrait: { width: 1300, height: 2300 } },
 }
 
-/** The smallest a day grid's tile is drawn at: a pane with more tiles than fit at this size is drawn on a bigger stage and scaled down. */
-export const MIN_DAY_TILE: Minimum = { width: 320, height: 240 }
+/** The smallest a day grid's tile is drawn at: a pane with more tiles than fit at this size is drawn on a bigger stage and scaled down. Tall enough for one event card and the "+N more" line under its head (app/utils/dayGrid.ts). */
+export const MIN_DAY_TILE: Minimum = { width: 320, height: 264 }
 
 /** The week's wide layout needs this much width; a narrower box gets the seven-column one, as the week and photo view's pane does. */
 export const WEEK_WIDE_MIN_WIDTH = 1800

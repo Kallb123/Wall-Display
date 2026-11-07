@@ -166,14 +166,14 @@ describe('the day grid pane', () => {
   })
 
   it('scales down so each tile keeps its minimum, by the tighter side', () => {
-    expect(MIN_DAY_TILE).toEqual({ width: 320, height: 240 })
-    // 4 columns want 1280 wide and 2 rows want 480 high: the width is short by half.
+    expect(MIN_DAY_TILE).toEqual({ width: 320, height: 264 })
+    // 4 columns want 1280 wide and 2 rows want 528 high: the width is short by half.
     const fit = paneFit('days', { width: 640, height: 960 }, grid)
 
     expect(fit.scale).toBe(0.5)
     expect(fit.stage).toEqual({ width: 1280, height: 1920, orientation: 'portrait' })
     // The height is the tight side here.
-    expect(paneFit('days', { width: 2560, height: 240 }, grid).scale).toBe(0.5)
+    expect(paneFit('days', { width: 2560, height: 264 }, grid).scale).toBe(0.5)
   })
 
   it('never scales up', () => {

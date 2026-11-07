@@ -119,11 +119,23 @@ describe('dayGridLayout', () => {
     expect(lay({ grid: grid(1, 1), events: events.slice(0, 4), cellItems: 4 }).cells[0]!.items).toHaveLength(4)
   })
 
+  it('shows overflowItems events above "+N more", held to 0 to cellItems', () => {
+    const events = [1, 2, 3, 4, 5].map(hour => timed(`2026-11-07T0${hour}:00:00Z`, `2026-11-07T0${hour}:30:00Z`, `E${hour}`))
+
+    expect(lay({ grid: grid(1, 1), events, cellItems: 3, overflowItems: 3 }).cells[0]).toMatchObject({ more: 2, count: 5 })
+    expect(lay({ grid: grid(1, 1), events, cellItems: 3, overflowItems: 9 }).cells[0]!.items).toHaveLength(3)
+    expect(lay({ grid: grid(1, 1), events, cellItems: 3, overflowItems: -1 }).cells[0]).toMatchObject({ items: [], more: 5 })
+    // A day that fits ignores it.
+    expect(lay({ grid: grid(1, 1), events: events.slice(0, 3), cellItems: 3, overflowItems: 1 }).cells[0]!.items).toHaveLength(3)
+  })
+
   it('shows only "+N more" for a crowded day when a tile holds one line, and a lone event always', () => {
     const two = [timed('2026-11-07T08:00:00Z', '2026-11-07T09:00:00Z'), timed('2026-11-07T10:00:00Z', '2026-11-07T11:00:00Z')]
 
     expect(lay({ grid: grid(1, 1), events: two, cellItems: 1 }).cells[0]).toMatchObject({ items: [], more: 2, count: 2 })
     expect(lay({ grid: grid(1, 1), events: two.slice(0, 1), cellItems: 1 }).cells[0]).toMatchObject({ more: 0, count: 1 })
+    // With room for one event beside the line, a crowded day keeps it.
+    expect(lay({ grid: grid(1, 1), events: two, cellItems: 1, overflowItems: 1 }).cells[0]).toMatchObject({ more: 1, count: 2 })
     // Nonsense limits are held to 1.
     expect(lay({ grid: grid(1, 1), events: two, cellItems: 0 }).cells[0]).toMatchObject({ items: [], more: 2 })
   })

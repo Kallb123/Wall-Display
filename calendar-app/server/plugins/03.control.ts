@@ -2,6 +2,7 @@ import { createDisplayControl } from '../control/service'
 import { getDisplayControl, setDisplayControl } from '../control/state'
 import { createSchedulePolicy } from '../control/schedule'
 import { getSchedulePolicy, setSchedulePolicy } from '../control/schedule-state'
+import { photoSourcesOf } from '../settings/displaySettings'
 import { getSocketHub } from '../ws/hub'
 
 // Runs after the sync plugin (the 03 prefix). It starts the display control,
@@ -28,6 +29,8 @@ export default defineNitroPlugin((nitroApp) => {
     displays: config.displays,
     timeZone: config.timezone,
     bus,
+    // The photo service starts after this plugin, so it is looked up when the command arrives.
+    photosConfigured: () => photoSourcesOf(usePhotos()?.configured() ?? []).length > 0,
     // The weather and alarm services start after this plugin, so they are looked up when the command arrives.
     refresh: () => Promise.all([useSyncScheduler().refreshAll(), useWeather()?.refresh(), useAlarm()?.refresh()]),
   })

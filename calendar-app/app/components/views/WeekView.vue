@@ -4,9 +4,10 @@ import { paletteAccent, personFill, PORTRAIT_WEEK_TILE_TINT, tileTint } from '~/
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
 import type { ItemPeople } from '../../../shared/month-layout'
+import { currentWeek, weekDiff } from '../../../shared/display'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { weatherOn } from '../../../shared/weather'
-import { MAX_BADGE_INITIALS, PORTRAIT_MAX_TRACKS, weekLayout } from '../../../shared/week-layout'
+import { MAX_BADGE_INITIALS, PORTRAIT_MAX_TRACKS, shortWeekRange, weekLayout } from '../../../shared/week-layout'
 import type { AllDayBar, Band, TimedBlock, WeekDay } from '../../../shared/week-layout'
 
 // The week in the Soft style (architecture §4.5; there is no mock, so it borrows
@@ -48,6 +49,11 @@ import type { AllDayBar, Band, TimedBlock, WeekDay } from '../../../shared/week-
 // The weather (PR 2.7) is each day's icon and high / low in its heading. Any
 // part that is not known is left out, and with no weather at all the heading is
 // shorter and nothing is drawn.
+//
+// As a pane of the week and photo view (`pane`, PR 5.14, mock 4k) it is the same
+// portrait layout in the box it is given, with a short title in place of the
+// full one: the range without a year, and under it in muted type where the
+// week is in time, "This week", "Next week", "Last week" or else the year.
 const props = defineProps<ViewProps>()
 
 const portrait = computed(() => props.stage.orientation === 'portrait')
@@ -70,6 +76,15 @@ const layout = computed(() => weekLayout({
 const pastDays = computed(() => layout.value.days.filter(day => day.past).length)
 
 /** `26 October – 1 November` and `2026`, so the year can be muted as in the month's title. A title that spans two years keeps the first one in the text. */
+/** The pane's title: `26 Oct – 1 Nov` and, muted, "This week", "Next week", "Last week" or else the year of the week's first day. */
+const shortTitle = computed(() => {
+  const first = layout.value.days[0]!.date
+  const range = shortWeekRange(first, layout.value.days[6]!.date)
+  const offset = weekDiff(currentWeek(props.now, props.timezone, props.weekStart), first)
+  const label = offset === 0 ? 'This week' : offset === 1 ? 'Next week' : offset === -1 ? 'Last week' : first.slice(0, 4)
+  return { range, label }
+})
+
 const title = computed(() => {
   const match = /^(.*) (\d{4})$/.exec(layout.value.title)
   return match ? { range: match[1]!, year: match[2]! } : { range: layout.value.title, year: '' }
@@ -177,9 +192,12 @@ const BAND_SHOWN = 1
 </script>
 
 <template>
-  <section class="view" :class="{ portrait }" data-testid="week-view">
+  <section class="view" :class="{ portrait, pane }" data-testid="week-view">
     <header class="header">
-      <h1 class="title" data-testid="week-title">
+      <h1 v-if="pane" class="title" data-testid="week-title">
+        <span class="range">{{ shortTitle.range }}</span>{{ ' ' }}<span class="year" data-testid="week-label">{{ shortTitle.label }}</span>
+      </h1>
+      <h1 v-else class="title" data-testid="week-title">
         <!-- The space is for the text ("26 October – 1 November 2026"); between flex items it takes no room. -->
         <span class="range">{{ title.range }}</span>{{ ' ' }}<span v-if="title.year" class="year">{{ title.year }}</span>
       </h1>
@@ -414,6 +432,8 @@ const BAND_SHOWN = 1
   gap: 20px;
   padding: 48px;
   overflow: hidden;
+  /* So a pane is sized by the box it is in, not by the stage. */
+  container-type: size;
 }
 
 .header {
@@ -870,6 +890,16 @@ const BAND_SHOWN = 1
 
 .portrait .year {
   font-size: 40px;
+}
+
+/* The short title of a pane (mock 4k): the range in the display face, the label muted beside it. */
+.pane .range {
+  font-size: 56px;
+  letter-spacing: -0.02em;
+}
+
+.pane .year {
+  font-size: 32px;
 }
 
 /* On a line of its own, as long as the stage is wide. */

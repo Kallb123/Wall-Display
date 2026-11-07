@@ -817,3 +817,65 @@ test.describe('the photo frame', () => {
     await expect(page).toHaveScreenshot('portrait-photo-landscape.png')
   })
 })
+
+// The week and photo (PR 5.14, mocks 4k and 4l): the photo across the top, 1000
+// px tall and so wider than it is tall, which asks for the landscape render, and
+// the week in the 1560 px below it.
+test.describe('the week and photo', () => {
+  const box = async (locator: Locator) => (await locator.boundingBox())!
+
+  /** The server's landscape render of `id`, asked for on a display no spec shows, so the playlist of the one under test is not touched. */
+  async function landscapePhotoNamed(request: APIRequestContext, id: string): Promise<PhotoInfo> {
+    const seen: string[] = []
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const response = await request.get('/api/photos/next?display=kitchen&orientation=landscape')
+      const { photo } = photoResponseSchema.parse(await response.json())
+      if (photo?.id === id) return photo
+      if (photo) seen.push(photo.id)
+      else await new Promise(resolve => setTimeout(resolve, 250))
+    }
+    throw new Error(`The server never offered ${id}, only ${seen.join(', ')}`)
+  }
+
+  async function shown(page: Page, photo: PhotoInfo) {
+    const asked: (string | null)[] = []
+    await page.route('**/api/photos/next**', async (route) => {
+      asked.push(new URL(route.request().url()).searchParams.get('orientation'))
+      await route.fulfill({ json: { photo } })
+    })
+    await playServer(page, { view: 'week_photo' }, events, weather)
+    return asked
+  }
+
+  async function ready(page: Page) {
+    await settle(page)
+    const top = page.locator('[data-testid^="photo-layer-"].top')
+    await expect(top).toHaveCount(1)
+    await expect.poll(() => top.evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true)
+    await expect.poll(() => top.evaluate(image => getComputedStyle(image).opacity)).toBe('1')
+  }
+
+  test('the photo over the week, light theme (mock 4k)', async ({ page, request }) => {
+    const asked = await shown(page, await landscapePhotoNamed(request, 'local:sunset-landscape.jpg'))
+    await page.goto('/display?id=hallway')
+    await ready(page)
+
+    expect(asked).toEqual(['landscape'])
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'light')
+    expect(await box(page.getByTestId('week-photo-photo-pane'))).toMatchObject({ x: 0, y: 0, width: 1440, height: 1000 })
+    expect(await box(page.getByTestId('week-photo-week-pane'))).toMatchObject({ x: 0, y: 1000, width: 1440, height: 1560 })
+    await expect(page.getByTestId('photo-next-event')).toHaveCount(0)
+    await expect(page.getByTestId('week-title')).toHaveText('26 Oct – 1 Nov This week')
+    await expect(page).toHaveScreenshot('portrait-week-photo-light.png')
+  })
+
+  test('the photo over the week, dark theme (mock 4l)', async ({ page, request }) => {
+    const asked = await shown(page, await landscapePhotoNamed(request, 'local:sunset-landscape.jpg'))
+    await page.goto('/display?id=kitchen')
+    await ready(page)
+
+    expect(asked).toEqual(['landscape'])
+    await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', 'dark')
+    await expect(page).toHaveScreenshot('portrait-week-photo-dark.png')
+  })
+})

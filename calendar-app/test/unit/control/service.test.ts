@@ -46,6 +46,22 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('next_view', () => {
+  it('skips the week and photo view until a photo source is set up', () => {
+    const { handle, bus } = setup()
+    let photos = false
+    const control = createDisplayControl({ db: handle.db, displays: DISPLAYS, timeZone: 'Europe/London', bus, photosConfigured: () => photos, refresh: () => Promise.resolve([]) })
+    controls.push(control)
+    control.applyCommand('hallway', { type: 'set_view', view: 'week_parts' })
+
+    expect(control.applyCommand('hallway', { type: 'next_view' }).view).toBe('month')
+
+    photos = true
+    control.applyCommand('hallway', { type: 'set_view', view: 'week_parts' })
+    expect(control.applyCommand('hallway', { type: 'next_view' }).view).toBe('week_photo')
+  })
+})
+
 describe('the state of a display', () => {
   it('starts as the default for a display with nothing stored', () => {
     const { control } = setup()

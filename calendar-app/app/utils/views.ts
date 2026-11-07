@@ -16,16 +16,16 @@ import type { StageOrientation } from './stage'
 // .nuxt/tsconfig, which a clean build (the Docker image) may not have done yet.
 
 /** The views a special day's takeover changes. The photo frame and night views never do (architecture §6.3). */
-export const CALENDAR_VIEWS = ['month', 'week', 'week_parts', 'agenda'] as const satisfies readonly View[]
+export const CALENDAR_VIEWS = ['month', 'week', 'week_parts', 'week_photo', 'agenda'] as const satisfies readonly View[]
 
 export const isCalendarView = (view: View): boolean => (CALENDAR_VIEWS as readonly View[]).includes(view)
 
-/** The views with a portrait layout: all of them since PR 5.13 (the week by part of day has the week's stacked head and taller rows, not a layout of its own). A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
-export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week', 'week_parts']
+/** The views with a portrait layout: all of them since PR 5.13 and the hybrid since PR 5.14 (the week by part of day has the week's stacked head and taller rows, not a layout of its own). A view added later without one is drawn on the landscape stage, letterboxed in a portrait window, until it has its own. */
+export const PORTRAIT_VIEWS: readonly View[] = ['night', 'agenda', 'photo', 'month', 'week', 'week_parts', 'week_photo']
 
 export const hasPortraitLayout = (view: View): boolean => PORTRAIT_VIEWS.includes(view)
 
-/** The stage a view is drawn on. */
+/** A box a view draws into: the stage itself, or a pane of it. `orientation` is the layout the box asks for, which for a pane is its own shape and not always the stage's. */
 export interface Stage {
   width: number
   height: number
@@ -38,11 +38,40 @@ export function stageFor(view: View, device: StageOrientation): Stage {
   return { ...stageSize(orientation), orientation }
 }
 
+/** The height of the photo pane on the portrait stage, above the week (px). */
+export const PORTRAIT_PHOTO_PANE_HEIGHT = 1000
+/** The width of the photo pane on the landscape stage, left of the week (px). */
+export const LANDSCAPE_PHOTO_PANE_WIDTH = 1100
+
+/**
+ * The two boxes of the week and photo view (PR 5.14, architecture §4.6): the
+ * photo on top of the week on the portrait stage, and to its left on the
+ * landscape one. Each is a `Stage` for the view that fills it. The photo pane's
+ * orientation follows its shape, so the portrait stage (a wide pane) asks the
+ * server for the landscape rendition and the landscape stage (a tall one) for
+ * the portrait rendition. The week pane is always the narrow seven-column
+ * layout, so it asks for `portrait` on both.
+ */
+export function weekPhotoPanes(stage: Stage): { photo: Stage, week: Stage } {
+  const photo = stage.orientation === 'portrait'
+    ? { width: stage.width, height: PORTRAIT_PHOTO_PANE_HEIGHT }
+    : { width: LANDSCAPE_PHOTO_PANE_WIDTH, height: stage.height }
+  const week = stage.orientation === 'portrait'
+    ? { width: stage.width, height: stage.height - photo.height }
+    : { width: stage.width - photo.width, height: stage.height }
+  return {
+    photo: { ...photo, orientation: photo.height > photo.width ? 'portrait' : 'landscape' },
+    week: { ...week, orientation: 'portrait' },
+  }
+}
+
 export interface ViewProps {
   /** The view being shown. */
   view: View
-  /** The size of the stage the view draws on. */
+  /** The box the view draws into: the whole stage for an ordinary view, or one pane of it for a hybrid (`weekPhotoPanes`). */
   stage: Stage
+  /** Drawn as a pane of a hybrid view (PR 5.14): the photo frame is a compact pill with no next event, the week has the short title. */
+  pane?: boolean
   /** The events fetched for the shown month and the next few days, sorted by start. */
   events: CalendarEvent[]
   /** The current moment, ticking. Views work out "today" from it in `timezone`. */

@@ -12,6 +12,7 @@ import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import NightView from '~/components/views/NightView.vue'
 import PhotoView from '~/components/views/PhotoView.vue'
 import WeekPartsView from '~/components/views/WeekPartsView.vue'
+import WeekPhotoView from '~/components/views/WeekPhotoView.vue'
 import WeekView from '~/components/views/WeekView.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
@@ -53,6 +54,7 @@ const viewComponents: Record<View, Component> = {
   month: MonthSoftView,
   week: WeekView,
   week_parts: WeekPartsView,
+  week_photo: WeekPhotoView,
   agenda: AgendaView,
   photo: PhotoView,
   night: NightView,
@@ -189,8 +191,11 @@ const shift = computed(() => burnIn.value ? burnInOffset(now.value) : { x: 0, y:
 /** The banner is at the bottom centre and the pill must keep out of its way. */
 const overlayShowing = computed(() => isOverlayShowing(state.value.overlay, now.value))
 const photoCorner = computed(() => burnIn.value ? pillCorner(now.value, { overlay: overlayShowing.value }) : 'top-left')
-/** The offline badge is top right, which the pill may have, and then it takes the other side. */
-const offlineSide = computed(() => state.value.view === 'photo' && photoCorner.value === 'top-right' ? 'left' : 'right')
+/** The offline badge is top right, which the pill may have, and then it takes the other side. The pill's pane reaches the stage's top right corner on the photo frame and on the portrait stage of the week and photo view, where the photo is on top; on the landscape stage the photo is on the left. */
+const offlineSide = computed(() => {
+  const pillAtTopRight = state.value.view === 'photo' || (state.value.view === 'week_photo' && stage.value.orientation === 'portrait')
+  return pillAtTopRight && photoCorner.value === 'top-right' ? 'left' : 'right'
+})
 /** The sliver the layer uncovers at an edge when it moves: black for the views that are black or a photo, and the stage's own ground otherwise. */
 const shiftStyle = computed(() => ({
   transform: shift.value.x || shift.value.y ? `translate(${shift.value.x}px, ${shift.value.y}px)` : 'none',

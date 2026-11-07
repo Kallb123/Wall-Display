@@ -6,7 +6,7 @@
     "view/set": {
       "direction": "to_app",
       "retained": false,
-      "description": "Shows a view. \"next\" steps through the calendar views (month, agenda, week, week_parts), as the next_view command does.",
+      "description": "Shows a view. \"next\" steps through the calendar views (month, agenda, week, week_parts, week_photo; week_photo is left out when no photo source is set up), as the next_view command does.",
       "payload": {
         "encoding": "text",
         "schema": {
@@ -15,6 +15,7 @@
             "month",
             "week",
             "week_parts",
+            "week_photo",
             "agenda",
             "photo",
             "night",
@@ -25,6 +26,7 @@
       "examples": [
         "month",
         "week_parts",
+        "week_photo",
         "agenda",
         "night",
         "next"
@@ -49,6 +51,7 @@
             "month",
             "week",
             "week_parts",
+            "week_photo",
             "agenda",
             "photo",
             "night"

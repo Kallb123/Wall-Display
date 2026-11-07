@@ -1,4 +1,4 @@
-import { addMonths, addWeeks, currentMonth, currentWeek, displayStateSchema, firstDayOfWeek, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../shared/display'
+import { addMonths, addWeeks, currentMonth, currentWeek, displayStateSchema, firstDayOfWeek, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER, showsPhotos, WEEK_RANGE, WEEK_VIEWS, weekDiff } from '../../shared/display'
 import type { Command, DisplayState, MonthKey, View, WeekKey } from '../../shared/display'
 
 /**
@@ -26,6 +26,8 @@ export interface ControlContext {
   monthReturnMinutes: number
   /** The display's `week_start`, which decides the first day of a week. */
   weekStart: 'monday' | 'sunday'
+  /** Whether a photo source is set up. Without one `next_view` skips the week and photo view, whose photo pane would be empty. */
+  photosConfigured: boolean
 }
 
 const MINUTE_MS = 60_000
@@ -34,10 +36,16 @@ export function defaultDisplayState(): DisplayState {
   return displayStateSchema.parse({})
 }
 
-/** The first of the views `next_view` steps through that follows `view`, wrapping round. */
-function viewAfter(view: View): View {
+/** The first of the views `next_view` steps through that follows `view`, wrapping round. The views that show photos are left out when no photo source is set up. */
+function viewAfter(view: View, photosConfigured: boolean): View {
+  const order = NEXT_VIEW_ORDER.filter(candidate => photosConfigured || !showsPhotos(candidate))
   const index = (NEXT_VIEW_ORDER as readonly View[]).indexOf(view)
-  return NEXT_VIEW_ORDER[(index + 1) % NEXT_VIEW_ORDER.length]!
+  // From a view outside the order the first view is next; from one that was left out (week_photo without photos) the one after it in the full order is.
+  for (let step = 1; step <= NEXT_VIEW_ORDER.length; step++) {
+    const candidate = NEXT_VIEW_ORDER[(index + step) % NEXT_VIEW_ORDER.length]!
+    if (order.includes(candidate)) return candidate
+  }
+  return order[0]!
 }
 
 /** Where a `set_month` command points, before the clamp. */
@@ -154,7 +162,7 @@ function rememberView(before: DisplayState, after: DisplayState): DisplayState {
 function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext): DisplayState {
   switch (command.type) {
     case 'set_view': return { ...state, view: command.view }
-    case 'next_view': return { ...state, view: viewAfter(state.view) }
+    case 'next_view': return { ...state, view: viewAfter(state.view, ctx.photosConfigured) }
     case 'toggle_photo': return { ...state, view: state.view === 'photo' ? state.last_calendar_view : 'photo' }
     case 'set_month': return setMonth(state, command.month, ctx)
     case 'set_week': return setWeek(state, command.week, ctx)

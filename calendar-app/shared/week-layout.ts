@@ -215,6 +215,15 @@ export function weekTitle(first: string, last: string): string {
   return `${a.day} – ${b.day} ${b.month} ${b.year}`
 }
 
+/** `26 Oct – 1 Nov`, `2 – 8 Nov` or `28 Dec – 3 Jan`, for the week's first and last dates: the short title of the week when it is a pane of a hybrid view. No year; the view says which week it is in words. */
+export function shortWeekRange(first: string, last: string): string {
+  const part = (date: string) => ({ month: MONTHS[Number(date.slice(5, 7)) - 1]!.slice(0, 3), day: String(Number(date.slice(8, 10))) })
+  const a = part(first)
+  const b = part(last)
+  if (a.month !== b.month) return `${a.day} ${a.month} – ${b.day} ${b.month}`
+  return `${a.day} – ${b.day} ${b.month}`
+}
+
 /** An event with the days it covers, worked out once. */
 interface Placed {
   event: CalendarEvent

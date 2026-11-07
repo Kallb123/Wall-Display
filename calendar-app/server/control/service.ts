@@ -22,6 +22,8 @@ export interface DisplayControlOptions {
   /** The display time zone, which decides what the current month is. */
   timeZone: string
   bus: EventBus
+  /** Whether a photo source is set up, asked when a command arrives because the photo service starts after this one. Default: yes. */
+  photosConfigured?: () => boolean
   /** Forces a sync of every calendar. Called, not awaited, for `refresh`; a rejection is logged. */
   refresh: () => Promise<unknown>
   /** For tests. Default: the real time. */
@@ -66,7 +68,7 @@ export class UnknownScheduleError extends Error {
 export const MAX_TIMER_MS = 24 * 60 * 60 * 1000
 
 export function createDisplayControl(options: DisplayControlOptions): DisplayControl {
-  const { db, timeZone, bus, refresh, now = () => new Date(), log = console } = options
+  const { db, timeZone, bus, photosConfigured = () => true, refresh, now = () => new Date(), log = console } = options
   const monthReturnMinutes = new Map(options.displays.map(display => [display.id, display.month_return_minutes]))
   const weekStarts = new Map(options.displays.map(display => [display.id, display.week_start]))
   const scheduleIds = new Map(options.displays.map(display => [display.id, new Set((display.schedules ?? []).map(schedule => schedule.id))]))
@@ -75,7 +77,7 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
   let stopped = false
 
   function contextFor(displayId: string): ControlContext {
-    return { now: now(), timeZone, monthReturnMinutes: monthReturnMinutes.get(displayId)!, weekStart: weekStarts.get(displayId)! }
+    return { now: now(), timeZone, monthReturnMinutes: monthReturnMinutes.get(displayId)!, weekStart: weekStarts.get(displayId)!, photosConfigured: photosConfigured() }
   }
 
   function assertKnown(displayId: string): void {

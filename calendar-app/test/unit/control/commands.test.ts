@@ -13,8 +13,8 @@ const RETURN_MINUTES = 15
 /** Wed 28 Oct 2026, 12:00 in London (GMT). */
 const NOW = new Date('2026-10-28T12:00:00Z')
 
-function ctx(now: Date | string = NOW, monthReturnMinutes = RETURN_MINUTES, weekStart: ControlContext['weekStart'] = 'monday'): ControlContext {
-  return { now: new Date(now), timeZone: 'Europe/London', monthReturnMinutes, weekStart }
+function ctx(now: Date | string = NOW, monthReturnMinutes = RETURN_MINUTES, weekStart: ControlContext['weekStart'] = 'monday', photosConfigured = true): ControlContext {
+  return { now: new Date(now), timeZone: 'Europe/London', monthReturnMinutes, weekStart, photosConfigured }
 }
 
 function state(overrides: Partial<DisplayState> = {}): DisplayState {
@@ -131,7 +131,7 @@ describe('when the pinned month goes back to following the current month', () =>
   })
 
   it('drops it for every other view', () => {
-    for (const view of ['week', 'week_parts', 'agenda', 'photo', 'night'] as const) {
+    for (const view of ['week', 'week_parts', 'week_photo', 'agenda', 'photo', 'night'] as const) {
       expect(reduceCommand(pinned('2026-12'), { type: 'set_view', view }, ctx()).month).toBeNull()
     }
   })
@@ -291,6 +291,17 @@ describe('the week by part of day view', () => {
     expect(reduceCommand(start, { type: 'set_view', view: 'month' }, ctx())).toMatchObject({ week: null, week_set_at: null })
   })
 
+  it('goes from week and photo to the photo frame with toggle_photo, and back', () => {
+    const photo = reduceCommand(state({ view: 'week_photo' }), { type: 'toggle_photo' }, ctx())
+
+    expect(photo).toMatchObject({ view: 'photo', last_calendar_view: 'week_photo' })
+    expect(reduceCommand(photo, { type: 'toggle_photo' }, ctx()).view).toBe('week_photo')
+  })
+
+  it('keeps the week and photo view when the week is set, and pins the week', () => {
+    expect(reduceCommand(state({ view: 'week_photo' }), setWeek('next'), ctx())).toMatchObject({ view: 'week_photo', week: '2026-11-02' })
+  })
+
   it('is what toggle_photo goes back to', () => {
     const photo = reduceCommand(state({ view: 'week_parts' }), { type: 'toggle_photo' }, ctx())
 
@@ -357,13 +368,21 @@ describe('when the pinned week goes back to following the current week', () => {
 })
 
 describe('next_view', () => {
-  const viewsFrom = (view: DisplayState['view']) => reduceCommand(state({ view }), { type: 'next_view' }, ctx()).view
+  const viewsFrom = (view: DisplayState['view'], photosConfigured = true) => reduceCommand(state({ view }), { type: 'next_view' }, ctx(NOW, RETURN_MINUTES, 'monday', photosConfigured)).view
 
-  it('cycles month, agenda, week, week by part of day and back', () => {
+  it('cycles month, agenda, week, week by part of day, week and photo and back', () => {
     expect(viewsFrom('month')).toBe('agenda')
     expect(viewsFrom('agenda')).toBe('week')
     expect(viewsFrom('week')).toBe('week_parts')
-    expect(viewsFrom('week_parts')).toBe('month')
+    expect(viewsFrom('week_parts')).toBe('week_photo')
+    expect(viewsFrom('week_photo')).toBe('month')
+  })
+
+  it('skips the week and photo view when no photo source is set up', () => {
+    expect(viewsFrom('week_parts', false)).toBe('month')
+    expect(viewsFrom('month', false)).toBe('agenda')
+    // A display left on it (set_view still allows it) moves on to the first view.
+    expect(viewsFrom('week_photo', false)).toBe('month')
   })
 
   it('goes to the first calendar view from photo and night', () => {

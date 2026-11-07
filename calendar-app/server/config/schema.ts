@@ -572,8 +572,9 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
     unique(display.schedules, ['displays', index, 'schedules'])
     display.schedules.forEach((schedule, scheduleIndex) => {
       schedule.rules.forEach((rule, ruleIndex) => {
-        if (rule.view === 'photo' && !config.photos) {
-          issue(['displays', index, 'schedules', scheduleIndex, 'rules', ruleIndex, 'view'], 'is photo, but there is no "photos" block (the photo frame would have nothing to show)')
+        if ((rule.view === 'photo' || rule.view === 'week_photo') && !config.photos) {
+          const why = rule.view === 'photo' ? 'the photo frame would have nothing to show' : "the week and photo view's photo pane would have nothing to show"
+          issue(['displays', index, 'schedules', scheduleIndex, 'rules', ruleIndex, 'view'], `is ${rule.view}, but there is no "photos" block (${why})`)
         }
       })
     })

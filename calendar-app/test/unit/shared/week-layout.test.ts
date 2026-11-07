@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fixtureEvents } from '../../helpers/fixtureEvents'
 import { loadConfig } from '../../../server/config/load'
-import { ALL_DAY_LANES, MAX_BADGE_INITIALS, MIN_BLOCK_MINUTES, PORTRAIT_MAX_TRACKS, weekLayout } from '../../../shared/week-layout'
+import { ALL_DAY_LANES, MAX_BADGE_INITIALS, MIN_BLOCK_MINUTES, PORTRAIT_MAX_TRACKS, shortWeekRange, weekLayout } from '../../../shared/week-layout'
 import type { WeekLayout, WeekLayoutInput } from '../../../shared/week-layout'
 import type { CalendarEvent, EventPerson } from '../../../shared/types/events'
 
@@ -628,5 +628,24 @@ describe('past and ongoing', () => {
 
     expect(other.blocks[0]).toMatchObject({ past: false, ongoing: false })
     expect(before.blocks[0]).toMatchObject({ past: true, ongoing: false })
+  })
+})
+
+describe('the short range of a week', () => {
+  it('names both months when the week crosses one', () => {
+    expect(shortWeekRange('2026-10-26', '2026-11-01')).toBe('26 Oct – 1 Nov')
+  })
+
+  it('names the month once when the week is inside it', () => {
+    expect(shortWeekRange('2026-11-02', '2026-11-08')).toBe('2 – 8 Nov')
+  })
+
+  it('has no year, even across New Year', () => {
+    expect(shortWeekRange('2026-12-28', '2027-01-03')).toBe('28 Dec – 3 Jan')
+  })
+
+  it('is the layout\'s own first and last day', () => {
+    const result = layout()
+    expect(shortWeekRange(result.days[0]!.date, result.days[6]!.date)).toBe('26 Oct – 1 Nov')
   })
 })

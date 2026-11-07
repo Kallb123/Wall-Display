@@ -286,3 +286,40 @@ describe('WeekView', () => {
     })
   })
 })
+
+describe('WeekView as a pane', () => {
+  const pane = (overrides: Partial<ViewProps> = {}) => props({ stage: { width: 1440, height: 1560, orientation: 'portrait' }, pane: true, ...overrides })
+
+  it('has the short title, with where the week is in time, in place of the full one', async () => {
+    const wrapper = await mountSuspended(WeekView, { props: pane() })
+
+    expect(wrapper.find('[data-testid="week-title"] .range').text()).toBe('26 Oct – 1 Nov')
+    expect(wrapper.find('[data-testid="week-label"]').text()).toBe('This week')
+    expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(7)
+    expect(wrapper.find('[data-testid="week-view"]').classes()).toContain('portrait')
+  })
+
+  it.each([
+    ['2026-11-04', '2 – 8 Nov', 'Next week'],
+    ['2026-10-21', '19 – 25 Oct', 'Last week'],
+    ['2026-11-18', '16 – 22 Nov', '2026'],
+    ['2026-12-30', '28 Dec – 3 Jan', '2026'],
+  ])('names the week of %s %s, %s', async (weekOf, range, label) => {
+    const wrapper = await mountSuspended(WeekView, { props: pane({ weekOf }) })
+
+    expect(wrapper.find('[data-testid="week-title"] .range').text()).toBe(range)
+    expect(wrapper.find('[data-testid="week-label"]').text()).toBe(label)
+  })
+
+  it('puts a takeover\'s greeting on its own line', async () => {
+    const wrapper = await mountSuspended(WeekView, { props: pane({ specialDays: { tiles: [], takeover: { greeting: 'Happy Halloween' } as Takeover } }) })
+
+    expect(wrapper.find('[data-testid="greeting"]').text()).toBe('Happy Halloween')
+  })
+
+  it('keeps the full title when it is not a pane', async () => {
+    const wrapper = await mountSuspended(WeekView, { props: props() })
+
+    expect(wrapper.find('[data-testid="week-label"]').exists()).toBe(false)
+  })
+})

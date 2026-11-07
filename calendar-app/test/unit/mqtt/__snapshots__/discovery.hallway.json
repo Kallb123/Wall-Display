@@ -11,6 +11,7 @@
         "month",
         "week",
         "week_parts",
+        "week_photo",
         "agenda",
         "photo",
         "night"

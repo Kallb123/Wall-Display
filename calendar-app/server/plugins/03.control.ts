@@ -9,7 +9,7 @@ import { getSocketHub } from '../ws/hub'
 // which holds each display's state and runs its timers, then the built-in
 // schedules policy that changes views at set times, and connects the event bus
 // to the WebSocket hub: a state change goes to that display's sockets, changed
-// calendar events go to every socket. It also follows the settings page: when
+// calendar events go to every socket. A change to the custom layouts goes to the control. It also follows the settings page: when
 // a display's month return timeout or week start is saved, the control takes it up at once.
 export default defineNitroPlugin((nitroApp) => {
   // A hot reload runs this again in the same process, so stop the old control first.
@@ -29,6 +29,8 @@ export default defineNitroPlugin((nitroApp) => {
     displays: config.displays,
     timeZone: config.timezone,
     bus,
+    // The layouts plugin (02) has started already.
+    layouts: useLayouts().summaries(),
     // The photo service starts after this plugin, so it is looked up when the command arrives.
     photosConfigured: () => photoSourcesOf(usePhotos()?.configured() ?? []).length > 0,
     // The weather and alarm services start after this plugin, so they are looked up when the command arrives.
@@ -37,7 +39,7 @@ export default defineNitroPlugin((nitroApp) => {
   setDisplayControl(control)
 
   // Built-in schedules (§7.8) work without MQTT: they only need the control.
-  const schedulePolicy = createSchedulePolicy({ displays: config.displays, timeZone: config.timezone, control })
+  const schedulePolicy = createSchedulePolicy({ displays: config.displays, timeZone: config.timezone, control, layoutIds: () => useLayouts().get().map(layout => layout.id) })
   setSchedulePolicy(schedulePolicy)
 
   const unsubscribe = [
@@ -52,6 +54,8 @@ export default defineNitroPlugin((nitroApp) => {
         }
       }
     }),
+    // A deleted layout takes the wall off it at once, and an edited one changes what a month or week pick keeps.
+    bus.on('layouts.updated', () => control.setLayouts(useLayouts().summaries())),
     bus.on('state.updated', ({ displayId, state }) => {
       hub.sendToDisplay(displayId, { type: 'state.updated', display_id: displayId, state })
     }),

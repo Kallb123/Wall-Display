@@ -53,6 +53,9 @@ interface Parsed {
 
 const hallway = { id: 'hallway', name: 'Hallway' }
 
+// Layout names, as the Layout select offers them. Without any the select is removed (see 'the layout select').
+const LAYOUTS = ['Kitchen board', 'Wall board']
+
 function parse(messages: DiscoveryMessage[]): Parsed[] {
   return messages.map(message => ({ topic: message.topic, config: JSON.parse(message.payload) as Config }))
 }
@@ -64,7 +67,7 @@ function suffixOf(topic: string, displayId: string): string {
   return topic.slice(base.length)
 }
 
-const messages = discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1 })
+const messages = discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1, layouts: LAYOUTS })
 const parsed = parse(messages)
 const config = (objectId: string): Config => {
   const found = parsed.find(message => message.topic.split('/')[3] === objectId)
@@ -84,9 +87,9 @@ describe('discoveryMessages', () => {
   })
 
   it('makes the same messages every time, in the same order', () => {
-    expect(discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1 })).toEqual(messages)
+    expect(discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1, layouts: LAYOUTS })).toEqual(messages)
     expect(parsed.map(message => message.topic.split('/')[3])).toEqual([
-      'view', 'month', 'previous_month', 'next_month', 'this_month', 'week', 'previous_week', 'next_week', 'this_week', 'screen', 'photo_source',
+      'view', 'layout', 'month', 'previous_month', 'next_month', 'this_month', 'week', 'previous_week', 'next_week', 'this_week', 'screen', 'photo_source',
       'brightness', 'auto_presence', 'auto_brightness', 'message', 'next_photo', 'refresh', 'last_sync', 'special_day',
     ])
   })
@@ -98,7 +101,7 @@ describe('discoveryMessages', () => {
   })
 
   it('adds the display name to the device when there are several, and keeps every id to the display', () => {
-    const kitchen = parse(discoveryMessages({ prefix: 'homeassistant', display: { id: 'kitchen', name: 'Kitchen' }, displayCount: 2 }))
+    const kitchen = parse(discoveryMessages({ prefix: 'homeassistant', display: { id: 'kitchen', name: 'Kitchen' }, displayCount: 2, layouts: LAYOUTS }))
 
     expect(kitchen).toHaveLength(parsed.length)
     for (const { topic, config } of kitchen) {
@@ -115,8 +118,8 @@ describe('discoveryMessages', () => {
 
   it('does not share a unique id or a topic between displays', () => {
     const both = [
-      ...discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 2 }),
-      ...discoveryMessages({ prefix: 'homeassistant', display: { id: 'kitchen', name: 'Kitchen' }, displayCount: 2 }),
+      ...discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 2, layouts: LAYOUTS }),
+      ...discoveryMessages({ prefix: 'homeassistant', display: { id: 'kitchen', name: 'Kitchen' }, displayCount: 2, layouts: LAYOUTS }),
     ]
 
     expect(new Set(both.map(message => message.topic)).size).toBe(both.length)
@@ -124,7 +127,7 @@ describe('discoveryMessages', () => {
   })
 
   it('goes under the discovery prefix it is given', () => {
-    const custom = discoveryMessages({ prefix: 'ha/discovery', display: hallway, displayCount: 1 })
+    const custom = discoveryMessages({ prefix: 'ha/discovery', display: hallway, displayCount: 1, layouts: LAYOUTS })
 
     expect(custom).toHaveLength(messages.length)
     for (const message of custom) expect(message.topic).toMatch(/^ha\/discovery\/(select|sensor|button|switch|number|text)\/wallcal_hallway\/[a-z_]+\/config$/)
@@ -200,6 +203,23 @@ describe('the entities', () => {
     // "next" is a command that steps on, not a view to show.
     expect(view.options).not.toContain('next')
     for (const option of view.options as string[]) expect(accepts('view/set', option)).toBe(true)
+  })
+
+  it('has a select for the layout that offers the layout names and sends one back', () => {
+    const layout = config('layout')
+
+    expect(layout).toMatchObject({
+      name: 'Layout',
+      icon: 'mdi:view-grid-plus',
+      options: LAYOUTS,
+      command_topic: 'wallcal/hallway/layout/set',
+      state_topic: 'wallcal/hallway/layout/state',
+    })
+    // What the select sends is a name, which the topic takes; what it shows is the name the state topic carries.
+    for (const option of layout.options as string[]) {
+      expect(accepts('layout/set', option)).toBe(true)
+      expect(accepts('layout/state', option)).toBe(true)
+    }
   })
 
   it('has a select for the photo source that offers the sources the contract has', () => {
@@ -307,6 +327,30 @@ describe('the entities', () => {
   })
 })
 
+describe('the layout select', () => {
+  const layoutTopic = 'homeassistant/select/wallcal_hallway/layout/config'
+  const without = discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1 })
+
+  it('is removed with an empty retained config when there are no layouts, as Home Assistant rejects a select with no options', () => {
+    expect(without.find(message => message.topic === layoutTopic)).toEqual({ topic: layoutTopic, payload: '' })
+    expect(without.filter(message => message.payload === '')).toHaveLength(1)
+  })
+
+  it('leaves every other config as it is when there are no layouts', () => {
+    expect(without.filter(message => message.topic !== layoutTopic)).toEqual(messages.filter(message => message.topic !== layoutTopic))
+  })
+
+  it('is in the same place in the list either way, so a removal replaces the config it follows', () => {
+    expect(without.map(message => message.topic)).toEqual(messages.map(message => message.topic))
+  })
+
+  it('offers the names in the order it is given, one option per layout', () => {
+    const one = discoveryMessages({ prefix: 'homeassistant', display: hallway, displayCount: 1, layouts: ['Only'] })
+
+    expect(JSON.parse(one.find(message => message.topic === layoutTopic)!.payload)).toMatchObject({ options: ['Only'] })
+  })
+})
+
 describe('the birth topic', () => {
   it('is status under the discovery prefix', () => {
     expect(birthTopic('homeassistant')).toBe('homeassistant/status')
@@ -320,7 +364,7 @@ describe('the birth topic', () => {
 
 describe('schedule switches', () => {
   const schedules = [{ id: 'mornings', name: 'Morning agenda' }, { id: 'daytime-photos', name: 'Daytime photos' }]
-  const withSchedules = parse(discoveryMessages({ prefix: 'homeassistant', display: { ...hallway, schedules }, displayCount: 1 }))
+  const withSchedules = parse(discoveryMessages({ prefix: 'homeassistant', display: { ...hallway, schedules }, displayCount: 1, layouts: LAYOUTS }))
   const added = withSchedules.slice(parsed.length)
 
   it('adds one switch per schedule after the display\'s other entities, and changes none of them', () => {
@@ -332,7 +376,7 @@ describe('schedule switches', () => {
   })
 
   it('adds nothing for a display with no schedules, or an empty list', () => {
-    expect(parse(discoveryMessages({ prefix: 'homeassistant', display: { ...hallway, schedules: [] }, displayCount: 1 }))).toEqual(parsed)
+    expect(parse(discoveryMessages({ prefix: 'homeassistant', display: { ...hallway, schedules: [] }, displayCount: 1, layouts: LAYOUTS }))).toEqual(parsed)
   })
 
   it('names each switch after the schedule, in the config category with a calendar icon', () => {
@@ -368,7 +412,7 @@ describe('schedule switches', () => {
   })
 
   it('keeps one display\'s schedules out of another\'s topics and ids', () => {
-    const kitchen = parse(discoveryMessages({ prefix: 'homeassistant', display: { id: 'kitchen', name: 'Kitchen', schedules }, displayCount: 2 }))
+    const kitchen = parse(discoveryMessages({ prefix: 'homeassistant', display: { id: 'kitchen', name: 'Kitchen', schedules }, displayCount: 2, layouts: LAYOUTS }))
 
     expect(kitchen.slice(-2).map(message => message.config.unique_id)).toEqual(['wallcal_kitchen_schedule_mornings', 'wallcal_kitchen_schedule_daytime_photos'])
     expect(kitchen.at(-1)!.config.command_topic).toBe('wallcal/kitchen/schedule/daytime-photos/set')

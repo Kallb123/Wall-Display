@@ -1,13 +1,14 @@
 import { connect as mqttConnect } from 'mqtt'
 import type { IClientOptions } from 'mqtt'
 import type { DisplayState } from '../../shared/display'
+import type { LayoutSummary } from '../../shared/layouts'
 import { DEFAULT_BUTTON } from '../config/schema'
 import type { ButtonConfig, MqttConfig } from '../config/schema'
 import { buttonCommand } from '../control/button'
 import type { DisplayControl } from '../control/service'
 import type { EventBus } from '../events/bus'
 import { BIRTH_ONLINE, birthTopic, discoveryMessages } from './discovery'
-import { AVAILABILITY_TOPIC, buttonPayloadReason, COMMAND_TOPICS, illuminancePayloadReason, LAST_SYNC_TOPIC, lastSyncPayload, OFFLINE, ONLINE, parseCommandPayload, parseButtonPayload, parseCommandTopic, parseIlluminancePayload, parsePresencePayload, parseSchedulePayload, parseScheduleTopic, PI_BUTTON_TOPIC, PI_ILLUMINANCE_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, piScreenPayload, presencePayloadReason, schedulePayloads, scheduleTopic, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
+import { AVAILABILITY_TOPIC, buttonPayloadReason, COMMAND_TOPICS, illuminancePayloadReason, LAST_SYNC_TOPIC, lastSyncPayload, LAYOUT_SET_TOPIC, LAYOUT_STATE_TOPIC, layoutStatePayload, OFFLINE, ONLINE, parseCommandPayload, parseButtonPayload, parseCommandTopic, parseIlluminancePayload, parseLayoutPayload, parsePresencePayload, parseSchedulePayload, parseScheduleTopic, PI_BUTTON_TOPIC, PI_ILLUMINANCE_TOPIC, PI_PRESENCE_TOPIC, PI_SCREEN_TOPIC, piScreenPayload, presencePayloadReason, schedulePayloads, scheduleTopic, SPECIAL_DAY_TOPIC, specialDayPayload, statePayloads, topicFor } from './topics'
 
 // Keeps each display's state on an MQTT broker and takes commands from it
 // (architecture §7.3, contracts/mqtt.json). MQTT allows one last will per
@@ -57,6 +58,8 @@ export interface MqttBridgeOptions {
   lastSync?: () => Date | null
   /** Today's special day name, for `special_day/state`: `null` when there is none (published as empty) and `undefined` while that isn't known yet (not published). Called on every check, so it should be cheap. Default: not known. */
   specialDay?: () => string | null | undefined
+  /** The custom layouts (PR 5.17), by name, for the Layout select and `layout/state`, and to read `layout/set` with. Called on every check, so it should be cheap. Default: none. */
+  layouts?: () => readonly LayoutSummary[]
   /** The display time zone, which decides what the current month is. */
   timeZone: string
   /** What each gesture of the Pi agent's button does. Default: the config's defaults. */
@@ -131,7 +134,7 @@ interface Link {
   client: MqttLink | undefined
   state: MqttBridgeStatus['state']
   lastError: string | null
-  /** What this connection last published on each state topic (and on `last_sync/state`, `special_day/state`, `pi/screen/set` and each `schedule/<id>/state`). Emptied on every connect, so a connect publishes everything. */
+  /** What this connection last published on each state topic (and on `last_sync/state`, `special_day/state`, `layout/state`, `pi/screen/set` and each `schedule/<id>/state`). Emptied on every connect, so a connect publishes everything. */
   published: Map<string, string>
   /** Connections that failed or dropped since the last one that lasted `STABLE_MS`. */
   failures: number
@@ -143,7 +146,7 @@ interface Link {
 }
 
 export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
-  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, button = DEFAULT_BUTTON, presence, brightness, lastSync = () => null, specialDay = () => undefined } = options
+  const { config, timeZone, control, bus, connect = connectWithMqttJs, now = () => new Date(), random = Math.random, log = console, button = DEFAULT_BUTTON, presence, brightness, lastSync = () => null, specialDay = () => undefined, layouts = () => [] } = options
   const broker = brokerName(config.url)
   let stopped = false
   let stopping: Promise<void> | undefined
@@ -192,8 +195,19 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       prefix: config.discovery_prefix,
       display: { id: link.displayId, name: link.displayName, schedules: link.schedules },
       displayCount: links.length,
+      layouts: layoutsNow(link).map(layout => layout.name),
     })
     for (const { topic, payload } of messages) send(link, topic, topic, payload)
+  }
+
+  /** The custom layouts, or none if the getter fails (logged), so the rest still goes out. */
+  function layoutsNow(link: Link): readonly LayoutSummary[] {
+    try {
+      return layouts()
+    } catch (error) {
+      log.error(`[mqtt] ${link.displayId}: could not read the custom layouts: ${describe(error)}`)
+      return []
+    }
   }
 
   /** `last_sync/state`'s payload, or nothing before the first sync. A getter that fails is logged and skipped, so the state topics still go out. */
@@ -232,6 +246,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
       ...Object.entries(statePayloads(state, now(), timeZone, control.weekStartOf(link.displayId))),
       ...Object.entries(schedulePayloads(state, link.schedules.map(schedule => schedule.id))),
       [PI_SCREEN_TOPIC, piScreenPayload(state)],
+      [LAYOUT_STATE_TOPIC, layoutStatePayload(state, layoutsNow(link))],
       ...lastSyncEntry(link),
       ...specialDayEntry(link),
     ]
@@ -255,7 +270,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
 
     publish(link, AVAILABILITY_TOPIC, ONLINE)
     if (config.discovery) publishDiscovery(link)
-    const topics = [...COMMAND_TOPICS, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_ILLUMINANCE_TOPIC].map(suffix => topicFor(link.displayId, suffix))
+    const topics = [...COMMAND_TOPICS, LAYOUT_SET_TOPIC, PI_BUTTON_TOPIC, PI_PRESENCE_TOPIC, PI_ILLUMINANCE_TOPIC].map(suffix => topicFor(link.displayId, suffix))
     // One wildcard rather than a topic per schedule: a switch published for an id the display doesn't have (a typo, or a
     // schedule since removed from the config) then gets a warning, where a topic per schedule would drop it silently.
     // Without schedules there is nothing to switch, so nothing is subscribed.
@@ -356,6 +371,24 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
   }
 
+  /** A layout chosen in Home Assistant's select, or published by hand: its id or exact name. Retained messages are ignored like every other set topic's, and one that names no layout is warned about and ignored. */
+  function onLayout(link: Link, topic: string, payload: string, retained: boolean): void {
+    if (retained) {
+      log.warn(`[mqtt] ${link.displayId}: ignored the retained message on ${topic} (publish an empty retained message there to remove it)`)
+      return
+    }
+    const parsed = parseLayoutPayload(payload, layoutsNow(link))
+    if (!parsed.ok) {
+      log.warn(`[mqtt] ${link.displayId}: ignored a message: ${parsed.reason}`)
+      return
+    }
+    try {
+      control.applyCommand(link.displayId, parsed.command)
+    } catch (error) {
+      log.error(`[mqtt] ${link.displayId}: could not apply the command from ${LAYOUT_SET_TOPIC}: ${describe(error)}`)
+    }
+  }
+
   /** A schedule's switch from Home Assistant. Retained messages are ignored like every other set topic's, and an id the display doesn't have is warned about and ignored. */
   function onSchedule(link: Link, topic: string, scheduleId: string, payload: string, retained: boolean): void {
     if (retained) {
@@ -397,6 +430,10 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
     }
     if (topic === topicFor(link.displayId, PI_ILLUMINANCE_TOPIC)) {
       onIlluminance(link, topic, payload.toString('utf8'), retained)
+      return
+    }
+    if (topic === topicFor(link.displayId, LAYOUT_SET_TOPIC)) {
+      onLayout(link, topic, payload.toString('utf8'), retained)
       return
     }
     const parsedSchedule = parseScheduleTopic(topic)
@@ -472,6 +509,14 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
   const unsubscribeSync = bus.on('sync.succeeded', () => links.forEach(publishState))
   // A new resolution, or midnight, changes `special_day/state` and nothing else.
   const unsubscribeSpecialDays = bus.on('special_days.updated', () => links.forEach(publishState))
+  // The Layout select's options are the layout names, so the configs go out again, and the state with them: a layout may have been renamed or deleted.
+  const unsubscribeLayouts = bus.on('layouts.updated', () => {
+    if (stopped) return
+    for (const link of links) {
+      if (link.state === 'connected' && config.discovery) publishDiscovery(link)
+      publishState(link)
+    }
+  })
   const recheck = setInterval(() => links.forEach(publishState), RECHECK_MS)
   recheck.unref()
 
@@ -525,6 +570,7 @@ export function createMqttBridge(options: MqttBridgeOptions): MqttBridge {
         unsubscribe()
         unsubscribeSync()
         unsubscribeSpecialDays()
+        unsubscribeLayouts()
         clearInterval(recheck)
         await Promise.all(links.map(close))
       })()

@@ -16,7 +16,10 @@ describe('custom layouts', async () => {
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
   const configFile = join(dir, 'config.yaml')
-  writeFileSync(configFile, `${readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`)}\nremote:\n  pin: "2468"\n`)
+  // The hallway has a schedule that shows the kitchen layout, which is what makes a delete of it a 409.
+  const schedule = '    theme: light\n    schedules:\n      - id: evenings\n        rules:\n          - { view: custom, layout: kitchen, from: "17:00", to: "21:00" }\n'
+  const dev = readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`).replace('    theme: light\n', schedule)
+  writeFileSync(configFile, `${dev}\nremote:\n  pin: "2468"\n`)
 
   await setup({
     browser: false,
@@ -170,10 +173,12 @@ describe('custom layouts', async () => {
     remote.socket.close()
   })
 
-  // TODO(PR 5.17 schedules): the config schema does not allow `layout` on a rule yet. Once it does, run this
-  // test on a config whose schedule names the layout, and expect a 409 naming the display and the schedule.
-  it.skip('answers 409 when deleting a layout a schedule rule names', async () => {
-    await expect(raw('DELETE', '/api/layouts/kitchen').then(response => response.status)).resolves.toBe(409)
+  it('answers 409 when deleting a layout a schedule rule names, naming the display and the schedule', async () => {
+    const response = await raw('DELETE', '/api/layouts/kitchen')
+
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { message: string }).message).toContain('schedule "evenings" on display "hallway"')
+    expect((await $fetch<CustomLayout[]>('/api/layouts')).map(layout => layout.id)).toContain('kitchen')
   })
 
   it('DELETE /api/layouts/:id answers 204 and the layout is gone', async () => {

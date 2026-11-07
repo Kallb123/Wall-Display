@@ -1,16 +1,19 @@
-import { showsPhotos } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
+import { viewShowsPhotos } from '../../shared/layouts'
+import type { LayoutSummary } from '../../shared/layouts'
 import type { EventBus } from '../events/bus'
 
 // The photo frame's clock (architecture §5.1). The server decides when a display
 // moves on to its next photo, so that the remote, Home Assistant and the button
 // can all skip with one command and the wall has no timer of its own to drift.
-// While a display's view shows photos (`photo`, or the week and photo hybrid), a timer for that display emits `photo.next`
+// While a display's view shows photos (`photo`, the week and photo hybrid, or a custom layout with a photo pane), a timer for that display emits `photo.next`
 // on the bus every `intervalSeconds`; the control plugin turns that into a
 // socket message and the wall fetches its next photo. A `photo.next` from
 // anywhere else (the `photo_next` command) restarts that display's timer, so a
 // skip is never followed straight away by a scheduled change. Moving between
-// the two photo views keeps the timer running, and leaving both stops it. The interval can be changed while it runs
+// photo views keeps the timer running, and leaving them all stops it. A change to
+// the custom layouts is looked at again, as a photo pane may have been added to
+// the layout on the wall, or taken out of it. The interval can be changed while it runs
 // (`setIntervalSeconds`, from the settings page). Everything it touches comes in through the options, so a
 // test uses fake timers and a bus of its own.
 
@@ -19,7 +22,9 @@ export interface PhotoRotationOptions {
   /** The displays in the config. */
   displayIds: readonly string[]
   /** The current state of a display, for the ones already on a photo view when this starts. */
-  getState: (displayId: string) => Pick<DisplayState, 'view'>
+  getState: (displayId: string) => Pick<DisplayState, 'view' | 'layout'>
+  /** The custom layouts there are now (PR 5.17), asked each time a view is judged. Default: none. */
+  layouts?: () => readonly LayoutSummary[]
   /** Seconds between photos (`photos.interval_seconds`). */
   intervalSeconds: number
   /** For tests. Default: the console. */
@@ -36,7 +41,7 @@ export interface PhotoRotation {
 }
 
 export function startPhotoRotation(options: PhotoRotationOptions): PhotoRotation {
-  const { bus, getState, log = console } = options
+  const { bus, getState, layouts = () => [], log = console } = options
   let intervalSeconds = options.intervalSeconds
   const known = new Set(options.displayIds)
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -59,9 +64,14 @@ export function startPhotoRotation(options: PhotoRotationOptions): PhotoRotation
     }, intervalSeconds * 1000))
   }
 
+  /** Whether a state shows photos, with its layout looked up in the library as it is now. */
+  function showsPhotos(state: Pick<DisplayState, 'view' | 'layout'>): boolean {
+    return viewShowsPhotos(state.view, state.layout === null ? null : layouts().find(layout => layout.id === state.layout))
+  }
+
   function inPhotoView(displayId: string): boolean {
     try {
-      return showsPhotos(getState(displayId).view)
+      return showsPhotos(getState(displayId))
     } catch (error) {
       log.error(`[photos] ${displayId}: could not read the state: ${error instanceof Error ? error.message : String(error)}`)
       return false
@@ -72,8 +82,15 @@ export function startPhotoRotation(options: PhotoRotationOptions): PhotoRotation
     // A change of view starts or stops the timer. Any other change (brightness, an overlay) leaves a running timer alone, so it is not pushed back by every one.
     bus.on('state.updated', ({ displayId, state }) => {
       if (!known.has(displayId)) return
-      if (!showsPhotos(state.view)) clear(displayId)
+      if (!showsPhotos(state)) clear(displayId)
       else if (!timers.has(displayId)) arm(displayId)
+    }),
+    // A layout gained or lost its photo pane, or was deleted: judge every display again, keeping a timer that is running.
+    bus.on('layouts.updated', () => {
+      for (const id of known) {
+        if (!inPhotoView(id)) clear(id)
+        else if (!timers.has(id)) arm(id)
+      }
     }),
     // A skip, or the timer's own message: a whole interval from now. Off the photo view there is no timer to restart.
     bus.on('photo.next', ({ displayId }) => {

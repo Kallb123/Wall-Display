@@ -1,0 +1,276 @@
+import { describe, expect, it } from 'vitest'
+import { MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
+import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, resetPortrait, resizePane, resizeRow, sameInput, toggleComponent } from '../../../app/utils/layoutEditor'
+
+const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
+  rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
+})
+
+const valid = (input: CustomLayoutInput) => expect(customLayoutInputSchema.safeParse(input).success, JSON.stringify(input)).toBe(true)
+
+/** The components of each row, for comparing shapes. */
+const shape = (value: LayoutArrangement) => value.rows.map(row => row.panes.map(pane => pane.component))
+
+/** photo | week over agenda in landscape, and the three stacked in portrait. */
+const grid = (): CustomLayoutInput => ({
+  name: 'Grid',
+  landscape: arrangement([2, ['photo', 1], ['week', 3]], [1, ['agenda', 1]]),
+  portrait: arrangement([1, ['photo', 1]], [2, ['week', 1]], [1, ['agenda', 1]]),
+})
+
+const same = (landscape: LayoutArrangement): CustomLayoutInput => ({ name: 'x', landscape, portrait: landscape })
+
+describe('newLayoutInput', () => {
+  it('is valid, with the portrait made from the landscape', () => {
+    const input = newLayoutInput('Kitchen')
+
+    valid(input)
+    expect(input.name).toBe('Kitchen')
+    expect(componentsOf(input)).toEqual(['week', 'agenda'])
+    expect(shape(input.portrait)).toEqual([['week'], ['agenda']])
+  })
+
+  it('starts with an empty name by default, which the editor reports', () => {
+    expect(newLayoutInput().name).toBe('')
+    expect(editorErrors(newLayoutInput())).toEqual([{ path: 'name', message: 'must not be empty' }])
+  })
+})
+
+describe('toggleComponent', () => {
+  it('adds a component to the last row of both arrangements', () => {
+    const next = toggleComponent(newLayoutInput('x'), 'photo', true)
+
+    valid(next)
+    expect(shape(next.landscape)).toEqual([['week', 'agenda', 'photo']])
+    expect(shape(next.portrait)).toEqual([['week'], ['agenda', 'photo']])
+    expect(componentsOf(next)).toEqual(['week', 'agenda', 'photo'])
+  })
+
+  it('starts a new row when the last one is full', () => {
+    let input = newLayoutInput('x')
+    input = toggleComponent(input, 'month', true)
+    input = toggleComponent(input, 'week_parts', true)
+    expect(input.landscape.rows[0]!.panes).toHaveLength(MAX_LAYOUT_PANES_PER_ROW)
+
+    const next = toggleComponent(input, 'photo', true)
+
+    valid(next)
+    expect(next.landscape.rows).toHaveLength(2)
+    expect(next.landscape.rows[1]).toEqual({ size: 1, panes: [{ component: 'photo', size: 1 }] })
+  })
+
+  it('removes a component from both and drops a row it empties', () => {
+    const next = toggleComponent(grid(), 'agenda', false)
+
+    valid(next)
+    expect(shape(next.landscape)).toEqual([['photo', 'week']])
+    expect(shape(next.portrait)).toEqual([['photo'], ['week']])
+  })
+
+  it('refuses to remove the last component', () => {
+    const single = same(arrangement([1, ['week', 1]]))
+
+    expect(toggleComponent(single, 'week', false)).toBe(single)
+  })
+
+  it('does nothing when it is already as asked', () => {
+    const input = grid()
+
+    expect(toggleComponent(input, 'photo', true)).toBe(input)
+    expect(toggleComponent(input, 'month', false)).toBe(input)
+  })
+
+  it('never changes the input it is given', () => {
+    const input = grid()
+    const before = structuredClone(input)
+
+    toggleComponent(input, 'month', true)
+    toggleComponent(input, 'agenda', false)
+
+    expect(input).toEqual(before)
+  })
+
+  it('keeps the input valid through any sequence of toggles', () => {
+    let input = newLayoutInput('x')
+    for (const component of ['month', 'week_parts', 'photo'] as const) input = toggleComponent(input, component, true)
+    valid(input)
+    for (const component of ['week', 'month', 'agenda', 'photo'] as const) {
+      input = toggleComponent(input, component, false)
+      valid(input)
+    }
+    expect(componentsOf(input)).toEqual(['week_parts'])
+  })
+})
+
+describe('movePane', () => {
+  it('swaps with the neighbour to the left or right', () => {
+    const right = movePane(grid(), 'landscape', { row: 0, pane: 0 }, 'right')
+
+    valid(right)
+    expect(shape(right.landscape)).toEqual([['week', 'photo'], ['agenda']])
+    expect(movePane(right, 'landscape', { row: 0, pane: 1 }, 'left').landscape).toEqual(grid().landscape)
+  })
+
+  it('leaves the other arrangement alone, and the input it was given', () => {
+    const input = grid()
+
+    const next = movePane(input, 'landscape', { row: 0, pane: 0 }, 'right')
+
+    expect(next.portrait).toEqual(grid().portrait)
+    expect(input).toEqual(grid())
+  })
+
+  it('does nothing at the edge of a row', () => {
+    const input = grid()
+
+    expect(movePane(input, 'landscape', { row: 0, pane: 0 }, 'left')).toBe(input)
+    expect(movePane(input, 'landscape', { row: 0, pane: 1 }, 'right')).toBe(input)
+  })
+
+  it('moves a pane down to the end of the row below, and drops a row it empties', () => {
+    const next = movePane(grid(), 'portrait', { row: 0, pane: 0 }, 'down')
+
+    valid(next)
+    expect(shape(next.portrait)).toEqual([['week', 'photo'], ['agenda']])
+  })
+
+  it('moves a pane up to the end of the row above', () => {
+    const next = movePane(grid(), 'landscape', { row: 1, pane: 0 }, 'up')
+
+    valid(next)
+    expect(shape(next.landscape)).toEqual([['photo', 'week', 'agenda']])
+  })
+
+  it('gives a pane in company a new row above or below when there is none', () => {
+    const up = movePane(grid(), 'landscape', { row: 0, pane: 1 }, 'up')
+    const down = movePane(same(arrangement([1, ['photo', 2], ['week', 1]])), 'landscape', { row: 0, pane: 0 }, 'down')
+
+    valid(up)
+    valid(down)
+    expect(shape(up.landscape)).toEqual([['week'], ['photo'], ['agenda']])
+    expect(up.landscape.rows[0]).toEqual({ size: 1, panes: [{ component: 'week', size: 3 }] })
+    expect(shape(down.landscape)).toEqual([['week'], ['photo']])
+    expect(down.landscape.rows[1]).toEqual({ size: 1, panes: [{ component: 'photo', size: 2 }] })
+  })
+
+  it('does not move a lone pane off the edge, nor make more rows than allowed', () => {
+    const lone = same(arrangement([1, ['week', 1]]))
+    expect(movePane(lone, 'landscape', { row: 0, pane: 0 }, 'up')).toBe(lone)
+    expect(movePane(grid(), 'landscape', { row: 1, pane: 0 }, 'down')).toEqual(grid())
+
+    const rows = same(arrangement([1, ['month', 1], ['week', 1]], [1, ['week_parts', 1]], [1, ['agenda', 1]], [1, ['photo', 1]]))
+    expect(rows.landscape.rows).toHaveLength(MAX_LAYOUT_ROWS)
+    expect(movePane(rows, 'landscape', { row: 0, pane: 0 }, 'up')).toBe(rows)
+  })
+
+  it('does not move a pane into a full row', () => {
+    const full = same(arrangement([1, ['month', 1], ['week', 1], ['week_parts', 1], ['agenda', 1]], [1, ['photo', 1]]))
+
+    expect(movePane(full, 'landscape', { row: 1, pane: 0 }, 'up')).toBe(full)
+  })
+
+  it('does nothing for a pane that is not there', () => {
+    const input = grid()
+
+    expect(movePane(input, 'landscape', { row: 5, pane: 0 }, 'left')).toBe(input)
+    expect(movePane(input, 'landscape', { row: 0, pane: 9 }, 'left')).toBe(input)
+  })
+})
+
+describe('resizePane and resizeRow', () => {
+  it('changes one size by one', () => {
+    const wider = resizePane(grid(), 'landscape', { row: 0, pane: 0 }, 1)
+
+    valid(wider)
+    expect(wider.landscape.rows[0]!.panes.map(pane => pane.size)).toEqual([2, 3])
+    expect(grid().landscape.rows[0]!.panes[0]!.size).toBe(1)
+  })
+
+  it('stops at the limits, handing back the same input', () => {
+    const input = grid()
+
+    expect(resizePane(input, 'landscape', { row: 0, pane: 0 }, -1)).toBe(input)
+    expect(resizePane(input, 'landscape', { row: 0, pane: 9 }, 1)).toBe(input)
+    expect(resizeRow(input, 'landscape', 1, -1)).toBe(input)
+    expect(resizeRow(input, 'landscape', 7, 1)).toBe(input)
+    const tallest = resizeRow(resizeRow(resizeRow(input, 'landscape', 1, 1), 'landscape', 1, 1), 'landscape', 1, 1)
+    expect(tallest.landscape.rows[1]!.size).toBe(MAX_LAYOUT_SIZE)
+    expect(resizeRow(tallest, 'landscape', 1, 1)).toBe(tallest)
+  })
+
+  it('makes a row taller or shorter', () => {
+    const taller = resizeRow(grid(), 'portrait', 0, 1)
+    const shorter = resizeRow(grid(), 'portrait', 1, -1)
+
+    valid(taller)
+    valid(shorter)
+    expect(taller.portrait.rows.map(row => row.size)).toEqual([2, 2, 1])
+    expect(shorter.portrait.rows.map(row => row.size)).toEqual([1, 1, 1])
+  })
+})
+
+describe('moveRow', () => {
+  it('swaps a row with its neighbour', () => {
+    const next = moveRow(grid(), 'landscape', 1, 'up')
+
+    valid(next)
+    expect(shape(next.landscape)).toEqual([['agenda'], ['photo', 'week']])
+    expect(next.landscape.rows.map(row => row.size)).toEqual([1, 2])
+  })
+
+  it('does nothing at the top or the bottom', () => {
+    const input = grid()
+
+    expect(moveRow(input, 'landscape', 0, 'up')).toBe(input)
+    expect(moveRow(input, 'landscape', 1, 'down')).toBe(input)
+  })
+})
+
+describe('resetPortrait', () => {
+  it('makes the portrait arrangement from the landscape one, as a new layout does', () => {
+    const edited: CustomLayoutInput = { ...grid(), portrait: arrangement([1, ['photo', 1], ['week', 1], ['agenda', 1]]) }
+
+    const reset = resetPortrait(edited)
+
+    valid(reset)
+    expect(reset.landscape).toEqual(edited.landscape)
+    expect(componentsOf(reset)).toEqual(['week', 'agenda', 'photo'])
+    expect(shape(reset.portrait)).toEqual([['photo', 'agenda'], ['week']])
+  })
+
+  it('turns [photo | week] into the photo above the week', () => {
+    const input: CustomLayoutInput = { name: 'x', landscape: arrangement([1, ['photo', 1], ['week', 3]]), portrait: arrangement([1, ['week', 1], ['photo', 1]]) }
+
+    expect(resetPortrait(input).portrait).toEqual(arrangement([1, ['photo', 1]], [3, ['week', 1]]))
+  })
+})
+
+describe('the other helpers', () => {
+  it('finds a pane', () => {
+    expect(findPane(grid().landscape, 'week')).toEqual({ row: 0, pane: 1 })
+    expect(findPane(grid().landscape, 'agenda')).toEqual({ row: 1, pane: 0 })
+    expect(findPane(grid().landscape, 'month')).toBeNull()
+  })
+
+  it('takes a saved layout down to what the server accepts, as a copy', () => {
+    const saved = { ...grid(), id: 'grid', created_at: '2026-10-01T10:00:00.000Z', updated_at: '2026-10-01T10:00:00.000Z' }
+
+    const input = inputOf(saved)
+
+    expect(input).toEqual(grid())
+    expect(input.landscape).not.toBe(saved.landscape)
+    expect(sameInput(input, grid())).toBe(true)
+    expect(sameInput(resizeRow(input, 'landscape', 0, -1), input)).toBe(false)
+  })
+
+  it('lists what is wrong with an input, with dotted paths', () => {
+    const bad = { ...grid(), name: '  ', portrait: arrangement([1, ['photo', 1]]) }
+
+    expect(editorErrors(bad)).toEqual([
+      { path: 'name', message: 'must not be empty' },
+      { path: 'portrait', message: expect.stringContaining('must show the same components as landscape') },
+    ])
+    expect(editorErrors(grid())).toEqual([])
+  })
+})

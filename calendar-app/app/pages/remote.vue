@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, ListTodo, Lock, MessageCircle, Moon, PanelTop, Power, Rows3, Settings, SkipForward, X } from 'lucide-vue-next'
-import { MONTH_RANGE, WEEK_RANGE, WEEK_VIEWS, currentMonth, currentWeek, monthDiff, showsPhotos, weekDiff } from '../../shared/display'
+import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, LayoutGrid, ListTodo, Lock, MessageCircle, Moon, PanelTop, Pencil, Power, Rows3, Settings, SkipForward, X } from 'lucide-vue-next'
+import { MONTH_RANGE, WEEK_RANGE, currentMonth, currentWeek, monthDiff, weekDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
+import { layoutShowsPhotos, layoutSummary, viewShowsMonth, viewShowsPhotos, viewShowsWeek } from '../../shared/layouts'
+import type { CustomLayout } from '../../shared/layouts'
 import { reconnectDelay } from '~/utils/backoff'
 import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
 import { PHOTO_SOURCE_CHOICES, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions, weekCommandFor, weekOptions } from '~/utils/remote'
@@ -60,6 +62,7 @@ const commands = useRemoteCommands(displayId, (next) => {
 onMounted(() => {
   void loadSettings()
   void commands.load()
+  void loadLayouts()
 })
 onScopeDispose(() => {
   clearTimeout(retryTimer)
@@ -73,7 +76,25 @@ const screenOn = computed(() => state.value?.screen !== 'off')
 const view = computed(() => state.value?.view)
 const pinnedMonth = computed(() => state.value?.month ?? null)
 const pinnedWeek = computed(() => state.value?.week ?? null)
-const weekViewOn = computed(() => view.value !== undefined && (WEEK_VIEWS as readonly string[]).includes(view.value))
+
+// The custom layouts (PR 5.17): the socket sends the library on connect and
+// whenever it changes; until it has, or if it never does, ask for it.
+const fetchedLayouts = ref<CustomLayout[]>([])
+const layouts = computed(() => socket.layouts.value ?? fetchedLayouts.value)
+const currentLayout = computed(() => {
+  const found = state.value?.view === 'custom' ? layouts.value.find(layout => layout.id === state.value?.layout) : undefined
+  return found ? layoutSummary(found) : null
+})
+const monthViewOn = computed(() => view.value !== undefined && viewShowsMonth(view.value, currentLayout.value))
+const weekViewOn = computed(() => view.value !== undefined && viewShowsWeek(view.value, currentLayout.value))
+
+async function loadLayouts() {
+  try {
+    fetchedLayouts.value = await $fetch<CustomLayout[]>('/api/layouts')
+  } catch {
+    // Offline for now: the socket will send them, and the tiles come with them.
+  }
+}
 
 // The page's own theme, on <html> so the background reaches the edges of the
 // screen, including where it overscrolls (tokens.css makes the wall's page black).
@@ -115,6 +136,22 @@ function setView(next: View) {
   void commands.send({ type: 'set_view', view: next })
 }
 
+// The layouts row: one tile for each custom layout. A layout with a photo pane
+// is left out when there is no photo source, as the photo tiles are, unless it
+// is the one on the wall.
+const layoutTiles = computed(() => layouts.value
+  .map(layout => ({ layout, active: view.value === 'custom' && state.value?.layout === layout.id }))
+  .filter(({ layout, active }) => active || photosConfigured.value || !layoutShowsPhotos(layoutSummary(layout))))
+
+function setLayout(id: string) {
+  void commands.send({ type: 'set_layout', layout: id })
+}
+
+// The edit sheet: the layouts manager, on a sheet that fills the screen.
+const editingLayouts = ref(false)
+/** What the manager marks as "shown on": this display, and the layout it is on. */
+const layoutDisplays = computed(() => settings.value ? [{ id: settings.value.id, name: settings.value.name, layout: view.value === 'custom' ? state.value?.layout ?? null : null }] : [])
+
 // The photo frame (architecture §7.5). The server says which sources it has set
 // up; with none (no `photos` block) the wall has nothing to show, so the tile
 // and the "Photos from" section are left out, unless the wall is on the photo
@@ -127,7 +164,7 @@ const showPhotoTile = computed(() => photosConfigured.value || view.value === 'p
 const photoSource = computed(() => effectivePhotoSource(state.value?.photo_source ?? 'immich', photoSources.value))
 const photoViewOn = computed(() => view.value === 'photo')
 // "Next photo" works wherever a photo pane is showing: the photo frame and the week and photo view.
-const photosShown = computed(() => view.value !== undefined && showsPhotos(view.value))
+const photosShown = computed(() => view.value !== undefined && viewShowsPhotos(view.value, currentLayout.value))
 
 function setPhotoSource(source: PhotoSource) {
   void commands.send({ type: 'set_photo_source', photo_source: source })
@@ -336,9 +373,32 @@ function submitPin() {
               Week + photo
             </button>
           </div>
+
+          <h3 id="layouts-title" class="sublabel">
+            Layouts
+          </h3>
+          <div class="tiles" role="group" aria-labelledby="layouts-title" data-testid="layout-tiles">
+            <button
+              v-for="{ layout, active } in layoutTiles"
+              :key="layout.id"
+              type="button"
+              class="tile layout-tile"
+              :class="{ active }"
+              :aria-pressed="active"
+              :data-testid="`layout-tile-${layout.id}`"
+              @click="setLayout(layout.id)"
+            >
+              <AppIcon :icon="LayoutGrid" :size="26" />
+              <span class="layout-name">{{ layout.name }}</span>
+            </button>
+            <button type="button" class="button edit-layouts" data-testid="layouts-edit" @click="editingLayouts = true">
+              <AppIcon :icon="Pencil" :size="22" />
+              Edit layouts
+            </button>
+          </div>
         </section>
 
-        <section v-if="view === 'month'" aria-labelledby="month-title" data-testid="month-picker">
+        <section v-if="monthViewOn" aria-labelledby="month-title" data-testid="month-picker">
           <h2 id="month-title" class="label">
             Month shown
           </h2>
@@ -582,6 +642,20 @@ function submitPin() {
         </section>
       </div>
     </main>
+
+    <div v-if="editingLayouts" class="scrim editor-scrim" data-testid="layouts-sheet">
+      <div class="sheet layouts-sheet" role="dialog" aria-modal="true" aria-labelledby="layouts-sheet-title" @keydown.esc="editingLayouts = false">
+        <header class="sheet-head">
+          <h2 id="layouts-sheet-title" class="sheet-title">
+            Edit layouts
+          </h2>
+          <button type="button" class="dismiss" aria-label="Close" data-testid="layouts-close" @click="editingLayouts = false">
+            <AppIcon :icon="X" :size="22" />
+          </button>
+        </header>
+        <LayoutsManager compact :displays="layoutDisplays" :photos-configured="photosConfigured" :live="socket.layouts.value" @changed="fetchedLayouts = $event" />
+      </div>
+    </div>
 
     <div v-if="commands.error.value" class="toast" role="status" data-testid="error">
       <span>{{ commands.error.value }}</span>
@@ -874,6 +948,46 @@ button:disabled {
 .tile.active {
   background: var(--accent);
   color: var(--on-accent);
+}
+
+.sublabel {
+  margin: 20px 0 12px 4px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 400;
+}
+
+/* A layout's tile is the wide tile's shape, two to a row, with a name that may be long. */
+.layout-tile {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  min-height: 72px;
+  padding: 0 18px;
+  font-size: 17px;
+}
+
+.layout-tile > svg {
+  flex: none;
+}
+
+.layout-name {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.edit-layouts {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .tile.wide {
@@ -1244,6 +1358,25 @@ input[type='range'] {
 
 .sheet .lock {
   align-self: flex-start;
+}
+
+.editor-scrim {
+  z-index: 5;
+}
+
+/* The edit sheet fills the screen, and scrolls inside itself. */
+.layouts-sheet {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow-y: auto;
+  border-radius: 0;
+  padding-top: max(20px, env(safe-area-inset-top));
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .sheet-title {

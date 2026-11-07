@@ -1,4 +1,6 @@
 import type { Preview, View } from '../../shared/display'
+import { layoutShowsCalendar } from '../../shared/layouts'
+import type { LayoutSummary } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover, TileDecoration } from '../../shared/special-days'
 import { isCalendarView } from './views'
 
@@ -44,18 +46,23 @@ export interface TakeoverContext {
   /** Today in the display's time zone, or null until the settings have arrived. */
   today: string | null
   previewing: boolean
+  /** The layout the custom view shows, if it is the view: a custom view is taken over only if its layout has a calendar component in it. */
+  layout?: LayoutSummary | null
 }
 
 /**
  * The takeover to draw, or null. It takes over a calendar view only, never the
- * photo frame or night view. Outside a preview it must be for today: a resolution
- * the wall has had since yesterday (cached, or the server's midnight message is
- * late) must not outlive its midnight, so the page compares the dates itself.
- * A preview is the server's word for a date that isn't today.
+ * photo frame or night view (a custom layout counts as a calendar view if it
+ * shows any calendar component; its photo pane is never covered). Outside a
+ * preview it must be for today: a resolution the wall has had since yesterday
+ * (cached, or the server's midnight message is late) must not outlive its
+ * midnight, so the page compares the dates itself. A preview is the server's
+ * word for a date that isn't today.
  */
-export function takeoverInForce({ resolution, view, today, previewing }: TakeoverContext): Takeover | null {
+export function takeoverInForce({ resolution, view, today, previewing, layout }: TakeoverContext): Takeover | null {
   const takeover = resolution?.takeover ?? null
-  if (!takeover || !isCalendarView(view)) return null
+  const calendar = view === 'custom' ? !!layout && layoutShowsCalendar(layout) : isCalendarView(view)
+  if (!takeover || !calendar) return null
   return previewing || takeover.date === today ? takeover : null
 }
 

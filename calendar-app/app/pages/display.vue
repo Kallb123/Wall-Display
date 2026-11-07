@@ -3,6 +3,8 @@ import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { currentMonth, DEFAULT_DAY_PARTS, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
+import { layoutSummary } from '../../shared/layouts'
+import type { CustomLayout } from '../../shared/layouts'
 import { specialDayArtUrl } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
@@ -18,6 +20,7 @@ import WeekView from '~/components/views/WeekView.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { displayEventRanges, todayIn } from '~/utils/eventRanges'
+import { layoutPanes, photoPillAtTopRight } from '~/utils/layouts'
 import { isOverlayShowing } from '~/utils/overlay'
 import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
 import { activePreview, isEvening, takeoverArt, takeoverInForce } from '~/utils/specialDays'
@@ -59,7 +62,6 @@ const viewComponents: Record<View, Component> = {
   agenda: AgendaView,
   photo: PhotoView,
   night: NightView,
-  // PR 5.17: the display work draws the layout's panes.
   custom: CustomLayoutView,
 }
 const viewFor = (view: View): Component => viewComponents[view]
@@ -79,6 +81,8 @@ const weather = ref<WeatherSnapshot | null>(null)
 const alarm = ref<NextAlarm>(null)
 /** The special days the server last sent for the real today (never a preview's), or null for none. */
 const specialDays = ref<SpecialDaysResolution | null>(null)
+/** The library of custom layouts the server last sent (the cache's until then). */
+const layouts = ref<CustomLayout[]>([])
 /** The server answered and has no such display. */
 const unknown = ref(false)
 
@@ -92,6 +96,7 @@ function select(id: string) {
   weather.value = cached?.weather ?? null
   alarm.value = cached?.alarm ?? null
   specialDays.value = cached?.special_days ?? null
+  layouts.value = cached?.layouts ?? []
 }
 
 async function loadSettings() {
@@ -115,6 +120,8 @@ async function loadSettings() {
 const orientation = computed(() => orientationQuery(route.query.orientation) ?? settings.value?.orientation ?? 'auto')
 const device = computed(() => deviceOrientation(orientation.value, viewport.value.width, viewport.value.height))
 const stage = computed(() => stageFor(state.value.view, device.value))
+/** The layout the custom view shows, or null for none: not chosen, deleted, or not heard of yet. */
+const currentLayout = computed(() => layouts.value.find(layout => layout.id === state.value.layout) ?? null)
 const scale = computed(() => stageScale(viewport.value.width, viewport.value.height, stage.value.orientation))
 
 // Installable (PR 5.8): the manifest names this display, so "Install" or "Add to
@@ -175,6 +182,7 @@ const takeover = computed(() => takeoverInForce({
   view: state.value.view,
   today: today.value,
   previewing: previewing.value,
+  layout: currentLayout.value ? layoutSummary(currentLayout.value) : null,
 }))
 
 /** The takeover's art cut for this stage's shape. */
@@ -194,9 +202,14 @@ const shift = computed(() => burnIn.value ? burnInOffset(now.value) : { x: 0, y:
 /** The banner is at the bottom centre and the pill must keep out of its way. */
 const overlayShowing = computed(() => isOverlayShowing(state.value.overlay, now.value))
 const photoCorner = computed(() => burnIn.value ? pillCorner(now.value, { overlay: overlayShowing.value }) : 'top-left')
-/** The offline badge is top right, which the pill may have, and then it takes the other side. The pill's pane reaches the stage's top right corner on the photo frame and on the portrait stage of the week and photo view, where the photo is on top; on the landscape stage the photo is on the left. */
+/** The offline badge is top right, which the pill may have, and then it takes the other side. The pill's pane reaches the stage's top right corner on the photo frame, on the portrait stage of the week and photo view, where the photo is on top (on the landscape stage the photo is on the left), and in a custom layout whose photo pane is there. */
 const offlineSide = computed(() => {
-  const pillAtTopRight = state.value.view === 'photo' || (state.value.view === 'week_photo' && stage.value.orientation === 'portrait')
+  const view = state.value.view
+  let pillAtTopRight = view === 'photo' || (view === 'week_photo' && stage.value.orientation === 'portrait')
+  if (view === 'custom' && currentLayout.value) {
+    const arrangement = stage.value.orientation === 'portrait' ? currentLayout.value.portrait : currentLayout.value.landscape
+    pillAtTopRight = photoPillAtTopRight(layoutPanes(arrangement, stage.value), stage.value.width, photoCorner.value)
+  }
   return pillAtTopRight && photoCorner.value === 'top-right' ? 'left' : 'right'
 })
 /** The sliver the layer uncovers at an edge when it moves: black for the views that are black or a photo, and the stage's own ground otherwise. */
@@ -215,6 +228,7 @@ const viewProps = computed<ViewProps | null>(() => {
   return {
     view: state.value.view,
     stage: stage.value,
+    layout: currentLayout.value,
     events: events.value,
     now: now.value,
     timezone: display.timezone,
@@ -274,6 +288,11 @@ watch(socket.alarm, (next) => {
   if (next !== undefined) alarm.value = next
 })
 
+// The library of layouts, likewise.
+watch(socket.layouts, (next) => {
+  if (next !== undefined) layouts.value = next
+})
+
 // Like the weather, sent after the state on every connect and again when it changes.
 watch(socket.specialDays, (next) => {
   if (next !== undefined) specialDays.value = next
@@ -288,9 +307,9 @@ watch(socket.settings, (next) => {
 const evening = computed(() => timezone.value !== null && isEvening(now.value, timezone.value))
 useArtPreload(() => previewing.value ? [] : specialDays.value?.tomorrow_art ?? [], evening)
 
-watch([settings, state, events, weather, specialDays, alarm], () => {
+watch([settings, state, events, weather, specialDays, alarm, layouts], () => {
   if (!displayId.value || !settings.value) return
-  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, weather: weather.value, special_days: specialDays.value, alarm: alarm.value, saved_at: new Date().toISOString() })
+  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, weather: weather.value, special_days: specialDays.value, alarm: alarm.value, layouts: layouts.value, saved_at: new Date().toISOString() })
   saveLastDisplayId(storage, displayId.value)
 })
 

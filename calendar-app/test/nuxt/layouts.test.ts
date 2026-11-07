@@ -283,6 +283,49 @@ describe('the layouts editor', () => {
     expect(wrapper.find('[data-testid="layout-id"]').text()).toContain('kitchen')
   })
 
+  it('edits the day grid of the selected days pane, per orientation', async () => {
+    const wrapper = await mountManager()
+    const text = (testid: string) => wrapper.find(`[data-testid="${testid}"]`).text()
+    const disabled = (testid: string) => wrapper.find(`[data-testid="${testid}"]`).attributes('disabled') !== undefined
+
+    expect(wrapper.find('[data-testid="grid-controls"]').exists()).toBe(false)
+    await click(wrapper, 'toggle-days')
+    expect(wrapper.find('[data-testid="grid-controls"]').exists()).toBe(false)
+    await wrapper.find('[data-testid="layout-editor"] [data-component="days"]').trigger('click')
+    expect(text('grid-rows')).toBe('Rows 2')
+    expect(text('grid-columns')).toBe('Columns 4')
+    expect(wrapper.find('[data-testid="start-today"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="preview-grid"]').findAll('i')).toHaveLength(8)
+
+    await click(wrapper, 'rows-more')
+    await click(wrapper, 'columns-fewer')
+    await click(wrapper, 'start-week')
+    expect(text('grid-rows')).toBe('Rows 3')
+    expect(text('grid-columns')).toBe('Columns 3')
+    expect(wrapper.find('[data-testid="start-week"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="preview-grid"]').findAll('i')).toHaveLength(9)
+
+    for (let i = 0; i < 5; i++) await click(wrapper, 'columns-more')
+    expect(text('grid-columns')).toBe('Columns 7')
+    expect(disabled('columns-more')).toBe(true)
+    for (let i = 0; i < 6; i++) await click(wrapper, 'rows-fewer')
+    expect(text('grid-rows')).toBe('Rows 1')
+    expect(disabled('rows-fewer')).toBe(true)
+
+    await click(wrapper, 'switch-portrait')
+    await wrapper.find('[data-testid="layout-editor"] [data-component="days"]').trigger('click')
+    expect(text('grid-rows')).toBe('Rows 4')
+    expect(text('grid-columns')).toBe('Columns 2')
+    expect(wrapper.find('[data-testid="start-today"]').attributes('aria-pressed')).toBe('true')
+
+    await submit(wrapper)
+    const body = writes[0]!.body as { landscape: LayoutArrangement, portrait: LayoutArrangement }
+    expect(customLayoutInputSchema.safeParse(body).success).toBe(true)
+    const gridIn = (a: LayoutArrangement) => a.rows.flatMap(row => row.panes).filter(pane => pane.grid)
+    expect(gridIn(body.landscape)).toEqual([{ component: 'days', size: 1, grid: { rows: 1, columns: 7, start: 'week' } }])
+    expect(gridIn(body.portrait)).toEqual([{ component: 'days', size: 1, grid: { rows: 4, columns: 2, start: 'today' } }])
+  })
+
   it('saves a toggled component and a moved pane as one PUT', async () => {
     const wrapper = await mountManager()
 

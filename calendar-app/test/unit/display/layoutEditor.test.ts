@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
+import { DEFAULT_DAY_GRID, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
 import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
-import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, resetPortrait, resizePane, resizeRow, sameInput, toggleComponent } from '../../../app/utils/layoutEditor'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, toggleComponent } from '../../../app/utils/layoutEditor'
 
 const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
@@ -272,5 +272,125 @@ describe('the other helpers', () => {
       { path: 'portrait', message: expect.stringContaining('must show the same components as landscape') },
     ])
     expect(editorErrors(grid())).toEqual([])
+  })
+})
+
+describe('the day grid', () => {
+  const withDays = () => toggleComponent(newLayoutInput('x'), 'days', true)
+  const landscapeAt = { row: 0, pane: 2 }
+  /** Where the days pane is in the portrait arrangement. */
+  const portraitAt = (input: CustomLayoutInput) => findPane(input.portrait, 'days')!
+  const grids = (input: CustomLayoutInput) => [input.landscape, input.portrait].flatMap(a => a.rows.flatMap(row => row.panes.filter(pane => pane.grid).map(pane => pane.component)))
+
+  it('gives a new days pane the default grid, turned on its side in portrait', () => {
+    const next = withDays()
+
+    valid(next)
+    expect(next.landscape.rows[0]!.panes[2]).toEqual({ component: 'days', size: 1, grid: DEFAULT_DAY_GRID })
+    expect(next.landscape.rows[0]!.panes[2]!.grid).not.toBe(DEFAULT_DAY_GRID)
+    const portrait = next.portrait.rows.flatMap(row => row.panes).find(pane => pane.component === 'days')
+    expect(portrait!.grid).toEqual({ rows: DEFAULT_DAY_GRID.columns, columns: DEFAULT_DAY_GRID.rows, start: 'today' })
+  })
+
+  it('gives a days pane in a row of its own the grid too, and removes it cleanly', () => {
+    let input = toggleComponent(newLayoutInput('x'), 'month', true)
+    input = toggleComponent(input, 'week_parts', true)
+    const next = toggleComponent(input, 'days', true)
+
+    valid(next)
+    expect(next.landscape.rows[1]!.panes[0]!.grid).toEqual(DEFAULT_DAY_GRID)
+    const off = toggleComponent(next, 'days', false)
+    valid(off)
+    expect(grids(off)).toEqual([])
+    expect(componentsOf(off)).not.toContain('days')
+  })
+
+  it('never adds a grid to other panes', () => {
+    expect(grids(withDays())).toEqual(['days', 'days'])
+  })
+
+  it('changes rows and columns by one in one arrangement only', () => {
+    const input = withDays()
+    const portraitBefore = input.portrait
+
+    const rows = resizeGridRows(input, 'landscape', landscapeAt, 1)
+    const columns = resizeGridColumns(rows, 'landscape', landscapeAt, -1)
+
+    valid(columns)
+    expect(paneGrid(columns, 'landscape', landscapeAt)).toEqual({ rows: 3, columns: 3, start: 'today' })
+    expect(columns.portrait).toEqual(portraitBefore)
+    expect(paneGrid(input, 'landscape', landscapeAt)).toEqual(DEFAULT_DAY_GRID)
+  })
+
+  it('stops at the limits, handing back the same input', () => {
+    let input = withDays()
+    for (let i = 0; i < 10; i++) {
+      input = resizeGridRows(input, 'landscape', landscapeAt, 1)
+      input = resizeGridColumns(input, 'landscape', landscapeAt, 1)
+    }
+    expect(paneGrid(input, 'landscape', landscapeAt)).toMatchObject({ rows: MAX_DAY_GRID_ROWS, columns: MAX_DAY_GRID_COLUMNS })
+    expect(resizeGridRows(input, 'landscape', landscapeAt, 1)).toBe(input)
+    expect(resizeGridColumns(input, 'landscape', landscapeAt, 1)).toBe(input)
+    for (let i = 0; i < 10; i++) {
+      input = resizeGridRows(input, 'landscape', landscapeAt, -1)
+      input = resizeGridColumns(input, 'landscape', landscapeAt, -1)
+    }
+    expect(paneGrid(input, 'landscape', landscapeAt)).toMatchObject({ rows: 1, columns: 1 })
+    expect(resizeGridRows(input, 'landscape', landscapeAt, -1)).toBe(input)
+    expect(resizeGridColumns(input, 'landscape', landscapeAt, -1)).toBe(input)
+    valid(input)
+  })
+
+  it('sets where the grid starts', () => {
+    const input = withDays()
+    const week = setGridStart(input, 'portrait', portraitAt(input), 'week')
+
+    valid(week)
+    expect(paneGrid(week, 'portrait', portraitAt(input))!.start).toBe('week')
+    expect(paneGrid(week, 'landscape', landscapeAt)!.start).toBe('today')
+    expect(setGridStart(input, 'landscape', landscapeAt, 'today')).toBe(input)
+  })
+
+  it('does nothing on a pane that is not a day grid', () => {
+    const input = withDays()
+
+    expect(resizeGridRows(input, 'landscape', { row: 0, pane: 0 }, 1)).toBe(input)
+    expect(setGridStart(input, 'landscape', { row: 5, pane: 0 }, 'week')).toBe(input)
+    expect(paneGrid(input, 'landscape', { row: 0, pane: 0 })).toBeNull()
+  })
+
+  it('keeps the grid through every other operation', () => {
+    const base = setGridStart(resizeGridRows(withDays(), 'landscape', landscapeAt, 1), 'landscape', landscapeAt, 'week')
+    const expected = { rows: 3, columns: 4, start: 'week' }
+    const gridOf = (input: CustomLayoutInput) => input.landscape.rows.flatMap(row => row.panes).find(pane => pane.component === 'days')!.grid
+
+    const steps = [
+      movePane(base, 'landscape', landscapeAt, 'left'),
+      movePane(base, 'landscape', landscapeAt, 'down'),
+      movePane(base, 'landscape', landscapeAt, 'up'),
+      resizePane(base, 'landscape', landscapeAt, 1),
+      resizeRow(base, 'landscape', 0, 1),
+      toggleComponent(base, 'photo', true),
+      toggleComponent(base, 'agenda', false),
+      resizeGridRows(base, 'portrait', portraitAt(base), 1),
+    ]
+    for (const step of steps) {
+      valid(step)
+      expect(gridOf(step), JSON.stringify(step)).toEqual(expected)
+      expect(grids(step)).toEqual(['days', 'days'])
+    }
+    const moved = movePane(base, 'landscape', landscapeAt, 'down')
+    expect(moved).not.toBe(base)
+    const two = toggleComponent(toggleComponent(base, 'month', true), 'week_parts', true)
+    expect(moveRow(two, 'landscape', 0, 'down').landscape.rows.flatMap(row => row.panes).find(pane => pane.component === 'days')!.grid).toEqual(expected)
+  })
+
+  it('turns the grid with "start again from landscape"', () => {
+    const base = resizeGridColumns(withDays(), 'landscape', landscapeAt, 1)
+
+    const reset = resetPortrait(base)
+
+    valid(reset)
+    expect(paneGrid(reset, 'portrait', portraitAt(reset))).toEqual({ rows: 5, columns: 2, start: 'today' })
   })
 })

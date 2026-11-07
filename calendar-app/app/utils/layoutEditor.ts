@@ -1,5 +1,5 @@
-import { LAYOUT_COMPONENTS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MIN_LAYOUT_SIZE, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../shared/layouts'
+import { DEFAULT_DAY_GRID, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane } from '../../shared/layouts'
 
 // What the layout editor does to the layout it is editing (architecture §7.6,
 // PR 5.17): turning a component on or off, moving a pane, making a pane or a
@@ -72,6 +72,16 @@ export function componentsOf(input: CustomLayoutInput): LayoutComponent[] {
   return LAYOUT_COMPONENTS.filter(component => used.has(component))
 }
 
+/** A new pane for `component`: the day grid starts with its default, turned on its side in portrait like a transposed arrangement. */
+function newPane(which: Orientation, component: LayoutComponent): LayoutPane {
+  const pane: LayoutPane = { component, size: MIN_LAYOUT_SIZE }
+  if (component === 'days') {
+    const { rows, columns, start } = DEFAULT_DAY_GRID
+    pane.grid = which === 'landscape' ? { rows, columns, start } : { rows: columns, columns: rows, start }
+  }
+  return pane
+}
+
 /**
  * Puts a component in, or takes it out of, both arrangements. A new one goes at
  * the end of the last row, or in a row of its own below if that row is full.
@@ -87,8 +97,8 @@ export function toggleComponent(input: CustomLayoutInput, component: LayoutCompo
     const { rows } = next[which]
     if (on) {
       const last = rows.at(-1)!
-      if (last.panes.length < MAX_LAYOUT_PANES_PER_ROW) last.panes.push({ component, size: MIN_LAYOUT_SIZE })
-      else if (rows.length < MAX_LAYOUT_ROWS) rows.push({ size: MIN_LAYOUT_SIZE, panes: [{ component, size: MIN_LAYOUT_SIZE }] })
+      if (last.panes.length < MAX_LAYOUT_PANES_PER_ROW) last.panes.push(newPane(which, component))
+      else if (rows.length < MAX_LAYOUT_ROWS) rows.push({ size: MIN_LAYOUT_SIZE, panes: [newPane(which, component)] })
       else return input
     } else {
       for (const row of rows) row.panes = row.panes.filter(pane => pane.component !== component)
@@ -161,6 +171,37 @@ export function moveRow(input: CustomLayoutInput, which: Orientation, row: numbe
   if (!rows[row] || !rows[to]) return input
   ;[rows[row], rows[to]] = [rows[to]!, rows[row]!]
   return withArrangement(input, which, { rows })
+}
+
+/** The day grid of the pane at `at`, or null if it is not a day grid. */
+export function paneGrid(input: CustomLayoutInput, which: Orientation, at: PaneAt): DayGrid | null {
+  return input[which].rows[at.row]?.panes[at.pane]?.grid ?? null
+}
+
+/** Changes the day grid of the pane at `at` in one arrangement, handing back the same input when nothing would change. */
+function withGrid(input: CustomLayoutInput, which: Orientation, at: PaneAt, change: (grid: DayGrid) => DayGrid): CustomLayoutInput {
+  const current = paneGrid(input, which, at)
+  if (!current) return input
+  const next = change({ ...current })
+  if (next.rows === current.rows && next.columns === current.columns && next.start === current.start) return input
+  const rows = copy(input[which].rows)
+  rows[at.row]!.panes[at.pane]!.grid = next
+  return withArrangement(input, which, { rows })
+}
+
+/** Gives a day grid one more (`delta` 1) or one fewer (−1) row, within the limits. */
+export function resizeGridRows(input: CustomLayoutInput, which: Orientation, at: PaneAt, delta: 1 | -1): CustomLayoutInput {
+  return withGrid(input, which, at, grid => ({ ...grid, rows: Math.min(MAX_DAY_GRID_ROWS, Math.max(MIN_DAY_GRID_ROWS, grid.rows + delta)) }))
+}
+
+/** Gives a day grid one more (`delta` 1) or one fewer (−1) column, within the limits. */
+export function resizeGridColumns(input: CustomLayoutInput, which: Orientation, at: PaneAt, delta: 1 | -1): CustomLayoutInput {
+  return withGrid(input, which, at, grid => ({ ...grid, columns: Math.min(MAX_DAY_GRID_COLUMNS, Math.max(MIN_DAY_GRID_COLUMNS, grid.columns + delta)) }))
+}
+
+/** Sets where a day grid starts: today, or the first day of the week. */
+export function setGridStart(input: CustomLayoutInput, which: Orientation, at: PaneAt, start: DayGridStart): CustomLayoutInput {
+  return withGrid(input, which, at, grid => ({ ...grid, start }))
 }
 
 /** Throws away the portrait arrangement and makes it again from the landscape one. */

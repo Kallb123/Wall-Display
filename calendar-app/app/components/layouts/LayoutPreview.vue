@@ -62,8 +62,18 @@ const summary = computed(() => props.arrangement.rows
         data-testid="preview-pane"
         @click="interactive && emit('select', pane.component)"
       >
+        <span
+          v-if="pane.grid"
+          class="tiles"
+          aria-hidden="true"
+          data-testid="preview-grid"
+          :style="{ gridTemplateRows: `repeat(${pane.grid.rows}, 1fr)`, gridTemplateColumns: `repeat(${pane.grid.columns}, 1fr)` }"
+        >
+          <i v-for="n in pane.grid.rows * pane.grid.columns" :key="n" />
+        </span>
         <AppIcon :icon="ICONS[pane.component]" :size="labels ? 20 : 12" />
         <span v-if="labels" class="name">{{ COMPONENT_LABELS[pane.component] }}</span>
+        <span v-if="labels && pane.grid" class="caption">{{ pane.grid.rows }}×{{ pane.grid.columns }}</span>
       </component>
     </div>
   </div>
@@ -137,6 +147,34 @@ const summary = computed(() => props.arrangement.rows
   border-width: 0;
   border-radius: 4px;
   color: var(--muted);
+}
+
+.pane {
+  position: relative;
+}
+
+/* The day grid's tiles, faint, under the icon and the name. */
+.tiles {
+  position: absolute;
+  inset: 3px;
+  display: grid;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.tiles i {
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--muted) 16%, transparent);
+}
+
+.pane > :not(.tiles) {
+  position: relative;
+}
+
+.caption {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .pane.photo {

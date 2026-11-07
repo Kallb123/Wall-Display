@@ -1,0 +1,148 @@
+import { describe, expect, it } from 'vitest'
+import type { LayoutArrangement } from '../../../shared/layouts'
+import { COMPONENT_MINIMUMS, layoutPanes, paneFit, photoPillAtTopRight } from '../../../app/utils/layouts'
+import { stageFor, weekPhotoPanes } from '../../../app/utils/views'
+
+const LANDSCAPE = { width: 2560, height: 1440 }
+const PORTRAIT = { width: 1440, height: 2560 }
+
+type Pane = LayoutArrangement['rows'][number]['panes'][number]
+
+const row = (size: number, ...panes: [Pane['component'], number][]) => ({
+  size,
+  panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })),
+})
+
+describe('layoutPanes', () => {
+  it('splits a row by the panes\' weights', () => {
+    const boxes = layoutPanes({ rows: [row(1, ['photo', 1], ['week', 2], ['agenda', 1])] }, LANDSCAPE)
+
+    expect(boxes.map(({ component, x, width, y, height }) => [component, x, width, y, height])).toEqual([
+      ['photo', 0, 640, 0, 1440],
+      ['week', 640, 1280, 0, 1440],
+      ['agenda', 1920, 640, 0, 1440],
+    ])
+  })
+
+  it('splits the height by the rows\' weights', () => {
+    const boxes = layoutPanes({ rows: [row(2, ['month', 1]), row(1, ['agenda', 1])] }, PORTRAIT)
+
+    expect(boxes.map(({ y, height }) => [y, height])).toEqual([[0, 1707], [1707, 853]])
+  })
+
+  it('tiles exactly when the weights do not divide the stage, the last one taking the remainder', () => {
+    for (const stage of [LANDSCAPE, PORTRAIT, { width: 1001, height: 777 }]) {
+      const boxes = layoutPanes({ rows: [row(1, ['photo', 1], ['week', 1], ['agenda', 1]), row(2, ['month', 3], ['week_parts', 1]), row(1, ['month', 1])] }, stage)
+      const area = boxes.reduce((sum, box) => sum + box.width * box.height, 0)
+
+      expect(area).toBe(stage.width * stage.height)
+      for (const box of boxes) expect([box.x, box.y, box.width, box.height].every(Number.isInteger)).toBe(true)
+      expect(boxes.at(-1)!.x + boxes.at(-1)!.width).toBe(stage.width)
+      expect(boxes.at(-1)!.y + boxes.at(-1)!.height).toBe(stage.height)
+    }
+  })
+
+  it('has a lone pane fill the stage', () => {
+    const [only] = layoutPanes({ rows: [row(1, ['month', 1])] }, LANDSCAPE)
+
+    expect(only).toMatchObject({ x: 0, y: 0, ...LANDSCAPE })
+  })
+
+  it('rounds a corner unless both its edges are the stage\'s', () => {
+    const [left, right] = layoutPanes({ rows: [row(1, ['photo', 1], ['week', 1])] }, LANDSCAPE)
+
+    expect(left!.rounded).toEqual({ topLeft: false, topRight: true, bottomRight: true, bottomLeft: false })
+    expect(right!.rounded).toEqual({ topLeft: true, topRight: false, bottomRight: false, bottomLeft: true })
+    expect(layoutPanes({ rows: [row(1, ['photo', 1])] }, LANDSCAPE)[0]!.rounded).toEqual({ topLeft: false, topRight: false, bottomRight: false, bottomLeft: false })
+  })
+
+  it('reproduces the week and photo view: the photo on top has its lower corners rounded, and on the left its right ones', () => {
+    const top = layoutPanes({ rows: [row(1, ['photo', 1]), row(1, ['week', 1])] }, PORTRAIT)[0]!
+    const left = layoutPanes({ rows: [row(1, ['photo', 1], ['week', 1])] }, LANDSCAPE)[0]!
+
+    expect(top.rounded).toEqual({ topLeft: false, topRight: false, bottomRight: true, bottomLeft: true })
+    expect(left.rounded).toEqual({ topLeft: false, topRight: true, bottomRight: true, bottomLeft: false })
+  })
+
+  it('rounds the three inner corners of each pane of a grid', () => {
+    const boxes = layoutPanes({ rows: [row(1, ['month', 1], ['week', 1]), row(1, ['agenda', 1], ['week_parts', 1])] }, LANDSCAPE)
+
+    expect(boxes.map(box => Object.values(box.rounded).filter(Boolean).length)).toEqual([3, 3, 3, 3])
+  })
+})
+
+describe('paneFit', () => {
+  it('draws a component at its real size when the box is big enough', () => {
+    expect(paneFit('month', LANDSCAPE)).toEqual({ stage: { ...LANDSCAPE, orientation: 'landscape' }, scale: 1 })
+    expect(paneFit('week_parts', { width: 1700, height: 1000 })).toEqual({ stage: { width: 1700, height: 1000, orientation: 'landscape' }, scale: 1 })
+  })
+
+  it('asks for portrait when the box is taller than wide', () => {
+    expect(paneFit('agenda', { width: 1200, height: 1600 }).stage.orientation).toBe('portrait')
+    expect(paneFit('month', PORTRAIT).stage.orientation).toBe('portrait')
+  })
+
+  it('uses the week\'s narrow layout in any box narrower than 1800, as the week and photo view does', () => {
+    const { week } = weekPhotoPanes(stageFor('week_photo', 'landscape'))
+
+    expect(paneFit('week', { width: 1460, height: 1100 }).stage.orientation).toBe('portrait')
+    expect(paneFit('week', week).stage.orientation).toBe('portrait')
+    expect(paneFit('week', { width: 1800, height: 1000 }).stage.orientation).toBe('landscape')
+    // Only the week: the others go by the box's shape.
+    expect(paneFit('week_parts', { width: 1460, height: 1100 }).stage.orientation).toBe('landscape')
+  })
+
+  it('scales a small box down uniformly, by the tighter of the two sides', () => {
+    const fit = paneFit('month', { width: 1100, height: 800 })
+
+    expect(fit.scale).toBe(0.5)
+    expect(fit.stage).toEqual({ width: 2200, height: 1600, orientation: 'landscape' })
+  })
+
+  it('keeps the box\'s shape on the virtual stage when only one side is short', () => {
+    const fit = paneFit('agenda', { width: 3000, height: 675 })
+
+    expect(fit.scale).toBe(0.5)
+    expect(fit.stage).toEqual({ width: 6000, height: 1350, orientation: 'landscape' })
+  })
+
+  it('scales a narrow portrait column to fit exactly', () => {
+    const fit = paneFit('month', { width: 650, height: 1440 })
+    const minimum = COMPONENT_MINIMUMS.month.portrait
+
+    expect(fit.stage.orientation).toBe('portrait')
+    expect(fit.scale).toBeCloseTo(Math.min(650 / minimum.width, 1440 / minimum.height))
+    expect(fit.stage.width * fit.scale).toBeCloseTo(650, 0)
+    expect(fit.stage.height * fit.scale).toBeCloseTo(1440, 0)
+  })
+
+  it('never scales up', () => {
+    expect(paneFit('week_parts', { width: 5000, height: 5000 }).scale).toBe(1)
+  })
+
+  it('draws the photo frame at any size, unscaled', () => {
+    expect(paneFit('photo', { width: 300, height: 200 })).toEqual({ stage: { width: 300, height: 200, orientation: 'landscape' }, scale: 1 })
+    expect(paneFit('photo', { width: 1100, height: 1440 }).stage.orientation).toBe('portrait')
+  })
+})
+
+describe('photoPillAtTopRight', () => {
+  const panes = layoutPanes({ rows: [row(1, ['week', 1], ['photo', 1])] }, LANDSCAPE)
+
+  it('is true when the pill is in the corner and a photo pane reaches that corner of the stage', () => {
+    expect(photoPillAtTopRight(panes, LANDSCAPE.width, 'top-right')).toBe(true)
+  })
+
+  it('is false for any other corner', () => {
+    expect(photoPillAtTopRight(panes, LANDSCAPE.width, 'top-left')).toBe(false)
+    expect(photoPillAtTopRight(panes, LANDSCAPE.width, 'bottom-right')).toBe(false)
+  })
+
+  it('is false when the photo is not at the top right', () => {
+    const left = layoutPanes({ rows: [row(1, ['photo', 1], ['week', 1])] }, LANDSCAPE)
+    const below = layoutPanes({ rows: [row(1, ['week', 1]), row(1, ['photo', 1])] }, LANDSCAPE)
+
+    expect(photoPillAtTopRight(left, LANDSCAPE.width, 'top-right')).toBe(false)
+    expect(photoPillAtTopRight(below, LANDSCAPE.width, 'top-right')).toBe(false)
+  })
+})

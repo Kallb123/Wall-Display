@@ -3,6 +3,7 @@ import { displayStateSchema } from '../../../shared/display'
 import type { DisplaySettings } from '../../../shared/display'
 import { loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '../../../app/utils/displayCache'
 import type { DisplayCache } from '../../../app/utils/displayCache'
+import type { CustomLayout } from '../../../shared/layouts'
 import type { SpecialDaysResolution } from '../../../shared/special-days'
 import type { WeatherSnapshot } from '../../../shared/weather'
 
@@ -46,6 +47,14 @@ const specialDays: SpecialDaysResolution = {
   takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null },
   tomorrow_art: ['bonfire.webp'],
 }
+const layout: CustomLayout = {
+  id: 'kitchen',
+  name: 'Kitchen',
+  landscape: { rows: [{ size: 1, panes: [{ component: 'week', size: 2 }, { component: 'agenda', size: 1 }] }] },
+  portrait: { rows: [{ size: 1, panes: [{ component: 'week', size: 2 }] }, { size: 1, panes: [{ component: 'agenda', size: 1 }] }] },
+  created_at: '2026-10-01T09:00:00.000Z',
+  updated_at: '2026-10-01T09:00:00.000Z',
+}
 const entry: DisplayCache = {
   settings,
   state: displayStateSchema.parse({ view: 'agenda', brightness: 40 }),
@@ -53,6 +62,7 @@ const entry: DisplayCache = {
   weather: null,
   special_days: null,
   alarm: null,
+  layouts: [],
   saved_at: '2026-10-28T09:41:00.000Z',
 }
 
@@ -132,6 +142,28 @@ describe('the display cache', () => {
     storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, alarm: 'half past six' }))
 
     expect(loadCache(asStorage(storage), 'hallway')).toEqual(entry)
+  })
+
+  it('keeps the layouts that were saved', () => {
+    const storage = new FakeStorage()
+    saveCache(asStorage(storage), 'hallway', { ...entry, layouts: [layout] })
+
+    expect(loadCache(asStorage(storage), 'hallway')?.layouts).toEqual([layout])
+  })
+
+  it('loads an entry saved before there were layouts, with none', () => {
+    const storage = new FakeStorage()
+    const { layouts: _none, ...older } = entry
+    storage.setItem('wallcal:display:hallway', JSON.stringify(older))
+
+    expect(loadCache(asStorage(storage), 'hallway')).toEqual(entry)
+  })
+
+  it('drops a layout that is the wrong shape and keeps the others', () => {
+    const storage = new FakeStorage()
+    storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, layouts: [{ id: 'broken' }, layout] }))
+
+    expect(loadCache(asStorage(storage), 'hallway')?.layouts).toEqual([layout])
   })
 
   it('keeps the special days that were saved', () => {

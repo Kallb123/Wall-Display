@@ -1,4 +1,5 @@
 import type { DayParts, MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
+import type { CustomLayout } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -72,6 +73,8 @@ export interface ViewProps {
   stage: Stage
   /** Drawn as a pane of a hybrid view (PR 5.14): the photo frame is a compact pill with no next event, the week has the short title. */
   pane?: boolean
+  /** The custom view only: the layout to draw, or null when there is none (not chosen, deleted, or not heard yet). */
+  layout?: CustomLayout | null
   /** The events fetched for the shown month and the next few days, sorted by start. */
   events: CalendarEvent[]
   /** The current moment, ticking. Views work out "today" from it in `timezone`. */

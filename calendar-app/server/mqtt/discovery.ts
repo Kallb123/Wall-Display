@@ -1,5 +1,5 @@
 import { PHOTO_SOURCES, SCREEN_STATES, VIEWS } from '../../shared/display'
-import { AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, OFFLINE, ONLINE, onOffPayload, scheduleTopic, SPECIAL_DAY_TOPIC, topicFor } from './topics'
+import { AVAILABILITY_TOPIC, LAST_SYNC_TOPIC, LAYOUT_SET_TOPIC, LAYOUT_STATE_TOPIC, OFFLINE, ONLINE, onOffPayload, scheduleTopic, SPECIAL_DAY_TOPIC, topicFor } from './topics'
 import type { CommandTopic, ScheduleSuffix, StateTopic } from './topics'
 
 // What Home Assistant needs to show a display as a device (MQTT discovery,
@@ -23,12 +23,14 @@ export interface DiscoveryOptions {
   display: { id: string, name: string, schedules?: readonly { id: string, name: string }[] }
   /** How many displays the config has. With one the device is "Wall Calendar", and with more it is "Wall Calendar <display name>", so they can be told apart. */
   displayCount: number
+  /** The names of the custom layouts, by name: the options of the Layout select. Home Assistant rejects a select with no options, so with none the select is removed instead. */
+  layouts?: readonly string[]
 }
 
 type Component = 'select' | 'sensor' | 'button' | 'switch' | 'number' | 'text'
 
 /** The topics that have a name in topics.ts, so renaming one stops this file building. */
-type KnownTopic = CommandTopic | StateTopic | typeof LAST_SYNC_TOPIC | typeof SPECIAL_DAY_TOPIC
+type KnownTopic = CommandTopic | StateTopic | typeof LAST_SYNC_TOPIC | typeof SPECIAL_DAY_TOPIC | typeof LAYOUT_SET_TOPIC | typeof LAYOUT_STATE_TOPIC
 
 interface Entity {
   component: Component
@@ -40,6 +42,8 @@ interface Entity {
   icon?: string
   /** What is particular to the component, with the topics from `topic`. */
   config: Record<string, unknown>
+  /** The entity has nothing to offer now, so its config is published empty, which removes it from Home Assistant. */
+  removed?: boolean
 }
 
 const ORIGIN = { name: 'Wall Calendar', url: 'https://github.com/kallb123/wall-display' }
@@ -60,7 +64,7 @@ function switchPayloads(on: string, off: string): Record<string, string> {
   return { payload_on: on, payload_off: off, state_on: on, state_off: off }
 }
 
-function entitiesFor(topic: (suffix: KnownTopic | ScheduleSuffix) => string, schedules: readonly { id: string, name: string }[]): Entity[] {
+function entitiesFor(topic: (suffix: KnownTopic | ScheduleSuffix) => string, schedules: readonly { id: string, name: string }[], layouts: readonly string[]): Entity[] {
   const [screenOn, screenOff] = SCREEN_STATES
   const [on, off] = [onOffPayload(true), onOffPayload(false)]
 
@@ -71,6 +75,14 @@ function entitiesFor(topic: (suffix: KnownTopic | ScheduleSuffix) => string, sch
       name: 'View',
       icon: 'mdi:view-dashboard',
       config: { command_topic: topic('view/set'), state_topic: topic('view/state'), options: [...VIEWS] },
+    },
+    {
+      component: 'select',
+      objectId: 'layout',
+      name: 'Layout',
+      icon: 'mdi:view-grid-plus',
+      config: { command_topic: topic(LAYOUT_SET_TOPIC), state_topic: topic(LAYOUT_STATE_TOPIC), options: [...layouts] },
+      removed: layouts.length === 0,
     },
     {
       component: 'sensor',
@@ -222,12 +234,13 @@ function entitiesFor(topic: (suffix: KnownTopic | ScheduleSuffix) => string, sch
 /**
  * Every discovery message for one display, in a fixed order: `<prefix>/<component>/wallcal_<display id>/<object id>/config`
  * with the config as JSON. Publish them retained, so Home Assistant has them even if it starts after the app.
- * A schedule removed from the config is not cleared: its switch stays in Home Assistant, unavailable or stale, until
+ * The Layout select is there when there are custom layouts to choose from, and with none its config is published empty,
+ * which removes it. A schedule removed from the config is not cleared: its switch stays in Home Assistant, unavailable or stale, until
  * it is deleted there (an empty retained message on its config topic would do it, but the app doesn't remember
  * which schedules it used to have). Each entity goes offline with the app (the availability topic and its last will), and all share one device.
  */
 export function discoveryMessages(options: DiscoveryOptions): DiscoveryMessage[] {
-  const { prefix, display, displayCount } = options
+  const { prefix, display, displayCount, layouts = [] } = options
   const node = `wallcal_${display.id}`
   const topic = (suffix: KnownTopic | ScheduleSuffix): string => topicFor(display.id, suffix)
 
@@ -238,7 +251,9 @@ export function discoveryMessages(options: DiscoveryOptions): DiscoveryMessage[]
     model: 'Wall Calendar',
   }
 
-  return entitiesFor(topic, display.schedules ?? []).map((entity) => {
+  return entitiesFor(topic, display.schedules ?? [], layouts).map((entity) => {
+    const configTopic = `${prefix}/${entity.component}/${node}/${entity.objectId}/config`
+    if (entity.removed) return { topic: configTopic, payload: '' }
     const config = {
       name: entity.name,
       unique_id: `${node}_${entity.objectId}`,
@@ -251,6 +266,6 @@ export function discoveryMessages(options: DiscoveryOptions): DiscoveryMessage[]
       origin: ORIGIN,
       qos: 1,
     }
-    return { topic: `${prefix}/${entity.component}/${node}/${entity.objectId}/config`, payload: JSON.stringify(config) }
+    return { topic: configTopic, payload: JSON.stringify(config) }
   })
 }

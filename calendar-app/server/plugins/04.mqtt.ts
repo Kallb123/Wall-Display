@@ -61,6 +61,7 @@ export default defineNitroPlugin(async (nitroApp) => {
     control: useDisplayControl(),
     bus: useEventBus(),
     lastSync: () => lastSyncAt(useDb()),
+    layouts: () => useLayouts().summaries(),
     // Looked up each time: the special days plugin starts after this one.
     specialDay: () => {
       const resolution = useSpecialDays()?.get()

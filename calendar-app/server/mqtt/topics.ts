@@ -1,5 +1,6 @@
 import { commandSchema, currentMonth, currentWeek, scheduleIdSchema } from '../../shared/display'
 import type { Command, DisplayState } from '../../shared/display'
+import type { LayoutSummary } from '../../shared/layouts'
 
 // The topics the app uses and what their payloads mean (architecture §7.3).
 // Pure: no I/O. contracts/mqtt.json is the same table for other programs, and
@@ -43,6 +44,12 @@ export const LAST_SYNC_TOPIC = 'last_sync/state'
 
 /** Today's special day name, or empty when there is none. Retained, and a fact about the app like `LAST_SYNC_TOPIC`, so not one of `STATE_TOPICS`. */
 export const SPECIAL_DAY_TOPIC = 'special_day/state'
+
+/** Which custom layout to show (PR 5.17): the layout's id, or its exact name, which is what Home Assistant's select sends. Not one of `COMMAND_TOPICS`: the payload only means something with the layouts at hand (`parseLayoutPayload`), so `parseCommandPayload` can't read it. */
+export const LAYOUT_SET_TOPIC = 'layout/set'
+
+/** The name of the layout the display shows, or empty when it shows none (or one that has gone). Retained, and not one of `STATE_TOPICS` for the same reason as `LAYOUT_SET_TOPIC`: it needs the layouts to be told. */
+export const LAYOUT_STATE_TOPIC = 'layout/state'
 
 /** What the Pi agent should make the panel: `on` or `off`. It is for the agent, so it is under `pi/` (the topic the agent subscribes to), and retained so an agent that starts later still gets the last request. Not one of `STATE_TOPICS`: those are the display's settings, each paired with a command topic, and this is the same `screen` setting told to the panel. */
 export const PI_SCREEN_TOPIC = 'pi/screen/set'
@@ -205,6 +212,13 @@ export function parseCommandPayload(suffix: CommandTopic, payload: string): Pars
   return { ok: true, command: parsed.data }
 }
 
+/** Turns a `layout/set` payload into a `set_layout` command. The payload is a layout's exact name or its id, looked up in `layouts`; a name is tried first, as the select in Home Assistant sends one. `reason` is safe to log, like `parseCommandPayload`'s. */
+export function parseLayoutPayload(payload: string, layouts: readonly LayoutSummary[]): ParsedMessage {
+  const found = layouts.find(layout => layout.name === payload) ?? layouts.find(layout => layout.id === payload)
+  if (!found) return { ok: false, reason: `${LAYOUT_SET_TOPIC}: must be the id or exact name of a custom layout (got ${quote(payload)})` }
+  return { ok: true, command: { type: 'set_layout', layout: found.id } }
+}
+
 /** Turns a schedule's `set` payload into a `set_schedule` command: `ON` turns the schedule on and `OFF` off, exactly, like the policies' switches. `reason` is safe to log, like `parseCommandPayload`'s: it names the topic as the contract does and quotes at most 60 characters of the payload. */
 export function parseSchedulePayload(scheduleId: string, payload: string): ParsedMessage {
   if (payload !== 'ON' && payload !== 'OFF') return { ok: false, reason: `${scheduleTopic(scheduleId, 'set')}: must be ON or OFF (got ${quote(payload)})` }
@@ -254,6 +268,11 @@ export function statePayloads(state: DisplayState, now: Date, timeZone: string, 
 /** The payload of each schedule's `schedule/<id>/state`, keyed by that topic's suffix: `ON` unless the id is in `state.schedules_off`. `scheduleIds` are the schedules in the display's config, so an id left in `schedules_off` after it was removed from the config is not published. */
 export function schedulePayloads(state: DisplayState, scheduleIds: readonly string[]): Record<string, string> {
   return Object.fromEntries(scheduleIds.map(id => [scheduleTopic(id, 'state'), onOffPayload(!state.schedules_off.includes(id))]))
+}
+
+/** What `layout/state` carries: the name of the layout the display is set to show, empty when there is none or it is no longer in `layouts`. It stays while the view is something else, as the setting does. */
+export function layoutStatePayload(state: Pick<DisplayState, 'layout'>, layouts: readonly LayoutSummary[]): string {
+  return layouts.find(layout => layout.id === state.layout)?.name ?? ''
 }
 
 /** What `last_sync/state` carries: an ISO 8601 UTC instant, such as `2026-10-28T12:00:00.000Z`. */

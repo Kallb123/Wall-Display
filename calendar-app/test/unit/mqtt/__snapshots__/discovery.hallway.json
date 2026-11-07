@@ -36,6 +36,36 @@
     }
   },
   {
+    "topic": "homeassistant/select/wallcal_hallway/layout/config",
+    "payload": {
+      "name": "Layout",
+      "unique_id": "wallcal_hallway_layout",
+      "icon": "mdi:view-grid-plus",
+      "command_topic": "wallcal/hallway/layout/set",
+      "state_topic": "wallcal/hallway/layout/state",
+      "options": [
+        "Kitchen board",
+        "Wall board"
+      ],
+      "availability_topic": "wallcal/hallway/availability",
+      "payload_available": "online",
+      "payload_not_available": "offline",
+      "device": {
+        "identifiers": [
+          "wallcal_hallway"
+        ],
+        "name": "Wall Calendar",
+        "manufacturer": "Wall Display",
+        "model": "Wall Calendar"
+      },
+      "origin": {
+        "name": "Wall Calendar",
+        "url": "https://github.com/kallb123/wall-display"
+      },
+      "qos": 1
+    }
+  },
+  {
     "topic": "homeassistant/sensor/wallcal_hallway/month/config",
     "payload": {
       "name": "Month shown",

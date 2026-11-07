@@ -6,7 +6,7 @@
     "view/set": {
       "direction": "to_app",
       "retained": false,
-      "description": "Shows a view. \"next\" steps through the calendar views (month, agenda, week, week_parts, week_photo; week_photo is left out when no photo source is set up), as the next_view command does.",
+      "description": "Shows a view. \"next\" steps through the calendar views (month, agenda, week, week_parts, week_photo; week_photo is left out when no photo source is set up) and then through the custom layouts by name, as the next_view command does. \"custom\" shows the layout the display last had, or the first layout, and is ignored when there are no layouts.",
       "payload": {
         "encoding": "text",
         "schema": {
@@ -69,6 +69,46 @@
         "next",
         "Month",
         ""
+      ]
+    },
+    "layout/set": {
+      "direction": "to_app",
+      "retained": false,
+      "description": "Shows a custom layout (the custom view) by its id or its exact name, which is what the Layout select in Home Assistant sends. A payload that names no layout is ignored.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "examples": [
+        "kitchen",
+        "Kitchen board"
+      ],
+      "invalid_examples": [
+        "",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ]
+    },
+    "layout/state": {
+      "direction": "from_app",
+      "retained": true,
+      "description": "The name of the custom layout the display is set to show, or empty when there is none. It stays while the view is something else, and is what the Layout select in Home Assistant shows. Published even when there are no layouts.",
+      "payload": {
+        "encoding": "text",
+        "schema": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "examples": [
+        "Kitchen board",
+        ""
+      ],
+      "invalid_examples": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       ]
     },
     "month/set": {

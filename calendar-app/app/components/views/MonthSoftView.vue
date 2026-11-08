@@ -2,13 +2,14 @@
 import MonthPanelRows from './MonthPanelRows.vue'
 import { formatWeekday } from '~/utils/format'
 import { todayIn } from '~/utils/eventRanges'
-import { badgesOf, fitPanelDay, PORTRAIT_STRIP_ROWS, PORTRAIT_TODAY_ROWS } from '~/utils/monthPanel'
+import { badgesOf, fitPanelDay, laneSpans, PORTRAIT_STRIP_ROWS, PORTRAIT_TODAY_ROWS } from '~/utils/monthPanel'
 import { greetingSize, tileArt } from '~/utils/specialDays'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatCurrent, formatHighLow, formatHighLowWords, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
-import { monthLayout, PORTRAIT_LANES } from '../../../shared/month-layout'
+import { monthLayout, LANES, PORTRAIT_LANES } from '../../../shared/month-layout'
 import type { DayCell } from '../../../shared/month-layout'
+import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { currentWeather, weatherOn } from '../../../shared/weather'
 
@@ -47,7 +48,25 @@ import { currentWeather, weatherOn } from '../../../shared/weather'
 // (the portrait band adds today's high and low in words). Any part that is not
 // known is left out, and with no weather at all nothing is drawn, so the panel
 // is exactly as it was.
+//
+// A custom layout's pane options (architecture §4.8) change the pieces, never
+// the month: `show_title` and `show_sidebar` leave out the heading, and the
+// panel (the band and the strip in portrait), so the grid takes their room; a
+// takeover's greeting is then drawn in a header row of its own above the grid,
+// at the right of the title if that is shown, so it is never lost, and a header
+// with nothing in it is not drawn. `fill_events` gives the timed rows and the
+// panel's rows the fill the bars have. `wrap_titles` lets a title use more
+// lines where there is room: in the grid a bar or timed row may run down into
+// the free lanes below it (`laneSpans`), and in the panel and the strip's cards
+// `useWrapFit` measures. The portrait band is left out of that on purpose: it is
+// as tall as its content, so a wrapped row would push the weeks down instead of
+// using spare room. Without the options (every full-screen month) none of this
+// shows.
 const props = defineProps<ViewProps>()
+
+const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+const root = ref<HTMLElement | null>(null)
+useWrapFit(root, () => options.value.wrap_titles)
 
 const today = computed(() => todayIn(props.now, props.timezone))
 const portrait = computed(() => props.stage.orientation === 'portrait')
@@ -60,6 +79,12 @@ const layout = computed(() => monthLayout({
   events: props.events,
   lanes: portrait.value ? PORTRAIT_LANES : undefined,
 }))
+
+/** The takeover's greeting when it has no panel to go in, to be drawn in the header row. */
+const headerGreeting = computed(() => options.value.show_sidebar ? null : props.specialDays.takeover?.greeting ?? null)
+
+/** Each week's lane spans for wrapping titles, or nulls when the option is off. */
+const spans = computed(() => layout.value.rows.map(week => options.value.wrap_titles ? laneSpans(week, portrait.value ? PORTRAIT_LANES : LANES) : null))
 
 /** A panel day's icon and `14° / 8°`, either of which can be missing; null when the forecast has neither. */
 function dayWeather(date: string) {
@@ -124,25 +149,60 @@ function numberColours(cell: DayCell): { background: string, color: string } {
 /** A bar's fill. With nobody on it (no person matched) it is the surface colour and has no badge. */
 const barFill = (colour: string | null): string => colour ? personFill(colour) : 'var(--surface)'
 
-function barStyle(bar: { colour: string | null, column: number, span: number, lane: number, roundStart: boolean, roundEnd: boolean }) {
-  const start = bar.roundStart ? '999px' : '8px'
-  const end = bar.roundEnd ? '999px' : '8px'
+/** The grid row of an item on `lane`: its own, or, when its title may wrap, that and the free ones below it. */
+const laneRow = (lane: number, span = 1) => span > 1 ? `${lane + 2} / span ${span}` : lane + 2
+
+function barStyle(bar: { colour: string | null, column: number, span: number, lane: number, roundStart: boolean, roundEnd: boolean }, lanes = 1) {
+  // A bar that may be several lines tall would be a half-circle at each end with 999px, so its ends are a lane's half height.
+  const round = lanes > 1 ? '17px' : '999px'
+  const start = bar.roundStart ? round : '8px'
+  const end = bar.roundEnd ? round : '8px'
   return {
     'gridColumn': `${bar.column + 1} / span ${bar.span}`,
-    'gridRow': bar.lane + 2,
+    'gridRow': laneRow(bar.lane, lanes),
     // A round end sits in from the tile's edge; a square one runs on into its neighbour.
     'margin': `0 ${bar.roundEnd ? '8px' : '0'} 0 ${bar.roundStart ? '8px' : '0'}`,
     'borderRadius': `${start} ${end} ${end} ${start}`,
     'background': barFill(bar.colour),
     '--ring': barFill(bar.colour),
+    ...(lanes > 1 ? { '--lines': lanes } : {}),
+  }
+}
+
+/** A timed row in the grid: its place, and with "colour whole events" the pill a bar has. Otherwise it is bare on the tile. */
+function timedStyle(row: { colour: string | null, column: number, lane: number }, week: { cells: DayCell[] }, lanes = 1) {
+  const place = { gridColumn: row.column + 1, gridRow: laneRow(row.lane, lanes), ...(lanes > 1 ? { '--lines': lanes } : {}) }
+  if (!options.value.fill_events) return { ...place, '--ring': tileBackground(week.cells[row.column]!) }
+  return {
+    ...place,
+    // In from the tile's edge like a bar's round end, so the badge sits where it does on a bar.
+    margin: '0 8px',
+    borderRadius: lanes > 1 ? '17px' : '999px',
+    background: barFill(row.colour),
+    '--ring': barFill(row.colour),
   }
 }
 </script>
 
 <template>
-  <section class="view" :class="{ portrait }" data-testid="month-view">
-    <div class="side">
-      <h1 class="title" data-testid="month-title">
+  <section ref="root" class="view" :class="{ portrait, 'no-side': !options.show_sidebar }" data-testid="month-view">
+    <!-- Without the sidebar there is no column for the title or a takeover's greeting, so they share a row above the grid. -->
+    <header v-if="!options.show_sidebar && (options.show_title || headerGreeting)" class="head">
+      <h1 v-if="options.show_title" class="title" data-testid="month-title">
+        <span class="month">{{ monthName }}</span>{{ ' ' }}<span class="year">{{ year }}</span>
+      </h1>
+      <div
+        v-if="headerGreeting"
+        class="greeting head-greeting"
+        data-testid="greeting"
+        :style="{ fontSize: `${greetingSize(headerGreeting)}px` }"
+      >
+        {{ headerGreeting }}
+      </div>
+    </header>
+
+    <div v-if="options.show_sidebar" class="side">
+      <h1 v-if="options.show_title" class="title" data-testid="month-title">
         <!-- The space is for the text ("October 2026"); between flex items it takes no room. -->
         <span class="month">{{ monthName }}</span>{{ ' ' }}<span class="year">{{ year }}</span>
       </h1>
@@ -178,10 +238,10 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
         <p v-if="!bandDay.rows.length && !bandDay.more" class="nothing">
           Nothing planned
         </p>
-        <MonthPanelRows v-else :day="bandDay" size="roomy" />
+        <MonthPanelRows v-else :day="bandDay" size="roomy" :fill="options.fill_events" />
       </div>
 
-      <div v-else class="panel" :class="{ takeover: specialDays.takeover }" data-testid="panel">
+      <div v-else class="panel" :class="{ takeover: specialDays.takeover }" data-testid="panel" data-wrap-box>
         <div
           v-if="specialDays.takeover?.greeting"
           class="greeting"
@@ -220,7 +280,7 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
               Nothing planned
             </p>
 
-            <MonthPanelRows v-else :day="day" />
+            <MonthPanelRows v-else :day="day" :fill="options.fill_events" />
           </section>
         </div>
       </div>
@@ -260,10 +320,11 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
           </template>
 
           <div
-            v-for="bar in week.bars"
+            v-for="(bar, barIndex) in week.bars"
             :key="`${bar.event.id}-${bar.column}`"
             class="bar"
-            :style="barStyle(bar)"
+            :style="barStyle(bar, spans[weekIndex]?.bars[barIndex])"
+            :class="{ tall: (spans[weekIndex]?.bars[barIndex] ?? 1) > 1 }"
             data-testid="event"
             data-kind="bar"
           >
@@ -279,11 +340,12 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
           </div>
 
           <div
-            v-for="row in week.timed"
+            v-for="(row, rowIndex) in week.timed"
             :key="row.event.id"
             class="timed"
+            :class="{ tall: (spans[weekIndex]?.timed[rowIndex] ?? 1) > 1, filled: options.fill_events, bare: options.fill_events && !row.initials.length }"
             data-kind="timed"
-            :style="{ gridColumn: row.column + 1, gridRow: row.lane + 2, '--ring': tileBackground(week.cells[row.column]!) }"
+            :style="timedStyle(row, week, spans[weekIndex]?.timed[rowIndex])"
             data-testid="event"
           >
             <span v-if="row.initials.length" class="badges">
@@ -320,8 +382,8 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
       </div>
     </div>
 
-    <div v-if="portrait" class="next-days" data-testid="next-days">
-      <section v-for="day in stripDays" :key="day.date" class="day" data-testid="panel-day" :data-date="day.date">
+    <div v-if="portrait && options.show_sidebar" class="next-days" data-testid="next-days">
+      <section v-for="day in stripDays" :key="day.date" class="day" data-testid="panel-day" :data-date="day.date" data-wrap-box>
         <header class="day-head">
           <h2 class="day-label">
             {{ day.label }}
@@ -336,7 +398,7 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
           Nothing planned
         </p>
 
-        <MonthPanelRows v-else :day="day" size="card" />
+        <MonthPanelRows v-else :day="day" size="card" :fill="options.fill_events" />
       </section>
     </div>
   </section>
@@ -579,6 +641,37 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   border-radius: 32px;
 }
 
+/* Without the sidebar: the title and a takeover's greeting in a row above the grid, which then has the whole width. */
+.view.no-side {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+/* At the right of the title, as the week has it, or alone at the left when there is no title. */
+.head-greeting {
+  min-width: 0;
+  margin-bottom: 0;
+  text-align: right;
+}
+
+.head-greeting:first-child {
+  flex: 1;
+  padding-left: 12px;
+  text-align: left;
+}
+
+.no-side .grid {
+  flex: 1;
+}
+
 /*
  * The top-right of a tile, beside the date number, for a special day's art. It
  * sits in the date's row, which is 52 px, and the 60 px art runs a few px into
@@ -672,6 +765,57 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
   flex: none;
   color: var(--muted);
   font-weight: 700;
+}
+
+/* "Colour whole events": a pill like a bar, text on the fill, the time a step quieter but still readable on it. */
+.timed.filled {
+  padding: 0 14px 0 4px;
+  color: var(--bar-text);
+}
+
+.timed.filled.bare {
+  padding-left: 12px;
+}
+
+.timed.filled .time {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/*
+ * "Wrap long titles" in the grid: an item that was given the free lanes below
+ * its own is as tall as its title needs, from the top of its lane, up to the
+ * lanes it has (--lines of them, which --lines of 26 px lines and 4 px above and
+ * below fit). Its first line is where it always was: 4 px down, in a 26 px line
+ * box, centres in a 34 px lane, and a one-line title is the 34 px it was.
+ */
+.bar.tall,
+.timed.tall {
+  align-self: start;
+  align-items: flex-start;
+  box-sizing: border-box;
+  min-height: 34px;
+  max-height: 100%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.tall .badges {
+  margin-top: 1px;
+}
+
+.tall .time,
+.tall .name {
+  line-height: 26px;
+}
+
+.tall .name {
+  display: -webkit-box;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--lines);
+  line-clamp: var(--lines);
 }
 
 .timed .name {

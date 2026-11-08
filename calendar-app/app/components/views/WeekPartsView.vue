@@ -584,6 +584,11 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
   margin-top: 4px;
 }
 
+/* A filled line of several lines is a rounded box, not a stadium. */
+.line.filled[data-wrap='on'] {
+  border-radius: 16px;
+}
+
 [data-wrap='on'] .name {
   display: -webkit-box;
   overflow: hidden;

@@ -150,7 +150,7 @@ describe('CustomLayoutView with pane options', () => {
       return scale
     }
 
-    // A 1920×1440 box: 1920 / 2200 with the sidebar, and no scaling without it (1550×1300 fits).
+    // A 1920×1440 box: 1920 / 2200 with the sidebar, and no scaling without it (1550×1370 fits).
     expect(await scaleOf({})).toBeCloseTo(1920 / 2200)
     expect(await scaleOf({ month: { show_sidebar: false } })).toBe(1)
   })

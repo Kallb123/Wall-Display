@@ -377,9 +377,17 @@ span + .range {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-clamp: 3;
-  line-height: 68px;
+  /* Tighter than the 68px line box, so wrapped lines read as one title; the margins keep a single line where it was. */
+  margin-block: 8px;
+  line-height: 52px;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+/* A pill would turn into a stadium once it is several lines tall; the single-line row's own radius keeps the ends round. */
+[data-wrap='on'].event.all-day,
+[data-wrap='on'].event.filled {
+  border-radius: 46px;
 }
 
 [data-wrap='on'] .time,

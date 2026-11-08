@@ -104,11 +104,14 @@ export const COMPONENT_MINIMUMS: Record<Exclude<LayoutComponent, 'photo' | 'days
 /**
  * The month's design minimum when its sidebar is hidden: without the 640 px
  * side column and its gap the landscape grid is narrower, and without the
- * today band and the next-days strip the portrait one is shorter. Found the same
- * way as `COMPONENT_MINIMUMS`. A hidden title is not worth a minimum of its own.
+ * today band and the next-days strip the portrait one is shorter. Worked out
+ * from the view's sizes. In landscape the title then sits above the weeks, so
+ * the grid is taller than the full month's 1300 (five weeks of four lanes, the
+ * weekday header and the title come to about 1360). A hidden title is not worth
+ * a minimum of its own.
  */
 export const MONTH_MINIMUMS_NO_SIDEBAR: Record<'landscape' | 'portrait', Minimum> = {
-  landscape: { width: 1550, height: 1300 },
+  landscape: { width: 1550, height: 1370 },
   portrait: { width: 1300, height: 1700 },
 }
 

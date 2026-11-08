@@ -82,7 +82,7 @@ export function fakeRender(sizes: Record<string, [number, number]> = {}, bytes =
     const id = input.toString()
     if (id === 'bad' || id.endsWith('/bad')) throw new PhotoRenderError('The photo can\'t be read')
     const [width, height] = sizes[id] ?? [1600, 900]
-    return { data: Buffer.from((rendition === 'portrait' ? `${id}@portrait` : id).padEnd(bytes, '.')), width, height, orientation: height > width ? 'portrait' : 'landscape' }
+    return { data: Buffer.from((rendition === 'landscape' ? id : `${id}@${rendition}`).padEnd(bytes, '.')), width, height, orientation: height > width ? 'portrait' : 'landscape' }
   }
 }
 

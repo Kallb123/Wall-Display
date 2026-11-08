@@ -74,7 +74,7 @@ describe('WeekPhotoView on the portrait stage', () => {
   it('asks for the landscape rendition', async () => {
     await open('portrait')
 
-    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'landscape' } }])
+    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'landscape', width: expect.any(Number), height: expect.any(Number) } }])
   })
 })
 
@@ -89,7 +89,7 @@ describe('WeekPhotoView on the landscape stage', () => {
   it('asks for the portrait rendition', async () => {
     await open('landscape')
 
-    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'portrait' } }])
+    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'portrait', width: expect.any(Number), height: expect.any(Number) } }])
   })
 })
 

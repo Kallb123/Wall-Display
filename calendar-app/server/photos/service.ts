@@ -1,7 +1,7 @@
 import type { PhotoSource } from '../../shared/display'
 import { PHOTO_SOURCES } from '../../shared/display'
-import { photoUrl } from '../../shared/photos'
-import type { PhotoInfo, PhotoRendition } from '../../shared/photos'
+import { coversBox, photoUrl } from '../../shared/photos'
+import type { PhotoBox, PhotoInfo, PhotoRendition, StageRendition } from '../../shared/photos'
 import type { Db } from '../db/client'
 import type { PhotoAssetRow } from '../db/schema'
 import { createPhotoCache } from './cache'
@@ -20,8 +20,14 @@ import type { PhotoProvider } from './types'
 // background, and the cache keeps to its size cap without ever evicting a
 // photo that is on a display. A photo is rendered to the shape of the stage that
 // asks for it, so the cache holds a landscape and a portrait file per photo, as
-// they are wanted. If a provider is down, the photos already
-// cached keep rotating. Everything it touches comes in through the options, so
+// they are wanted. A display that also says the size of the box it draws the
+// photo in gets the `cover` rendition (the plain photo, see render.ts) when the
+// photo's own shape is close to the box's (`coversBox`), and the composite of
+// its stage otherwise. A photo whose size isn't known yet is first rendered as a
+// composite, which finds it out, and then judged. The held photos, `markShown`
+// and the cache all go by the rendition actually served, so a cover file is
+// kept, shown-stamped and evicted like any other. If a provider is down, the
+// photos already cached keep rotating. Everything it touches comes in through the options, so
 // a test uses a fake provider, fake timers and an in-memory database.
 
 export interface PhotoServiceOptions {
@@ -70,9 +76,11 @@ export interface PhotoService {
    * Moves the display on to its next photo and answers it, or null if there is
    * nothing to show. The provider is `preferred` if it is set up, otherwise the
    * first that is. The image is rendered for the `rendition` of stage the display
-   * has (landscape unless it says otherwise). Never rejects.
+   * has (landscape unless it says otherwise), or, if `box` (the size of what it
+   * is drawn in) is given and the photo is close to its shape, as the plain
+   * photo to be cropped to the box. Never rejects.
    */
-  next: (displayId: string, preferred: PhotoSource, rendition?: PhotoRendition) => Promise<PhotoInfo | null>
+  next: (displayId: string, preferred: PhotoSource, rendition?: StageRendition, box?: PhotoBox) => Promise<PhotoInfo | null>
   status: () => { providers: PhotoProviderStatus[], cache_bytes: number }
   /** Resolves when the background preparation of next photos has finished. For tests. */
   idle: () => Promise<void>
@@ -97,6 +105,8 @@ interface Held {
 interface Cached {
   asset: PhotoAssetRow
   file: string
+  /** The rendition the file is of: the one asked for, or `cover` if the photo is close to the box's shape. */
+  rendition: PhotoRendition
 }
 
 interface ProviderState {
@@ -166,7 +176,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   }
 
   /** Whether a photo may be shown on a stage of this shape: always, unless the shapes are to match. */
-  const fits = (id: string, rendition: PhotoRendition): boolean => {
+  const fits = (id: string, rendition: StageRendition): boolean => {
     if (!matchOrientation) return true
     const row = getAsset(db, id)
     // A photo whose size isn't known yet is tried, and judged once it has been rendered.
@@ -176,6 +186,37 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   const isCached = (id: string, rendition: PhotoRendition): boolean => {
     const file = getRendition(db, id, rendition)?.cacheFile
     return !!file && cache.has(file)
+  }
+
+  /**
+   * The rendition to show a photo in: `cover` if its shape is close to the box's,
+   * otherwise the stage's. Null when that can't be said yet because its size isn't
+   * known. Without a box it is always the stage's, as for an older page.
+   */
+  function variantOf(id: string, rendition: StageRendition, box: PhotoBox | undefined): PhotoRendition | null {
+    if (!box) return rendition
+    const row = getAsset(db, id)
+    if (!row) return rendition
+    if (row.width === 0) return null
+    return coversBox(row, box) ? 'cover' : rendition
+  }
+
+  /**
+   * Whether a file this photo can be shown from is in the cache already: its
+   * `cover` file if it is close to the box's shape, or else the stage's composite,
+   * which serves just as well when the cover file can't be made (an unknown size
+   * counts as no, unless the stage's file is, which has told its size).
+   */
+  const isReady = (id: string, rendition: StageRendition, box: PhotoBox | undefined): boolean => {
+    const variant = variantOf(id, rendition, box)
+    return isCached(id, rendition) || (variant !== null && isCached(id, variant))
+  }
+
+  /** The photo's composite for the stage, if it is in the cache: what is shown when its cover file can't be had. */
+  function cachedComposite(id: string, rendition: StageRendition): Cached | null {
+    const row = getAsset(db, id)
+    const file = getRendition(db, id, rendition)?.cacheFile
+    return row && file && cache.has(file) ? { asset: row, file, rendition } : null
   }
 
   // -------------------------------------------------------------------------
@@ -240,7 +281,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     const row = getAsset(db, id)
     if (!row) return Promise.reject(LEFT_THE_POOL)
     const file = getRendition(db, id, rendition)?.cacheFile
-    if (file && cache.has(file)) return Promise.resolve({ asset: row, file })
+    if (file && cache.has(file)) return Promise.resolve({ asset: row, file, rendition })
 
     const key = `${id}:${rendition}`
     const running = fetching.get(key)
@@ -265,13 +306,37 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       // Immich replaces the pool at every listing). It is not stored: nothing would refer to the file.
       if (!getAsset(db, id)) throw LEFT_THE_POOL
       const stored = cache.store(id, rendition, rendered)
-      return { asset: getAsset(db, id)!, file: stored }
+      return { asset: getAsset(db, id)!, file: stored, rendition }
     })().finally(() => {
       working.delete(key)
       fetching.delete(key)
     })
     fetching.set(key, job)
     return job
+  }
+
+  /**
+   * Makes sure the photo has the file it is to be shown from: its `cover` file if
+   * it is close to the box's shape, otherwise its composite for the stage. A photo
+   * of unknown size gets the composite first, which records the size, and is then
+   * judged; if it turns out close, the cover file is made as well.
+   */
+  async function ensureShown(provider: PhotoProvider, id: string, rendition: StageRendition, box: PhotoBox | undefined): Promise<Cached> {
+    // A cover file that can't be made (the provider is down, say) falls back to the composite if there is one.
+    const cover = async (): Promise<Cached> => {
+      try {
+        return await ensureCached(provider, id, 'cover')
+      } catch (error) {
+        const composite = error === LEFT_THE_POOL ? null : cachedComposite(id, rendition)
+        if (composite) return composite
+        throw error
+      }
+    }
+    const variant = variantOf(id, rendition, box)
+    if (variant === 'cover') return cover()
+    if (variant) return ensureCached(provider, id, variant)
+    const composite = await ensureCached(provider, id, rendition)
+    return variantOf(id, rendition, box) === 'cover' ? cover() : composite
   }
 
   function toInfo(row: PhotoAssetRow, file: string, provider: PhotoProvider): PhotoInfo {
@@ -286,15 +351,16 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     }
   }
 
-  /** Starts preparing the photo after this one, in the same rendition, so the next request is answered from the cache. */
-  function prepare(heldKey: string, provider: PhotoProvider, id: string | null, rendition: PhotoRendition): void {
+  /** Starts preparing the photo after this one, in the same rendition and for the same box, so the next request is answered from the cache. */
+  function prepare(heldKey: string, provider: PhotoProvider, id: string | null, rendition: StageRendition, box: PhotoBox | undefined): void {
     if (!id) {
       upcoming.delete(heldKey)
       return
     }
-    const entry: Held = { id, rendition, file: null }
+    const entry: Held = { id, rendition: variantOf(id, rendition, box) ?? rendition, file: null }
     upcoming.set(heldKey, entry)
-    const job = ensureCached(provider, id, rendition).then((cached) => {
+    const job = ensureShown(provider, id, rendition, box).then((cached) => {
+      entry.rendition = cached.rendition
       entry.file = cached.file
     }, () => {
       // Tried again when it is asked for, and handled there if it fails again.
@@ -302,7 +368,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     background.add(job)
   }
 
-  async function pick(displayId: string, preferred: PhotoSource, rendition: PhotoRendition): Promise<PhotoInfo | null> {
+  async function pick(displayId: string, preferred: PhotoSource, rendition: StageRendition, box: PhotoBox | undefined): Promise<PhotoInfo | null> {
     const provider = choose(preferred)
     if (!provider) return null
 
@@ -314,7 +380,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !stopped; attempt++) {
       const pool = poolOf(provider)
-      const taken = take(playlist, pool, random, down ? id => fits(id, rendition) && isCached(id, rendition) : id => fits(id, rendition))
+      const taken = take(playlist, pool, random, down ? id => fits(id, rendition) && isReady(id, rendition, box) : id => fits(id, rendition))
       if (!taken.id) {
         savePlaylist(db, displayId, provider.id, taken.playlist, now())
         return null
@@ -322,7 +388,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
 
       let cached: Cached
       try {
-        cached = await ensureCached(provider, taken.id, rendition)
+        cached = await ensureShown(provider, taken.id, rendition, box)
       } catch (error) {
         if (error instanceof PhotoRenderError) {
           // Already noted as broken, so it is not in the pool next time.
@@ -346,11 +412,11 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
         continue
       }
 
-      markShown(db, cached.asset.id, rendition, now())
-      shown.set(heldKey, { id: cached.asset.id, rendition, file: cached.file })
+      markShown(db, cached.asset.id, cached.rendition, now())
+      shown.set(heldKey, { id: cached.asset.id, rendition: cached.rendition, file: cached.file })
       savePlaylist(db, displayId, provider.id, taken.playlist, now())
       cache.evict()
-      prepare(heldKey, provider, peek(taken.playlist, poolOf(provider), random, id => fits(id, rendition)), rendition)
+      prepare(heldKey, provider, peek(taken.playlist, poolOf(provider), random, id => fits(id, rendition)), rendition, box)
       return toInfo(getAsset(db, cached.asset.id)!, cached.file, provider)
     }
     return null
@@ -384,9 +450,9 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
 
     refresh,
 
-    next(displayId, preferred, rendition = 'landscape') {
+    next(displayId, preferred, rendition = 'landscape', box) {
       if (stopped) return Promise.resolve(null)
-      return inTurn(displayId, () => pick(displayId, preferred, rendition)).catch((error) => {
+      return inTurn(displayId, () => pick(displayId, preferred, rendition, box)).catch((error) => {
         log.error(`[photos] could not choose the next photo: ${error instanceof PhotoProviderError ? error.message : safePhotoError(error)}`)
         return null
       })

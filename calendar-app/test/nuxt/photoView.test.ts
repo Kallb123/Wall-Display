@@ -124,7 +124,7 @@ describe('fetching photos', () => {
     answers = [gives(A)]
     const view = await open()
 
-    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'landscape' } }])
+    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'landscape', width: 2560, height: 1440 } }])
     expect(FakeImage.all.map(image => image.src)).toEqual([A.url])
     expect(view.srcs()).toEqual([A.url, null])
     expect(view.top()).toEqual([0])
@@ -191,7 +191,7 @@ describe('the stage\'s orientation', () => {
     answers = [gives(A)]
     await open({ stage: portrait })
 
-    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'portrait' } }])
+    expect(requests).toEqual([{ url: '/api/photos/next', query: { display: 'hallway', orientation: 'portrait', width: 1440, height: 2560 } }])
   })
 
   it('asks again at once when the orientation changes, since the photo on show is the wrong shape', async () => {
@@ -201,8 +201,8 @@ describe('the stage\'s orientation', () => {
     await view.update({ stage: portrait })
 
     expect(requests.map(request => request.query)).toEqual([
-      { display: 'hallway', orientation: 'landscape' },
-      { display: 'hallway', orientation: 'portrait' },
+      { display: 'hallway', orientation: 'landscape', width: 2560, height: 1440 },
+      { display: 'hallway', orientation: 'portrait', width: 1440, height: 2560 },
     ])
     expect(view.srcs()).toEqual([A.url, B.url])
     expect(view.top()).toEqual([1])
@@ -543,10 +543,10 @@ describe('as a pane of the week and photo view', () => {
   it('asks for the rendition the pane\'s shape wants', async () => {
     answers = [gives(A), gives(B)]
     const view = await open(pane())
-    expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'landscape' }])
+    expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'landscape', width: 1440, height: 1000 }])
 
     await view.update(pane({ stage: { width: 1100, height: 1440, orientation: 'portrait' } }))
-    expect(requests.map(request => request.query).at(-1)).toEqual({ display: 'hallway', orientation: 'portrait' })
+    expect(requests.map(request => request.query).at(-1)).toEqual({ display: 'hallway', orientation: 'portrait', width: 1100, height: 1440 })
   })
 
   it('has the compact pill, and leaves the next event to the week', async () => {
@@ -565,5 +565,70 @@ describe('as a pane of the week and photo view', () => {
 
     expect(view.wrapper.find('[data-testid="photo-pill"]').classes()).not.toContain('compact')
     expect(view.wrapper.find('[data-testid="photo-next-event"]').exists()).toBe(true)
+  })
+})
+
+describe('the box the photo is drawn in', () => {
+  const pane = { width: 1000, height: 1440, orientation: 'portrait' as const }
+
+  it('sends the size of its own box, a pane\'s and not the stage\'s', async () => {
+    answers = [gives(A)]
+    await open({ stage: { width: 1920, height: 1080, orientation: 'landscape' } })
+
+    expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'landscape', width: 1920, height: 1080 }])
+  })
+
+  it('asks again when a new size turns the photo on show from not close to close', async () => {
+    // 4:3 photo: not close to a 2:1 pane of 2000 x 1000? 2.0/1.333 = 1.5, so far; a 16:9 pane is close.
+    const fourThree = photo('d', { width: 4032, height: 3024 })
+    answers = [gives(fourThree), gives(B)]
+    const view = await open({ stage: { width: 2000, height: 1000, orientation: 'landscape' } })
+
+    await view.update({ stage: { width: 1920, height: 1080, orientation: 'landscape' } })
+
+    expect(requests.map(request => request.query)).toEqual([
+      { display: 'hallway', orientation: 'landscape', width: 2000, height: 1000 },
+      { display: 'hallway', orientation: 'landscape', width: 1920, height: 1080 },
+    ])
+  })
+
+  it('does not ask again for a new size that leaves the verdict as it was', async () => {
+    answers = [gives(photo('d', { width: 4032, height: 3024 })), gives(B)]
+    const view = await open({ stage: { width: 1920, height: 1080, orientation: 'landscape' } })
+
+    await view.update({ stage: { width: 1600, height: 1000, orientation: 'landscape' } })
+
+    expect(requests).toHaveLength(1)
+  })
+
+  it('checks the answer to a question in flight against the size the box has become', async () => {
+    let finish!: () => void
+    const fourThree = photo('d', { width: 4032, height: 3024 })
+    answers = [() => new Promise((resolve) => { finish = () => resolve({ photo: fourThree }) }), gives(B)]
+    const view = await open({ stage: { width: 2000, height: 1000, orientation: 'landscape' } })
+
+    // Resized, with nothing on show yet and the first question still unanswered.
+    await view.update({ stage: { width: 1920, height: 1080, orientation: 'landscape' } })
+    finish()
+    await settle()
+
+    expect(requests.map(request => request.query)).toEqual([
+      { display: 'hallway', orientation: 'landscape', width: 2000, height: 1000 },
+      { display: 'hallway', orientation: 'landscape', width: 1920, height: 1080 },
+    ])
+  })
+
+  it('asks for a box of at least one pixel, whatever the stage says', async () => {
+    answers = [gives(A)]
+    await open({ stage: { width: 0, height: 0, orientation: 'landscape' } })
+
+    expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'landscape', width: 1, height: 1 }])
+  })
+
+  it('keeps a pane\'s size apart from the stage\'s', async () => {
+    answers = [gives(A)]
+    await open({ stage: pane })
+
+    expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'portrait', width: 1000, height: 1440 }])
   })
 })

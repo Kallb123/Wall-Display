@@ -32,8 +32,8 @@ describe('the photo routes', async () => {
     },
   })
 
-  const next = async (display = 'hallway', orientation?: string) =>
-    photoResponseSchema.parse(await $fetch(`/api/photos/next?display=${display}${orientation ? `&orientation=${orientation}` : ''}`)).photo
+  const next = async (display = 'hallway', orientation?: string, box?: [number, number]) =>
+    photoResponseSchema.parse(await $fetch(`/api/photos/next?display=${display}${orientation ? `&orientation=${orientation}` : ''}${box ? `&width=${box[0]}&height=${box[1]}` : ''}`)).photo
   const sizeOf = async (url: string) => {
     const metadata = await sharp(Buffer.from(await (await fetch(url)).arrayBuffer())).metadata()
     return [metadata.width, metadata.height]
@@ -123,6 +123,43 @@ describe('the photo routes', async () => {
       }
       // The file is the photo drawn for that shape, so a photo seen in both shapes has two.
       for (const [id, urls] of seen) expect(urls.size, id).toBeLessThanOrEqual(2)
+    })
+
+    it('serves the plain photo, to be cropped by the page, when it is close to the shape of the box, and the composite when not', async () => {
+      // The cover file is the photo itself, not enlarged (the fixtures are small); the composite is the stage's size.
+      const seen = new Set<string>()
+      for (let i = 0; i < 12 && seen.size < 4; i++) {
+        // The sunset is 16:9, like the box; the square and the portraits are not close to it.
+        const photo = (await next('hallway', 'landscape', [1920, 1080]))!
+        seen.add(photo.id)
+        const size = await sizeOf(photo.url)
+        if (photo.id === 'local:sunset-landscape.jpg') expect(size, photo.id).toEqual([1280, 720])
+        else expect(size, photo.id).toEqual([2560, 1440])
+      }
+      expect(seen.has('local:sunset-landscape.jpg')).toBe(true)
+    })
+
+    it('judges a portrait pane by its own shape: a portrait photo covers a 3:4 box, a 16:9 one is composed', async () => {
+      const seen = new Set<string>()
+      for (let i = 0; i < 12 && seen.size < 4; i++) {
+        const photo = (await next('hallway', 'portrait', [900, 1200]))!
+        seen.add(photo.id)
+        const size = await sizeOf(photo.url)
+        if (photo.id === 'local:tall-portrait.jpg') expect(size, photo.id).toEqual([720, 1080])
+        else if (photo.id === 'local:trip/phone-rotated.jpg') expect(size, photo.id).toEqual([640, 960])
+        // 1:1 against 3:4 is 1.33 apart, which is close enough to cover.
+        else if (photo.id === 'local:trip/square-rings.jpg') expect(size, photo.id).toEqual([800, 800])
+        else expect(size, photo.id).toEqual([1440, 2560])
+      }
+      expect(seen.has('local:tall-portrait.jpg')).toBe(true)
+    })
+
+    it('is a 400 for a width without a height, or a size that is not a whole number', async () => {
+      for (const query of ['width=1920', 'height=1080', 'width=0&height=1080', 'width=a&height=1']) {
+        const response = await fetch(`/api/photos/next?display=hallway&${query}`)
+        expect(response.status, query).toBe(400)
+        expect(await message(response)).toBe('width and height must be given together, as whole numbers of pixels')
+      }
     })
 
     it('is landscape when the orientation is left out', async () => {

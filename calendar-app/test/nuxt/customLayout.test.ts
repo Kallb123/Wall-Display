@@ -91,7 +91,7 @@ describe('CustomLayoutView on the landscape stage', () => {
     // The photo pane is taller than wide, so it asks for the portrait rendition; the week is the narrow layout.
     expect(wrapper.find('[data-testid="photo-pill"]').classes()).toContain('compact')
     expect(wrapper.find('[data-testid="week-view"]').classes()).toContain('portrait')
-    expect(fetchMock).toHaveBeenCalledWith('/api/photos/next', expect.objectContaining({ query: { display: 'hallway', orientation: 'portrait' } }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/photos/next', expect.objectContaining({ query: { display: 'hallway', orientation: 'portrait', width: expect.any(Number), height: expect.any(Number) } }))
   })
 
   it('scales a pane that is smaller than its view\'s minimum and leaves the others alone', async () => {
@@ -128,7 +128,7 @@ describe('CustomLayoutView on the portrait stage', () => {
   it('asks for the landscape rendition of a photo pane that is wider than tall', async () => {
     await open('portrait')
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/photos/next', expect.objectContaining({ query: { display: 'hallway', orientation: 'landscape' } }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/photos/next', expect.objectContaining({ query: { display: 'hallway', orientation: 'landscape', width: expect.any(Number), height: expect.any(Number) } }))
   })
 })
 

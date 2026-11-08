@@ -463,6 +463,105 @@ describe('renditions', () => {
   })
 })
 
+describe('the box a photo is drawn in', () => {
+  const wide = { width: 1920, height: 1080 }
+  /** A service whose listing says each photo's size, which is also what rendering finds. */
+  async function sized(sizes: Record<string, [number, number]>, options: Parameters<typeof setup>[1] = {}) {
+    const context = await setup({ local: Object.keys(sizes) }, { ...options, sizes })
+    for (const [id, [width, height]] of Object.entries(sizes)) context.providers.local!.items.set(id, { width, height })
+    return listed(context)
+  }
+
+  it('serves a photo close to the box\'s shape as its cover file, and others as the composite', async () => {
+    const { service, db } = await sized({ phone: [4032, 3024], tall: [3024, 4032], wide: [1600, 900] })
+    const seen = new Map<string, string>()
+    for (let i = 0; i < 3; i++) {
+      const photo = (await service.next('hallway', 'local', 'landscape', wide))!
+      seen.set(photo.id, photo.url.split('/').pop()!)
+    }
+
+    expect(getRendition(db, 'local:phone', 'cover')!.cacheFile).toBe(seen.get('local:phone'))
+    expect(getRendition(db, 'local:wide', 'cover')!.cacheFile).toBe(seen.get('local:wide'))
+    expect(getRendition(db, 'local:tall', 'cover')).toBeUndefined()
+    expect(getRendition(db, 'local:tall', 'landscape')!.cacheFile).toBe(seen.get('local:tall'))
+    expect(getRendition(db, 'local:phone', 'landscape')).toBeUndefined()
+  })
+
+  it('judges by the box, not the stage: a portrait box on a landscape display covers a 3:4 photo', async () => {
+    const { service, db } = await sized({ a: [3024, 4032] })
+
+    await service.next('hallway', 'local', 'portrait', { width: 900, height: 1200 })
+
+    expect(getRendition(db, 'local:a', 'cover')).toBeDefined()
+    expect(getRendition(db, 'local:a', 'portrait')).toBeUndefined()
+  })
+
+  it('is as before without a box', async () => {
+    const { service, db } = await sized({ a: [4032, 3024] })
+
+    await service.next('hallway', 'local', 'landscape')
+
+    expect(getRendition(db, 'local:a', 'cover')).toBeUndefined()
+    expect(getRendition(db, 'local:a', 'landscape')).toBeDefined()
+  })
+
+  it('prepares the next photo in the rendition it will be shown in', async () => {
+    const { service, db } = await sized({ a: [4032, 3024], b: [4032, 3024] })
+
+    await service.next('hallway', 'local', 'landscape', wide)
+    await service.idle()
+
+    expect(listPool(db, 'local').filter(row => getRendition(db, row.id, 'cover'))).toHaveLength(2)
+    expect(listPool(db, 'local').filter(row => getRendition(db, row.id, 'landscape'))).toHaveLength(0)
+  })
+
+  it('renders a photo of unknown size as the composite first, then as the cover file if it turns out close', async () => {
+    const context = await setup({ local: ['a'] }, { sizes: { a: [4032, 3024] } })
+    context.providers.local!.items.set('a', { width: 0, height: 0 })
+    await listed(context)
+    expect(getAsset(context.db, 'local:a')!.width).toBe(0)
+
+    const photo = (await context.service.next('hallway', 'local', 'landscape', wide))!
+
+    expect(photo).toMatchObject({ width: 4032, height: 3024 })
+    expect(getRendition(context.db, 'local:a', 'cover')!.cacheFile).toBe(photo.url.split('/').pop())
+    expect(getRendition(context.db, 'local:a', 'landscape')).toBeDefined()
+  })
+
+  it('serves the composite for an unknown size that turns out not to be close', async () => {
+    const context = await setup({ local: ['a'] }, { sizes: { a: [3024, 4032] } })
+    context.providers.local!.items.set('a', { width: 0, height: 0 })
+    await listed(context)
+    expect(getAsset(context.db, 'local:a')!.width).toBe(0)
+
+    const photo = (await context.service.next('hallway', 'local', 'landscape', wide))!
+
+    expect(getRendition(context.db, 'local:a', 'landscape')!.cacheFile).toBe(photo.url.split('/').pop())
+    expect(getRendition(context.db, 'local:a', 'cover')).toBeUndefined()
+  })
+
+  it('protects the cover file a display shows from eviction', async () => {
+    const { service, db } = await sized({ a: [4032, 3024], b: [4032, 3024], c: [4032, 3024], d: [4032, 3024] }, { maxBytes: 200, bytes: 100 })
+    const shown = await service.next('hallway', 'local', 'landscape', wide)
+
+    for (let i = 0; i < 3; i++) {
+      await service.next('kitchen', 'local', 'landscape', wide)
+      await service.idle()
+    }
+
+    expect(getRendition(db, shown!.id, 'cover')?.cacheFile).toBe(shown!.url.split('/').pop())
+  })
+
+  it('still leaves out photos of the other orientation when the shapes are to match', async () => {
+    const { service } = await sized({ wide: [4032, 3024], tall: [3024, 4032] }, { matchOrientation: true })
+
+    const shown = new Set<string>()
+    for (let i = 0; i < 4; i++) shown.add((await service.next('hallway', 'local', 'landscape', wide))!.id)
+
+    expect(shown).toEqual(new Set(['local:wide']))
+  })
+})
+
 describe('matching the orientation', () => {
   /** Two wide photos and two tall ones, all sized by the listing. */
   async function mixed(matchOrientation: boolean) {

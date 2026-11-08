@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ImageOff } from 'lucide-vue-next'
-import { photoResponseSchema } from '../../../shared/photos'
+import { coversBox, photoResponseSchema } from '../../../shared/photos'
 import type { PhotoInfo } from '../../../shared/photos'
 import { currentWeather, formatTemperature, weatherLabel } from '../../../shared/weather'
 import { formatTime } from '~/utils/format'
@@ -12,10 +12,16 @@ import type { ViewProps } from '../../utils/views'
 // a small pill in a corner with the clock, the weather and the next event. The server owns the rotation: it sends `photo.next` (counted by the
 // socket and handed down as `photoNext`) when it is time, and this view then
 // asks `GET /api/photos/next` for the photo to show. The image is already
-// rendered on the server to the stage's shape, 2560×1440 or 1440×2560 on the
-// portrait stage (PR 5.11), so it is only drawn with `cover`. The request says
-// which, and a change of orientation fetches again at once, since the photo on
-// show is the wrong shape for the new stage.
+// rendered on the server, so it is only drawn with `cover`. The request says
+// the shape of the box this view fills (`orientation`, and `width` and `height`,
+// which are the pane's own and not the stage's). A photo close to the box's
+// shape (`coversBox`: a 4:3 phone photo in a 16:9 box) comes as the plain photo,
+// which `cover` crops a little at two edges, so no strip of blurred backdrop is
+// left at the edges. One of another shape (a portrait photo in a landscape box)
+// comes fitted whole over its backdrop (PR 5.11). A change of orientation
+// fetches again at once, since the photo on show is the wrong shape for the new
+// box; so does a change of size that turns the photo on show from close to not
+// close, or the other way, since it is then the wrong kind of file.
 //
 // Two <img> layers are stacked. The next photo is loaded and `decode()`d off
 // screen first, so the Pi never decodes in the middle of a fade, then it is put
@@ -35,7 +41,8 @@ import type { ViewProps } from '../../utils/views'
 // box it is given, which is a part of the stage, and the pill is the compact
 // one from the mock, 48 px in from the pane's corner. The next event is left
 // off, as the week beside it already shows it. Fetching is the same: the pane's
-// own shape, not the stage's, decides which rendition is asked for.
+// own shape, not the stage's, decides which rendition is asked for and whether
+// the photo covers it.
 const props = defineProps<ViewProps>()
 
 /** The length of the crossfade. */
@@ -60,6 +67,9 @@ let retry: ReturnType<typeof setTimeout> | undefined
 let fadeTimer: ReturnType<typeof setTimeout> | undefined
 /** The decoded image of the photo on show, held so the browser keeps it decoded. */
 const held = new Set<HTMLImageElement>()
+
+/** What the photo on show was asked for: its info and the box it was asked for, to tell when a new size makes it the wrong kind of file. */
+let shownFor: { photo: PhotoInfo, box: { width: number, height: number } } | null = null
 
 const shownUrl = computed(() => top.value === null ? null : layers.value[top.value])
 
@@ -114,12 +124,13 @@ async function fetchNext() {
   if (!display || disposed) return
   clearTimeout(retry)
   const orientation = props.stage.orientation
+  const box = { width: Math.round(props.stage.width), height: Math.round(props.stage.height) }
   const id = ++latest
   inflight++
   try {
     let photo: PhotoInfo | null = null
     try {
-      const answer = photoResponseSchema.parse(await $fetch('/api/photos/next', { query: { display, orientation }, timeout: REQUEST_TIMEOUT_MS }))
+      const answer = photoResponseSchema.parse(await $fetch('/api/photos/next', { query: { display, orientation, ...box }, timeout: REQUEST_TIMEOUT_MS }))
       photo = answer.photo
     } catch {
       // Offline or busy: what is on show stays.
@@ -127,6 +138,7 @@ async function fetchNext() {
     if (id !== latest || disposed) return
     // The only photo there is, or the same again: no use fading to itself.
     if (photo && photo.url !== shownUrl.value) await show(photo, id)
+    if (photo && id === latest && !disposed && photo.url === shownUrl.value) shownFor = { photo, box }
     if (id === latest) scheduleRetry()
   } finally {
     inflight--
@@ -144,7 +156,16 @@ onBeforeUnmount(() => {
 
 watch(() => props.displayId, () => void fetchNext())
 // The photo on show was rendered for the other shape. Asking bumps `latest`, so an answer to the old question is dropped.
-watch(() => props.stage.orientation, () => void fetchNext())
+watch(() => [props.stage.orientation, props.stage.width, props.stage.height] as const, ([orientation, width, height], [before]) => {
+  if (orientation !== before) {
+    void fetchNext()
+    return
+  }
+  // A new size matters only if the photo on show is now close to the box where it wasn't, or the reverse: it was sent as the plain photo or as a composite accordingly.
+  if (!shownFor) return
+  const now = { width: Math.round(width), height: Math.round(height) }
+  if (coversBox(shownFor.photo, now) !== coversBox(shownFor.photo, shownFor.box)) void fetchNext()
+})
 watch(() => props.photoNext, (next, before) => {
   if ((next ?? 0) > (before ?? 0)) void fetchNext()
 })
@@ -220,7 +241,7 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
   container-type: size;
 }
 
-/* Every layer fills the stage. The server already made the photo the stage's shape, so `cover` crops nothing worth having. */
+/* Every layer fills the box. A photo of another shape was made the box's shape by the server, so `cover` crops nothing worth having; one close to its shape comes plain and `cover` crops it a little, centrally. */
 .layer {
   position: absolute;
   inset: 0;

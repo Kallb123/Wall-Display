@@ -177,6 +177,38 @@ describe('renderPhoto in the portrait rendition', () => {
   })
 })
 
+describe('renderPhoto in the cover rendition', () => {
+  it('is the whole photo scaled to just cover the stage of its own orientation: no backdrop, no crop', async () => {
+    // 4:3 landscape, left half red and right half blue, larger than the stage.
+    const rendered = await renderPhoto(await banded(3200, 2400, ['#c03030', '#3030c0']), 'cover')
+
+    expect(await sharp(rendered.data).metadata()).toMatchObject({ format: 'webp', width: 2560, height: 1920 })
+    expect(rendered).toMatchObject({ width: 3200, height: 2400, orientation: 'landscape' })
+    // Every corner is the photo itself: nothing blurred or darkened at an edge.
+    const left = await pixel(rendered.data, 2, 2)
+    const right = await pixel(rendered.data, 2557, 1917)
+    expect(left[0]).toBeGreaterThan(160)
+    expect(left[2]).toBeLessThan(80)
+    expect(right[2]).toBeGreaterThan(160)
+    expect(right[0]).toBeLessThan(80)
+  })
+
+  it('covers the portrait stage for a portrait photo, and an upright one that was stored sideways', async () => {
+    const portrait = await renderPhoto(await banded(2160, 2880, ['#c03030'], { vertical: true }), 'cover')
+    expect(await sharp(portrait.data).metadata()).toMatchObject({ width: 1920, height: 2560 })
+    expect(portrait.orientation).toBe('portrait')
+
+    const turned = await renderPhoto(await banded(3200, 2400, ['#c03030'], { orientation: 6 }), 'cover')
+    expect(await sharp(turned.data).metadata()).toMatchObject({ width: 1920, height: 2560 })
+    expect(turned).toMatchObject({ width: 2400, height: 3200, orientation: 'portrait' })
+  })
+
+  it('does not enlarge a small photo', async () => {
+    const rendered = await renderPhoto(await banded(640, 480, ['#c03030']), 'cover')
+    expect(await sharp(rendered.data).metadata()).toMatchObject({ width: 640, height: 480 })
+  })
+})
+
 describe('uprightSize', () => {
   it('swaps the sides for the quarter turns only', () => {
     expect(uprightSize(400, 200, undefined)).toEqual({ width: 400, height: 200 })

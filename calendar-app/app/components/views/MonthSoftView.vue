@@ -809,9 +809,10 @@ function timedStyle(row: { colour: string | null, column: number, lane: number }
   line-height: 26px;
 }
 
+/* Broken only between words: a tile is narrow enough that breaking anywhere cut "Playgroup" into "Playgr" and "oup". A word too long for the tile is clipped, as it was before wrapping. */
 .tall .name {
   display: -webkit-box;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   white-space: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: var(--lines);

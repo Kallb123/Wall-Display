@@ -3,6 +3,7 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import WeekPartsView from '~/components/views/WeekPartsView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
+import { eventFill } from '~/utils/eventFill'
 import { personFill } from '~/utils/themes'
 import type { ViewProps } from '~/utils/views'
 import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
@@ -45,6 +46,10 @@ const at = (id: number, start: string, title = `Event ${id}`) => event(id, { dis
 type Wrapper = Awaited<ReturnType<typeof mountSuspended>>
 const row = (wrapper: Wrapper, date: string) => wrapper.find(`[data-testid="day-row"][data-date="${date}"]`)
 const cell = (wrapper: Wrapper, date: string, part: string) => row(wrapper, date).find(`[data-testid="part-cell"][data-part="${part}"]`)
+
+vi.mock('~/utils/eventFill', { spy: true })
+/** The backgrounds `eventFill` has given so far: the test DOM drops a gradient it cannot parse (color-mix), so what a view drew is read from what it was handed. */
+const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result.value as { background: string }).background)
 
 describe('WeekPartsView', () => {
   it('draws seven rows for the week, with today flagged once, and the part headings', async () => {
@@ -269,6 +274,34 @@ describe('WeekPartsView', () => {
       expect(mine.attributes('style')).toContain(personFill(person.colour))
       const nobody = cell(wrapper, '2026-10-28', 'afternoon').find('[data-kind="line"]')
       expect(nobody.attributes('style')).toContain('var(--surface)')
+    })
+
+    it('splits a filled line between several people', async () => {
+      const dad = { id: 'dad', name: 'Dad', initial: 'D', colour: '#3A7CA5' }
+      const wrapper = await mountSuspended(WeekPartsView, { props: props({
+        paneOptions: options({ fill_events: true }),
+        events: [event(1, { people: [person, dad], start: '2026-10-28T08:30:00Z', end: '2026-10-28T09:00:00Z' })],
+      }) })
+
+      const line = cell(wrapper, '2026-10-28', 'morning').find('[data-kind="line"]')
+      expect(line.attributes('style')).toContain(`--ring: ${personFill(person.colour)}`)
+      expect(fillsGiven().at(-1)).toBe(`linear-gradient(to right, ${personFill(person.colour)} 0% 50%, ${personFill(dad.colour)} 50% 100%)`)
+      expect(line.findAll('.badge')).toHaveLength(2)
+    })
+
+    it('leaves the initials off a filled line only when asked', async () => {
+      const badges = async (paneOptions: ReturnType<typeof options>) => {
+        const wrapper = await mountSuspended(WeekPartsView, { props: props({ paneOptions, events: [at(1, '08:30')] }) })
+        const line = cell(wrapper, '2026-10-28', 'morning').find('[data-kind="line"]')
+        return [line.findAll('.badge').length, line.classes()] as const
+      }
+      expect((await badges(options({ fill_events: true })))[0]).toBe(1)
+      const [count, classes] = await badges(options({ fill_events: true, show_initials: false }))
+      expect(count).toBe(0)
+      expect(classes).toContain('bare')
+      const [plain, plainClasses] = await badges(options({ show_initials: false }))
+      expect(plain).toBe(1)
+      expect(plainClasses).not.toContain('bare')
     })
 
     it('lets titles wrap only when asked', async () => {

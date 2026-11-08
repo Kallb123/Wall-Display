@@ -4,7 +4,7 @@ import type { CalendarEvent } from '../../../shared/types/events'
 import { agendaDays, PORTRAIT_MAX_ROWS } from '~/utils/agenda'
 import type { AgendaDay, AgendaItem } from '~/utils/agenda'
 import { formatTime } from '~/utils/format'
-import { personFill } from '~/utils/themes'
+import { eventFill } from '~/utils/eventFill'
 import { useWrapFit } from '~/composables/useWrapFit'
 import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
@@ -27,7 +27,11 @@ import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather
 // Pane options (architecture §4.8), for a pane of a custom layout; without
 // them the view is as it always was. `fill_events` gives the timed rows the
 // person's fill the all-day rows already have, minus the side stripe, which
-// the fill replaces. `wrap_titles` lets a title take up to three lines, but
+// the fill replaces. With several people the fill is split between them
+// (`eventFill`), and `show_initials: false` leaves the badges out of a filled
+// row so the title has the room. The all-day rows are coloured and badged
+// whatever the options say, and keep their first person's colour.
+// `wrap_titles` lets a title take up to three lines, but
 // only where the list has room: each card's list is a fixed-size box and each
 // event a row in it, and `useWrapFit` turns wrapping on one row at a time, top
 // to bottom, while the list still fits.
@@ -72,17 +76,16 @@ function weatherLine(day: AgendaDay, today: boolean) {
   return condition || text || range ? { icon: weatherIcon(condition), text, range } : null
 }
 
-function fill(event: CalendarEvent): string {
-  // An event with nobody on it (no person matched) gets the muted colour.
-  return event.people[0] ? personFill(event.people[0].colour) : 'var(--surface)'
-}
-
-/** A row's own background and ring: all-day rows are always filled, timed ones only when asked. The ring is the fill, so overlapping badges are cut out of the row they sit on. */
+/** A row's own background and ring: all-day rows are always filled, timed ones only when asked. The ring is a solid colour, so overlapping badges are cut out of the row they sit on. An event with nobody on it (no person matched) gets the surface colour. */
 function rowStyle(row: { kind: 'all-day' | 'timed', item: AgendaItem }) {
   if (row.kind === 'timed' && !options.value.fill_events) return undefined
-  const background = fill(row.item.event)
-  return { background, '--ring': background }
+  // Only a row the option filled is split; an all-day row is as it always was.
+  const { background, ring } = eventFill(row.kind === 'timed' ? row.item.event.people : row.item.event.people.slice(0, 1))
+  return { background, '--ring': ring }
 }
+
+/** Whether a row shows its badges: always, unless it is a timed row the option filled and the pane asks for no initials. */
+const showsInitials = (row: { kind: 'all-day' | 'timed' }): boolean => row.kind === 'all-day' || !options.value.fill_events || options.value.show_initials
 
 function barColour(event: CalendarEvent): string {
   return event.people[0]?.colour ?? 'var(--muted)'
@@ -144,7 +147,7 @@ function barColour(event: CalendarEvent): string {
             :data-position="position"
           >
             <span v-if="row.kind === 'timed' && !options.fill_events" class="stripe" :style="{ background: barColour(row.item.event) }" />
-            <span v-if="row.item.event.people.length" class="badges">
+            <span v-if="row.item.event.people.length && showsInitials(row)" class="badges">
               <span
                 v-for="person in row.item.event.people.slice(0, MAX_BADGES)"
                 :key="person.id"

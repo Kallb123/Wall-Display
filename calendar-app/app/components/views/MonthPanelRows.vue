@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { badgesOf } from '~/utils/monthPanel'
 import type { FittedPanelDay } from '~/utils/monthPanel'
-import { personFill } from '~/utils/themes'
+import { eventFill } from '~/utils/eventFill'
 
 // A day's rows in the Soft month view's panel: a badge for each person, the time
 // (or "All day"), the title, and a "+N more" row when the day was trimmed. The
@@ -13,32 +13,40 @@ import { personFill } from '~/utils/themes'
 // those names would reach this component's root element.
 //
 // `fill` (the "colour whole events" pane option) draws each row as a pill in its
-// first person's fill, as the grid's bars are, or the surface colour with nobody
-// on it; the badges sit inside at the left. Every row is marked as an item for
+// fill, as the grid's bars are (split between the people when there are several,
+// `eventFill`), or the surface colour with nobody on it; the badges sit inside at
+// the left, unless `initials` is false, which leaves them out and the title the
+// room (only asked for with `fill`, the parent decides). Every row is marked as an item for
 // `useWrapFit`: it only does anything where the parent has put the list in a
 // `[data-wrap-box]`, and then a row with `data-wrap="on"` lets its title wrap.
 defineProps<{
   day: FittedPanelDay
   size?: 'standard' | 'roomy' | 'card'
   fill?: boolean
+  /** Draw the initials badges. False leaves them out of the rows, with their column. */
+  initials?: boolean
 }>()
 
-const fillOf = (colour: string | null): string => colour ? personFill(colour) : 'var(--surface)'
+/** A filled row's background and the ring of its overlapping badges. */
+function fillStyle(people: readonly { colour: string }[]) {
+  const { background, ring } = eventFill(people)
+  return { background, '--ring': ring }
+}
 </script>
 
 <template>
-  <div class="rows" :class="size ?? 'standard'">
+  <div class="rows" :class="[size ?? 'standard', { plain: initials === false }]">
     <div
       v-for="row in day.rows"
       :key="row.item.event.id"
       class="row"
       :class="{ past: row.past, filled: fill }"
-      :style="fill ? { 'background': fillOf(row.item.colour), '--ring': fillOf(row.item.colour) } : undefined"
+      :style="fill ? fillStyle(row.item.people) : undefined"
       data-kind="panel"
       data-testid="event"
       data-wrap-item
     >
-      <span class="badges">
+      <span v-if="initials !== false" class="badges">
         <span
           v-for="badge in badgesOf(row.item)"
           :key="badge.id"
@@ -50,7 +58,7 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
       <span class="name">{{ row.item.event.display_title }}</span>
     </div>
     <div v-if="day.more" class="row more-row" data-testid="panel-more">
-      <span class="badges" />
+      <span v-if="initials !== false" class="badges" />
       <span class="time">+{{ day.more }} more</span>
     </div>
   </div>
@@ -93,11 +101,20 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
   white-space: nowrap;
 }
 
+/* Without the badges there are two columns, the time and the title. */
+.rows.plain {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
 /* "Colour whole events": a pill in the person's fill. It is a little taller than the bare row, so the badge sits inside it with a hair of the fill around it. */
 .row.filled {
   padding: 2px 18px 2px 2px;
   border-radius: 999px;
   color: var(--bar-text);
+}
+
+.rows.plain .row.filled {
+  padding: 6px 18px;
 }
 
 .row.filled .time {

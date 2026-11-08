@@ -1,5 +1,5 @@
 import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, PANE_OPTIONS, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, PaneOptionKey, PaneOptions } from '../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, PaneOptionKey, PaneOptions, ResolvedPaneOptions } from '../../shared/layouts'
 
 // What the layout editor does to the layout it is editing (architecture §7.6,
 // PR 5.17): turning a component on or off, moving a pane, making a pane or a
@@ -38,9 +38,13 @@ export function paneOptionLabel(component: LayoutComponent, key: PaneOptionKey):
     case 'show_sidebar': return 'Sidebar'
     case 'show_hours': return 'Hour labels'
     case 'fill_events': return 'Colour whole events'
+    case 'show_initials': return 'Initials'
     case 'wrap_titles': return 'Wrap long titles'
   }
 }
+
+/** Whether the editor shows an option switched off and out of reach: the initials only matter on events that are coloured. */
+export const paneOptionDisabled = (key: PaneOptionKey, options: ResolvedPaneOptions): boolean => key === 'show_initials' && !options.fill_events
 
 /** A copy that shares nothing with the original, so an edit can't reach back into it. */
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T

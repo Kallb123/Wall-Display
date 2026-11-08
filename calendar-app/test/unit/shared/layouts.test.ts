@@ -334,11 +334,22 @@ describe('pane options', () => {
   })
 
   it('knows which options each component has', () => {
-    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'wrap_titles'])
-    expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'wrap_titles'])
+    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles'])
+    expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles'])
+    for (const component of ['week_parts', 'agenda', 'days'] as const) expect(PANE_OPTIONS[component]).toContain('show_initials')
+    expect(PANE_OPTIONS.week).not.toContain('show_initials')
+    expect(DEFAULT_PANE_OPTIONS.show_initials).toBe(true)
     expect(PANE_OPTIONS.week).toEqual(['show_title', 'show_hours'])
     expect(PANE_OPTIONS.photo).toEqual([])
     expect(Object.keys(PANE_OPTIONS)).toEqual([...LAYOUT_COMPONENTS])
+  })
+
+  it('takes show_initials as a boolean on the components that colour events, and nowhere else', () => {
+    const agendaAndWeek = { ...photoWeek, landscape: { rows: [{ size: 1, panes: [{ component: 'agenda', size: 1 }, { component: 'week', size: 1 }] }] }, portrait: { rows: [{ size: 1, panes: [{ component: 'agenda', size: 1 }, { component: 'week', size: 1 }] }] } }
+    const options = { agenda: { fill_events: true, show_initials: false } }
+    expect(customLayoutInputSchema.parse({ ...agendaAndWeek, options }).options).toEqual(options)
+    expect(problem({ ...agendaAndWeek, options: { agenda: { show_initials: 'no' } } })).toBe('options.agenda.show_initials: must be true or false')
+    expect(problem(withOptions({ week: { show_initials: false } }))).toBe('options.week.show_initials: must not be set on a week pane')
   })
 
   it('refuses an option that does not apply to the component', () => {

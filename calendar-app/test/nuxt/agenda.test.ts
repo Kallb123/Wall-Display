@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import AgendaView from '~/components/views/AgendaView.vue'
+import { eventFill } from '~/utils/eventFill'
+import { personFill } from '~/utils/themes'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
 import type { CalendarEvent } from '../../shared/types/events'
@@ -123,7 +125,11 @@ describe('AgendaView portrait', () => {
   })
 })
 
+vi.mock('~/utils/eventFill', { spy: true })
+
 describe('AgendaView pane options', () => {
+/** The backgrounds `eventFill` has given so far: the test DOM drops a gradient it cannot parse (color-mix), so what a view drew is read from what it was handed. */
+const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result.value as { background: string }).background)
   const mum = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
   const timed: CalendarEvent = {
     id: 1, calendar_id: 'family', title: 'Dentist', display_title: 'Dentist', location: null,
@@ -140,6 +146,27 @@ describe('AgendaView pane options', () => {
     const plain = await mountSuspended(AgendaView, { props: props({ events: [timed], paneOptions: options({}) }) })
     expect(row(plain).attributes('style') ?? '').not.toContain('--ring')
     expect(row(plain).find('.stripe').exists()).toBe(true)
+  })
+
+  it('splits a filled row between several people, and leaves one person\'s fill as it was', async () => {
+    const dad = { id: 'dad', name: 'Dad', initial: 'D', colour: '#3A7CA5' }
+    const shared = await mountSuspended(AgendaView, { props: props({ events: [{ ...timed, people: [mum, dad] }], paneOptions: options({ fill_events: true }) }) })
+    const style = row(shared).attributes('style') ?? ''
+    // The ring is the first person's fill, whatever the test DOM does with the gradient itself.
+    expect(style).toContain(`--ring: ${personFill(mum.colour)}`)
+    expect(vi.mocked(eventFill).mock.calls.at(-1)![0]).toEqual([mum, dad])
+    expect(fillsGiven().at(-1)).toBe(`linear-gradient(to right, ${personFill(mum.colour)} 0% 50%, ${personFill(dad.colour)} 50% 100%)`)
+
+    const solo = await mountSuspended(AgendaView, { props: props({ events: [timed], paneOptions: options({ fill_events: true }) }) })
+    expect(row(solo).attributes('style')).toContain(`--ring: ${personFill(mum.colour)}`)
+  })
+
+  it('leaves the initials off a filled row only when asked', async () => {
+    const badges = async (paneOptions: ReturnType<typeof options>) => (await mountSuspended(AgendaView, { props: props({ events: [timed], paneOptions }) })).findAll('[data-testid="day-today"] .badge').length
+    expect(await badges(options({ fill_events: true }))).toBe(1)
+    expect(await badges(options({ fill_events: true, show_initials: false }))).toBe(0)
+    // Without the fill the option means nothing.
+    expect(await badges(options({ show_initials: false }))).toBe(1)
   })
 
   it('lets every event row wrap when asked, and none otherwise', async () => {

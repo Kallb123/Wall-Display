@@ -352,6 +352,24 @@ describe('the layouts editor', () => {
     expect(pressed('show_hours')).toBe('true')
   })
 
+  it('offers the initials only once events are coloured', async () => {
+    const wrapper = await mountManager()
+    await click(wrapper, 'toggle-agenda')
+    await wrapper.find('[data-testid="layout-editor"] [data-component="agenda"]').trigger('click')
+    const chip = () => wrapper.find('[data-testid="option-show_initials"]')
+
+    expect(chip().text()).toBe('Initials')
+    expect(chip().attributes('disabled')).toBeDefined()
+    await click(wrapper, 'option-fill_events')
+    expect(chip().attributes('disabled')).toBeUndefined()
+    expect(chip().attributes('aria-pressed')).toBe('true')
+
+    await click(wrapper, 'option-show_initials')
+    expect(chip().attributes('aria-pressed')).toBe('false')
+    await submit(wrapper)
+    expect((writes[0]!.body as { options: unknown }).options).toEqual({ agenda: { fill_events: true, show_initials: false } })
+  })
+
   it('saves a toggled component and a moved pane as one PUT', async () => {
     const wrapper = await mountManager()
 

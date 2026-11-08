@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { greetingSize, tileArt } from '~/utils/specialDays'
+import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
@@ -51,7 +52,10 @@ import type { WeekPartsRow } from '../../../shared/week-parts-layout'
 // parts line stays. `fill_events` gives each cell line the fill the head's items
 // already have, inside the line's own 32 px box (no vertical padding, the badge
 // is 24 px), so a filled line is no taller than a plain one and the cell still
-// holds the lines it was counted for. `wrap_titles` lets a title run on to up to
+// holds the lines it was counted for; with several people the fill is split
+// between them (`eventFill`), and `show_initials: false` leaves the line's
+// badges out, the title taking the room. The head's items are coloured and
+// badged whatever the options say, and are left as they are. `wrap_titles` lets a title run on to up to
 // three lines, but only where the cell has room: each cell is a fixed-size,
 // overflow-hidden box and each line an item for `useWrapFit`, which measures and
 // switches wrapping on from the top down while everything still fits. The head's
@@ -60,6 +64,8 @@ import type { WeekPartsRow } from '../../../shared/week-parts-layout'
 const props = defineProps<ViewProps>()
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+/** Whether the cell lines show their people's initials: always, unless they are coloured and the pane asks for none. */
+const showInitials = computed(() => !options.value.fill_events || options.value.show_initials)
 const showHeader = computed(() => options.value.show_title || !!props.specialDays.takeover?.greeting)
 
 const root = ref<HTMLElement | null>(null)
@@ -111,6 +117,12 @@ function rowBackground(row: WeekPartsRow): string {
 /** The badges an item gets: its first people, as many as the layout kept initials for. Keyed by person, as two can share an initial. */
 function badgesOf(item: ItemPeople): { id: string, initial: string, colour: string }[] {
   return item.initials.slice(0, MAX_BADGE_INITIALS).map((initial, index) => ({ id: item.people[index]!.id, initial, colour: item.people[index]!.colour }))
+}
+
+/** A filled line's background and ring: split between the people when there are several (`eventFill`), the surface colour with nobody on it. */
+function lineStyle(item: ItemPeople) {
+  const { background, ring } = eventFill(item.people)
+  return { background, '--ring': ring }
 }
 
 /** An event's fill. With nobody on it (no person matched) it is the surface colour and has no badge. */
@@ -225,13 +237,13 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
             v-for="item in cell.items"
             :key="item.event.id"
             class="line"
-            :class="{ past: item.past, ongoing: item.ongoing, filled: options.fill_events }"
-            :style="options.fill_events ? { 'background': fillOf(item.colour), '--ring': fillOf(item.colour) } : { '--ring': 'transparent' }"
+            :class="{ past: item.past, ongoing: item.ongoing, filled: options.fill_events, bare: options.fill_events && !showInitials }"
+            :style="options.fill_events ? lineStyle(item) : { '--ring': 'transparent' }"
             data-wrap-item
             data-testid="event"
             data-kind="line"
           >
-            <span v-if="item.initials.length" class="badges">
+            <span v-if="item.initials.length && showInitials" class="badges">
               <span
                 v-for="badge in badgesOf(item)"
                 :key="badge.id"
@@ -567,6 +579,10 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
   padding: 0 14px 0 4px;
   border-radius: 999px;
   color: var(--bar-text);
+}
+
+.line.filled.bare {
+  padding-left: 14px;
 }
 
 .line.filled .time {

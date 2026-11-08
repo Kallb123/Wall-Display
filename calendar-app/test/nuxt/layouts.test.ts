@@ -28,7 +28,7 @@ const arrangement = (...rows: [number, ...[string, number][]][]): LayoutArrangem
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component: component as 'week', size: paneSize })) })),
 })
 
-const layout = (id: string, name: string, landscape: LayoutArrangement, portrait: LayoutArrangement): CustomLayout => ({ id, name, landscape, portrait, created_at: STAMP, updated_at: STAMP })
+const layout = (id: string, name: string, landscape: LayoutArrangement, portrait: LayoutArrangement): CustomLayout => ({ id, name, landscape, portrait, options: {}, created_at: STAMP, updated_at: STAMP })
 
 /** A photo beside a week, and the two stacked in portrait. */
 const kitchen = () => layout('kitchen', 'Kitchen', arrangement([1, ['photo', 2], ['week', 3]]), arrangement([2, ['photo', 1]], [3, ['week', 1]]))
@@ -326,6 +326,32 @@ describe('the layouts editor', () => {
     expect(gridIn(body.portrait)).toEqual([{ component: 'days', size: 1, grid: { rows: 4, columns: 2, start: 'today' } }])
   })
 
+  it('shows Display chips for the selected pane and saves the ones changed', async () => {
+    const wrapper = await mountManager()
+    const pressed = (key: string) => wrapper.find(`[data-testid="option-${key}"]`).attributes('aria-pressed')
+
+    // The kitchen shows a photo and a week, and the photo is selected to begin with: it has no options.
+    expect(wrapper.find('[data-testid="option-controls"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="layout-editor"] [data-component="week"]').trigger('click')
+    expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_title', 'option-show_hours'])
+    expect(wrapper.find('[data-testid="option-show_title"]').text()).toBe('Date title')
+    expect(pressed('show_hours')).toBe('true')
+
+    await click(wrapper, 'option-show_hours')
+    expect(pressed('show_hours')).toBe('false')
+    // Both orientations share them.
+    await click(wrapper, 'switch-portrait')
+    await wrapper.find('[data-testid="layout-editor"] [data-component="week"]').trigger('click')
+    expect(pressed('show_hours')).toBe('false')
+
+    await submit(wrapper)
+    expect((writes[0]!.body as { options: unknown }).options).toEqual({ week: { show_hours: false } })
+
+    await click(wrapper, 'option-show_hours')
+    expect(pressed('show_hours')).toBe('true')
+  })
+
   it('saves a toggled component and a moved pane as one PUT', async () => {
     const wrapper = await mountManager()
 
@@ -341,6 +367,7 @@ describe('the layouts editor', () => {
         name: 'Kitchen',
         landscape: arrangement([1, ['week', 3], ['photo', 2], ['agenda', 1]]),
         portrait: arrangement([2, ['photo', 1]], [3, ['week', 1], ['agenda', 1]]),
+        options: {},
       },
     }])
     expect(wrapper.find('[data-testid="layouts-note"]').text()).toBe('Saved.')

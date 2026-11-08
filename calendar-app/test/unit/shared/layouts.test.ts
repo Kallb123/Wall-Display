@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_DAY_GRID, LAYOUT_COMPONENTS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
-  layoutDayGrids, layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
+  DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, LAYOUT_COMPONENTS, PANE_OPTIONS, PANE_OPTION_KEYS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
+  layoutDayGrids, layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, paneOptions, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
 } from '../../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput, LayoutArrangement, LayoutComponent, LayoutRow } from '../../../shared/layouts'
 
@@ -11,6 +11,7 @@ const photoWeek: CustomLayoutInput = {
   name: 'Photo and week',
   landscape: { rows: [row(1, ['photo', 2], ['week', 3])] },
   portrait: { rows: [row(1, ['photo', 1]), row(2, ['week', 1])] },
+  options: {},
 }
 
 function stored(input: CustomLayoutInput = photoWeek): CustomLayout {
@@ -313,5 +314,56 @@ describe('the day grid pane', () => {
     expect(layoutDayGrids(input.landscape)).toEqual([grid])
     expect(layoutDayGrids(input)).toEqual([grid, { rows: 4, columns: 2, start: 'week' }])
     expect(layoutDayGrids(photoWeek)).toEqual([])
+  })
+})
+
+describe('pane options', () => {
+  const withOptions = (options: unknown) => ({ ...photoWeek, options })
+
+  it('defaults to none when a body sends no options, so clients from before still work', () => {
+    const { options: _none, ...older } = photoWeek
+    expect(customLayoutInputSchema.parse(older).options).toEqual({})
+    const { options: _stored, ...olderStored } = stored()
+    expect(customLayoutSchema.parse(olderStored).options).toEqual({})
+  })
+
+  it('keeps the options that are set', () => {
+    const options = { week: { show_hours: false, show_title: false } }
+    expect(customLayoutInputSchema.parse(withOptions(options)).options).toEqual(options)
+    expect(customLayoutSchema.parse({ ...stored(), options }).options).toEqual(options)
+  })
+
+  it('knows which options each component has', () => {
+    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'wrap_titles'])
+    expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'wrap_titles'])
+    expect(PANE_OPTIONS.week).toEqual(['show_title', 'show_hours'])
+    expect(PANE_OPTIONS.photo).toEqual([])
+    expect(Object.keys(PANE_OPTIONS)).toEqual([...LAYOUT_COMPONENTS])
+  })
+
+  it('refuses an option that does not apply to the component', () => {
+    expect(problem(withOptions({ week: { fill_events: true } }))).toBe('options.week.fill_events: must not be set on a week pane')
+    expect(problem(withOptions({ photo: { show_title: true } }))).toBe('options.photo.show_title: must not be set on a photo pane')
+  })
+
+  it('refuses options for a component the layout does not show', () => {
+    expect(problem(withOptions({ month: { show_title: false } }))).toBe('options.month: must not be set when the layout does not show a month pane')
+  })
+
+  it('refuses unknown keys, unknown components and values that are not booleans', () => {
+    expect(customLayoutInputSchema.safeParse(withOptions({ week: { show_title: false, glow: true } })).success).toBe(false)
+    expect(customLayoutInputSchema.safeParse(withOptions({ sofa: {} })).success).toBe(false)
+    expect(problem(withOptions({ week: { show_title: 'no' } }))).toBe('options.week.show_title: must be true or false')
+    expect(customLayoutInputSchema.safeParse(withOptions({ week: { show_title: 0 } })).success).toBe(false)
+    expect(customLayoutInputSchema.safeParse(withOptions([])).success).toBe(false)
+  })
+
+  it('resolves the options of a pane over the defaults', () => {
+    const layout = { options: { week: { show_hours: false }, agenda: { wrap_titles: true } } }
+    expect(paneOptions(layout, 'week')).toEqual({ ...DEFAULT_PANE_OPTIONS, show_hours: false })
+    expect(paneOptions(layout, 'agenda')).toEqual({ ...DEFAULT_PANE_OPTIONS, wrap_titles: true })
+    expect(paneOptions(layout, 'month')).toEqual(DEFAULT_PANE_OPTIONS)
+    expect(paneOptions(null, 'month')).toEqual(DEFAULT_PANE_OPTIONS)
+    expect(paneOptions(undefined, 'week')).toEqual(DEFAULT_PANE_OPTIONS)
   })
 })

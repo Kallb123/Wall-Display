@@ -66,11 +66,51 @@ export interface LayoutArrangement {
   rows: LayoutRow[]
 }
 
+/**
+ * The style choices a pane can have, beyond where it is: hide the title (the
+ * date heading of the month, week and week by part of day), the month's sidebar
+ * or the week's hour labels, colour a whole event with its person's colour, and
+ * let long titles wrap onto more lines where there is room. Not every option
+ * means something to every component (`PANE_OPTIONS`).
+ */
+export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'wrap_titles'] as const
+export type PaneOptionKey = (typeof PANE_OPTION_KEYS)[number]
+
+/** The options set on a pane. A key that is left out has its default (`DEFAULT_PANE_OPTIONS`). */
+export type PaneOptions = Partial<Record<PaneOptionKey, boolean>>
+
+/** The options a view draws by: every key present. */
+export type ResolvedPaneOptions = Record<PaneOptionKey, boolean>
+
+/** What a pane looks like when nothing is set, and what every full-screen view uses. */
+export const DEFAULT_PANE_OPTIONS: ResolvedPaneOptions = {
+  show_title: true,
+  show_sidebar: true,
+  show_hours: true,
+  fill_events: false,
+  wrap_titles: false,
+}
+
+/** Which options apply to which component. The editor offers these and the schema refuses any other. */
+export const PANE_OPTIONS: Record<LayoutComponent, readonly PaneOptionKey[]> = {
+  month: ['show_title', 'show_sidebar', 'fill_events', 'wrap_titles'],
+  week: ['show_title', 'show_hours'],
+  week_parts: ['show_title', 'fill_events', 'wrap_titles'],
+  agenda: ['fill_events', 'wrap_titles'],
+  days: ['fill_events', 'wrap_titles'],
+  photo: [],
+}
+
+/** The options of a layout, by component. They are shared by both arrangements: they are style, where a day grid's shape is geometry. */
+export type LayoutOptions = Partial<Record<LayoutComponent, PaneOptions>>
+
 /** What the editor sends as the body of a create or an edit. */
 export interface CustomLayoutInput {
   name: string
   landscape: LayoutArrangement
   portrait: LayoutArrangement
+  /** Only the options that differ from the defaults are kept. A body without it means none. */
+  options: LayoutOptions
 }
 
 /** A layout as stored and served. */
@@ -125,10 +165,31 @@ const arrangementSchema = z.strictObject({
 
 const nameSchema = z.string().trim().min(1, 'must not be empty').max(MAX_LAYOUT_NAME, `must be at most ${MAX_LAYOUT_NAME} characters`)
 
+const optionFlag = z.boolean({ error: 'must be true or false' }).optional()
+
+const paneOptionsSchema = z.strictObject({
+  show_title: optionFlag,
+  show_sidebar: optionFlag,
+  show_hours: optionFlag,
+  fill_events: optionFlag,
+  wrap_titles: optionFlag,
+})
+
+const optionsSchema = z.strictObject({
+  month: paneOptionsSchema.optional(),
+  week: paneOptionsSchema.optional(),
+  week_parts: paneOptionsSchema.optional(),
+  agenda: paneOptionsSchema.optional(),
+  days: paneOptionsSchema.optional(),
+  photo: paneOptionsSchema.optional(),
+})
+
 const inputShape = {
   name: nameSchema,
   landscape: arrangementSchema,
   portrait: arrangementSchema,
+  // Optional in what is sent, so a client from before the options still works; always there once parsed.
+  options: optionsSchema.default({}),
 }
 
 /** Every component of an arrangement, in the order they are drawn (rows top to bottom, panes left to right). */
@@ -136,7 +197,7 @@ function panesOf(arrangement: LayoutArrangement): LayoutPane[] {
   return arrangement.rows.flatMap(row => row.panes)
 }
 
-/** The rules that cut across fields: no component twice in an arrangement, the same components in both, and a grid on the day grid pane only. */
+/** The rules that cut across fields: no component twice in an arrangement, the same components in both, a grid on the day grid pane only, and options only where they apply. */
 function checkArrangements(value: CustomLayoutInput, ctx: z.RefinementCtx): void {
   const sets = {} as Record<'landscape' | 'portrait', Set<LayoutComponent>>
   for (const which of ['landscape', 'portrait'] as const) {
@@ -159,6 +220,19 @@ function checkArrangements(value: CustomLayoutInput, ctx: z.RefinementCtx): void
   if (missing.length > 0) {
     ctx.addIssue({ code: 'custom', path: ['portrait'], message: `must show the same components as landscape (they differ on ${missing.join(', ')})` })
   }
+  for (const component of LAYOUT_COMPONENTS) {
+    const set = value.options[component]
+    if (!set) continue
+    if (!sets.landscape.has(component)) {
+      ctx.addIssue({ code: 'custom', path: ['options', component], message: `must not be set when the layout does not show a ${component} pane` })
+      continue
+    }
+    for (const key of PANE_OPTION_KEYS) {
+      if (set[key] !== undefined && !PANE_OPTIONS[component].includes(key)) {
+        ctx.addIssue({ code: 'custom', path: ['options', component, key], message: `must not be set on a ${component} pane` })
+      }
+    }
+  }
 }
 
 /**
@@ -176,6 +250,11 @@ export const customLayoutSchema = z.strictObject({
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 }).superRefine(checkArrangements)
+
+/** The options `component` is drawn with in `layout`: the defaults, with what the layout sets over them. */
+export function paneOptions(layout: Pick<CustomLayoutInput, 'options'> | null | undefined, component: LayoutComponent): ResolvedPaneOptions {
+  return { ...DEFAULT_PANE_OPTIONS, ...layout?.options?.[component] }
+}
 
 /** The components in a layout or an arrangement, in `LAYOUT_COMPONENTS` order and without repeats. */
 export function layoutComponents(layout: CustomLayoutInput | LayoutArrangement): LayoutComponent[] {

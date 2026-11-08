@@ -1,5 +1,5 @@
-import { DEFAULT_DAY_GRID, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane } from '../../shared/layouts'
+import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, PANE_OPTIONS, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, PaneOptionKey, PaneOptions } from '../../shared/layouts'
 
 // What the layout editor does to the layout it is editing (architecture §7.6,
 // PR 5.17): turning a component on or off, moving a pane, making a pane or a
@@ -31,8 +31,23 @@ export const COMPONENT_LABELS: Record<LayoutComponent, string> = {
   photo: 'Photo',
 }
 
+/** The words the editor uses for each pane option. The title is the month's name or the week's dates, so its label depends on the component. */
+export function paneOptionLabel(component: LayoutComponent, key: PaneOptionKey): string {
+  switch (key) {
+    case 'show_title': return component === 'month' ? 'Month title' : 'Date title'
+    case 'show_sidebar': return 'Sidebar'
+    case 'show_hours': return 'Hour labels'
+    case 'fill_events': return 'Colour whole events'
+    case 'wrap_titles': return 'Wrap long titles'
+  }
+}
+
 /** A copy that shares nothing with the original, so an edit can't reach back into it. */
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+
+/** The record without `key`. */
+const withoutKey = <K extends string, T extends Partial<Record<K, unknown>>>(record: T, key: K): T =>
+  Object.fromEntries(Object.entries(record).filter(([name]) => name !== key)) as T
 
 const clamp = (size: number): number => Math.min(MAX_LAYOUT_SIZE, Math.max(MIN_LAYOUT_SIZE, size))
 
@@ -44,12 +59,12 @@ function withArrangement(input: CustomLayoutInput, which: Orientation, arrangeme
 /** What a new layout starts as: a week beside an agenda, with the portrait arrangement made from it. */
 export function newLayoutInput(name = ''): CustomLayoutInput {
   const landscape: LayoutArrangement = { rows: [{ size: 1, panes: [{ component: 'week', size: 3 }, { component: 'agenda', size: 2 }] }] }
-  return { name, landscape, portrait: transposeArrangement(landscape) }
+  return { name, landscape, portrait: transposeArrangement(landscape), options: {} }
 }
 
 /** What the editor edits of a saved layout: everything the server accepts back. */
 export function inputOf(layout: CustomLayout): CustomLayoutInput {
-  return copy({ name: layout.name, landscape: layout.landscape, portrait: layout.portrait })
+  return copy({ name: layout.name, landscape: layout.landscape, portrait: layout.portrait, options: layout.options })
 }
 
 /** Whether two inputs are the same, for knowing if there is anything to save. */
@@ -105,6 +120,7 @@ export function toggleComponent(input: CustomLayoutInput, component: LayoutCompo
       next[which].rows = rows.filter(row => row.panes.length > 0)
     }
   }
+  if (!on) next.options = withoutKey(next.options, component)
   return next
 }
 
@@ -202,6 +218,21 @@ export function resizeGridColumns(input: CustomLayoutInput, which: Orientation, 
 /** Sets where a day grid starts: today, or the first day of the week. */
 export function setGridStart(input: CustomLayoutInput, which: Orientation, at: PaneAt, start: DayGridStart): CustomLayoutInput {
   return withGrid(input, which, at, grid => ({ ...grid, start }))
+}
+
+/**
+ * Sets one option of a component's pane. Only what differs from the default is
+ * kept, so setting a key back to its default drops it, and a component left
+ * with nothing set drops its entry. An option that does not apply to the
+ * component, or a component the input does not show, changes nothing.
+ */
+export function setPaneOption(input: CustomLayoutInput, component: LayoutComponent, key: PaneOptionKey, value: boolean): CustomLayoutInput {
+  if (!PANE_OPTIONS[component].includes(key) || !componentsOf(input).includes(component)) return input
+  const current = input.options[component] ?? {}
+  if ((current[key] ?? DEFAULT_PANE_OPTIONS[key]) === value) return input
+  const set: PaneOptions = value === DEFAULT_PANE_OPTIONS[key] ? withoutKey(current, key) : { ...current, [key]: value }
+  const options = Object.keys(set).length > 0 ? { ...input.options, [component]: set } : withoutKey(input.options, component)
+  return { ...input, options }
 }
 
 /** Throws away the portrait arrangement and makes it again from the landscape one. */

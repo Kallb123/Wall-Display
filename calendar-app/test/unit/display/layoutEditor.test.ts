@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_DAY_GRID, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
 import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
-import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, toggleComponent } from '../../../app/utils/layoutEditor'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '../../../app/utils/layoutEditor'
 
 const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
@@ -17,9 +17,10 @@ const grid = (): CustomLayoutInput => ({
   name: 'Grid',
   landscape: arrangement([2, ['photo', 1], ['week', 3]], [1, ['agenda', 1]]),
   portrait: arrangement([1, ['photo', 1]], [2, ['week', 1]], [1, ['agenda', 1]]),
+  options: {},
 })
 
-const same = (landscape: LayoutArrangement): CustomLayoutInput => ({ name: 'x', landscape, portrait: landscape })
+const same = (landscape: LayoutArrangement): CustomLayoutInput => ({ name: 'x', landscape, portrait: landscape, options: {} })
 
 describe('newLayoutInput', () => {
   it('is valid, with the portrait made from the landscape', () => {
@@ -392,5 +393,63 @@ describe('the day grid', () => {
 
     valid(reset)
     expect(paneGrid(reset, 'portrait', portraitAt(reset))).toEqual({ rows: 5, columns: 2, start: 'today' })
+  })
+})
+
+describe('pane options', () => {
+  it('starts with none, and inputOf copies them', () => {
+    expect(newLayoutInput().options).toEqual({})
+    const saved = { id: 'x', ...setPaneOption(newLayoutInput('X'), 'week', 'show_hours', false), created_at: '', updated_at: '' }
+    const copied = inputOf(saved)
+
+    expect(copied.options).toEqual({ week: { show_hours: false } })
+    expect(copied.options).not.toBe(saved.options)
+    expect(sameInput(copied, newLayoutInput('X'))).toBe(false)
+  })
+
+  it('sets an option, valid and without changing the input', () => {
+    const input = newLayoutInput('X')
+    const before = structuredClone(input)
+    const next = setPaneOption(input, 'agenda', 'wrap_titles', true)
+
+    expect(next.options).toEqual({ agenda: { wrap_titles: true } })
+    valid(next)
+    expect(input).toEqual(before)
+  })
+
+  it('keeps only what differs from the default', () => {
+    const hidden = setPaneOption(newLayoutInput('X'), 'week', 'show_title', false)
+    const both = setPaneOption(hidden, 'week', 'show_hours', false)
+    const back = setPaneOption(both, 'week', 'show_title', true)
+
+    expect(back.options).toEqual({ week: { show_hours: false } })
+    expect(setPaneOption(back, 'week', 'show_hours', true).options).toEqual({})
+  })
+
+  it('hands back the same input when nothing changes', () => {
+    const input = newLayoutInput('X')
+
+    expect(setPaneOption(input, 'week', 'show_title', true)).toBe(input)
+    expect(setPaneOption(input, 'week', 'fill_events', true)).toBe(input)
+    expect(setPaneOption(input, 'month', 'show_title', false)).toBe(input)
+  })
+
+  it('drops a component\'s options when it is taken out, and they stay valid', () => {
+    const input = setPaneOption(setPaneOption(newLayoutInput('X'), 'agenda', 'fill_events', true), 'week', 'show_hours', false)
+    const next = toggleComponent(input, 'agenda', false)
+
+    expect(next.options).toEqual({ week: { show_hours: false } })
+    valid(next)
+    expect(toggleComponent(next, 'agenda', true).options).toEqual({ week: { show_hours: false } })
+  })
+
+  it('words the title by what it is', () => {
+    expect(paneOptionLabel('month', 'show_title')).toBe('Month title')
+    expect(paneOptionLabel('week', 'show_title')).toBe('Date title')
+    expect(paneOptionLabel('week_parts', 'show_title')).toBe('Date title')
+    expect(paneOptionLabel('month', 'show_sidebar')).toBe('Sidebar')
+    expect(paneOptionLabel('week', 'show_hours')).toBe('Hour labels')
+    expect(paneOptionLabel('agenda', 'fill_events')).toBe('Colour whole events')
+    expect(paneOptionLabel('agenda', 'wrap_titles')).toBe('Wrap long titles')
   })
 })

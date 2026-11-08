@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LayoutArrangement } from '../../../shared/layouts'
-import { COMPONENT_MINIMUMS, MIN_DAY_TILE, layoutPanes, paneFit, photoPillAtTopRight } from '../../../app/utils/layouts'
+import { COMPONENT_MINIMUMS, MIN_DAY_TILE, MONTH_MINIMUMS_NO_SIDEBAR, layoutPanes, paneFit, photoPillAtTopRight } from '../../../app/utils/layouts'
 import { stageFor, weekPhotoPanes } from '../../../app/utils/views'
 
 const LANDSCAPE = { width: 2560, height: 1440 }
@@ -123,6 +123,30 @@ describe('paneFit', () => {
   it('draws the photo frame at any size, unscaled', () => {
     expect(paneFit('photo', { width: 300, height: 200 })).toEqual({ stage: { width: 300, height: 200, orientation: 'landscape' }, scale: 1 })
     expect(paneFit('photo', { width: 1100, height: 1440 }).stage.orientation).toBe('portrait')
+  })
+})
+
+describe('paneFit with the month\'s sidebar hidden', () => {
+  const hidden = { show_sidebar: false }
+
+  it('draws a month at its real size in the smaller minimum', () => {
+    const { landscape, portrait } = MONTH_MINIMUMS_NO_SIDEBAR
+
+    expect(paneFit('month', landscape, undefined, hidden)).toEqual({ stage: { ...landscape, orientation: 'landscape' }, scale: 1 })
+    expect(paneFit('month', portrait, undefined, hidden)).toEqual({ stage: { ...portrait, orientation: 'portrait' }, scale: 1 })
+    expect(paneFit('month', landscape).scale).toBeLessThan(1)
+  })
+
+  it('has minimums smaller than the full month\'s', () => {
+    expect(MONTH_MINIMUMS_NO_SIDEBAR.landscape.width).toBeLessThan(COMPONENT_MINIMUMS.month.landscape.width)
+    expect(MONTH_MINIMUMS_NO_SIDEBAR.portrait.height).toBeLessThan(COMPONENT_MINIMUMS.month.portrait.height)
+  })
+
+  it('changes nothing for a shown sidebar or for any other component', () => {
+    const box = { width: 1550, height: 1300 }
+
+    expect(paneFit('month', box, undefined, { show_sidebar: true })).toEqual(paneFit('month', box))
+    expect(paneFit('agenda', box, undefined, hidden)).toEqual(paneFit('agenda', box))
   })
 })
 

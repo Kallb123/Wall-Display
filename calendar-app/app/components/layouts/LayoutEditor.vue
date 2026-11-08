@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, Copy, Minus, Monitor, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
-import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS } from '../../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent } from '../../../shared/layouts'
+import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, PANE_OPTIONS, paneOptions } from '../../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent, PaneOptionKey } from '../../../shared/layouts'
 import LayoutPreview from './LayoutPreview.vue'
-import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, toggleComponent } from '~/utils/layoutEditor'
+import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
 import type { MoveDirection, Orientation, PaneAt } from '~/utils/layoutEditor'
 import '~/assets/special-days-form.css'
 
@@ -57,6 +57,13 @@ const rowSize = computed(() => arrangement.value.rows[at.value.row]!.size)
 /** The selected pane's day grid in this arrangement, or null when it is not the days pane. */
 const dayGrid = computed(() => paneGrid(draft.value, which.value, at.value))
 const START_LABELS: Record<DayGridStart, string> = { today: 'Today', week: 'Start of week' }
+
+/** The options the selected pane has, with what they are set to. Shared by both arrangements. */
+const optionKeys = computed(() => PANE_OPTIONS[selected.value])
+const optionValues = computed(() => paneOptions(draft.value, selected.value))
+const toggleOption = (key: PaneOptionKey) => {
+  draft.value = setPaneOption(draft.value, selected.value, key, !optionValues.value[key])
+}
 
 const errors = computed(() => editorErrors(draft.value))
 const nameError = computed(() => draft.value.name !== '' ? errors.value.find(error => error.path === 'name')?.message ?? null : null)
@@ -285,6 +292,29 @@ function confirmDelete() {
         </div>
       </div>
 
+      <div v-if="optionKeys.length > 0" class="controls option-controls" role="group" :aria-label="`Display options for the ${COMPONENT_LABELS[selected]} pane`" data-testid="option-controls">
+        <p class="selection">
+          <strong>Display</strong>
+          <span>{{ COMPONENT_LABELS[selected] }}, both orientations</span>
+        </p>
+        <div class="chips">
+          <button
+            v-for="key in optionKeys"
+            :key="key"
+            type="button"
+            class="chip"
+            :aria-pressed="optionValues[key]"
+            :data-testid="`option-${key}`"
+            @click="toggleOption(key)"
+          >
+            {{ paneOptionLabel(selected, key) }}
+          </button>
+        </div>
+        <p class="sd-hint option-hint">
+          These apply to the landscape and the portrait arrangement alike.
+        </p>
+      </div>
+
       <SettingsPillButton v-if="which === 'portrait'" data-testid="reset-portrait" @click="draft = resetPortrait(draft)">
         <AppIcon :icon="RotateCcw" :size="20" />
         Start again from landscape
@@ -448,9 +478,15 @@ code {
   font-weight: 600;
 }
 
-.grid-controls {
+.grid-controls,
+.option-controls {
   padding-top: 14px;
   border-top: 2px solid var(--line);
+}
+
+.option-hint {
+  flex: 1 0 100%;
+  margin: 0;
 }
 
 .starts {

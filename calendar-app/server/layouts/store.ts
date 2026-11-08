@@ -19,6 +19,7 @@ function toLayout(row: CustomLayoutRow): CustomLayout | null {
       name: row.name,
       landscape: JSON.parse(row.landscape),
       portrait: JSON.parse(row.portrait),
+      options: JSON.parse(row.options),
       created_at: row.createdAt.toISOString(),
       updated_at: row.updatedAt.toISOString(),
     })
@@ -58,6 +59,7 @@ export function createLayout(db: Db, input: CustomLayoutInput, now: Date): Custo
       name: input.name,
       landscape: JSON.stringify(input.landscape),
       portrait: JSON.stringify(input.portrait),
+      options: JSON.stringify(input.options),
       createdAt: now,
       updatedAt: now,
     }).returning().get()
@@ -74,6 +76,7 @@ export function updateLayout(db: Db, id: string, input: CustomLayoutInput, now: 
       name: input.name,
       landscape: JSON.stringify(input.landscape),
       portrait: JSON.stringify(input.portrait),
+      options: JSON.stringify(input.options),
       updatedAt: now,
     }).where(eq(customLayouts.id, id)).returning().get()
     return row ? toLayout(row) : null

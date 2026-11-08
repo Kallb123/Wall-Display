@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, Copy, Minus, Monitor, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
-import { LAYOUT_COMPONENTS } from '../../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, LayoutComponent } from '../../../shared/layouts'
+import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS } from '../../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent } from '../../../shared/layouts'
 import LayoutPreview from './LayoutPreview.vue'
-import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, resetPortrait, resizePane, resizeRow, sameInput, toggleComponent } from '~/utils/layoutEditor'
+import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, toggleComponent } from '~/utils/layoutEditor'
 import type { MoveDirection, Orientation, PaneAt } from '~/utils/layoutEditor'
 import '~/assets/special-days-form.css'
 
@@ -54,6 +54,10 @@ const rowCount = computed(() => arrangement.value.rows.length)
 const paneSize = computed(() => arrangement.value.rows[at.value.row]!.panes[at.value.pane]!.size)
 const rowSize = computed(() => arrangement.value.rows[at.value.row]!.size)
 
+/** The selected pane's day grid in this arrangement, or null when it is not the days pane. */
+const dayGrid = computed(() => paneGrid(draft.value, which.value, at.value))
+const START_LABELS: Record<DayGridStart, string> = { today: 'Today', week: 'Start of week' }
+
 const errors = computed(() => editorErrors(draft.value))
 const nameError = computed(() => draft.value.name !== '' ? errors.value.find(error => error.path === 'name')?.message ?? null : null)
 const canSave = computed(() => errors.value.length === 0 && isDirty.value && props.busy === null)
@@ -82,6 +86,16 @@ const resizeHeight = (delta: 1 | -1) => {
 }
 const shiftRow = (direction: 'up' | 'down') => {
   draft.value = moveRow(draft.value, which.value, at.value.row, direction)
+}
+
+const gridRows = (delta: 1 | -1) => {
+  draft.value = resizeGridRows(draft.value, which.value, at.value, delta)
+}
+const gridColumns = (delta: 1 | -1) => {
+  draft.value = resizeGridColumns(draft.value, which.value, at.value, delta)
+}
+const gridStart = (start: DayGridStart) => {
+  draft.value = setGridStart(draft.value, which.value, at.value, start)
 }
 
 const MOVES: { direction: MoveDirection, icon: typeof ArrowUp, word: string }[] = [
@@ -224,6 +238,50 @@ function confirmDelete() {
           <button type="button" class="icon" aria-label="Move the row down" title="Row down" :disabled="at.row === rowCount - 1" data-testid="row-down" @click="shiftRow('down')">
             <AppIcon :icon="ArrowDown" :size="22" />
           </button>
+        </div>
+      </div>
+
+      <div v-if="dayGrid" class="controls grid-controls" role="group" :aria-label="`Day grid for ${which}`" data-testid="grid-controls">
+        <p class="selection">
+          <strong>Day grid</strong>
+          <span>{{ which }} only, {{ dayGrid.rows }} × {{ dayGrid.columns }}</span>
+        </p>
+
+        <div class="group" role="group" aria-label="Rows">
+          <span class="group-label" data-testid="grid-rows">Rows {{ dayGrid.rows }}</span>
+          <button type="button" class="icon" :aria-label="`Fewer rows in the ${which} day grid`" title="Fewer rows" :disabled="dayGrid.rows <= MIN_DAY_GRID_ROWS" data-testid="rows-fewer" @click="gridRows(-1)">
+            <AppIcon :icon="Minus" :size="22" />
+          </button>
+          <button type="button" class="icon" :aria-label="`More rows in the ${which} day grid`" title="More rows" :disabled="dayGrid.rows >= MAX_DAY_GRID_ROWS" data-testid="rows-more" @click="gridRows(1)">
+            <AppIcon :icon="Plus" :size="22" />
+          </button>
+        </div>
+
+        <div class="group" role="group" aria-label="Columns">
+          <span class="group-label" data-testid="grid-columns">Columns {{ dayGrid.columns }}</span>
+          <button type="button" class="icon" :aria-label="`Fewer columns in the ${which} day grid`" title="Fewer columns" :disabled="dayGrid.columns <= MIN_DAY_GRID_COLUMNS" data-testid="columns-fewer" @click="gridColumns(-1)">
+            <AppIcon :icon="Minus" :size="22" />
+          </button>
+          <button type="button" class="icon" :aria-label="`More columns in the ${which} day grid`" title="More columns" :disabled="dayGrid.columns >= MAX_DAY_GRID_COLUMNS" data-testid="columns-more" @click="gridColumns(1)">
+            <AppIcon :icon="Plus" :size="22" />
+          </button>
+        </div>
+
+        <div class="group starts" role="group" aria-label="Starts">
+          <span class="group-label">Starts</span>
+          <div class="switch">
+            <button
+              v-for="start in DAY_GRID_STARTS"
+              :key="start"
+              type="button"
+              class="seg"
+              :aria-pressed="dayGrid.start === start"
+              :data-testid="`start-${start}`"
+              @click="gridStart(start)"
+            >
+              {{ START_LABELS[start] }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -388,6 +446,26 @@ code {
   color: var(--muted);
   font-size: 14px;
   font-weight: 600;
+}
+
+.grid-controls {
+  padding-top: 14px;
+  border-top: 2px solid var(--line);
+}
+
+.starts {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.starts .switch {
+  flex: 1;
+  min-width: 0;
+}
+
+.starts .seg {
+  white-space: nowrap;
+  padding: 0 8px;
 }
 
 .group {

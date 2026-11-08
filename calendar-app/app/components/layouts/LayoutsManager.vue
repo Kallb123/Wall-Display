@@ -263,7 +263,7 @@ const showEditor = computed(() => selected.value !== null && (selected.value ===
         </ul>
 
         <p v-if="layouts.length === 0 && selected !== 'new'" class="empty" data-testid="list-empty">
-          No layouts yet. A layout puts the month, week, agenda or photos side by side on the wall.
+          No layouts yet. A layout puts the month, week, agenda, days or photos side by side on the wall.
         </p>
       </section>
 

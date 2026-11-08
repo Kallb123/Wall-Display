@@ -10,9 +10,33 @@ import type { View } from './display'
 
 export { LAYOUT_ID_PATTERN, layoutIdSchema } from './display'
 
-/** The view components a layout can place. Each at most once per layout, and each is also a `View`. */
-export const LAYOUT_COMPONENTS = ['month', 'week', 'week_parts', 'agenda', 'photo'] as const satisfies readonly View[]
+/**
+ * The components a layout can place. Each at most once per layout. Most are
+ * also a `View` of their own, but `days` (the day grid) is a layout component
+ * only: it has no view to choose, and exists only inside a custom layout.
+ */
+export const LAYOUT_COMPONENTS = ['month', 'week', 'week_parts', 'agenda', 'days', 'photo'] as const
 export type LayoutComponent = (typeof LAYOUT_COMPONENTS)[number]
+
+/** The first tile of a day grid: today, or the first day of the week that today is in (the display's `week_start`). */
+export const DAY_GRID_STARTS = ['today', 'week'] as const
+export type DayGridStart = (typeof DAY_GRID_STARTS)[number]
+
+/** The most and the fewest rows and columns of tiles in a day grid. */
+export const MIN_DAY_GRID_ROWS = 1
+export const MAX_DAY_GRID_ROWS = 6
+export const MIN_DAY_GRID_COLUMNS = 1
+export const MAX_DAY_GRID_COLUMNS = 7
+
+/** The grid of day tiles that a `days` pane draws: one consecutive day per tile, left to right then top to bottom. */
+export interface DayGrid {
+  rows: number
+  columns: number
+  start: DayGridStart
+}
+
+/** What a day grid pane starts with when the editor adds one. */
+export const DEFAULT_DAY_GRID: DayGrid = { rows: 2, columns: 4, start: 'today' }
 
 /** The most rows an arrangement may have, and the most panes in one row. */
 export const MAX_LAYOUT_ROWS = 4
@@ -27,6 +51,8 @@ export const MAX_LAYOUT_NAME = 60
 export interface LayoutPane {
   component: LayoutComponent
   size: number
+  /** The day grid's rows, columns and first tile. Required on a `days` pane and not allowed on any other. */
+  grid?: DayGrid
 }
 
 /** A row of panes. `size` is its share of the stage's height, against the other rows. */
@@ -67,9 +93,21 @@ const size = z.number()
   .min(MIN_LAYOUT_SIZE, `must be from ${MIN_LAYOUT_SIZE} to ${MAX_LAYOUT_SIZE}`)
   .max(MAX_LAYOUT_SIZE, `must be from ${MIN_LAYOUT_SIZE} to ${MAX_LAYOUT_SIZE}`)
 
+const gridCount = (min: number, max: number) => z.number()
+  .int('must be a whole number')
+  .min(min, `must be from ${min} to ${max}`)
+  .max(max, `must be from ${min} to ${max}`)
+
+const gridSchema = z.strictObject({
+  rows: gridCount(MIN_DAY_GRID_ROWS, MAX_DAY_GRID_ROWS),
+  columns: gridCount(MIN_DAY_GRID_COLUMNS, MAX_DAY_GRID_COLUMNS),
+  start: z.enum(DAY_GRID_STARTS, { error: `must be ${DAY_GRID_STARTS.join(' or ')}` }),
+})
+
 const paneSchema = z.strictObject({
   component: z.enum(LAYOUT_COMPONENTS, { error: `must be ${LAYOUT_COMPONENTS.slice(0, -1).join(', ')} or ${LAYOUT_COMPONENTS.at(-1)}` }),
   size,
+  grid: gridSchema.optional(),
 })
 
 const rowSchema = z.strictObject({
@@ -98,7 +136,7 @@ function panesOf(arrangement: LayoutArrangement): LayoutPane[] {
   return arrangement.rows.flatMap(row => row.panes)
 }
 
-/** The rules that cut across fields: no component twice in an arrangement, and the same components in both. */
+/** The rules that cut across fields: no component twice in an arrangement, the same components in both, and a grid on the day grid pane only. */
 function checkArrangements(value: CustomLayoutInput, ctx: z.RefinementCtx): void {
   const sets = {} as Record<'landscape' | 'portrait', Set<LayoutComponent>>
   for (const which of ['landscape', 'portrait'] as const) {
@@ -108,6 +146,12 @@ function checkArrangements(value: CustomLayoutInput, ctx: z.RefinementCtx): void
         ctx.addIssue({ code: 'custom', path: [which, 'rows', r, 'panes', p, 'component'], message: `must not be used twice (${pane.component} is already in the ${which} arrangement)` })
       }
       seen.add(pane.component)
+      if (pane.component === 'days' && !pane.grid) {
+        ctx.addIssue({ code: 'custom', path: [which, 'rows', r, 'panes', p, 'grid'], message: 'must have a grid (rows, columns and start) on a days pane' })
+      }
+      if (pane.component !== 'days' && pane.grid) {
+        ctx.addIssue({ code: 'custom', path: [which, 'rows', r, 'panes', p, 'grid'], message: `must not be set on a ${pane.component} pane, only on a days pane` })
+      }
     }))
     sets[which] = seen
   }
@@ -140,6 +184,12 @@ export function layoutComponents(layout: CustomLayoutInput | LayoutArrangement):
   return LAYOUT_COMPONENTS.filter(component => used.has(component))
 }
 
+/** Every day grid in a layout or an arrangement, in the order the panes are drawn (landscape's first, for a whole layout). */
+export function layoutDayGrids(layout: CustomLayoutInput | LayoutArrangement): DayGrid[] {
+  const panes = 'rows' in layout ? panesOf(layout) : [...panesOf(layout.landscape), ...panesOf(layout.portrait)]
+  return panes.flatMap(pane => pane.component === 'days' && pane.grid ? [pane.grid] : [])
+}
+
 /** What the control service and the clients' view helpers need of a layout. Cheap, so call it where it is needed. */
 export function layoutSummary(layout: CustomLayoutInput & { id: string }): LayoutSummary {
   return { id: layout.id, name: layout.name, components: layoutComponents(layout) }
@@ -169,6 +219,13 @@ export const viewShowsWeek = (view: View, layout: HasComponents | null | undefin
 export const viewShowsMonth = (view: View, layout: HasComponents | null | undefined): boolean =>
   view === 'month' || (view === 'custom' && !!layout && layoutShowsMonth(layout))
 
+/** A pane carried to the other orientation with a new `size`. A day grid turns with it, so its rows and columns swap and its start is kept. */
+function turnedPane(pane: LayoutPane, size: number): LayoutPane {
+  const turned: LayoutPane = { component: pane.component, size }
+  if (pane.grid) turned.grid = { rows: pane.grid.columns, columns: pane.grid.rows, start: pane.grid.start }
+  return turned
+}
+
 /**
  * The portrait arrangement a new layout starts from: the landscape one turned
  * on its side, so rows become columns and `[photo | week]` becomes the photo
@@ -181,10 +238,10 @@ export const viewShowsMonth = (view: View, layout: HasComponents | null | undefi
 export function transposeArrangement(arrangement: LayoutArrangement): LayoutArrangement {
   const { rows } = arrangement
   if (rows.length === 1) {
-    return { rows: rows[0]!.panes.map(pane => ({ size: pane.size, panes: [{ component: pane.component, size: MIN_LAYOUT_SIZE }] })) }
+    return { rows: rows[0]!.panes.map(pane => ({ size: pane.size, panes: [turnedPane(pane, MIN_LAYOUT_SIZE)] })) }
   }
   if (rows.every(row => row.panes.length === 1)) {
-    return { rows: [{ size: MIN_LAYOUT_SIZE, panes: rows.map(row => ({ component: row.panes[0]!.component, size: row.size })) }] }
+    return { rows: [{ size: MIN_LAYOUT_SIZE, panes: rows.map(row => turnedPane(row.panes[0]!, row.size)) }] }
   }
   const columns = Math.max(...rows.map(row => row.panes.length))
   const turned: LayoutRow[] = []
@@ -194,7 +251,7 @@ export function transposeArrangement(arrangement: LayoutArrangement): LayoutArra
     for (const row of rows) {
       const pane = row.panes[j]
       if (!pane) continue
-      panes.push({ component: pane.component, size: row.size })
+      panes.push(turnedPane(pane, row.size))
       tallest = Math.max(tallest, pane.size)
     }
     turned.push({ size: tallest, panes })

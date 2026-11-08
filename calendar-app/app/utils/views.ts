@@ -1,5 +1,5 @@
 import type { DayParts, MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
-import type { CustomLayout } from '../../shared/layouts'
+import type { CustomLayout, DayGrid } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -75,6 +75,8 @@ export interface ViewProps {
   pane?: boolean
   /** The custom view only: the layout to draw, or null when there is none (not chosen, deleted, or not heard yet). */
   layout?: CustomLayout | null
+  /** The day grid pane only: its rows, columns and first tile, from the layout's `days` pane. */
+  dayGrid?: DayGrid
   /** The events fetched for the shown month and the next few days, sorted by start. */
   events: CalendarEvent[]
   /** The current moment, ticking. Views work out "today" from it in `timezone`. */

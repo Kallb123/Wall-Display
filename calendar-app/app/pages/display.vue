@@ -19,7 +19,7 @@ import WeekPhotoView from '~/components/views/WeekPhotoView.vue'
 import WeekView from '~/components/views/WeekView.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
-import { displayEventRanges, todayIn } from '~/utils/eventRanges'
+import { dayGridRanges, displayEventRanges, todayIn } from '~/utils/eventRanges'
 import { layoutPanes, photoPillAtTopRight } from '~/utils/layouts'
 import { isOverlayShowing } from '~/utils/overlay'
 import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
@@ -254,13 +254,19 @@ const viewProps = computed<ViewProps | null>(() => {
 // A slow answer to an old request must not replace a newer one.
 let loadCount = 0
 
+// The day grids of the layout in use need their own days, which can run well past the month grid. Only the custom view shows them, so no other view asks.
+const dayGridNeeds = computed(() => {
+  if (state.value.view !== 'custom' || !currentLayout.value || !settings.value || !today.value) return []
+  return dayGridRanges(currentLayout.value, today.value, settings.value.week_start)
+})
+
 /** Fetches what the shown month, the shown week and the next days need, and keeps the last good events if that fails. */
 async function loadEvents() {
   if (!shownMonth.value || !today.value) return
   const id = ++loadCount
   try {
     const responses = await Promise.all(
-      displayEventRanges(shownMonth.value, today.value, shownWeek.value ?? undefined).map(range => $fetch<EventsResponse>('/api/events', { query: range })),
+      displayEventRanges(shownMonth.value, today.value, shownWeek.value ?? undefined, dayGridNeeds.value).map(range => $fetch<EventsResponse>('/api/events', { query: range })),
     )
     if (id !== loadCount) return
     // The ranges can overlap, so the same event may come twice.
@@ -281,7 +287,7 @@ watch(socket.weather, (next) => {
 })
 
 // The settings arriving, the month or week changing and midnight passing each change what to ask for.
-watch([shownMonth, shownWeek, today], () => void loadEvents(), { immediate: true })
+watch([shownMonth, shownWeek, today, () => JSON.stringify(dayGridNeeds.value)], () => void loadEvents(), { immediate: true })
 
 // Likewise the next alarm (null for none).
 watch(socket.alarm, (next) => {

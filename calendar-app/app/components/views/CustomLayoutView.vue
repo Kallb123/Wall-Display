@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
+import type { View } from '../../../shared/display'
 import type { LayoutComponent } from '../../../shared/layouts'
 import { layoutPanes, paneFit } from '../../utils/layouts'
 import type { PaneBox } from '../../utils/layouts'
 import type { ViewProps } from '../../utils/views'
 import AgendaView from './AgendaView.vue'
+import DayGridView from './DayGridView.vue'
 import MonthSoftView from './MonthSoftView.vue'
 import PhotoView from './PhotoView.vue'
 import WeekPartsView from './WeekPartsView.vue'
@@ -32,6 +34,7 @@ const components: Record<LayoutComponent, Component> = {
   week_parts: WeekPartsView,
   agenda: AgendaView,
   photo: PhotoView,
+  days: DayGridView,
 }
 
 const arrangement = computed(() => {
@@ -42,11 +45,14 @@ const arrangement = computed(() => {
 
 const panes = computed(() => {
   if (!arrangement.value) return []
-  return layoutPanes(arrangement.value, props.stage).map(box => ({ box, fit: paneFit(box.component, box) }))
+  return layoutPanes(arrangement.value, props.stage).map(box => ({ box, fit: paneFit(box.component, box, box.grid) }))
 })
 
 /** A layout of one pane fills the stage, so its view is the full view and not a pane of one. */
 const single = computed(() => panes.value.length === 1)
+
+/** The view a pane tells its component it is: its own, or `custom` for a component that is not a view (the day grid). */
+const viewOf = (component: LayoutComponent): View => (component === 'days' ? 'custom' : component)
 
 const boxStyle = (box: PaneBox) => ({
   left: `${box.x}px`,
@@ -72,7 +78,7 @@ const boxStyle = (box: PaneBox) => ({
         :style="{ width: `${fit.stage.width}px`, height: `${fit.stage.height}px`, transform: fit.scale === 1 ? undefined : `scale(${fit.scale})` }"
         :data-scale="fit.scale"
       >
-        <component :is="components[box.component]" v-bind="props" :view="box.component" :stage="fit.stage" :pane="!single" />
+        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" />
       </div>
     </div>
   </section>

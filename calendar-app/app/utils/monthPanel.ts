@@ -1,4 +1,4 @@
-import type { ItemPeople, PanelDay, PanelItem } from '../../shared/month-layout'
+import type { ItemPeople, PanelDay, PanelItem, WeekRow } from '../../shared/month-layout'
 
 // What the month view's side panel shows of a day from `monthLayout`: its items,
 // all-day first and then timed, trimmed to the rows the panel has room for.
@@ -84,4 +84,48 @@ export function fitPanelDay(day: PanelDay, now: Date, isToday: boolean, maxRows 
 /** The badges an item gets: its first people, as many as the layout kept initials for. Keyed by person, as two can share an initial. */
 export function badgesOf(item: ItemPeople): { id: string, initial: string, colour: string }[] {
   return item.initials.map((initial, index) => ({ id: item.people[index]!.id, initial, colour: item.people[index]!.colour }))
+}
+
+/** The most lanes an item may take when its title wraps: its own and two below. */
+export const MAX_WRAP_LANES = 3
+
+/** How many lanes each of a week's bars and timed rows may take (1 to `MAX_WRAP_LANES`), in the order of `bars` and `timed`. */
+export interface LaneSpans {
+  bars: number[]
+  timed: number[]
+}
+
+/**
+ * For the month grid's "wrap long titles" (architecture §4.8): a bar or timed
+ * row may run down into the lanes directly below it when, in every column it
+ * covers, that lane has nothing in it (no bar, no timed row, no "+N more") and
+ * is still one of the layout's `lanes`. Since an item only takes lanes below its
+ * own, and anything further down in its columns stops it, two items never take
+ * the same lane. The view draws an item that spans more than one lane as tall as
+ * its title needs, up to the lanes it was given, so a short title looks as it
+ * always did.
+ */
+export function laneSpans(week: Pick<WeekRow, 'bars' | 'timed' | 'more'>, lanes: number, cap = MAX_WRAP_LANES): LaneSpans {
+  const taken = new Set<string>()
+  const key = (lane: number, column: number) => `${lane}:${column}`
+  for (const bar of week.bars) for (let column = bar.column; column < bar.column + bar.span; column++) taken.add(key(bar.lane, column))
+  for (const row of week.timed) taken.add(key(row.lane, row.column))
+  for (const more of week.more) taken.add(key(more.lane, more.column))
+
+  const spanOf = (lane: number, column: number, width: number): number => {
+    let span = 1
+    while (span < cap && lane + span < lanes) {
+      const next = lane + span
+      let free = true
+      for (let offset = 0; offset < width; offset++) free &&= !taken.has(key(next, column + offset))
+      if (!free) break
+      span++
+    }
+    return span
+  }
+
+  return {
+    bars: week.bars.map(bar => spanOf(bar.lane, bar.column, bar.span)),
+    timed: week.timed.map(row => spanOf(row.lane, row.column, 1)),
+  }
 }

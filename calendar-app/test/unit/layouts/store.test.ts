@@ -19,9 +19,32 @@ function input(overrides: Partial<CustomLayoutInput> = {}): CustomLayoutInput {
     name: 'Kitchen',
     landscape: { rows: [{ size: 1, panes: [{ component: 'photo', size: 2 }, { component: 'week', size: 3 }] }] },
     portrait: { rows: [{ size: 2, panes: [{ component: 'photo', size: 1 }] }, { size: 3, panes: [{ component: 'week', size: 1 }] }] },
+    options: {},
     ...overrides,
   }
 }
+
+describe('pane options in the store', () => {
+  it('stores them, changes them and copies them', () => {
+    const { db } = migratedMemoryDb()
+    const options = { week: { show_hours: false }, photo: {} }
+    const created = createLayout(db, input({ options }), NOW)
+    expect(created.options).toEqual(options)
+    expect(getLayout(db, 'kitchen')!.options).toEqual(options)
+
+    const next = { week: { show_title: false } }
+    expect(updateLayout(db, 'kitchen', input({ options: next }), LATER)!.options).toEqual(next)
+    expect(duplicateLayout(db, 'kitchen', LATER)!.options).toEqual(next)
+  })
+
+  it('reads a row saved before the column as having none', () => {
+    const { db } = migratedMemoryDb()
+    createLayout(db, input(), NOW)
+    db.update(customLayouts).set({ options: '{}' }).run()
+
+    expect(getLayout(db, 'kitchen')!.options).toEqual({})
+  })
+})
 
 describe('createLayout and getLayout', () => {
   it('stores a layout under a slug of its name, as the wire format', () => {

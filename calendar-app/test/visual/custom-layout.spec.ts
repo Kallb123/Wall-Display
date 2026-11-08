@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import type { CustomLayout, LayoutArrangement, LayoutComponent } from '../../shared/layouts'
+import type { CustomLayout, LayoutArrangement, LayoutComponent, LayoutOptions } from '../../shared/layouts'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import { fontsReady, playServer, settle } from './helpers'
 import weather from './fixtures/weather.json' with { type: 'json' }
@@ -18,11 +18,12 @@ const row = (size: number, ...panes: [LayoutComponent, number][]): LayoutArrange
   panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })),
 })
 
-const layout = (id: string, landscape: LayoutArrangement, portrait: LayoutArrangement): CustomLayout => ({
+const layout = (id: string, landscape: LayoutArrangement, portrait: LayoutArrangement, options: LayoutOptions = {}): CustomLayout => ({
   id,
   name: id,
   landscape,
   portrait,
+  options,
   created_at: '2026-10-01T09:00:00.000Z',
   updated_at: '2026-10-01T09:00:00.000Z',
 })
@@ -63,6 +64,31 @@ const photoAboveDays = layout(
 )
 photoAboveDays.landscape.rows[0]!.panes[1]!.grid = { rows: 2, columns: 3, start: 'today' }
 photoAboveDays.portrait.rows[1]!.panes[0]!.grid = { rows: 4, columns: 2, start: 'today' }
+
+// The pane options (architecture §4.8): a month with no title or sidebar beside an
+// agenda that has today's date, a week with no hour labels over the week by part
+// of day, and a day grid, with whole events coloured and titles wrapped where
+// there is room.
+const withOptions = layout(
+  'options',
+  { rows: [row(1, ['month', 3], ['agenda', 2]), row(1, ['week', 1], ['days', 1])] },
+  { rows: [row(2, ['month', 1]), row(1, ['agenda', 1]), row(1, ['week', 1], ['days', 1])] },
+  {
+    month: { show_title: false, show_sidebar: false, fill_events: true, wrap_titles: true },
+    agenda: { fill_events: true, wrap_titles: true },
+    week: { show_title: false, show_hours: false },
+    days: { fill_events: true, wrap_titles: true },
+  },
+)
+withOptions.landscape.rows[1]!.panes[1]!.grid = { rows: 2, columns: 3, start: 'today' }
+withOptions.portrait.rows[2]!.panes[1]!.grid = { rows: 2, columns: 1, start: 'today' }
+
+const partsWithOptions = layout(
+  'parts-options',
+  { rows: [row(1, ['week_parts', 1])] },
+  { rows: [row(1, ['week_parts', 1])] },
+  { week_parts: { show_title: false, fill_events: true, wrap_titles: true } },
+)
 
 /** Opens `display` showing `shown`, and waits for every pane to be drawn. */
 async function open(page: Page, display: string, shown: CustomLayout) {
@@ -130,6 +156,30 @@ test.describe('landscape day grid', () => {
   })
 })
 
+test.describe('pane options', () => {
+  test('hidden titles, sidebar and hours, filled and wrapped events', async ({ page }) => {
+    await open(page, 'hallway', withOptions)
+
+    await expect(page.getByTestId('layout-pane-month').getByTestId('panel')).toHaveCount(0)
+    await expect(page.getByTestId('layout-pane-month').getByTestId('month-title')).toHaveCount(0)
+    await expect(page.getByTestId('layout-pane-week').getByTestId('gutter')).toHaveCount(0)
+    await expect(page).toHaveScreenshot('custom-options-light.png')
+  })
+
+  test('the same in the dark theme', async ({ page }) => {
+    await open(page, 'kitchen', withOptions)
+
+    await expect(page).toHaveScreenshot('custom-options-dark.png')
+  })
+
+  test('the week by part of day with filled, wrapped lines', async ({ page }) => {
+    await open(page, 'hallway', partsWithOptions)
+
+    await expect(page.getByTestId('week-title')).toHaveCount(0)
+    await expect(page).toHaveScreenshot('custom-parts-options-light.png')
+  })
+})
+
 test.describe('portrait', () => {
   test.use({ viewport: { width: 1440, height: 2560 } })
 
@@ -158,6 +208,14 @@ test.describe('portrait', () => {
 
     await expect(page.getByTestId('day-tile')).toHaveCount(6)
     await expect(page).toHaveScreenshot('custom-days-week-agenda-portrait-light.png')
+  })
+
+  test('pane options', async ({ page }) => {
+    await open(page, 'hallway', withOptions)
+
+    await expect(page.getByTestId('layout-pane-month').getByTestId('today-band')).toHaveCount(0)
+    await expect(page.getByTestId('layout-pane-month').getByTestId('next-days')).toHaveCount(0)
+    await expect(page).toHaveScreenshot('custom-options-portrait-light.png')
   })
 
   test('a 4 by 2 day grid below a photo', async ({ page }) => {

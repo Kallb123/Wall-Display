@@ -248,7 +248,8 @@ export const preferenceOverrides = sqliteTable('preference_overrides', {
  * The shared library of custom layouts (PR 5.17): view components arranged
  * into rows and panes, one arrangement for a landscape wall and one for a
  * portrait wall, both as JSON in the shape of `LayoutArrangement` in
- * shared/layouts.ts. The id is a slug of the name. The unique index on the
+ * shared/layouts.ts. `options` is the pane options as JSON (`LayoutOptions`),
+ * '{}' for a layout saved before they existed. The id is a slug of the name. The unique index on the
  * lower-cased name keeps Home Assistant's select, which uses names as its
  * options, unambiguous.
  */
@@ -257,6 +258,7 @@ export const customLayouts = sqliteTable('custom_layouts', {
   name: text('name').notNull(),
   landscape: text('landscape').notNull(),
   portrait: text('portrait').notNull(),
+  options: text('options').notNull().default('{}'),
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
   updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
 }, table => [

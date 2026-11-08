@@ -97,10 +97,35 @@ describe('custom layouts', async () => {
     expect(created).toEqual({
       id: 'kitchen',
       ...kitchen,
+      options: {},
       created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     })
     expect(await $fetch('/api/layouts')).toEqual([created])
+  })
+
+  it('round-trips pane options, and a body with none means none', async () => {
+    const options = { week: { show_hours: false, show_title: false } }
+    const made = await create({ ...kitchen, name: 'Options', options })
+    expect(made.options).toEqual(options)
+    expect((await $fetch<CustomLayout[]>('/api/layouts')).find(layout => layout.id === made.id)!.options).toEqual(options)
+
+    const edited = await update(made.id, { ...kitchen, name: 'Options' })
+    expect(edited.options).toEqual({})
+    const copied = await send<CustomLayout>('POST', `/api/layouts/${made.id}/duplicate`)
+    expect(copied.options).toEqual({})
+
+    const again = await update(made.id, { ...kitchen, name: 'Options', options })
+    expect((await send<CustomLayout>('POST', `/api/layouts/${again.id}/duplicate`)).options).toEqual(options)
+    expect((await raw('DELETE', `/api/layouts/${made.id}`)).status).toBe(204)
+    for (const other of (await $fetch<CustomLayout[]>('/api/layouts')).filter(layout => layout.id !== 'kitchen')) await raw('DELETE', `/api/layouts/${other.id}`)
+  })
+
+  it('refuses an option that does not apply, and one for a component the layout lacks', async () => {
+    await expect(create({ ...kitchen, name: 'Bad', options: { week: { fill_events: true } } })).rejects.toMatchObject(reason(400, 'options.week.fill_events must not be set on a week pane'))
+    await expect(create({ ...kitchen, name: 'Bad', options: { month: { show_title: false } } })).rejects.toMatchObject(reason(400, 'options.month must not be set'))
+    await expect(create({ ...kitchen, name: 'Bad', options: { week: { show_title: 'no' } } })).rejects.toMatchObject(reason(400, 'options.week.show_title must be true or false'))
+    expect(await $fetch<CustomLayout[]>('/api/layouts')).toHaveLength(1)
   })
 
   it('answers a bad body with a 400 that names the field', async () => {

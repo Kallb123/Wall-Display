@@ -1,0 +1,1 @@
+ALTER TABLE `custom_layouts` ADD `options` text DEFAULT '{}' NOT NULL;

@@ -1,4 +1,4 @@
-import type { DayGrid, LayoutArrangement, LayoutComponent } from '../../shared/layouts'
+import type { DayGrid, LayoutArrangement, LayoutComponent, ResolvedPaneOptions } from '../../shared/layouts'
 import type { Corner } from './burnIn'
 import type { Stage } from './views'
 
@@ -101,6 +101,20 @@ export const COMPONENT_MINIMUMS: Record<Exclude<LayoutComponent, 'photo' | 'days
   agenda: { landscape: { width: 2400, height: 1350 }, portrait: { width: 1300, height: 2300 } },
 }
 
+/**
+ * The month's design minimum when its sidebar is hidden: without the 640 px
+ * side column and its gap the landscape grid is narrower, and without the
+ * today band and the next-days strip the portrait one is shorter. Worked out
+ * from the view's sizes. In landscape the title then sits above the weeks, so
+ * the grid is taller than the full month's 1300 (five weeks of four lanes, the
+ * weekday header and the title come to about 1360). A hidden title is not worth
+ * a minimum of its own.
+ */
+export const MONTH_MINIMUMS_NO_SIDEBAR: Record<'landscape' | 'portrait', Minimum> = {
+  landscape: { width: 1550, height: 1370 },
+  portrait: { width: 1300, height: 1700 },
+}
+
 /** The smallest a day grid's tile is drawn at: a pane with more tiles than fit at this size is drawn on a bigger stage and scaled down. Tall enough for one event card and the "+N more" line under its head (app/utils/dayGrid.ts). */
 export const MIN_DAY_TILE: Minimum = { width: 320, height: 264 }
 
@@ -121,9 +135,11 @@ export interface PaneFit {
  * stage of the box's shape that is just big enough, and shrunk uniformly. The
  * day grid has no minimum of its own: its tiles are what must not get too
  * small, so its minimum is `grid.rows` by `grid.columns` tiles of `MIN_DAY_TILE`
- * (without a grid, one tile, which is only a safe fallback).
+ * (without a grid, one tile, which is only a safe fallback). A month with its
+ * sidebar hidden (`options.show_sidebar` false) has the smaller
+ * `MONTH_MINIMUMS_NO_SIDEBAR`.
  */
-export function paneFit(component: LayoutComponent, box: { width: number, height: number }, grid?: DayGrid): PaneFit {
+export function paneFit(component: LayoutComponent, box: { width: number, height: number }, grid?: DayGrid, options?: Pick<ResolvedPaneOptions, 'show_sidebar'>): PaneFit {
   const narrowWeek = component === 'week' && box.width < WEEK_WIDE_MIN_WIDTH
   const orientation = box.height > box.width || narrowWeek ? 'portrait' : 'landscape'
   if (component === 'photo') return { stage: { width: box.width, height: box.height, orientation }, scale: 1 }
@@ -131,7 +147,7 @@ export function paneFit(component: LayoutComponent, box: { width: number, height
     const scale = Math.min(1, box.width / ((grid?.columns ?? 1) * MIN_DAY_TILE.width), box.height / ((grid?.rows ?? 1) * MIN_DAY_TILE.height))
     return { stage: { width: Math.round(box.width / scale), height: Math.round(box.height / scale), orientation: box.height > box.width ? 'portrait' : 'landscape' }, scale }
   }
-  const minimum = COMPONENT_MINIMUMS[component][orientation]
+  const minimum = component === 'month' && options?.show_sidebar === false ? MONTH_MINIMUMS_NO_SIDEBAR[orientation] : COMPONENT_MINIMUMS[component][orientation]
   const scale = Math.min(1, box.width / minimum.width, box.height / minimum.height)
   return {
     stage: { width: Math.round(box.width / scale), height: Math.round(box.height / scale), orientation },

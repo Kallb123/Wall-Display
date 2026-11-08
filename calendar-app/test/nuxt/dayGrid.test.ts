@@ -5,6 +5,7 @@ import CustomLayoutView from '~/components/views/CustomLayoutView.vue'
 import DayGridView from '~/components/views/DayGridView.vue'
 import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
 import type { CustomLayout, DayGrid } from '../../shared/layouts'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -150,12 +151,44 @@ describe('DayGridView', () => {
   })
 })
 
+describe('DayGridView pane options', () => {
+  const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
+  const card = (wrapper: Wrapper) => tile(wrapper, '2026-10-28').find('[data-testid="event"]')
+
+  it('fills a card with the first person\'s colour when asked', async () => {
+    const filled = await open({ events: [event(1)], paneOptions: options({ fill_events: true }) })
+    expect(card(filled).attributes('style')).toContain('--card-ring')
+
+    const plain = await open({ events: [event(1)], paneOptions: options({}) })
+    expect(card(plain).attributes('style') ?? '').not.toContain('--card-ring')
+  })
+
+  it('lets every card wrap when asked, and none otherwise', async () => {
+    const on = await open({ events: [event(1)], paneOptions: options({ wrap_titles: true }) })
+    expect(tile(on, '2026-10-28').find('[data-wrap-box]').exists()).toBe(true)
+    await vi.waitFor(() => expect(card(on).attributes('data-wrap')).toBe('on'))
+
+    for (const paneOptions of [options({}), undefined]) {
+      const off = await open({ events: [event(1)], paneOptions })
+      expect(card(off).attributes('data-wrap')).toBeUndefined()
+    }
+  })
+
+  it('is as before with no options', async () => {
+    const wrapper = await open({ events: [event(1)] })
+
+    expect(card(wrapper).attributes('style') ?? '').not.toContain('--card-ring')
+    expect(wrapper.find('[data-wrap]').exists()).toBe(false)
+  })
+})
+
 describe('CustomLayoutView with a days pane', () => {
   const layout = (): CustomLayout => ({
     id: 'days',
     name: 'Days',
     landscape: { rows: [{ size: 1, panes: [{ component: 'days', size: 1, grid: grid({ rows: 3, columns: 5 }) }] }] },
     portrait: { rows: [{ size: 1, panes: [{ component: 'days', size: 1, grid: grid({ rows: 5, columns: 2 }) }] }] },
+    options: {},
     created_at: '2026-10-01T09:00:00.000Z',
     updated_at: '2026-10-01T09:00:00.000Z',
   })

@@ -3,8 +3,12 @@ import { flushPromises } from '@vue/test-utils'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import CustomLayoutView from '~/components/views/CustomLayoutView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
+import AgendaView from '~/components/views/AgendaView.vue'
+import PhotoView from '~/components/views/PhotoView.vue'
+import WeekView from '~/components/views/WeekView.vue'
 import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
 
 // A custom layout on both stages, with the server pretended as in
@@ -33,6 +37,7 @@ const layout = (overrides: Partial<CustomLayout> = {}): CustomLayout => ({
   created_at: '2026-10-01T09:00:00.000Z',
   updated_at: '2026-10-01T09:00:00.000Z',
   ...overrides,
+  options: overrides.options ?? {},
 })
 
 const props = (device: 'portrait' | 'landscape', overrides: Partial<ViewProps> = {}): ViewProps => ({
@@ -124,6 +129,30 @@ describe('CustomLayoutView on the portrait stage', () => {
     await open('portrait')
 
     expect(fetchMock).toHaveBeenCalledWith('/api/photos/next', expect.objectContaining({ query: { display: 'hallway', orientation: 'landscape' } }))
+  })
+})
+
+describe('CustomLayoutView with pane options', () => {
+  it('gives each view the options of its pane, defaults where none are set', async () => {
+    const wrapper = await open('landscape', { layout: layout({ options: { week: { show_hours: false }, agenda: { wrap_titles: true, fill_events: true } } }) })
+
+    expect(wrapper.findComponent(WeekView).props('paneOptions')).toEqual({ ...DEFAULT_PANE_OPTIONS, show_hours: false })
+    expect(wrapper.findComponent(AgendaView).props('paneOptions')).toEqual({ ...DEFAULT_PANE_OPTIONS, wrap_titles: true, fill_events: true })
+    expect(wrapper.findComponent(PhotoView).props('paneOptions')).toEqual(DEFAULT_PANE_OPTIONS)
+  })
+
+  it('fits a month with no sidebar to its smaller minimum', async () => {
+    const month = { rows: [{ size: 1, panes: [{ component: 'month' as const, size: 3 }, { component: 'agenda' as const, size: 1 }] }] }
+    const scaleOf = async (options: CustomLayout['options']) => {
+      const wrapper = await open('landscape', { layout: layout({ landscape: month, portrait: month, options }) })
+      const scale = Number(wrapper.find('[data-testid="layout-pane-month"] .virtual-stage').attributes('data-scale'))
+      wrapper.unmount()
+      return scale
+    }
+
+    // A 1920×1440 box: 1920 / 2200 with the sidebar, and no scaling without it (1550×1370 fits).
+    expect(await scaleOf({})).toBeCloseTo(1920 / 2200)
+    expect(await scaleOf({ month: { show_sidebar: false } })).toBe(1)
   })
 })
 

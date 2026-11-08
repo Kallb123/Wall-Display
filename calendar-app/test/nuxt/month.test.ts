@@ -4,6 +4,8 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
+import type { ResolvedPaneOptions } from '../../shared/layouts'
 import type { ViewProps } from '~/utils/views'
 import type { Takeover, TileDecoration } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -353,6 +355,116 @@ describe('MonthSoftView', () => {
       expect(wrapper.find('[data-testid="today-band"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="next-days"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="today-high-low"]').exists()).toBe(false)
+    })
+  })
+  describe('pane options', () => {
+    const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-28', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null }
+    const portraitStage = { width: 1440, height: 2560, orientation: 'portrait' } as const
+    /** useWrapFit runs in an animation frame after mounting. */
+    const afterFit = () => new Promise(resolve => setTimeout(resolve, 50))
+    const options = (overrides: Partial<ResolvedPaneOptions>): ResolvedPaneOptions => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
+
+    it('is unchanged without options: title, panel and no wrapping marks', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props() })
+
+      expect(wrapper.find('[data-testid="month-title"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="panel"]').exists()).toBe(true)
+      expect(wrapper.find('[data-wrap]').exists()).toBe(false)
+      expect(wrapper.find('.head').exists()).toBe(false)
+      expect(wrapper.findAll('.tall')).toHaveLength(0)
+      const timed = wrapper.findAll('[data-kind="timed"]')[0]!
+      expect(timed.attributes('style')).not.toContain('background')
+    })
+
+    it('hides the title in both orientations and keeps the sidebar', async () => {
+      const landscape = await mountSuspended(MonthSoftView, { props: props({ paneOptions: options({ show_title: false }) }) })
+      expect(landscape.find('[data-testid="month-title"]').exists()).toBe(false)
+      expect(landscape.find('[data-testid="panel"]').exists()).toBe(true)
+
+      const portrait = await mountSuspended(MonthSoftView, { props: props({ stage: portraitStage, paneOptions: options({ show_title: false }) }) })
+      expect(portrait.find('[data-testid="month-title"]').exists()).toBe(false)
+      expect(portrait.find('[data-testid="today-band"]').exists()).toBe(true)
+    })
+
+    it('hides the panel without the sidebar, leaving the title above the weeks', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ paneOptions: options({ show_sidebar: false }) }) })
+
+      expect(wrapper.find('[data-testid="panel"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="panel-day"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="month-title"]').text()).toBe('October 2026')
+      expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(35)
+    })
+
+    it('hides the band and the strip in portrait, and draws no header with nothing to put in it', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ stage: portraitStage, paneOptions: options({ show_sidebar: false, show_title: false }) }) })
+
+      for (const id of ['today-band', 'next-days', 'panel-day', 'panel-date', 'month-title']) expect(wrapper.find(`[data-testid="${id}"]`).exists()).toBe(false)
+      expect(wrapper.find('.head').exists()).toBe(false)
+      expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(35)
+    })
+
+    it('still draws a takeover\'s greeting when its panel is hidden', async () => {
+      const specialDays = { tiles: [], takeover }
+      for (const stage of [{ width: 2560, height: 1440, orientation: 'landscape' } as const, portraitStage]) {
+        const withTitle = await mountSuspended(MonthSoftView, { props: props({ stage, specialDays, paneOptions: options({ show_sidebar: false }) }) })
+        expect(withTitle.find('.head [data-testid="greeting"]').text()).toBe('Happy Halloween')
+        expect(withTitle.find('.head [data-testid="month-title"]').exists()).toBe(true)
+
+        const alone = await mountSuspended(MonthSoftView, { props: props({ stage, specialDays, paneOptions: options({ show_sidebar: false, show_title: false }) }) })
+        expect(alone.find('.head [data-testid="greeting"]').text()).toBe('Happy Halloween')
+        expect(alone.find('[data-testid="month-title"]').exists()).toBe(false)
+      }
+    })
+
+    it('fills timed rows and panel rows with the person\'s colour', async () => {
+      const solo = { ...events.find(event => !event.all_day)!, id: 9900, display_title: 'Bins out', people: [], start: '2026-10-29T10:00:00.000Z', end: '2026-10-29T10:30:00.000Z' }
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ events: [...events, solo], paneOptions: options({ fill_events: true }) }) })
+
+      const timed = wrapper.findAll('[data-kind="timed"]').find(candidate => candidate.text().includes('1:1 with Priya'))!
+      // happy-dom drops a background it cannot parse (color-mix), so the fill is checked by the ring it sets.
+      expect(timed.attributes('style')).toContain('--ring: color-mix')
+      expect(timed.attributes('style')).toContain('border-radius: 999px')
+      const panelRow = wrapper.findAll('[data-kind="panel"]').find(candidate => candidate.text().includes('1:1 with Priya'))!
+      expect(panelRow.attributes('style')).toContain('--ring: color-mix')
+      expect(panelRow.classes()).toContain('filled')
+      // Nobody on it: the surface colour.
+      const nobody = wrapper.findAll('[data-kind="panel"]').find(candidate => candidate.text().includes('Bins out'))!
+      expect(nobody.find('.badge').exists()).toBe(false)
+      expect(nobody.attributes('style')).toContain('background: var(--surface)')
+    })
+
+    it('fills the portrait band and the strip too', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ stage: portraitStage, paneOptions: options({ fill_events: true }) }) })
+
+      const rows = wrapper.findAll('[data-testid="today-band"] [data-kind="panel"], [data-testid="next-days"] [data-kind="panel"]')
+      expect(rows.length).toBeGreaterThan(0)
+      expect(rows.every(row => row.classes().includes('filled'))).toBe(true)
+    })
+
+    it('lets a timed row with a free lane below take it, and marks the panel rows to wrap', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ paneOptions: options({ wrap_titles: true }) }) })
+      await afterFit()
+
+      const spanning = wrapper.findAll('[data-kind="timed"]').filter(candidate => /span [23]/.test(candidate.attributes('style') ?? ''))
+      expect(spanning.length).toBeGreaterThan(0)
+      expect(spanning[0]!.classes()).toContain('tall')
+      // The panel's rows are all marked (nothing overflows where nothing is measured).
+      const rows = wrapper.findAll('[data-testid="panel"] [data-wrap-item]')
+      expect(rows.length).toBeGreaterThan(0)
+      expect(rows.every(row => row.attributes('data-wrap') === 'on')).toBe(true)
+      // Without the option, the same rows have no span.
+      const plain = await mountSuspended(MonthSoftView, { props: props() })
+      expect(plain.findAll('[data-kind="timed"]').some(candidate => /span/.test(candidate.attributes('style') ?? ''))).toBe(false)
+    })
+
+    it('leaves the portrait band out of the wrapping, and measures the strip\'s cards', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ stage: portraitStage, paneOptions: options({ wrap_titles: true }) }) })
+      await afterFit()
+
+      expect(wrapper.find('[data-testid="today-band"]').element.closest('[data-wrap-box]')).toBeNull()
+      expect(wrapper.find('[data-testid="today-band"] [data-wrap]').exists()).toBe(false)
+      expect(wrapper.findAll('[data-testid="next-days"] [data-wrap-box]')).toHaveLength(3)
+      expect(wrapper.find('[data-testid="next-days"] [data-wrap="on"]').exists()).toBe(true)
     })
   })
 })

@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import AgendaView from '~/components/views/AgendaView.vue'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { Takeover } from '../../shared/special-days'
+import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
 import type { WeatherSnapshot } from '../../shared/weather'
 
 // The agenda view's weather lines, for Wed 28 Oct 2026. The events and the
@@ -119,5 +120,44 @@ describe('AgendaView portrait', () => {
     expect([count(portraitView, 'day-today'), count(portraitView, 'day-tomorrow')]).toEqual([7, 4])
     expect([count(landscape, 'day-today'), count(landscape, 'day-tomorrow')]).toEqual([7, 7])
     expect(portraitView.find('[data-testid="day-tomorrow"] [data-testid="more"]').text()).toBe('+8 more')
+  })
+})
+
+describe('AgendaView pane options', () => {
+  const mum = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
+  const timed: CalendarEvent = {
+    id: 1, calendar_id: 'family', title: 'Dentist', display_title: 'Dentist', location: null,
+    start: '2026-10-28T14:00:00Z', end: '2026-10-28T15:00:00Z', all_day: false, start_date: null, end_date: null, people: [mum],
+  }
+  const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
+  const row = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.find('[data-testid="day-today"] [data-testid="event"]')
+
+  it('fills a timed row, without its stripe, when asked', async () => {
+    const filled = await mountSuspended(AgendaView, { props: props({ events: [timed], paneOptions: options({ fill_events: true }) }) })
+    expect(row(filled).attributes('style')).toContain('--ring')
+    expect(row(filled).find('.stripe').exists()).toBe(false)
+
+    const plain = await mountSuspended(AgendaView, { props: props({ events: [timed], paneOptions: options({}) }) })
+    expect(row(plain).attributes('style') ?? '').not.toContain('--ring')
+    expect(row(plain).find('.stripe').exists()).toBe(true)
+  })
+
+  it('lets every event row wrap when asked, and none otherwise', async () => {
+    const on = await mountSuspended(AgendaView, { props: props({ events: [timed], paneOptions: options({ wrap_titles: true }) }) })
+    expect(on.find('[data-wrap-box]').exists()).toBe(true)
+    await vi.waitFor(() => expect(row(on).attributes('data-wrap')).toBe('on'))
+
+    for (const paneOptions of [options({}), undefined]) {
+      const off = await mountSuspended(AgendaView, { props: props({ events: [timed], paneOptions }) })
+      expect(row(off).attributes('data-wrap')).toBeUndefined()
+    }
+  })
+
+  it('is as before with no options', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ events: [timed] }) })
+
+    expect(row(wrapper).attributes('style') ?? '').not.toContain('--ring')
+    expect(row(wrapper).find('.stripe').exists()).toBe(true)
+    expect(wrapper.find('[data-wrap]').exists()).toBe(false)
   })
 })

@@ -3,6 +3,7 @@ import { greetingSize, tileArt } from '~/utils/specialDays'
 import { paletteAccent, personFill, PORTRAIT_WEEK_TILE_TINT, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { currentWeek, weekDiff } from '../../../shared/display'
 import { specialDayArtUrl } from '../../../shared/special-days'
@@ -54,7 +55,19 @@ import type { AllDayBar, Band, TimedBlock, WeekDay } from '../../../shared/week-
 // portrait layout in the box it is given, with a short title in place of the
 // full one: the range without a year, and under it in muted type where the
 // week is in time, "This week", "Next week", "Last week" or else the year.
+//
+// A custom layout can switch two parts off (`paneOptions`, architecture §4.8):
+// the title, so a layout that shows the date elsewhere does not say it twice, and
+// the hour labels. Without the title the header holds the takeover's greeting
+// alone, and is not drawn at all when there is none, so it takes no room and
+// leaves no gap. Without the hour labels the gutter column stays in the grid
+// with no width (so the columns, the strip's subgrid and the veil keep their
+// numbers) and the grid is pulled back by the one gap after it; the seven days
+// take the width. The hour rules and the now line are in the columns, and stay.
 const props = defineProps<ViewProps>()
+
+const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+const showHeader = computed(() => options.value.show_title || !!props.specialDays.takeover?.greeting)
 
 const portrait = computed(() => props.stage.orientation === 'portrait')
 
@@ -192,12 +205,12 @@ const BAND_SHOWN = 1
 </script>
 
 <template>
-  <section class="view" :class="{ portrait, pane }" data-testid="week-view">
-    <header class="header">
-      <h1 v-if="pane" class="title" data-testid="week-title">
+  <section class="view" :class="{ 'portrait': portrait, pane, 'no-hours': !options.show_hours }" data-testid="week-view">
+    <header v-if="showHeader" class="header">
+      <h1 v-if="options.show_title && pane" class="title" data-testid="week-title">
         <span class="range">{{ shortTitle.range }}</span>{{ ' ' }}<span class="year" data-testid="week-label">{{ shortTitle.label }}</span>
       </h1>
-      <h1 v-else class="title" data-testid="week-title">
+      <h1 v-else-if="options.show_title" class="title" data-testid="week-title">
         <!-- The space is for the text ("26 October – 1 November 2026"); between flex items it takes no room. -->
         <span class="range">{{ title.range }}</span>{{ ' ' }}<span v-if="title.year" class="year">{{ title.year }}</span>
       </h1>
@@ -293,7 +306,7 @@ const BAND_SHOWN = 1
       <!-- The folded hours before and after the range: a dashed edge, a label in the gutter and what is wholly inside them. -->
       <template v-for="(band, edge) in [layout.early, layout.late]" :key="edge">
         <template v-if="band">
-          <div class="band-label" :style="{ gridRow: edge === 0 ? 3 : 5 }">
+          <div v-if="options.show_hours" class="band-label" :style="{ gridRow: edge === 0 ? 3 : 5 }">
             {{ band.label }}
           </div>
           <div
@@ -335,7 +348,7 @@ const BAND_SHOWN = 1
       </template>
 
       <!-- The hours: labels in the gutter, a rule at each hour in each column, and the blocks. -->
-      <div class="gutter">
+      <div v-if="options.show_hours" class="gutter" data-testid="gutter">
         <span
           v-for="(hour, index) in layout.hours"
           :key="hour"
@@ -1062,5 +1075,15 @@ const BAND_SHOWN = 1
 
 .portrait .now-dot {
   left: 4px;
+}
+
+/* No hour labels: the gutter column has no width and the grid is pulled back by the gap after it, so the days start at the grid's edge. */
+.view.no-hours .grid {
+  grid-template-columns: 0 repeat(7, minmax(0, 1fr));
+  margin-left: -14px;
+}
+
+.view.portrait.no-hours .grid {
+  margin-left: -10px;
 }
 </style>

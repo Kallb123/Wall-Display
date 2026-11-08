@@ -4,6 +4,7 @@ import WeekView from '~/components/views/WeekView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
 import type { Takeover, TileDecoration } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -321,5 +322,58 @@ describe('WeekView as a pane', () => {
     const wrapper = await mountSuspended(WeekView, { props: props() })
 
     expect(wrapper.find('[data-testid="week-label"]').exists()).toBe(false)
+  })
+
+  describe('pane options', () => {
+    const takeover = { greeting: 'Happy Halloween' } as Takeover
+    const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
+
+    it('draws as before with no options, and with the defaults', async () => {
+      for (const paneOptions of [undefined, DEFAULT_PANE_OPTIONS]) {
+        const wrapper = await mountSuspended(WeekView, { props: props({ paneOptions }) })
+
+        expect(wrapper.find('[data-testid="week-title"]').exists()).toBe(true)
+        expect(wrapper.find('[data-testid="gutter"]').exists()).toBe(true)
+        expect(wrapper.findAll('.hour-label')).toHaveLength(14)
+        expect(wrapper.find('[data-testid="now-time"]').exists()).toBe(true)
+        expect(wrapper.classes()).not.toContain('no-hours')
+      }
+    })
+
+    it('hides the title, in the pane\'s short form too, and the header with it', async () => {
+      for (const pane of [false, true]) {
+        const wrapper = await mountSuspended(WeekView, { props: props({ pane, paneOptions: options({ show_title: false }) }) })
+
+        expect(wrapper.find('[data-testid="week-title"]').exists()).toBe(false)
+        expect(wrapper.find('.header').exists()).toBe(false)
+        expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(7)
+      }
+    })
+
+    it('keeps a takeover\'s greeting when the title is hidden', async () => {
+      const wrapper = await mountSuspended(WeekView, { props: props({ paneOptions: options({ show_title: false }), specialDays: { tiles: [], takeover } }) })
+
+      expect(wrapper.find('[data-testid="week-title"]').exists()).toBe(false)
+      expect(wrapper.find('.header').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="greeting"]').text()).toBe('Happy Halloween')
+    })
+
+    it('hides the hour labels, the folded-band labels and the now time, and keeps the rules and the now line', async () => {
+      const wrapper = await mountSuspended(WeekView, { props: props({
+        paneOptions: options({ show_hours: false }),
+        events: [event(1, { start: '2026-10-28T06:15:00Z', end: '2026-10-28T06:45:00Z' }), event(2, { start: '2026-10-28T09:00:00Z', end: '2026-10-28T10:00:00Z' })],
+      }) })
+
+      expect(wrapper.find('[data-testid="gutter"]').exists()).toBe(false)
+      expect(wrapper.find('.hour-label').exists()).toBe(false)
+      expect(wrapper.find('.band-label').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="now-time"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="band-item"]').exists()).toBe(true)
+      expect(wrapper.findAll('.rule').length).toBeGreaterThan(0)
+      expect(wrapper.find('[data-testid="now-line"]').exists()).toBe(true)
+      expect(wrapper.classes()).toContain('no-hours')
+      // The columns are still numbered from 2, so the veil and the tiles are where they were.
+      expect(wrapper.find('[data-testid="veil"]').attributes('style')).toContain('grid-column: 2 / span 2')
+    })
   })
 })

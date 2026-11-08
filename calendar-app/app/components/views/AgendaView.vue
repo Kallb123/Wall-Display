@@ -5,8 +5,10 @@ import { agendaDays, PORTRAIT_MAX_ROWS } from '~/utils/agenda'
 import type { AgendaDay, AgendaItem } from '~/utils/agenda'
 import { formatTime } from '~/utils/format'
 import { personFill } from '~/utils/themes'
+import { useWrapFit } from '~/composables/useWrapFit'
 import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather'
 
 // Today and tomorrow in large type (architecture §4.1): a card for each, with
@@ -21,7 +23,19 @@ import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather
 // The weather (PR 2.7) is a line under each long date: today's has the current
 // conditions as well as the forecast, tomorrow's only the forecast. A day with
 // no weather has no line, so the card is as it was.
+//
+// Pane options (architecture §4.8), for a pane of a custom layout; without
+// them the view is as it always was. `fill_events` gives the timed rows the
+// person's fill the all-day rows already have, minus the side stripe, which
+// the fill replaces. `wrap_titles` lets a title take up to three lines, but
+// only where the list has room: each card's list is a fixed-size box and each
+// event a row in it, and `useWrapFit` turns wrapping on one row at a time, top
+// to bottom, while the list still fits.
 const props = defineProps<ViewProps>()
+
+const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+const root = ref<HTMLElement | null>(null)
+useWrapFit(root, () => options.value.wrap_titles)
 
 const MAX_BADGES = 3
 
@@ -63,13 +77,20 @@ function fill(event: CalendarEvent): string {
   return event.people[0] ? personFill(event.people[0].colour) : 'var(--surface)'
 }
 
+/** A row's own background and ring: all-day rows are always filled, timed ones only when asked. The ring is the fill, so overlapping badges are cut out of the row they sit on. */
+function rowStyle(row: { kind: 'all-day' | 'timed', item: AgendaItem }) {
+  if (row.kind === 'timed' && !options.value.fill_events) return undefined
+  const background = fill(row.item.event)
+  return { background, '--ring': background }
+}
+
 function barColour(event: CalendarEvent): string {
   return event.people[0]?.colour ?? 'var(--muted)'
 }
 </script>
 
 <template>
-  <section class="view" :class="{ portrait }" data-testid="agenda-view">
+  <section ref="root" class="view" :class="{ portrait }" data-testid="agenda-view">
     <article
       v-for="(day, index) in days"
       :key="day.date"
@@ -107,7 +128,7 @@ function barColour(event: CalendarEvent): string {
         </p>
       </div>
 
-      <ul v-else class="rows">
+      <ul v-else class="rows" data-wrap-box>
         <template v-for="(row, position) in rowsFor(day)" :key="row.kind === 'now' ? 'now' : row.item.event.id">
           <li v-if="row.kind === 'now'" class="now" data-testid="now-marker">
             <span class="now-label">Now</span>
@@ -116,12 +137,13 @@ function barColour(event: CalendarEvent): string {
           <li
             v-else
             class="event"
-            :class="[row.kind, { past: row.item.past, ongoing: row.item.ongoing }]"
-            :style="row.kind === 'all-day' ? { background: fill(row.item.event) } : undefined"
+            :class="[row.kind, { past: row.item.past, ongoing: row.item.ongoing, filled: row.kind === 'timed' && options.fill_events }]"
+            :style="rowStyle(row)"
+            data-wrap-item
             data-testid="event"
             :data-position="position"
           >
-            <span v-if="row.kind === 'timed'" class="stripe" :style="{ background: barColour(row.item.event) }" />
+            <span v-if="row.kind === 'timed' && !options.fill_events" class="stripe" :style="{ background: barColour(row.item.event) }" />
             <span v-if="row.item.event.people.length" class="badges">
               <span
                 v-for="person in row.item.event.people.slice(0, MAX_BADGES)"
@@ -281,7 +303,8 @@ span + .range {
   font-size: 44px;
 }
 
-.event.all-day {
+.event.all-day,
+.event.filled {
   border-radius: var(--radius-pill);
 }
 
@@ -334,6 +357,50 @@ span + .range {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * A title that may wrap (useWrapFit sets data-wrap). The row grows from its
+ * fixed 92px and keeps the first line where it was: every part has the 68px
+ * line box of the single-line row, aligned to the top, so a one-line title
+ * looks as before.
+ */
+[data-wrap='on'].event {
+  align-items: flex-start;
+  height: auto;
+  min-height: 92px;
+  padding-block: 12px;
+}
+
+[data-wrap='on'] .title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  /* Tighter than the 68px line box, so wrapped lines read as one title; the margins keep a single line where it was. */
+  margin-block: 8px;
+  line-height: 52px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* A pill would turn into a stadium once it is several lines tall; the single-line row's own radius keeps the ends round. */
+[data-wrap='on'].event.all-day,
+[data-wrap='on'].event.filled {
+  border-radius: 46px;
+}
+
+[data-wrap='on'] .time,
+[data-wrap='on'] .all-day-label {
+  line-height: 68px;
+}
+
+[data-wrap='on'] .badges {
+  margin-top: 4px;
+}
+
+[data-wrap='on'] .stripe {
+  margin-top: 2px;
 }
 
 .ongoing .title {

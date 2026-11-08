@@ -52,6 +52,7 @@ const layout: CustomLayout = {
   name: 'Kitchen',
   landscape: { rows: [{ size: 1, panes: [{ component: 'week', size: 2 }, { component: 'agenda', size: 1 }] }] },
   portrait: { rows: [{ size: 1, panes: [{ component: 'week', size: 2 }] }, { size: 1, panes: [{ component: 'agenda', size: 1 }] }] },
+  options: { week: { show_hours: false } },
   created_at: '2026-10-01T09:00:00.000Z',
   updated_at: '2026-10-01T09:00:00.000Z',
 }
@@ -149,6 +150,14 @@ describe('the display cache', () => {
     saveCache(asStorage(storage), 'hallway', { ...entry, layouts: [layout] })
 
     expect(loadCache(asStorage(storage), 'hallway')?.layouts).toEqual([layout])
+  })
+
+  it('loads a layout cached before pane options, with none set', () => {
+    const storage = new FakeStorage()
+    const { options: _none, ...older } = layout
+    storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, layouts: [older] }))
+
+    expect(loadCache(asStorage(storage), 'hallway')?.layouts).toEqual([{ ...older, options: {} }])
   })
 
   it('loads an entry saved before there were layouts, with none', () => {

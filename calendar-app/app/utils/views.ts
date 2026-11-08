@@ -1,5 +1,5 @@
 import type { DayParts, MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
-import type { CustomLayout, DayGrid } from '../../shared/layouts'
+import type { CustomLayout, DayGrid, ResolvedPaneOptions } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -77,6 +77,8 @@ export interface ViewProps {
   layout?: CustomLayout | null
   /** The day grid pane only: its rows, columns and first tile, from the layout's `days` pane. */
   dayGrid?: DayGrid
+  /** A pane of a custom layout only: how the layout asks this pane to look (hidden title, sidebar or hour labels, filled events, wrapping titles). Undefined means `DEFAULT_PANE_OPTIONS`, which is what every full-screen view and the week and photo view use. */
+  paneOptions?: ResolvedPaneOptions
   /** The events fetched for the shown month and the next few days, sorted by start. */
   events: CalendarEvent[]
   /** The current moment, ticking. Views work out "today" from it in `timezone`. */

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import type { View } from '../../../shared/display'
+import { paneOptions } from '../../../shared/layouts'
 import type { LayoutComponent } from '../../../shared/layouts'
 import { layoutPanes, paneFit } from '../../utils/layouts'
 import type { PaneBox } from '../../utils/layouts'
@@ -45,7 +46,10 @@ const arrangement = computed(() => {
 
 const panes = computed(() => {
   if (!arrangement.value) return []
-  return layoutPanes(arrangement.value, props.stage).map(box => ({ box, fit: paneFit(box.component, box, box.grid) }))
+  return layoutPanes(arrangement.value, props.stage).map((box) => {
+    const options = paneOptions(props.layout, box.component)
+    return { box, options, fit: paneFit(box.component, box, box.grid, options) }
+  })
 })
 
 /** A layout of one pane fills the stage, so its view is the full view and not a pane of one. */
@@ -66,7 +70,7 @@ const boxStyle = (box: PaneBox) => ({
 <template>
   <section v-if="panes.length" class="view" data-testid="custom-layout-view">
     <div
-      v-for="{ box, fit } in panes"
+      v-for="{ box, fit, options } in panes"
       :key="box.component"
       class="pane"
       :class="{ photo: box.component === 'photo' }"
@@ -78,7 +82,7 @@ const boxStyle = (box: PaneBox) => ({
         :style="{ width: `${fit.stage.width}px`, height: `${fit.stage.height}px`, transform: fit.scale === 1 ? undefined : `scale(${fit.scale})` }"
         :data-scale="fit.scale"
       >
-        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" />
+        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" :pane-options="options" />
       </div>
     </div>
   </section>

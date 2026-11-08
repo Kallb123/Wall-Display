@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { useWrapFit } from '~/composables/useWrapFit'
 import { tileArt } from '~/utils/specialDays'
-import { paletteAccent, tileTint } from '~/utils/themes'
+import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import {
   DAY_CARD_GAP, DAY_CARD_HEIGHT, DAY_GRID_GAP, DAY_GRID_PADDING, DAY_HEAD_GAP, DAY_HEAD_HEIGHT, DAY_MORE_HEIGHT, DAY_TILE_PADDING,
@@ -9,7 +10,8 @@ import {
 import type { ViewProps } from '../../utils/views'
 import { dayGridLayout } from '../../../shared/day-grid-layout'
 import type { DayGridCell } from '../../../shared/day-grid-layout'
-import { DEFAULT_DAY_GRID } from '../../../shared/layouts'
+import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
+import type { CalendarEvent } from '../../../shared/types/events'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { weatherOn } from '../../../shared/weather'
@@ -35,7 +37,26 @@ import { MAX_BADGE_INITIALS } from '../../../shared/week-layout'
 // event that is over is dimmed. A special day's tint and art are drawn as in
 // the month. The takeover's palette is the stage's theme, so it reaches here
 // with no code of its own.
+//
+// Pane options (architecture §4.8), for a pane of a custom layout; without
+// them the view is as it always was. `fill_events` fills a card with its first
+// person's colour instead of the neutral card. `wrap_titles` lets a title take
+// up to three lines: the engine has already decided how many cards fit at the
+// fixed height, so a wrapped card only uses the tile's spare room, and
+// `useWrapFit` turns wrapping on one card at a time while the tile's cards
+// still fit (each `.cards` is the fixed-size box, each card an item in it).
 const props = defineProps<ViewProps>()
+
+const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+const root = ref<HTMLElement | null>(null)
+useWrapFit(root, () => options.value.wrap_titles)
+
+/** A filled card's background and the ring of its overlapping badges (the same colour, so they are cut out of the card). */
+function cardStyle(event: CalendarEvent) {
+  if (!options.value.fill_events) return undefined
+  const background = event.people[0] ? personFill(event.people[0].colour) : 'var(--surface)'
+  return { background, '--card-ring': background }
+}
 
 const grid = computed(() => props.dayGrid ?? DEFAULT_DAY_GRID)
 
@@ -96,7 +117,7 @@ const cssVars = computed(() => ({
 </script>
 
 <template>
-  <section class="view" :style="cssVars" data-testid="day-grid-view">
+  <section ref="root" class="view" :style="cssVars" data-testid="day-grid-view">
     <div
       v-for="cell in layout.cells"
       :key="cell.date"
@@ -136,12 +157,14 @@ const cssVars = computed(() => ({
         </div>
       </header>
 
-      <div class="cards">
+      <div class="cards" data-wrap-box>
         <div
           v-for="item in cell.items"
           :key="item.event.id"
           class="card"
-          :class="{ past: item.past }"
+          :class="{ past: item.past, filled: options.fill_events }"
+          :style="cardStyle(item.event)"
+          data-wrap-item
           data-testid="event"
         >
           <span class="lines">
@@ -325,6 +348,23 @@ const cssVars = computed(() => ({
   color: var(--text);
 }
 
+.card.filled {
+  color: var(--bar-text);
+}
+
+/* The muted time, on a fill. */
+.card.filled .time {
+  color: inherit;
+  opacity: 0.75;
+}
+
+/* A title that may wrap (useWrapFit sets data-wrap): the card grows from its fixed height, with the same 32px title line, so a one-line title looks as before. */
+.card[data-wrap='on'] {
+  height: auto;
+  min-height: var(--card-height);
+  padding-block: 6px;
+}
+
 .card.past {
   opacity: 0.45;
 }
@@ -344,6 +384,15 @@ const cssVars = computed(() => ({
   line-height: 32px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+[data-wrap='on'] .name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .time {

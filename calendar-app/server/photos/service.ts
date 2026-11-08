@@ -201,10 +201,22 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     return coversBox(row, box) ? 'cover' : rendition
   }
 
-  /** Whether the file this photo would be shown from is in the cache already (an unknown size counts as no, unless the stage's file is, which has told its size). */
+  /**
+   * Whether a file this photo can be shown from is in the cache already: its
+   * `cover` file if it is close to the box's shape, or else the stage's composite,
+   * which serves just as well when the cover file can't be made (an unknown size
+   * counts as no, unless the stage's file is, which has told its size).
+   */
   const isReady = (id: string, rendition: StageRendition, box: PhotoBox | undefined): boolean => {
     const variant = variantOf(id, rendition, box)
-    return isCached(id, variant ?? rendition)
+    return isCached(id, rendition) || (variant !== null && isCached(id, variant))
+  }
+
+  /** The photo's composite for the stage, if it is in the cache: what is shown when its cover file can't be had. */
+  function cachedComposite(id: string, rendition: StageRendition): Cached | null {
+    const row = getAsset(db, id)
+    const file = getRendition(db, id, rendition)?.cacheFile
+    return row && file && cache.has(file) ? { asset: row, file, rendition } : null
   }
 
   // -------------------------------------------------------------------------
@@ -310,10 +322,21 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
    * judged; if it turns out close, the cover file is made as well.
    */
   async function ensureShown(provider: PhotoProvider, id: string, rendition: StageRendition, box: PhotoBox | undefined): Promise<Cached> {
+    // A cover file that can't be made (the provider is down, say) falls back to the composite if there is one.
+    const cover = async (): Promise<Cached> => {
+      try {
+        return await ensureCached(provider, id, 'cover')
+      } catch (error) {
+        const composite = error === LEFT_THE_POOL ? null : cachedComposite(id, rendition)
+        if (composite) return composite
+        throw error
+      }
+    }
     const variant = variantOf(id, rendition, box)
+    if (variant === 'cover') return cover()
     if (variant) return ensureCached(provider, id, variant)
     const composite = await ensureCached(provider, id, rendition)
-    return variantOf(id, rendition, box) === 'cover' ? ensureCached(provider, id, 'cover') : composite
+    return variantOf(id, rendition, box) === 'cover' ? cover() : composite
   }
 
   function toInfo(row: PhotoAssetRow, file: string, provider: PhotoProvider): PhotoInfo {

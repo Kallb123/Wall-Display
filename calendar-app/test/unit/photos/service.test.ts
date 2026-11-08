@@ -552,6 +552,42 @@ describe('the box a photo is drawn in', () => {
     expect(getRendition(db, shown!.id, 'cover')?.cacheFile).toBe(shown!.url.split('/').pop())
   })
 
+  it('falls back to a cached composite when the cover file can\'t be made because the provider is down', async () => {
+    const { service, providers, db } = await sized({ a: [4032, 3024] })
+    await service.next('hallway', 'local', 'landscape') // no box: the composite is cached
+    providers.local!.fetchFails = true
+
+    const photo = await service.next('hallway', 'local', 'landscape', wide)
+
+    expect(photo!.id).toBe('local:a')
+    expect(getRendition(db, 'local:a', 'landscape')!.cacheFile).toBe(photo!.url.split('/').pop())
+    expect(getRendition(db, 'local:a', 'cover')).toBeUndefined()
+  })
+
+  it('is null when it is down and neither the cover file nor the composite is cached', async () => {
+    const { service, providers } = await sized({ a: [4032, 3024] })
+    providers.local!.fetchFails = true
+
+    expect(await service.next('hallway', 'local', 'landscape', wide)).toBeNull()
+  })
+
+  it('keeps the composite of a photo of unknown size when the cover step fails', async () => {
+    const context = await setup({ local: ['a'] }, { sizes: { a: [4032, 3024] } })
+    context.providers.local!.items.set('a', { width: 0, height: 0 })
+    await listed(context)
+    const fetchOnce = context.providers.local!.provider.fetch
+    let calls = 0
+    context.providers.local!.provider.fetch = async (id) => {
+      if (++calls > 1) throw new Error('down')
+      return fetchOnce(id)
+    }
+
+    const photo = await context.service.next('hallway', 'local', 'landscape', wide)
+
+    expect(photo!.id).toBe('local:a')
+    expect(getRendition(context.db, 'local:a', 'landscape')!.cacheFile).toBe(photo!.url.split('/').pop())
+  })
+
   it('still leaves out photos of the other orientation when the shapes are to match', async () => {
     const { service } = await sized({ wide: [4032, 3024], tall: [3024, 4032] }, { matchOrientation: true })
 

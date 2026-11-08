@@ -601,6 +601,30 @@ describe('the box the photo is drawn in', () => {
     expect(requests).toHaveLength(1)
   })
 
+  it('checks the answer to a question in flight against the size the box has become', async () => {
+    let finish!: () => void
+    const fourThree = photo('d', { width: 4032, height: 3024 })
+    answers = [() => new Promise((resolve) => { finish = () => resolve({ photo: fourThree }) }), gives(B)]
+    const view = await open({ stage: { width: 2000, height: 1000, orientation: 'landscape' } })
+
+    // Resized, with nothing on show yet and the first question still unanswered.
+    await view.update({ stage: { width: 1920, height: 1080, orientation: 'landscape' } })
+    finish()
+    await settle()
+
+    expect(requests.map(request => request.query)).toEqual([
+      { display: 'hallway', orientation: 'landscape', width: 2000, height: 1000 },
+      { display: 'hallway', orientation: 'landscape', width: 1920, height: 1080 },
+    ])
+  })
+
+  it('asks for a box of at least one pixel, whatever the stage says', async () => {
+    answers = [gives(A)]
+    await open({ stage: { width: 0, height: 0, orientation: 'landscape' } })
+
+    expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'landscape', width: 1, height: 1 }])
+  })
+
   it('keeps a pane\'s size apart from the stage\'s', async () => {
     answers = [gives(A)]
     await open({ stage: pane })

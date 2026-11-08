@@ -68,6 +68,17 @@ let fadeTimer: ReturnType<typeof setTimeout> | undefined
 /** The decoded image of the photo on show, held so the browser keeps it decoded. */
 const held = new Set<HTMLImageElement>()
 
+/** The size of the box to ask for: whole pixels, at least 1 and at most 99999, which the server accepts. */
+function boxOf() {
+  const clamp = (value: number) => Math.min(99_999, Math.max(1, Math.round(value) || 1))
+  return { width: clamp(props.stage.width), height: clamp(props.stage.height) }
+}
+
+/** Whether the photo, asked for with `box`, is the wrong kind of file for the box as it is now. */
+function stale(photo: PhotoInfo, box: { width: number, height: number }): boolean {
+  return coversBox(photo, boxOf()) !== coversBox(photo, box)
+}
+
 /** What the photo on show was asked for: its info and the box it was asked for, to tell when a new size makes it the wrong kind of file. */
 let shownFor: { photo: PhotoInfo, box: { width: number, height: number } } | null = null
 
@@ -124,7 +135,7 @@ async function fetchNext() {
   if (!display || disposed) return
   clearTimeout(retry)
   const orientation = props.stage.orientation
-  const box = { width: Math.round(props.stage.width), height: Math.round(props.stage.height) }
+  const box = boxOf()
   const id = ++latest
   inflight++
   try {
@@ -138,7 +149,11 @@ async function fetchNext() {
     if (id !== latest || disposed) return
     // The only photo there is, or the same again: no use fading to itself.
     if (photo && photo.url !== shownUrl.value) await show(photo, id)
-    if (photo && id === latest && !disposed && photo.url === shownUrl.value) shownFor = { photo, box }
+    if (photo && id === latest && !disposed && photo.url === shownUrl.value) {
+      shownFor = { photo, box }
+      // The pane may have been resized while this was being asked for or shown.
+      if (stale(photo, box)) void fetchNext()
+    }
     if (id === latest) scheduleRetry()
   } finally {
     inflight--
@@ -156,15 +171,14 @@ onBeforeUnmount(() => {
 
 watch(() => props.displayId, () => void fetchNext())
 // The photo on show was rendered for the other shape. Asking bumps `latest`, so an answer to the old question is dropped.
-watch(() => [props.stage.orientation, props.stage.width, props.stage.height] as const, ([orientation, width, height], [before]) => {
+watch(() => [props.stage.orientation, props.stage.width, props.stage.height] as const, ([orientation], [before]) => {
   if (orientation !== before) {
     void fetchNext()
     return
   }
   // A new size matters only if the photo on show is now close to the box where it wasn't, or the reverse: it was sent as the plain photo or as a composite accordingly.
-  if (!shownFor) return
-  const now = { width: Math.round(width), height: Math.round(height) }
-  if (coversBox(shownFor.photo, now) !== coversBox(shownFor.photo, shownFor.box)) void fetchNext()
+  // With nothing on show yet, the answer to a fetch in flight is checked when it arrives.
+  if (shownFor && stale(shownFor.photo, shownFor.box)) void fetchNext()
 })
 watch(() => props.photoNext, (next, before) => {
   if ((next ?? 0) > (before ?? 0)) void fetchNext()

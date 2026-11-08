@@ -3,6 +3,8 @@ import { greetingSize, tileArt } from '~/utils/specialDays'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
+import { useWrapFit } from '~/composables/useWrapFit'
+import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { weatherOn } from '../../../shared/weather'
@@ -42,7 +44,26 @@ import type { WeekPartsRow } from '../../../shared/week-parts-layout'
 //
 // The weather (PR 2.7) is the day's icon and high / low in its head. Any part
 // that is not known is left out.
+//
+// A custom layout can set three options (`paneOptions`, architecture §4.8).
+// `show_title: false` drops the title; the header then holds the takeover's
+// greeting alone, and is not drawn when there is none, so it takes no room. The
+// parts line stays. `fill_events` gives each cell line the fill the head's items
+// already have, inside the line's own 32 px box (no vertical padding, the badge
+// is 24 px), so a filled line is no taller than a plain one and the cell still
+// holds the lines it was counted for. `wrap_titles` lets a title run on to up to
+// three lines, but only where the cell has room: each cell is a fixed-size,
+// overflow-hidden box and each line an item for `useWrapFit`, which measures and
+// switches wrapping on from the top down while everything still fits. The head's
+// items are not a bounded box (they sit in a flex column that nothing clips), so
+// they stay one line.
 const props = defineProps<ViewProps>()
+
+const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+const showHeader = computed(() => options.value.show_title || !!props.specialDays.takeover?.greeting)
+
+const root = ref<HTMLElement | null>(null)
+useWrapFit(root, () => options.value.wrap_titles)
 
 const portrait = computed(() => props.stage.orientation === 'portrait')
 
@@ -97,9 +118,9 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
 </script>
 
 <template>
-  <section class="view" :class="{ portrait }" data-testid="week-parts-view">
-    <header class="header">
-      <h1 class="title" data-testid="week-title">
+  <section ref="root" class="view" :class="{ portrait }" data-testid="week-parts-view">
+    <header v-if="showHeader" class="header">
+      <h1 v-if="options.show_title" class="title" data-testid="week-title">
         <!-- The space is for the text ("26 October – 1 November 2026"); between flex items it takes no room. -->
         <span class="range">{{ title.range }}</span>{{ ' ' }}<span v-if="title.year" class="year">{{ title.year }}</span>
       </h1>
@@ -193,6 +214,7 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
           :key="cell.part"
           class="cell"
           :class="{ now: cell.now }"
+          data-wrap-box
           data-testid="part-cell"
           :data-part="cell.part"
           :data-now="cell.now"
@@ -203,8 +225,9 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
             v-for="item in cell.items"
             :key="item.event.id"
             class="line"
-            :class="{ past: item.past, ongoing: item.ongoing }"
-            :style="{ '--ring': 'transparent' }"
+            :class="{ past: item.past, ongoing: item.ongoing, filled: options.fill_events }"
+            :style="options.fill_events ? { 'background': fillOf(item.colour), '--ring': fillOf(item.colour) } : { '--ring': 'transparent' }"
+            data-wrap-item
             data-testid="event"
             data-kind="line"
           >
@@ -537,6 +560,38 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
 
 .line .time {
   font-size: 24px;
+}
+
+/* The whole line in the person's colour, as the head's items are. No vertical padding: the line is 32 px and the badge 24, so the badge sits 4 px in from the pill's edge and the line is no taller than an unfilled one. */
+.line.filled {
+  padding: 0 14px 0 4px;
+  border-radius: 999px;
+  color: var(--bar-text);
+}
+
+.line.filled .time {
+  color: inherit;
+  opacity: 0.75;
+}
+
+/* Wrapping where the fit allowed it (data-wrap is set by useWrapFit): up to three lines, the badge and time staying on the first. */
+.line[data-wrap='on'] {
+  align-items: flex-start;
+}
+
+.line[data-wrap='on'] .badges {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+[data-wrap='on'] .name {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 
 .line.ongoing .name {

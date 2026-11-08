@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import WeekPartsView from '~/components/views/WeekPartsView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
+import { personFill } from '~/utils/themes'
 import type { ViewProps } from '~/utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
 import type { Takeover, TileDecoration } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -219,6 +221,65 @@ describe('WeekPartsView', () => {
       await wrapper.setProps({ specialDays: { tiles: [], takeover: { ...takeover, greeting: null } } })
 
       expect(wrapper.find('[data-testid="greeting"]').exists()).toBe(false)
+    })
+  })
+
+  describe('pane options', () => {
+    const takeover = { greeting: 'Happy Halloween' } as Takeover
+    const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
+    const lines = (wrapper: Wrapper) => wrapper.findAll('[data-kind="line"]')
+
+    it('draws as before with no options', async () => {
+      const wrapper = await mountSuspended(WeekPartsView, { props: props() })
+
+      expect(wrapper.find('[data-testid="week-title"]').exists()).toBe(true)
+      expect(lines(wrapper).length).toBeGreaterThan(0)
+      for (const line of lines(wrapper)) {
+        expect(line.classes()).not.toContain('filled')
+        expect(line.attributes('style')).not.toContain('background')
+        expect(line.attributes('data-wrap')).toBeUndefined()
+      }
+      expect(wrapper.findAll('[data-wrap-box]')).toHaveLength(21)
+    })
+
+    it('hides the title and the empty header, but not the parts line', async () => {
+      const wrapper = await mountSuspended(WeekPartsView, { props: props({ paneOptions: options({ show_title: false }) }) })
+
+      expect(wrapper.find('[data-testid="week-title"]').exists()).toBe(false)
+      expect(wrapper.find('.header').exists()).toBe(false)
+      expect(wrapper.findAll('[data-testid="part-heading"]')).toHaveLength(3)
+    })
+
+    it('keeps a takeover\'s greeting when the title is hidden', async () => {
+      const wrapper = await mountSuspended(WeekPartsView, { props: props({ paneOptions: options({ show_title: false }), specialDays: { tiles: [], takeover } }) })
+
+      expect(wrapper.find('[data-testid="week-title"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="greeting"]').text()).toBe('Happy Halloween')
+    })
+
+    it('fills each line with the person\'s colour, and the surface when nobody matched', async () => {
+      const wrapper = await mountSuspended(WeekPartsView, { props: props({
+        paneOptions: options({ fill_events: true }),
+        events: [at(1, '08:30', 'Breakfast club'), event(2, { start: '2026-10-28T12:30:00Z', end: '2026-10-28T13:00:00Z', people: [] })],
+      }) })
+
+      const mine = cell(wrapper, '2026-10-28', 'morning').find('[data-kind="line"]')
+      expect(mine.classes()).toContain('filled')
+      // happy-dom does not keep a colour-mix() background, but --ring is the same value.
+      expect(mine.attributes('style')).toContain(personFill(person.colour))
+      const nobody = cell(wrapper, '2026-10-28', 'afternoon').find('[data-kind="line"]')
+      expect(nobody.attributes('style')).toContain('var(--surface)')
+    })
+
+    it('lets titles wrap only when asked', async () => {
+      const wrapper = await mountSuspended(WeekPartsView, { props: props({ paneOptions: options({ wrap_titles: true }) }) })
+
+      // Nothing measures in happy-dom, so everything fits and every line may wrap; the "+N more" line is not one of them.
+      await vi.waitFor(() => expect(lines(wrapper).every((line: { attributes: (name: string) => string | undefined }) => line.attributes('data-wrap') === 'on')).toBe(true))
+      expect(wrapper.findAll('[data-testid="more"]').every(more => more.attributes('data-wrap-item') === undefined)).toBe(true)
+
+      await wrapper.setProps(props({ paneOptions: options({ wrap_titles: false }) }))
+      await vi.waitFor(() => expect(lines(wrapper).some((line: { attributes: (name: string) => string | undefined }) => line.attributes('data-wrap') === 'on')).toBe(false))
     })
   })
 })

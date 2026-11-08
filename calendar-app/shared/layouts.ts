@@ -70,10 +70,12 @@ export interface LayoutArrangement {
  * The style choices a pane can have, beyond where it is: hide the title (the
  * date heading of the month, week and week by part of day), the month's sidebar
  * or the week's hour labels, colour a whole event with its person's colour, and
- * let long titles wrap onto more lines where there is room. Not every option
+ * let long titles wrap onto more lines where there is room. `show_initials`
+ * only means something with `fill_events`: it is whether the coloured events
+ * still show their people's initials. Not every option
  * means something to every component (`PANE_OPTIONS`).
  */
-export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'wrap_titles'] as const
+export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles'] as const
 export type PaneOptionKey = (typeof PANE_OPTION_KEYS)[number]
 
 /** The options set on a pane. A key that is left out has its default (`DEFAULT_PANE_OPTIONS`). */
@@ -88,16 +90,17 @@ export const DEFAULT_PANE_OPTIONS: ResolvedPaneOptions = {
   show_sidebar: true,
   show_hours: true,
   fill_events: false,
+  show_initials: true,
   wrap_titles: false,
 }
 
 /** Which options apply to which component. The editor offers these and the schema refuses any other. */
 export const PANE_OPTIONS: Record<LayoutComponent, readonly PaneOptionKey[]> = {
-  month: ['show_title', 'show_sidebar', 'fill_events', 'wrap_titles'],
+  month: ['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles'],
   week: ['show_title', 'show_hours'],
-  week_parts: ['show_title', 'fill_events', 'wrap_titles'],
-  agenda: ['fill_events', 'wrap_titles'],
-  days: ['fill_events', 'wrap_titles'],
+  week_parts: ['show_title', 'fill_events', 'show_initials', 'wrap_titles'],
+  agenda: ['fill_events', 'show_initials', 'wrap_titles'],
+  days: ['fill_events', 'show_initials', 'wrap_titles'],
   photo: [],
 }
 
@@ -172,6 +175,7 @@ const paneOptionsSchema = z.strictObject({
   show_sidebar: optionFlag,
   show_hours: optionFlag,
   fill_events: optionFlag,
+  show_initials: optionFlag,
   wrap_titles: optionFlag,
 })
 

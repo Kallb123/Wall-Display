@@ -4,6 +4,7 @@ import { formatWeekday } from '~/utils/format'
 import { todayIn } from '~/utils/eventRanges'
 import { badgesOf, fitPanelDay, laneSpans, PORTRAIT_STRIP_ROWS, PORTRAIT_TODAY_ROWS } from '~/utils/monthPanel'
 import { greetingSize, tileArt } from '~/utils/specialDays'
+import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatCurrent, formatHighLow, formatHighLowWords, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
@@ -55,7 +56,10 @@ import { currentWeather, weatherOn } from '../../../shared/weather'
 // takeover's greeting is then drawn in a header row of its own above the grid,
 // at the right of the title if that is shown, so it is never lost, and a header
 // with nothing in it is not drawn. `fill_events` gives the timed rows and the
-// panel's rows the fill the bars have. `wrap_titles` lets a title use more
+// panel's rows the fill the bars have, split between the people when there are
+// several (`eventFill`), and `show_initials` (on) can leave their badges out so
+// the title has the room. The bars are coloured and badged whatever the options
+// say, and are left as they are. `wrap_titles` lets a title use more
 // lines where there is room: in the grid a bar or timed row may run down into
 // the free lanes below it (`laneSpans`), and in the panel and the strip's cards
 // `useWrapFit` measures. The portrait band is left out of that on purpose: it is
@@ -65,6 +69,8 @@ import { currentWeather, weatherOn } from '../../../shared/weather'
 const props = defineProps<ViewProps>()
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+/** Whether coloured events show their people's initials: always, unless they are coloured and the pane asks for none. */
+const showInitials = computed(() => !options.value.fill_events || options.value.show_initials)
 const root = ref<HTMLElement | null>(null)
 useWrapFit(root, () => options.value.wrap_titles)
 
@@ -170,16 +176,17 @@ function barStyle(bar: { colour: string | null, column: number, span: number, la
 }
 
 /** A timed row in the grid: its place, and with "colour whole events" the pill a bar has. Otherwise it is bare on the tile. */
-function timedStyle(row: { colour: string | null, column: number, lane: number }, week: { cells: DayCell[] }, lanes = 1) {
+function timedStyle(row: { people: readonly { colour: string }[], column: number, lane: number }, week: { cells: DayCell[] }, lanes = 1) {
   const place = { gridColumn: row.column + 1, gridRow: laneRow(row.lane, lanes), ...(lanes > 1 ? { '--lines': lanes } : {}) }
   if (!options.value.fill_events) return { ...place, '--ring': tileBackground(week.cells[row.column]!) }
+  const { background, ring } = eventFill(row.people)
   return {
     ...place,
     // In from the tile's edge like a bar's round end, so the badge sits where it does on a bar.
     margin: '0 8px',
     borderRadius: lanes > 1 ? '17px' : '999px',
-    background: barFill(row.colour),
-    '--ring': barFill(row.colour),
+    background,
+    '--ring': ring,
   }
 }
 </script>
@@ -238,7 +245,7 @@ function timedStyle(row: { colour: string | null, column: number, lane: number }
         <p v-if="!bandDay.rows.length && !bandDay.more" class="nothing">
           Nothing planned
         </p>
-        <MonthPanelRows v-else :day="bandDay" size="roomy" :fill="options.fill_events" />
+        <MonthPanelRows v-else :day="bandDay" size="roomy" :fill="options.fill_events" :initials="showInitials" />
       </div>
 
       <div v-else class="panel" :class="{ takeover: specialDays.takeover }" data-testid="panel" data-wrap-box>
@@ -280,7 +287,7 @@ function timedStyle(row: { colour: string | null, column: number, lane: number }
               Nothing planned
             </p>
 
-            <MonthPanelRows v-else :day="day" :fill="options.fill_events" />
+            <MonthPanelRows v-else :day="day" :fill="options.fill_events" :initials="showInitials" />
           </section>
         </div>
       </div>
@@ -343,12 +350,12 @@ function timedStyle(row: { colour: string | null, column: number, lane: number }
             v-for="(row, rowIndex) in week.timed"
             :key="row.event.id"
             class="timed"
-            :class="{ tall: (spans[weekIndex]?.timed[rowIndex] ?? 1) > 1, filled: options.fill_events, bare: options.fill_events && !row.initials.length }"
+            :class="{ tall: (spans[weekIndex]?.timed[rowIndex] ?? 1) > 1, filled: options.fill_events, bare: options.fill_events && (!row.initials.length || !showInitials) }"
             data-kind="timed"
             :style="timedStyle(row, week, spans[weekIndex]?.timed[rowIndex])"
             data-testid="event"
           >
-            <span v-if="row.initials.length" class="badges">
+            <span v-if="row.initials.length && showInitials" class="badges">
               <span
                 v-for="badge in badgesOf(row)"
                 :key="badge.id"
@@ -398,7 +405,7 @@ function timedStyle(row: { colour: string | null, column: number, lane: number }
           Nothing planned
         </p>
 
-        <MonthPanelRows v-else :day="day" size="card" :fill="options.fill_events" />
+        <MonthPanelRows v-else :day="day" size="card" :fill="options.fill_events" :initials="showInitials" />
       </section>
     </div>
   </section>

@@ -3,6 +3,8 @@ import { flushPromises } from '@vue/test-utils'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import CustomLayoutView from '~/components/views/CustomLayoutView.vue'
 import DayGridView from '~/components/views/DayGridView.vue'
+import { eventFill } from '~/utils/eventFill'
+import { personFill } from '~/utils/themes'
 import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
 import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
@@ -151,7 +153,11 @@ describe('DayGridView', () => {
   })
 })
 
+vi.mock('~/utils/eventFill', { spy: true })
+
 describe('DayGridView pane options', () => {
+/** The backgrounds `eventFill` has given so far: the test DOM drops a gradient it cannot parse (color-mix), so what a view drew is read from what it was handed. */
+const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result.value as { background: string }).background)
   const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
   const card = (wrapper: Wrapper) => tile(wrapper, '2026-10-28').find('[data-testid="event"]')
 
@@ -161,6 +167,24 @@ describe('DayGridView pane options', () => {
 
     const plain = await open({ events: [event(1)], paneOptions: options({}) })
     expect(card(plain).attributes('style') ?? '').not.toContain('--card-ring')
+  })
+
+  it('splits a filled card between several people', async () => {
+    const dad = { id: 'dad', name: 'Dad', initial: 'D', colour: '#3A7CA5' }
+    const shared = await open({ events: [event(1, { people: [mum, dad] })], paneOptions: options({ fill_events: true }) })
+    expect(card(shared).attributes('style')).toContain(`--card-ring: ${personFill(mum.colour)}`)
+    expect(fillsGiven().at(-1)).toBe(`linear-gradient(to right, ${personFill(mum.colour)} 0% 50%, ${personFill(dad.colour)} 50% 100%)`)
+    expect(card(shared).findAll('.badge')).toHaveLength(2)
+
+    const solo = await open({ events: [event(1)], paneOptions: options({ fill_events: true }) })
+    expect(card(solo).attributes('style')).toContain(`--card-ring: ${personFill(mum.colour)}`)
+  })
+
+  it('leaves the initials off a filled card only when asked', async () => {
+    const badges = async (paneOptions: ReturnType<typeof options>) => card(await open({ events: [event(1)], paneOptions })).findAll('.badge').length
+    expect(await badges(options({ fill_events: true }))).toBe(1)
+    expect(await badges(options({ fill_events: true, show_initials: false }))).toBe(0)
+    expect(await badges(options({ show_initials: false }))).toBe(1)
   })
 
   it('lets every card wrap when asked, and none otherwise', async () => {

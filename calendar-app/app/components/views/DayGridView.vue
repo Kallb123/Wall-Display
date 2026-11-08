@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useWrapFit } from '~/composables/useWrapFit'
 import { tileArt } from '~/utils/specialDays'
-import { paletteAccent, personFill, tileTint } from '~/utils/themes'
+import { eventFill } from '~/utils/eventFill'
+import { paletteAccent, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import {
   DAY_CARD_GAP, DAY_CARD_HEIGHT, DAY_GRID_GAP, DAY_GRID_PADDING, DAY_HEAD_GAP, DAY_HEAD_HEIGHT, DAY_MORE_HEIGHT, DAY_TILE_PADDING,
@@ -39,8 +40,10 @@ import { MAX_BADGE_INITIALS } from '../../../shared/week-layout'
 // with no code of its own.
 //
 // Pane options (architecture §4.8), for a pane of a custom layout; without
-// them the view is as it always was. `fill_events` fills a card with its first
-// person's colour instead of the neutral card. `wrap_titles` lets a title take
+// them the view is as it always was. `fill_events` fills a card with its
+// person's colour instead of the neutral card, split between the people when
+// there are several (`eventFill`), and `show_initials: false` leaves a filled
+// card's badges out so the title has the room. `wrap_titles` lets a title take
 // up to three lines: the engine has already decided how many cards fit at the
 // fixed height, so a wrapped card only uses the tile's spare room, and
 // `useWrapFit` turns wrapping on one card at a time while the tile's cards
@@ -48,14 +51,16 @@ import { MAX_BADGE_INITIALS } from '../../../shared/week-layout'
 const props = defineProps<ViewProps>()
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+/** Whether the cards show their people's initials: always, unless they are coloured and the pane asks for none. */
+const showInitials = computed(() => !options.value.fill_events || options.value.show_initials)
 const root = ref<HTMLElement | null>(null)
 useWrapFit(root, () => options.value.wrap_titles)
 
 /** A filled card's background and the ring of its overlapping badges (the same colour, so they are cut out of the card). */
 function cardStyle(event: CalendarEvent) {
   if (!options.value.fill_events) return undefined
-  const background = event.people[0] ? personFill(event.people[0].colour) : 'var(--surface)'
-  return { background, '--card-ring': background }
+  const { background, ring } = eventFill(event.people)
+  return { background, '--card-ring': ring }
 }
 
 const grid = computed(() => props.dayGrid ?? DEFAULT_DAY_GRID)
@@ -171,7 +176,7 @@ const cssVars = computed(() => ({
             <span class="name">{{ item.event.display_title }}</span>
             <span class="time">{{ item.time ?? 'All day' }}</span>
           </span>
-          <span v-if="item.initials.length" class="badges">
+          <span v-if="item.initials.length && showInitials" class="badges">
             <span
               v-for="badge in badgesOf(item)"
               :key="badge.id"

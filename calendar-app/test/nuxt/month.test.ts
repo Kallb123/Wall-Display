@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { DOMWrapper } from '@vue/test-utils'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import MonthSoftView from '~/components/views/MonthSoftView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
+import { eventFill } from '~/utils/eventFill'
+import { personFill } from '~/utils/themes'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
 import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
 import type { ResolvedPaneOptions } from '../../shared/layouts'
@@ -32,6 +34,10 @@ const weather: WeatherSnapshot = {
 const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
   view: 'month', stage: { width: 2560, height: 1440, orientation: 'landscape' }, events, now: NOW, timezone: 'Europe/London', month: '2026-10', weekStart: 'monday', weekOf: '2026-10-28', weekHours: { from: 7, to: 21 }, dayParts: { afternoon: 12, evening: 17 }, weather: null, specialDays: NO_SPECIAL_DAYS, ...overrides,
 })
+
+vi.mock('~/utils/eventFill', { spy: true })
+/** The backgrounds `eventFill` has given so far: the test DOM drops a gradient it cannot parse (color-mix), so what a view drew is read from what it was handed. */
+const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result.value as { background: string }).background)
 
 describe('MonthSoftView', () => {
   it('draws five weeks of tiles, with today flagged once', async () => {
@@ -431,6 +437,43 @@ describe('MonthSoftView', () => {
       const nobody = wrapper.findAll('[data-kind="panel"]').find(candidate => candidate.text().includes('Bins out'))!
       expect(nobody.find('.badge').exists()).toBe(false)
       expect(nobody.attributes('style')).toContain('background: var(--surface)')
+    })
+
+    it('splits a filled row between several people', async () => {
+      const dad = { id: 'dad', name: 'Dad', initial: 'D', colour: '#3A7CA5' }
+      const mum = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
+      const shared = { ...events.find(event => !event.all_day)!, id: 9901, display_title: 'Both of us', people: [mum, dad], start: '2026-10-29T10:00:00.000Z', end: '2026-10-29T10:30:00.000Z' }
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ events: [...events, shared], paneOptions: options({ fill_events: true }) }) })
+
+      const split = `linear-gradient(to right, ${personFill(mum.colour)} 0% 50%, ${personFill(dad.colour)} 50% 100%)`
+      const timed = wrapper.findAll('[data-kind="timed"]').find(candidate => candidate.text().includes('Both of us'))!
+      expect(timed.attributes('style')).toContain(`--ring: ${personFill(mum.colour)}`)
+      expect(fillsGiven()).toContain(split)
+      const panelRow = wrapper.findAll('[data-kind="panel"]').find(candidate => candidate.text().includes('Both of us'))!
+      expect(panelRow.attributes('style')).toContain(`--ring: ${personFill(mum.colour)}`)
+      expect(fillsGiven().filter(fill => fill === split).length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('leaves the initials off filled rows only when asked', async () => {
+      const badges = async (paneOptions: ResolvedPaneOptions) => {
+        const wrapper = await mountSuspended(MonthSoftView, { props: props({ paneOptions }) })
+        const filled = wrapper.findAll('[data-kind="timed"], [data-kind="panel"]')
+        return { rows: filled.length, badges: filled.reduce((sum, row) => sum + row.findAll('.badge').length, 0), bare: wrapper.findAll('.timed.bare').length, plain: wrapper.findAll('.rows.plain').length }
+      }
+      const shown = await badges(options({ fill_events: true }))
+      expect(shown.rows).toBeGreaterThan(0)
+      expect(shown.badges).toBeGreaterThan(0)
+      expect(shown.plain).toBe(0)
+
+      const hidden = await badges(options({ fill_events: true, show_initials: false }))
+      expect(hidden.badges).toBe(0)
+      expect(hidden.bare).toBeGreaterThan(0)
+      expect(hidden.plain).toBeGreaterThan(0)
+
+      // Without the fill the option means nothing.
+      const unfilled = await badges(options({ show_initials: false }))
+      expect(unfilled.badges).toBe(shown.badges)
+      expect(unfilled.plain).toBe(0)
     })
 
     it('fills the portrait band and the strip too', async () => {

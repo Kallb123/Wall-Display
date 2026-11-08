@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_DAY_GRID, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
+import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
 import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
-import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '../../../app/utils/layoutEditor'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '../../../app/utils/layoutEditor'
 
 const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
@@ -451,5 +451,20 @@ describe('pane options', () => {
     expect(paneOptionLabel('week', 'show_hours')).toBe('Hour labels')
     expect(paneOptionLabel('agenda', 'fill_events')).toBe('Colour whole events')
     expect(paneOptionLabel('agenda', 'wrap_titles')).toBe('Wrap long titles')
+    expect(paneOptionLabel('agenda', 'show_initials')).toBe('Initials')
+  })
+
+  it('puts the initials out of reach until events are coloured', () => {
+    expect(paneOptionDisabled('show_initials', DEFAULT_PANE_OPTIONS)).toBe(true)
+    expect(paneOptionDisabled('show_initials', { ...DEFAULT_PANE_OPTIONS, fill_events: true })).toBe(false)
+    expect(paneOptionDisabled('wrap_titles', DEFAULT_PANE_OPTIONS)).toBe(false)
+    expect(paneOptionDisabled('fill_events', DEFAULT_PANE_OPTIONS)).toBe(false)
+  })
+
+  it('stores show_initials only when it is off', () => {
+    const input = setPaneOption(newLayoutInput('X'), 'agenda', 'show_initials', false)
+    expect(input.options).toEqual({ agenda: { show_initials: false } })
+    valid(input)
+    expect(setPaneOption(input, 'agenda', 'show_initials', true).options).toEqual({})
   })
 })

@@ -3,7 +3,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, Copy, Minus, Mo
 import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, PANE_OPTIONS, paneOptions } from '../../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent, PaneOptionKey } from '../../../shared/layouts'
 import LayoutPreview from './LayoutPreview.vue'
-import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
+import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
 import type { MoveDirection, Orientation, PaneAt } from '~/utils/layoutEditor'
 import '~/assets/special-days-form.css'
 
@@ -304,6 +304,7 @@ function confirmDelete() {
             type="button"
             class="chip"
             :aria-pressed="optionValues[key]"
+            :disabled="paneOptionDisabled(key, optionValues)"
             :data-testid="`option-${key}`"
             @click="toggleOption(key)"
           >

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, LAYOUT_COMPONENTS, PANE_OPTIONS, PANE_OPTION_KEYS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
+  DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, layoutShowsStars, LAYOUT_COMPONENTS, PANE_OPTIONS, PANE_OPTION_KEYS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
   layoutDayGrids, layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, paneOptions, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
 } from '../../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput, LayoutArrangement, LayoutComponent, LayoutRow } from '../../../shared/layouts'
@@ -254,7 +254,7 @@ describe('the day grid pane', () => {
   const grid = { rows: 2, columns: 4, start: 'today' }
 
   it('comes between the agenda and the photo, and is not a view', () => {
-    expect(LAYOUT_COMPONENTS).toEqual(['month', 'week', 'week_parts', 'agenda', 'days', 'photo'])
+    expect(LAYOUT_COMPONENTS).toEqual(['month', 'week', 'week_parts', 'agenda', 'days', 'stars', 'photo'])
     expect(layoutShowsCalendar({ components: ['days'] })).toBe(true)
   })
 
@@ -314,6 +314,69 @@ describe('the day grid pane', () => {
     expect(layoutDayGrids(input.landscape)).toEqual([grid])
     expect(layoutDayGrids(input)).toEqual([grid, { rows: 4, columns: 2, start: 'week' }])
     expect(layoutDayGrids(photoWeek)).toEqual([])
+  })
+})
+
+describe('the star chart pane', () => {
+  const starsPane = (starGrid?: unknown, size = 1) => ({ component: 'stars', size, ...(starGrid === undefined ? {} : { star_grid: starGrid }) })
+  const withStars = (landscapeGrid?: unknown, portraitGrid?: unknown) => ({
+    name: 'Stars',
+    landscape: { rows: [{ size: 1, panes: [starsPane(landscapeGrid)] }] },
+    portrait: { rows: [{ size: 1, panes: [starsPane(portraitGrid)] }] },
+  })
+  const starGrid = { rows: 1, columns: 4 }
+
+  it('comes between the day grid and the photo, and is not a calendar', () => {
+    expect(LAYOUT_COMPONENTS.indexOf('stars')).toBe(LAYOUT_COMPONENTS.indexOf('days') + 1)
+    expect(layoutShowsCalendar({ components: ['stars'] })).toBe(false)
+    expect(layoutShowsCalendar({ components: ['stars', 'photo'] })).toBe(false)
+    expect(layoutShowsCalendar({ components: ['stars', 'agenda'] })).toBe(true)
+    expect(layoutShowsStars({ components: ['stars'] })).toBe(true)
+    expect(layoutShowsStars({ components: ['days'] })).toBe(false)
+  })
+
+  it('accepts a stars pane with a star grid, and keeps it', () => {
+    const parsed = customLayoutInputSchema.parse(withStars(starGrid, { rows: 4, columns: 1 }))
+    expect(parsed.landscape.rows[0]!.panes[0]!.star_grid).toEqual(starGrid)
+    expect(parsed.portrait.rows[0]!.panes[0]!.star_grid).toEqual({ rows: 4, columns: 1 })
+    expect(DEFAULT_STAR_GRID).toEqual({ rows: 1, columns: 4 })
+  })
+
+  it('needs the star grid on a stars pane', () => {
+    expect(problem(withStars(undefined, starGrid))).toBe('landscape.rows.0.panes.0.star_grid: must have a star grid (rows and columns) on a stars pane')
+    expect(problem(withStars(starGrid, undefined))).toBe('portrait.rows.0.panes.0.star_grid: must have a star grid (rows and columns) on a stars pane')
+  })
+
+  it('rejects a star grid on any other pane, and a day grid on a stars pane', () => {
+    const value = { ...photoWeek, landscape: { rows: [row(1, ['photo', 2])] }, portrait: { rows: [row(1, ['photo', 2])] } }
+    ;(value.landscape.rows[0]!.panes[0] as { star_grid?: unknown }).star_grid = starGrid
+    expect(problem(value)).toBe('landscape.rows.0.panes.0.star_grid: must not be set on a photo pane, only on a stars pane')
+    const both = withStars(starGrid, starGrid)
+    ;(both.landscape.rows[0]!.panes[0] as { grid?: unknown }).grid = { rows: 1, columns: 1, start: 'today' }
+    expect(problem(both)).toBe('landscape.rows.0.panes.0.grid: must not be set on a stars pane, only on a days pane')
+  })
+
+  it('holds the star grid to its bounds and whole numbers, and refuses unknown fields', () => {
+    expect(problem(withStars({ ...starGrid, rows: 0 }, starGrid))).toBe('landscape.rows.0.panes.0.star_grid.rows: must be from 1 to 6')
+    expect(problem(withStars({ ...starGrid, rows: 7 }, starGrid))).toBe('landscape.rows.0.panes.0.star_grid.rows: must be from 1 to 6')
+    expect(problem(withStars({ ...starGrid, columns: 7 }, starGrid))).toBe('landscape.rows.0.panes.0.star_grid.columns: must be from 1 to 6')
+    expect(problem(withStars({ ...starGrid, columns: 1.5 }, starGrid))).toBe('landscape.rows.0.panes.0.star_grid.columns: must be a whole number')
+    expect(customLayoutInputSchema.safeParse(withStars({ ...starGrid, start: 'today' }, starGrid)).success).toBe(false)
+    expect(customLayoutInputSchema.safeParse(withStars({ rows: 6, columns: 6 }, { rows: 1, columns: 1 })).success).toBe(true)
+  })
+
+  it('takes only the title option', () => {
+    expect(PANE_OPTIONS.stars).toEqual(['show_title'])
+    expect(customLayoutInputSchema.safeParse({ ...withStars(starGrid, starGrid), options: { stars: { show_title: false } } }).success).toBe(true)
+    expect(problem({ ...withStars(starGrid, starGrid), options: { stars: { fill_events: true } } })).toBe('options.stars.fill_events: must not be set on a stars pane')
+  })
+
+  it('swaps rows and columns when an arrangement is turned', () => {
+    const stars = (rows: number, columns: number) => ({ component: 'stars' as const, size: 1, star_grid: { rows, columns } })
+    const turned = (input: LayoutArrangement) => transposeArrangement(input).rows.flatMap(r => r.panes).find(p => p.component === 'stars')!
+    expect(turned({ rows: [{ size: 1, panes: [stars(1, 4), { component: 'photo', size: 1 }] }] }).star_grid).toEqual({ rows: 4, columns: 1 })
+    expect(turned({ rows: [{ size: 1, panes: [stars(2, 3)] }, { size: 1, panes: [{ component: 'photo', size: 1 }] }] }).star_grid).toEqual({ rows: 3, columns: 2 })
+    expect(turned({ rows: [{ size: 1, panes: [stars(1, 4)] }] }).grid).toBeUndefined()
   })
 })
 

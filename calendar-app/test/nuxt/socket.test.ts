@@ -378,3 +378,40 @@ describe('useDisplaySocket layouts', () => {
     scope.stop()
   })
 })
+
+describe('useDisplaySocket stars', () => {
+  const stars = { people: [{ id: 'isla', name: 'Isla', initial: 'I', colour: '#D27FA0', period: 'week', goal: null }], counts: { isla: { '2026-11-09': 3 } } }
+
+  beforeEach(() => {
+    FakeSocket.all = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('has not heard the chart until the server sends it, then keeps the latest', () => {
+    const { socket, scope, fake } = open()
+    expect(socket.stars.value).toBeUndefined()
+
+    fake.push({ type: 'stars.updated', stars })
+    expect(socket.stars.value).toEqual(stars)
+
+    fake.push({ type: 'stars.updated', stars: { people: [], counts: {} } })
+    expect(socket.stars.value).toEqual({ people: [], counts: {} })
+    scope.stop()
+  })
+
+  it('drops a chart that does not parse, and keeps the last good one', () => {
+    const { socket, scope, fake } = open()
+    fake.push({ type: 'stars.updated', stars })
+
+    fake.push({ type: 'stars.updated', stars: { people: [{ id: 'isla' }], counts: {} } })
+    fake.push({ type: 'stars.updated', stars: 'none' })
+    fake.push({ type: 'stars.updated' })
+
+    expect(socket.stars.value).toEqual(stars)
+    scope.stop()
+  })
+})

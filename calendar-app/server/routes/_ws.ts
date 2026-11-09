@@ -5,9 +5,9 @@ import { getSocketHub } from '../ws/hub'
 
 // The WebSocket at `/_ws?display=<id>&role=display|remote`. A new connection
 // gets the display's whole state, the weather, the special days, the next
-// alarm (each null when there is none yet), the custom layouts and the display's settings, then
+// alarm (each null when there is none yet), the custom layouts, the star chart and the display's settings, then
 // every `state.updated`, `events.updated`, `weather.updated`,
-// `special_days.updated`, `alarm.updated`, `layouts.updated` and `settings.updated` (the control,
+// `special_days.updated`, `alarm.updated`, `layouts.updated`, `stars.updated` and `settings.updated` (the control,
 // weather, special days, alarm and settings plugins connect the event bus to the hub).
 // The display shows the state and the remote shows what the display is
 // showing, so both only listen.
@@ -36,6 +36,8 @@ export default defineWebSocketHandler({
     peer.send(JSON.stringify(alarm))
     const layouts: ServerMessage = { type: 'layouts.updated', layouts: useLayouts().get() }
     peer.send(JSON.stringify(layouts))
+    const stars: ServerMessage = { type: 'stars.updated', stars: useStars().get() }
+    peer.send(JSON.stringify(stars))
     const settings: ServerMessage = {
       type: 'settings.updated',
       display_id: query.displayId,

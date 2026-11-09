@@ -2,6 +2,8 @@ import { displayStateSchema, nextAlarmSchema } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm } from '../../shared/display'
 import { customLayoutSchema } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
+import { starChartSchema } from '../../shared/stars'
+import type { StarChart } from '../../shared/stars'
 import type { CalendarEvent } from '../../shared/types/events'
 import { specialDaysResolutionSchema } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
@@ -26,6 +28,8 @@ export interface DisplayCache {
   alarm?: NextAlarm
   /** The custom layouts the server last sent. An entry from before PR 5.17 has none, and loads as an empty list. */
   layouts?: CustomLayout[]
+  /** The star chart the server last sent, or null for none. An entry from before PR 5.20 has none, and loads as null. */
+  stars?: StarChart | null
   /** When it was saved, as an ISO 8601 instant. */
   saved_at: string
 }
@@ -57,6 +61,7 @@ export function loadCache(storage: Storage | null | undefined, displayId: string
           return parsed.success ? [parsed.data] : []
         })
       : []
+    const stars = starChartSchema.safeParse(data.stars)
     return {
       settings: data.settings as unknown as DisplaySettings,
       state: state.data,
@@ -65,6 +70,7 @@ export function loadCache(storage: Storage | null | undefined, displayId: string
       special_days: specialDays.success ? specialDays.data : null,
       alarm: alarm.success ? alarm.data : null,
       layouts,
+      stars: stars.success ? stars.data : null,
       saved_at: data.saved_at,
     }
   } catch {

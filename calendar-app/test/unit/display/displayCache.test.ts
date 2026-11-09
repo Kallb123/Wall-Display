@@ -64,6 +64,7 @@ const entry: DisplayCache = {
   special_days: null,
   alarm: null,
   layouts: [],
+  stars: null,
   saved_at: '2026-10-28T09:41:00.000Z',
 }
 
@@ -173,6 +174,25 @@ describe('the display cache', () => {
     storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, layouts: [{ id: 'broken' }, layout] }))
 
     expect(loadCache(asStorage(storage), 'hallway')?.layouts).toEqual([layout])
+  })
+
+  const stars = { people: [{ id: 'isla', name: 'Isla', initial: 'I', colour: '#D27FA0', period: 'week' as const, goal: 10 }], counts: { isla: { '2026-11-09': 3 } } }
+
+  it('keeps the star chart that was saved', () => {
+    const storage = new FakeStorage()
+    saveCache(asStorage(storage), 'hallway', { ...entry, stars })
+
+    expect(loadCache(asStorage(storage), 'hallway')?.stars).toEqual(stars)
+  })
+
+  it('loads an entry saved before the star chart, or with a bad one, with none', () => {
+    const storage = new FakeStorage()
+    storage.setItem('wallcal:display:hallway', JSON.stringify(entry))
+    expect(loadCache(asStorage(storage), 'hallway')?.stars).toBeNull()
+
+    storage.setItem('wallcal:display:hallway', JSON.stringify({ ...entry, stars: { people: [{ id: 'isla' }], counts: {} } }))
+    expect(loadCache(asStorage(storage), 'hallway')?.stars).toBeNull()
+    expect(loadCache(asStorage(storage), 'hallway')?.layouts).toEqual([])
   })
 
   it('keeps the special days that were saved', () => {

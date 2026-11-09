@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { addDays, dayOfWeek, todayIn } from './dates'
 import type { CustomLayout } from './layouts'
 import type { SpecialDaysResolution } from './special-days'
+import type { StarChart } from './stars'
 import type { WeatherSnapshot } from './weather'
 
 // What a display is showing (the state document) and the commands that change
@@ -308,6 +309,8 @@ export type ServerMessage =
   | { type: 'settings.updated', display_id: string, settings: DisplaySettings }
   /** To every socket when the custom layouts change (PR 5.17), and to a new socket on connect. The whole library, by name. */
   | { type: 'layouts.updated', layouts: CustomLayout[] }
+  /** To every socket when the star chart changes (PR 5.20), and to a new socket on connect. The whole chart, as `GET /api/stars` has it. */
+  | { type: 'stars.updated', stars: StarChart }
 
 // Months, as `YYYY-MM` keys. Done with `Intl` and arithmetic, never the
 // process's time zone. A month's index is year * 12 + (month - 1).

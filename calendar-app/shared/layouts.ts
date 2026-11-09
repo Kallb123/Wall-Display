@@ -12,10 +12,11 @@ export { LAYOUT_ID_PATTERN, layoutIdSchema } from './display'
 
 /**
  * The components a layout can place. Each at most once per layout. Most are
- * also a `View` of their own, but `days` (the day grid) is a layout component
- * only: it has no view to choose, and exists only inside a custom layout.
+ * also a `View` of their own, but `days` (the day grid) and `stars` (the star
+ * chart, PR 5.20) are layout components only: they have no view to choose, and
+ * exist only inside a custom layout.
  */
-export const LAYOUT_COMPONENTS = ['month', 'week', 'week_parts', 'agenda', 'days', 'photo'] as const
+export const LAYOUT_COMPONENTS = ['month', 'week', 'week_parts', 'agenda', 'days', 'stars', 'photo'] as const
 export type LayoutComponent = (typeof LAYOUT_COMPONENTS)[number]
 
 /** The first tile of a day grid: today, or the first day of the week that today is in (the display's `week_start`). */
@@ -38,6 +39,25 @@ export interface DayGrid {
 /** What a day grid pane starts with when the editor adds one. */
 export const DEFAULT_DAY_GRID: DayGrid = { rows: 2, columns: 4, start: 'today' }
 
+/** The most and the fewest rows and columns of person cards in a star chart. */
+export const MIN_STAR_GRID_ROWS = 1
+export const MAX_STAR_GRID_ROWS = 6
+export const MIN_STAR_GRID_COLUMNS = 1
+export const MAX_STAR_GRID_COLUMNS = 6
+
+/**
+ * The grid of person cards that a `stars` pane draws: one card per person with
+ * a star chart, in config order, left to right then top to bottom. People
+ * beyond `rows * columns` are not shown; tiles beyond the people are left empty.
+ */
+export interface StarGrid {
+  rows: number
+  columns: number
+}
+
+/** What a star chart pane starts with when the editor adds one. */
+export const DEFAULT_STAR_GRID: StarGrid = { rows: 1, columns: 4 }
+
 /** The most rows an arrangement may have, and the most panes in one row. */
 export const MAX_LAYOUT_ROWS = 4
 export const MAX_LAYOUT_PANES_PER_ROW = 4
@@ -53,6 +73,8 @@ export interface LayoutPane {
   size: number
   /** The day grid's rows, columns and first tile. Required on a `days` pane and not allowed on any other. */
   grid?: DayGrid
+  /** The star chart's rows and columns of person cards. Required on a `stars` pane and not allowed on any other. */
+  star_grid?: StarGrid
 }
 
 /** A row of panes. `size` is its share of the stage's height, against the other rows. */
@@ -101,6 +123,7 @@ export const PANE_OPTIONS: Record<LayoutComponent, readonly PaneOptionKey[]> = {
   week_parts: ['show_title', 'fill_events', 'show_initials', 'wrap_titles'],
   agenda: ['fill_events', 'show_initials', 'wrap_titles'],
   days: ['fill_events', 'show_initials', 'wrap_titles'],
+  stars: ['show_title'],
   photo: [],
 }
 
@@ -147,10 +170,16 @@ const gridSchema = z.strictObject({
   start: z.enum(DAY_GRID_STARTS, { error: `must be ${DAY_GRID_STARTS.join(' or ')}` }),
 })
 
+const starGridSchema = z.strictObject({
+  rows: gridCount(MIN_STAR_GRID_ROWS, MAX_STAR_GRID_ROWS),
+  columns: gridCount(MIN_STAR_GRID_COLUMNS, MAX_STAR_GRID_COLUMNS),
+})
+
 const paneSchema = z.strictObject({
   component: z.enum(LAYOUT_COMPONENTS, { error: `must be ${LAYOUT_COMPONENTS.slice(0, -1).join(', ')} or ${LAYOUT_COMPONENTS.at(-1)}` }),
   size,
   grid: gridSchema.optional(),
+  star_grid: starGridSchema.optional(),
 })
 
 const rowSchema = z.strictObject({
@@ -185,6 +214,7 @@ const optionsSchema = z.strictObject({
   week_parts: paneOptionsSchema.optional(),
   agenda: paneOptionsSchema.optional(),
   days: paneOptionsSchema.optional(),
+  stars: paneOptionsSchema.optional(),
   photo: paneOptionsSchema.optional(),
 })
 
@@ -201,7 +231,7 @@ function panesOf(arrangement: LayoutArrangement): LayoutPane[] {
   return arrangement.rows.flatMap(row => row.panes)
 }
 
-/** The rules that cut across fields: no component twice in an arrangement, the same components in both, a grid on the day grid pane only, and options only where they apply. */
+/** The rules that cut across fields: no component twice in an arrangement, the same components in both, a grid on the day grid pane only, a star grid on the star chart pane only, and options only where they apply. */
 function checkArrangements(value: CustomLayoutInput, ctx: z.RefinementCtx): void {
   const sets = {} as Record<'landscape' | 'portrait', Set<LayoutComponent>>
   for (const which of ['landscape', 'portrait'] as const) {
@@ -216,6 +246,12 @@ function checkArrangements(value: CustomLayoutInput, ctx: z.RefinementCtx): void
       }
       if (pane.component !== 'days' && pane.grid) {
         ctx.addIssue({ code: 'custom', path: [which, 'rows', r, 'panes', p, 'grid'], message: `must not be set on a ${pane.component} pane, only on a days pane` })
+      }
+      if (pane.component === 'stars' && !pane.star_grid) {
+        ctx.addIssue({ code: 'custom', path: [which, 'rows', r, 'panes', p, 'star_grid'], message: 'must have a star grid (rows and columns) on a stars pane' })
+      }
+      if (pane.component !== 'stars' && pane.star_grid) {
+        ctx.addIssue({ code: 'custom', path: [which, 'rows', r, 'panes', p, 'star_grid'], message: `must not be set on a ${pane.component} pane, only on a stars pane` })
       }
     }))
     sets[which] = seen
@@ -287,8 +323,10 @@ export const layoutHas = (layout: HasComponents, component: LayoutComponent): bo
 export const layoutShowsWeek = (layout: HasComponents): boolean => layoutHas(layout, 'week') || layoutHas(layout, 'week_parts')
 export const layoutShowsMonth = (layout: HasComponents): boolean => layoutHas(layout, 'month')
 export const layoutShowsPhotos = (layout: HasComponents): boolean => layoutHas(layout, 'photo')
-/** Whether the layout shows any calendar component, which is what a special day's takeover changes. */
-export const layoutShowsCalendar = (layout: HasComponents): boolean => LAYOUT_COMPONENTS.some(component => component !== 'photo' && layoutHas(layout, component))
+/** Whether the layout shows any calendar component, which is what a special day's takeover changes. The photo frame and the star chart are not calendars. */
+export const layoutShowsCalendar = (layout: HasComponents): boolean => LAYOUT_COMPONENTS.some(component => component !== 'photo' && component !== 'stars' && layoutHas(layout, component))
+/** Whether the layout shows the star chart. */
+export const layoutShowsStars = (layout: HasComponents): boolean => layoutHas(layout, 'stars')
 
 /** Whether `view` shows photos: the built-in ones, or a custom layout with a photo pane. */
 export const viewShowsPhotos = (view: View, layout: HasComponents | null | undefined): boolean =>
@@ -302,10 +340,11 @@ export const viewShowsWeek = (view: View, layout: HasComponents | null | undefin
 export const viewShowsMonth = (view: View, layout: HasComponents | null | undefined): boolean =>
   view === 'month' || (view === 'custom' && !!layout && layoutShowsMonth(layout))
 
-/** A pane carried to the other orientation with a new `size`. A day grid turns with it, so its rows and columns swap and its start is kept. */
+/** A pane carried to the other orientation with a new `size`. A day grid or a star chart turns with it, so its rows and columns swap (a day grid's start is kept). */
 function turnedPane(pane: LayoutPane, size: number): LayoutPane {
   const turned: LayoutPane = { component: pane.component, size }
   if (pane.grid) turned.grid = { rows: pane.grid.columns, columns: pane.grid.rows, start: pane.grid.start }
+  if (pane.star_grid) turned.star_grid = { rows: pane.star_grid.columns, columns: pane.star_grid.rows }
   return turned
 }
 

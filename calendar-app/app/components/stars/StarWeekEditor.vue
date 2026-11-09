@@ -48,9 +48,6 @@ const weekTotal = (person: StarChartPerson) => week.value.reduce((sum, date) => 
             <span class="dom">{{ dayNumber(date) }}</span>
           </th>
           <th scope="col" class="total">
-            Today
-          </th>
-          <th scope="col" class="total">
             Week
           </th>
         </tr>
@@ -64,18 +61,8 @@ const weekTotal = (person: StarChartPerson) => week.value.reduce((sum, date) => 
             </span>
           </th>
           <td v-for="date in week" :key="date" class="day" :class="{ today: date === today }">
-            <span class="count" :data-testid="`star-count-${person.id}-${date}`">{{ starsOn(chart, person.id, date) }}</span>
+            <!-- A column per day: more above the count and fewer below it, so seven days fit a laptop card and a phone needs little scrolling. -->
             <span class="steps">
-              <button
-                type="button"
-                class="step"
-                :aria-label="`One fewer star for ${person.name} on ${dayName(date)} ${dayNumber(date)}`"
-                :disabled="busy || date > today || starsOn(chart, person.id, date) === 0"
-                :data-testid="`star-minus-${person.id}-${date}`"
-                @click="emit('adjust', person.id, date, -1)"
-              >
-                <AppIcon :icon="Minus" :size="20" />
-              </button>
               <button
                 type="button"
                 class="step"
@@ -84,12 +71,20 @@ const weekTotal = (person: StarChartPerson) => week.value.reduce((sum, date) => 
                 :data-testid="`star-plus-${person.id}-${date}`"
                 @click="emit('adjust', person.id, date, 1)"
               >
-                <AppIcon :icon="Plus" :size="20" />
+                <AppIcon :icon="Plus" :size="18" />
+              </button>
+              <span class="count" :data-testid="`star-count-${person.id}-${date}`">{{ starsOn(chart, person.id, date) }}</span>
+              <button
+                type="button"
+                class="step"
+                :aria-label="`One fewer star for ${person.name} on ${dayName(date)} ${dayNumber(date)}`"
+                :disabled="busy || date > today || starsOn(chart, person.id, date) === 0"
+                :data-testid="`star-minus-${person.id}-${date}`"
+                @click="emit('adjust', person.id, date, -1)"
+              >
+                <AppIcon :icon="Minus" :size="18" />
               </button>
             </span>
-          </td>
-          <td class="total" :data-testid="`star-today-${person.id}`">
-            {{ starsOn(chart, person.id, today) }}
           </td>
           <td class="total" :data-testid="`star-weektotal-${person.id}`">
             {{ weekTotal(person) }}
@@ -115,7 +110,7 @@ const weekTotal = (person: StarChartPerson) => week.value.reduce((sum, date) => 
 
 th,
 td {
-  padding: 8px 6px;
+  padding: 8px 4px;
   text-align: center;
 }
 
@@ -124,7 +119,12 @@ tbody tr + tr > * {
 }
 
 .person-head {
-  min-width: 9em;
+  /* Stays in view while the days scroll sideways on a phone. */
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 6.5em;
+  background: var(--surface);
   text-align: left;
   font-size: 16px;
   font-weight: 700;
@@ -157,22 +157,23 @@ thead th {
 }
 
 .count {
-  display: block;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .steps {
   display: inline-flex;
-  gap: 6px;
-  margin-top: 4px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .step {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 2px solid var(--line);
   border-radius: 50%;
@@ -192,8 +193,8 @@ thead th {
   outline-offset: 2px;
 }
 
-.total {
-  min-width: 4.5em;
+td.total {
+  min-width: 4em;
   font-size: 20px;
   font-weight: 700;
 }

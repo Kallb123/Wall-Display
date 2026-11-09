@@ -160,14 +160,14 @@ describe('the Stars tab', () => {
     expect(writes()).toHaveLength(1)
   })
 
-  it('shows this week for the people with a chart, with today\'s and the week\'s totals', async () => {
+  it('shows this week for the people with a chart, with the week\'s total', async () => {
     const wrapper = await mountPage()
 
     expect(wrapper.findAll('[data-testid^="star-week-"]').map(row => row.attributes('data-testid'))).toEqual(['star-week-isla'])
     expect(wrapper.findAll('[data-date]').map(cell => cell.attributes('data-date'))).toEqual(['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01'])
     expect(wrapper.find('[data-testid="star-count-isla-2026-10-26"]').text()).toBe('3')
     expect(wrapper.find('[data-testid="star-count-isla-2026-10-27"]').text()).toBe('0')
-    expect(wrapper.find('[data-testid="star-today-isla"]').text()).toBe('2')
+    expect(wrapper.find('[data-testid="star-count-isla-2026-10-28"]').text()).toBe('2')
     // Last week's 5 are not in it.
     expect(wrapper.find('[data-testid="star-weektotal-isla"]').text()).toContain('5')
   })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LayoutArrangement } from '../../../shared/layouts'
-import { COMPONENT_MINIMUMS, MIN_DAY_TILE, MONTH_MINIMUMS_NO_SIDEBAR, layoutPanes, paneFit, photoPillAtTopRight } from '../../../app/utils/layouts'
+import { COMPONENT_MINIMUMS, MIN_DAY_TILE, MIN_STAR_TILE, MONTH_MINIMUMS_NO_SIDEBAR, layoutPanes, paneFit, photoPillAtTopRight } from '../../../app/utils/layouts'
 import { stageFor, weekPhotoPanes } from '../../../app/utils/views'
 
 const LANDSCAPE = { width: 2560, height: 1440 }
@@ -202,5 +202,37 @@ describe('the day grid pane', () => {
 
   it('never scales up', () => {
     expect(paneFit('days', { width: 5000, height: 5000 }, { rows: 1, columns: 1, start: 'week' }).scale).toBe(1)
+  })
+})
+
+describe('the star chart pane', () => {
+  const starGrid = { rows: 1, columns: 4 }
+
+  it('layoutPanes carries the star grid of a stars pane, and only that', () => {
+    const arrangement: LayoutArrangement = { rows: [{ size: 1, panes: [{ component: 'stars', size: 3, star_grid: starGrid }, { component: 'photo', size: 1 }] }] }
+    const [stars, photo] = layoutPanes(arrangement, { width: 2560, height: 1440 })
+
+    expect(stars!.starGrid).toEqual(starGrid)
+    expect(stars).not.toHaveProperty('grid')
+    expect(photo).not.toHaveProperty('starGrid')
+  })
+
+  it('draws a roomy grid at its real size, in the shape of its box', () => {
+    expect(paneFit('stars', { width: 2560, height: 600 }, undefined, undefined, starGrid)).toEqual({ stage: { width: 2560, height: 600, orientation: 'landscape' }, scale: 1 })
+    expect(paneFit('stars', { width: 1100, height: 2000 }, undefined, undefined, { rows: 3, columns: 1 }).stage.orientation).toBe('portrait')
+  })
+
+  it('scales down so each card keeps its minimum, by the tighter side', () => {
+    // 4 columns want 4 * MIN_STAR_TILE.width, and the box is half that.
+    const wide = paneFit('stars', { width: 2 * MIN_STAR_TILE.width, height: 5000 }, undefined, undefined, starGrid)
+
+    expect(wide.scale).toBe(0.5)
+    expect(wide.stage.width).toBe(4 * MIN_STAR_TILE.width)
+    // The height is the tight side here: 2 rows want twice the tile height.
+    expect(paneFit('stars', { width: 5000, height: MIN_STAR_TILE.height }, undefined, undefined, { rows: 2, columns: 1 }).scale).toBe(0.5)
+  })
+
+  it('never scales up', () => {
+    expect(paneFit('stars', { width: 5000, height: 5000 }, undefined, undefined, { rows: 1, columns: 1 }).scale).toBe(1)
   })
 })

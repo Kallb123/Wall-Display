@@ -10,6 +10,7 @@ import AgendaView from './AgendaView.vue'
 import DayGridView from './DayGridView.vue'
 import MonthSoftView from './MonthSoftView.vue'
 import PhotoView from './PhotoView.vue'
+import StarChartView from './StarChartView.vue'
 import WeekPartsView from './WeekPartsView.vue'
 import WeekView from './WeekView.vue'
 
@@ -36,6 +37,7 @@ const components: Record<LayoutComponent, Component> = {
   agenda: AgendaView,
   photo: PhotoView,
   days: DayGridView,
+  stars: StarChartView,
 }
 
 const arrangement = computed(() => {
@@ -48,15 +50,15 @@ const panes = computed(() => {
   if (!arrangement.value) return []
   return layoutPanes(arrangement.value, props.stage).map((box) => {
     const options = paneOptions(props.layout, box.component)
-    return { box, options, fit: paneFit(box.component, box, box.grid, options) }
+    return { box, options, fit: paneFit(box.component, box, box.grid, options, box.starGrid) }
   })
 })
 
 /** A layout of one pane fills the stage, so its view is the full view and not a pane of one. */
 const single = computed(() => panes.value.length === 1)
 
-/** The view a pane tells its component it is: its own, or `custom` for a component that is not a view (the day grid). */
-const viewOf = (component: LayoutComponent): View => (component === 'days' ? 'custom' : component)
+/** The view a pane tells its component it is: its own, or `custom` for a component that is not a view (the day grid and the star chart). */
+const viewOf = (component: LayoutComponent): View => (component === 'days' || component === 'stars' ? 'custom' : component)
 
 const boxStyle = (box: PaneBox) => ({
   left: `${box.x}px`,
@@ -82,7 +84,7 @@ const boxStyle = (box: PaneBox) => ({
         :style="{ width: `${fit.stage.width}px`, height: `${fit.stage.height}px`, transform: fit.scale === 1 ? undefined : `scale(${fit.scale})` }"
         :data-scale="fit.scale"
       >
-        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" :pane-options="options" />
+        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" :star-grid="box.starGrid" :pane-options="options" />
       </div>
     </div>
   </section>

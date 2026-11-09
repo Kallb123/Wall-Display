@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, Images, LayoutGrid, Monitor, PartyPopper, Smartphone } from 'lucide-vue-next'
+import { CalendarDays, Images, LayoutGrid, Monitor, PartyPopper, Smartphone, Star } from 'lucide-vue-next'
 import type { ConnectionsStatus } from '../../shared/settings'
 import { homeAssistantChip, mqttChip } from '~/utils/settings'
 import type { ChipStatus } from '~/utils/settings'
@@ -31,6 +31,7 @@ const TABS: { to: string, label: string, icon: Component }[] = [
   { to: '/settings/photos', label: 'Photos', icon: Images },
   { to: '/settings/special-days', label: 'Special days', icon: PartyPopper },
   { to: '/settings/layouts', label: 'Layouts', icon: LayoutGrid },
+  { to: '/settings/stars', label: 'Stars', icon: Star },
   { to: '/settings/displays', label: 'Displays', icon: Monitor },
 ]
 

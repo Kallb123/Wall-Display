@@ -57,6 +57,8 @@ export function useRemoteCommands(displayId: MaybeRefOrGetter<string | null>, on
     pinMessage: pin.pinMessage,
     checkingPin: pin.checkingPin,
     load: pin.load,
+    /** Runs another request of the remote's (the star chart's) behind the same PIN and sheet as the commands. */
+    guard: pin.guard,
     send,
     submitPin: pin.submitPin,
     cancelPin: pin.cancelPin,

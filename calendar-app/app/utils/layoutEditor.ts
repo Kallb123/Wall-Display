@@ -1,5 +1,5 @@
-import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, PANE_OPTIONS, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, PaneOptionKey, PaneOptions, ResolvedPaneOptions } from '../../shared/layouts'
+import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, PANE_OPTIONS, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, PaneOptionKey, StarGrid, PaneOptions, ResolvedPaneOptions } from '../../shared/layouts'
 
 // What the layout editor does to the layout it is editing (architecture §7.6,
 // PR 5.17): turning a component on or off, moving a pane, making a pane or a
@@ -28,13 +28,14 @@ export const COMPONENT_LABELS: Record<LayoutComponent, string> = {
   week_parts: 'Day parts',
   agenda: 'Agenda',
   days: 'Days',
+  stars: 'Stars',
   photo: 'Photo',
 }
 
 /** The words the editor uses for each pane option. The title is the month's name or the week's dates, so its label depends on the component. */
 export function paneOptionLabel(component: LayoutComponent, key: PaneOptionKey): string {
   switch (key) {
-    case 'show_title': return component === 'month' ? 'Month title' : 'Date title'
+    case 'show_title': return component === 'month' ? 'Month title' : component === 'stars' ? 'Title' : 'Date title'
     case 'show_sidebar': return 'Sidebar'
     case 'show_hours': return 'Hour labels'
     case 'fill_events': return 'Colour whole events'
@@ -91,12 +92,16 @@ export function componentsOf(input: CustomLayoutInput): LayoutComponent[] {
   return LAYOUT_COMPONENTS.filter(component => used.has(component))
 }
 
-/** A new pane for `component`: the day grid starts with its default, turned on its side in portrait like a transposed arrangement. */
+/** A new pane for `component`: the day grid and the star chart start with their defaults, turned on its side in portrait like a transposed arrangement. */
 function newPane(which: Orientation, component: LayoutComponent): LayoutPane {
   const pane: LayoutPane = { component, size: MIN_LAYOUT_SIZE }
   if (component === 'days') {
     const { rows, columns, start } = DEFAULT_DAY_GRID
     pane.grid = which === 'landscape' ? { rows, columns, start } : { rows: columns, columns: rows, start }
+  }
+  if (component === 'stars') {
+    const { rows, columns } = DEFAULT_STAR_GRID
+    pane.star_grid = which === 'landscape' ? { rows, columns } : { rows: columns, columns: rows }
   }
   return pane
 }
@@ -222,6 +227,32 @@ export function resizeGridColumns(input: CustomLayoutInput, which: Orientation, 
 /** Sets where a day grid starts: today, or the first day of the week. */
 export function setGridStart(input: CustomLayoutInput, which: Orientation, at: PaneAt, start: DayGridStart): CustomLayoutInput {
   return withGrid(input, which, at, grid => ({ ...grid, start }))
+}
+
+/** The star chart grid of the pane at `at`, or null if it is not a star chart. */
+export function paneStarGrid(input: CustomLayoutInput, which: Orientation, at: PaneAt): StarGrid | null {
+  return input[which].rows[at.row]?.panes[at.pane]?.star_grid ?? null
+}
+
+/** Changes the star grid of the pane at `at` in one arrangement, handing back the same input when nothing would change. */
+function withStarGrid(input: CustomLayoutInput, which: Orientation, at: PaneAt, change: (grid: StarGrid) => StarGrid): CustomLayoutInput {
+  const current = paneStarGrid(input, which, at)
+  if (!current) return input
+  const next = change({ ...current })
+  if (next.rows === current.rows && next.columns === current.columns) return input
+  const rows = copy(input[which].rows)
+  rows[at.row]!.panes[at.pane]!.star_grid = next
+  return withArrangement(input, which, { rows })
+}
+
+/** Gives a star chart one more (`delta` 1) or one fewer (−1) row of people, within the limits. */
+export function resizeStarGridRows(input: CustomLayoutInput, which: Orientation, at: PaneAt, delta: 1 | -1): CustomLayoutInput {
+  return withStarGrid(input, which, at, grid => ({ ...grid, rows: Math.min(MAX_STAR_GRID_ROWS, Math.max(MIN_STAR_GRID_ROWS, grid.rows + delta)) }))
+}
+
+/** Gives a star chart one more (`delta` 1) or one fewer (−1) column of people, within the limits. */
+export function resizeStarGridColumns(input: CustomLayoutInput, which: Orientation, at: PaneAt, delta: 1 | -1): CustomLayoutInput {
+  return withStarGrid(input, which, at, grid => ({ ...grid, columns: Math.min(MAX_STAR_GRID_COLUMNS, Math.max(MIN_STAR_GRID_COLUMNS, grid.columns + delta)) }))
 }
 
 /**

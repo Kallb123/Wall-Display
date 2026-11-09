@@ -187,14 +187,14 @@ describe('the settings shell', () => {
     ['/settings/photos', 'Photos'],
     ['/settings/special-days', 'Special days'],
     ['/settings/displays', 'Displays'],
-  ])('shows the five tabs, with the one for %s marked as the current page', async (route, active) => {
+  ])('shows the six tabs, with the one for %s marked as the current page', async (route, active) => {
     const wrapper = await mountAt(App, route)
 
     expect(wrapper.find('h1').text()).toBe('Settings')
     const tabs = wrapper.findAll('nav a')
-    expect(tabs.map(tab => tab.text())).toEqual(['Calendars', 'Photos', 'Special days', 'Layouts', 'Displays'])
+    expect(tabs.map(tab => tab.text())).toEqual(['Calendars', 'Photos', 'Special days', 'Layouts', 'Stars', 'Displays'])
     expect(tabs.filter(tab => tab.attributes('aria-current') === 'page').map(tab => tab.text())).toEqual([active])
-    expect(tabs.map(tab => tab.attributes('href'))).toEqual(['/settings/calendars', '/settings/photos', '/settings/special-days', '/settings/layouts', '/settings/displays'])
+    expect(tabs.map(tab => tab.attributes('href'))).toEqual(['/settings/calendars', '/settings/photos', '/settings/special-days', '/settings/layouts', '/settings/stars', '/settings/displays'])
   })
 
   it('shows the tab\'s page below the tabs', async () => {

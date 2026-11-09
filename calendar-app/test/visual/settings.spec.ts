@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { displayStateSchema } from '../../shared/display'
 import type { CalendarStatus, ConnectionsStatus, DisplayPreferences, DisplayStatus, PhotosSettingsStatus, PreferencesStatus, SharedPreferences } from '../../shared/settings'
+import type { StarChart, StarSettingsEntry } from '../../shared/stars'
 import { NOW, fontsReady } from './helpers'
 
 // The settings pages (architecture §7.6) at a laptop's size, in both of the
@@ -172,6 +173,31 @@ async function playSettings(page: Page, status: ConnectionsStatus = connections,
   await page.route('**/api/remote', route => route.fulfill({ json: { pin_required: pinRequired } }))
 }
 
+const starPeople: StarSettingsEntry[] = [
+  { id: 'isla', name: 'Isla', initial: 'I', colour: '#D27FA0', enabled: true, period: 'week', goal: 6 },
+  { id: 'theo', name: 'Theo', initial: 'T', colour: '#5F94C4', enabled: true, period: 'day', goal: 3 },
+  { id: 'poppy', name: 'Poppy', initial: 'P', colour: '#9A7BC4', enabled: false, period: 'week', goal: null },
+]
+
+const starChart: StarChart = {
+  people: starPeople.filter(person => person.enabled).map(({ id, name, initial, colour, period, goal }) => ({ id, name, initial, colour, period, goal })),
+  counts: {
+    isla: { '2026-10-26': 2, '2026-10-27': 3, '2026-10-28': 2 },
+    theo: { '2026-10-26': 3, '2026-10-27': 4, '2026-10-28': 2 },
+  },
+}
+
+async function openStars(page: Page) {
+  await playSettings(page)
+  await page.route('**/api/settings/stars', route => route.fulfill({ json: starPeople }))
+  await page.route('**/api/stars', route => route.fulfill({ json: starChart }))
+  await page.goto('/settings/stars')
+  await expect(page.getByTestId('tab-stars')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('star-people')).toBeVisible()
+  await expect(page.getByTestId('chip-mqtt')).toContainText('1 of 2 connected')
+  await fontsReady(page)
+}
+
 async function openCalendars(page: Page) {
   await playSettings(page)
   await page.goto('/settings/calendars')
@@ -263,6 +289,24 @@ test.describe('dark', () => {
     await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(46, 43, 37)')
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(46, 43, 37)')
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
+  })
+})
+
+test.describe('Stars', () => {
+  test('looks right on a laptop', async ({ page }) => {
+    await openStars(page)
+
+    await expect(page).toHaveScreenshot('stars-light.png', { fullPage: true })
+  })
+
+  test.describe('on a phone, dark', () => {
+    test.use({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' })
+
+    test('looks right', async ({ page }) => {
+      await openStars(page)
+
+      await expect(page).toHaveScreenshot('stars-phone-dark.png', { fullPage: true })
+    })
   })
 })
 

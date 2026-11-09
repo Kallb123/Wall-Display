@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { displayStateSchema } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
+import type { StarChart } from '../../shared/stars'
 import { fontsReady, playServer } from './helpers'
 
 // The phone remote (architecture §7.5) at a phone's size, in both of the
@@ -17,8 +18,8 @@ async function pinRequired(page: Page, required: boolean) {
 }
 
 /** Opens the remote for the hallway once the name and the fonts are in. */
-async function openRemote(page: Page, initial: Partial<DisplayState> = {}, required = false) {
-  const server = await playServer(page, initial)
+async function openRemote(page: Page, initial: Partial<DisplayState> = {}, required = false, stars?: StarChart) {
+  const server = await playServer(page, initial, undefined, null, { stars })
   await pinRequired(page, required)
   await page.goto('/remote?id=hallway')
   await expect(page.getByTestId('display-name')).toHaveText('Hallway')
@@ -59,6 +60,40 @@ test.describe('dark', () => {
     await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(46, 43, 37)')
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(46, 43, 37)')
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
+  })
+})
+
+// The Stars section (architecture §7.5), on the frozen Wednesday 28 October: Isla
+// counts the week against a goal, Theo counts days, Poppy has no goal.
+const starChart: StarChart = {
+  people: [
+    { id: 'isla', name: 'Isla', initial: 'I', colour: '#D27FA0', period: 'week', goal: 6 },
+    { id: 'theo', name: 'Theo', initial: 'T', colour: '#5F94C4', period: 'day', goal: 3 },
+    { id: 'poppy', name: 'Poppy', initial: 'P', colour: '#9A7BC4', period: 'week', goal: null },
+  ],
+  counts: {
+    isla: { '2026-10-26': 2, '2026-10-27': 3, '2026-10-28': 2 },
+    theo: { '2026-10-28': 2 },
+  },
+}
+
+test('has a Stars section for the people with a chart', async ({ page }) => {
+  await openRemote(page, { view: 'agenda', brightness: 80 }, false, starChart)
+
+  await expect(page.getByTestId('star-row-isla')).toBeVisible()
+  await expect(page.getByTestId('star-summary-isla')).toHaveText('7 of 6 this week')
+  await expect(page.getByTestId('star-minus-poppy')).toBeDisabled()
+  await expect(page).toHaveScreenshot('stars.png', { fullPage: true })
+})
+
+test.describe('dark stars', () => {
+  test.use({ colorScheme: 'dark' })
+
+  test('has a Stars section for the people with a chart', async ({ page }) => {
+    await openRemote(page, { view: 'agenda', brightness: 80 }, false, starChart)
+
+    await expect(page.getByTestId('star-row-theo')).toBeVisible()
+    await expect(page).toHaveScreenshot('stars-dark.png', { fullPage: true })
   })
 })
 

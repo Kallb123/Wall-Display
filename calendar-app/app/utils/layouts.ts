@@ -172,10 +172,10 @@ export function paneFit(component: LayoutComponent, box: { width: number, height
 }
 
 /**
- * Whether the photo frame's pill, when it is in `corner`, is at the stage's top
- * right corner: a photo pane touches that corner and the pill is in its top
+ * Whether one of the photo frame's pills, in `corners`, is at the stage's top
+ * right corner: a photo pane touches that corner and a pill is in its top
  * right. The offline badge sits there too, and moves aside.
  */
-export function photoPillAtTopRight(panes: readonly PaneBox[], stageWidth: number, corner: Corner): boolean {
-  return corner === 'top-right' && panes.some(pane => pane.component === 'photo' && pane.y === 0 && pane.x + pane.width === stageWidth)
+export function photoPillAtTopRight(panes: readonly PaneBox[], stageWidth: number, corners: readonly Corner[]): boolean {
+  return corners.includes('top-right') && panes.some(pane => pane.component === 'photo' && pane.y === 0 && pane.x + pane.width === stageWidth)
 }

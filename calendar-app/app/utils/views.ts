@@ -82,7 +82,7 @@ export interface ViewProps {
   starGrid?: StarGrid
   /** The star chart pane only: the people with a chart and their counts, or null for none (nobody has one, or not heard yet). */
   stars?: StarChart | null
-  /** A pane of a custom layout only: how the layout asks this pane to look (hidden title, sidebar or hour labels, filled events, wrapping titles). Undefined means `DEFAULT_PANE_OPTIONS`, which is what every full-screen view and the week and photo view use. */
+  /** A pane of a custom layout only: how the layout asks this pane to look (hidden title, sidebar or hour labels, filled events, wrapping titles, the photo frame's overlays and their corners). Undefined means `DEFAULT_PANE_OPTIONS`, which is what every full-screen view and the week and photo view use. */
   paneOptions?: ResolvedPaneOptions
   /** The events fetched for the shown month and the next few days, sorted by start. */
   events: CalendarEvent[]
@@ -121,6 +121,8 @@ export interface ViewProps {
   socketOpens?: number
   /** The photo frame only: the corner its pill is in, which the page moves round so no corner is lit for ever (PR 5.3). `top-left` when left out. */
   photoCorner?: Corner
+  /** The photo frame only: whether the overlay banner is showing at the bottom centre, so an overlay set to a bottom corner takes the top one on its side. Not showing when left out. */
+  overlayShowing?: boolean
   /** The night view only: what it says under the clock. `none` when left out. */
   nightText?: NightText
   /** The night view only: the next alarm the server knows of, or null for none. Not heard yet is the same as none. */

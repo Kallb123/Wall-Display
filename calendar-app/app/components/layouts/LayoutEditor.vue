@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, Copy, Minus, Monitor, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
-import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, PANE_OPTIONS, paneOptions } from '../../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent, PaneOptionKey } from '../../../shared/layouts'
+import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, OVERLAY_CORNERS, PANE_CORNERS, PANE_OPTIONS, paneOptions } from '../../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent, OverlayCorner, PaneCornerKey, PaneOptionKey } from '../../../shared/layouts'
 import LayoutPreview from './LayoutPreview.vue'
-import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
+import { COMPONENT_LABELS, OVERLAY_CORNER_LABELS, PANE_CORNER_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneCornerDisabled, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
 import type { MoveDirection, Orientation, PaneAt } from '~/utils/layoutEditor'
 import '~/assets/special-days-form.css'
 
@@ -71,6 +71,11 @@ const optionKeys = computed(() => PANE_OPTIONS[selected.value])
 const optionValues = computed(() => paneOptions(draft.value, selected.value))
 const toggleOption = (key: PaneOptionKey) => {
   draft.value = setPaneOption(draft.value, selected.value, key, !optionValues.value[key])
+}
+/** The selected pane's corner choices: where the photo frame's overlays sit. */
+const cornerKeys = computed(() => PANE_CORNERS[selected.value])
+const pickCorner = (key: PaneCornerKey, value: string) => {
+  draft.value = setPaneCorner(draft.value, selected.value, key, value as OverlayCorner)
 }
 
 const errors = computed(() => editorErrors(draft.value))
@@ -304,7 +309,7 @@ function confirmDelete() {
         </div>
       </div>
 
-      <div v-if="optionKeys.length > 0" class="controls option-controls" role="group" :aria-label="`Display options for the ${COMPONENT_LABELS[selected]} pane`" data-testid="option-controls">
+      <div v-if="optionKeys.length > 0 || cornerKeys.length > 0" class="controls option-controls" role="group" :aria-label="`Display options for the ${COMPONENT_LABELS[selected]} pane`" data-testid="option-controls">
         <p class="selection">
           <strong>Display</strong>
           <span>{{ COMPONENT_LABELS[selected] }}, both orientations</span>
@@ -323,8 +328,29 @@ function confirmDelete() {
             {{ paneOptionLabel(selected, key) }}
           </button>
         </div>
+        <div v-if="cornerKeys.length > 0" class="corners">
+          <label v-for="key in cornerKeys" :key="key" class="group corner" :data-testid="`corner-${key}`">
+            <span class="group-label">{{ PANE_CORNER_LABELS[key] }}</span>
+            <span class="sd-select">
+              <select
+                :value="optionValues[key]"
+                class="sd-input"
+                :disabled="paneCornerDisabled(key, optionValues)"
+                :data-testid="`option-${key}`"
+                @change="pickCorner(key, ($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="corner in OVERLAY_CORNERS" :key="corner" :value="corner">
+                  {{ OVERLAY_CORNER_LABELS[corner] }}
+                </option>
+              </select>
+              <AppIcon :icon="ChevronDown" :size="22" />
+            </span>
+          </label>
+        </div>
         <p class="sd-hint option-hint">
-          These apply to the landscape and the portrait arrangement alike.
+          These apply to the landscape and the portrait arrangement alike.<template v-if="cornerKeys.length > 0">
+            Moving walks round the corners so none is lit for ever; two in the same corner share one pill.
+          </template>
         </p>
       </div>
 
@@ -500,6 +526,27 @@ code {
 .option-hint {
   flex: 1 0 100%;
   margin: 0;
+}
+
+.corners {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+.corner {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.corner .group-label {
+  min-width: 8.5em;
+}
+
+.corner .sd-select {
+  flex: 1;
+  min-width: 0;
 }
 
 .starts {

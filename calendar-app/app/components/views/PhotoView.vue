@@ -2,9 +2,11 @@
 import { ImageOff } from 'lucide-vue-next'
 import { coversBox, photoResponseSchema } from '../../../shared/photos'
 import type { PhotoInfo } from '../../../shared/photos'
+import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, formatTemperature, weatherLabel } from '../../../shared/weather'
-import { formatTime } from '~/utils/format'
+import { formatLongDate, formatTime } from '~/utils/format'
 import { nextEvent } from '~/utils/nextEvent'
+import { photoPills } from '~/utils/photoOverlay'
 import { weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
 
@@ -43,6 +45,16 @@ import type { ViewProps } from '../../utils/views'
 // off, as the week beside it already shows it. Fetching is the same: the pane's
 // own shape, not the stage's, decides which rendition is asked for and whether
 // the photo covers it.
+//
+// As a pane of a custom layout its overlays are the layout's to choose
+// (`paneOptions`, PR 5.21): the time, the weather and a date, each of which can
+// be left off, and the corner the time (with the weather) and the date each
+// sit in, or `auto` for the walking corner. Overlays in the same corner share a
+// pill (`photoPills`); with all of them off there is no pill at all. A chosen
+// bottom corner moves to the top while the overlay banner shows, as the walking
+// one does. The next event, on a full-screen frame, rides under the clock. The
+// full-screen frame and the week and photo view use the defaults: the time and
+// the weather in the walking corner, and no date.
 const props = defineProps<ViewProps>()
 
 /** The length of the crossfade. */
@@ -188,9 +200,13 @@ watch(() => props.socketOpens, () => {
   if (top.value === null && inflight === 0) void fetchNext()
 })
 
+const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+
 const time = computed(() => formatTime(props.now, props.timezone))
+const date = computed(() => formatLongDate(props.now, props.timezone))
 
 const weatherNow = computed(() => {
+  if (!options.value.show_weather) return null
   const current = currentWeather(props.weather, props.now)
   if (!current) return null
   const icon = weatherIcon(current.condition)
@@ -198,9 +214,12 @@ const weatherNow = computed(() => {
   return icon || temperature ? { icon, temperature, label: weatherLabel(current.condition) } : null
 })
 
-const upcoming = computed(() => nextEvent(props.events, props.now, props.timezone))
+const upcoming = computed(() => props.pane || !options.value.show_time ? null : nextEvent(props.events, props.now, props.timezone))
 
-const corner = computed(() => props.photoCorner ?? 'top-left')
+/** The pills to draw, each in its corner. One with only the weather, and no weather to show, is left out. */
+const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top-left', props.overlayShowing ?? false)
+  .map(pill => ({ ...pill, time: pill.time && (options.value.show_time || weatherNow.value !== null) }))
+  .filter(pill => pill.time || pill.date))
 </script>
 
 <template>
@@ -223,24 +242,35 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
       </p>
     </div>
 
-    <!-- Keyed by the corner, so a move fades the pill out where it was and in where it goes. -->
-    <Transition name="pill-move" mode="out-in">
-      <div :key="corner" class="pill" :class="[`corner-${corner}`, { compact: pane }]" :data-corner="corner" data-testid="photo-pill">
-        <div class="line">
-          <span class="clock" data-testid="photo-clock">{{ time }}</span>
+    <!-- Keyed by the corner and what is in it, so a move fades a pill out where it was and in where it goes. -->
+    <TransitionGroup name="pill-move">
+      <div
+        v-for="pill in pills"
+        :key="`${pill.corner}:${pill.time}:${pill.date}`"
+        class="pill"
+        :class="[`corner-${pill.corner}`, { compact: pane }]"
+        :data-corner="pill.corner"
+        data-testid="photo-pill"
+      >
+        <div v-if="pill.time" class="line">
+          <span v-if="options.show_time" class="clock" data-testid="photo-clock">{{ time }}</span>
           <span v-if="weatherNow" class="weather" :title="weatherNow.label ?? undefined" data-testid="photo-weather">
             <AppIcon v-if="weatherNow.icon" :icon="weatherNow.icon" :size="pane ? 48 : 64" />
             <span v-if="weatherNow.temperature">{{ weatherNow.temperature }}</span>
           </span>
         </div>
 
-        <div v-if="upcoming && !pane" class="next" data-testid="photo-next-event">
+        <div v-if="pill.date" class="date" data-testid="photo-date">
+          {{ date }}
+        </div>
+
+        <div v-if="pill.time && upcoming" class="next" data-testid="photo-next-event">
           <span class="marker" :style="{ background: upcoming.event.people[0]?.colour ?? 'rgba(255, 255, 255, 0.6)' }" />
           <span class="when" data-testid="photo-next-time">{{ upcoming.time }}</span>
           <span class="what" data-testid="photo-next-title">{{ upcoming.event.display_title }}</span>
         </div>
       </div>
-    </Transition>
+    </TransitionGroup>
   </section>
 </template>
 
@@ -391,6 +421,10 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
   font-size: 54px;
 }
 
+.compact .date {
+  font-size: 54px;
+}
+
 .clock {
   font-family: var(--font-display);
   font-size: 128px;
@@ -410,6 +444,15 @@ const corner = computed(() => props.photoCorner ?? 'top-left')
 
 .weather svg {
   flex: none;
+}
+
+.date {
+  overflow: hidden;
+  font-size: 72px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .next {

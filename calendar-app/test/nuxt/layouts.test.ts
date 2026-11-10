@@ -360,8 +360,8 @@ describe('the layouts editor', () => {
     const wrapper = await mountManager()
     const pressed = (key: string) => wrapper.find(`[data-testid="option-${key}"]`).attributes('aria-pressed')
 
-    // The kitchen shows a photo and a week, and the photo is selected to begin with: it has no options.
-    expect(wrapper.find('[data-testid="option-controls"]').exists()).toBe(false)
+    // The kitchen shows a photo and a week, and the photo is selected to begin with: its options are its overlays.
+    expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_time', 'option-show_date', 'option-show_weather'])
 
     await wrapper.find('[data-testid="layout-editor"] [data-component="week"]').trigger('click')
     expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_title', 'option-show_hours'])
@@ -380,6 +380,31 @@ describe('the layouts editor', () => {
 
     await click(wrapper, 'option-show_hours')
     expect(pressed('show_hours')).toBe('true')
+  })
+
+  it('places the photo frame\'s time and date in corners, and offers a corner only for what is shown', async () => {
+    const wrapper = await mountManager()
+    const select = (key: string) => wrapper.find(`[data-testid="option-${key}"]`)
+
+    expect(wrapper.find('[data-testid="option-show_time"]').text()).toBe('Time')
+    expect(wrapper.find('[data-testid="option-show_date"]').attributes('aria-pressed')).toBe('false')
+    expect((select('time_corner').element as HTMLSelectElement).value).toBe('auto')
+    expect(select('time_corner').attributes('disabled')).toBeUndefined()
+    // No date, so nowhere to put it.
+    expect(select('date_corner').attributes('disabled')).toBeDefined()
+
+    await click(wrapper, 'option-show_date')
+    expect(select('date_corner').attributes('disabled')).toBeUndefined()
+    await select('date_corner').setValue('bottom-right')
+    await select('time_corner').setValue('bottom-right')
+    await click(wrapper, 'option-show_weather')
+
+    await submit(wrapper)
+    expect((writes[0]!.body as { options: unknown }).options).toEqual({ photo: { show_date: true, show_weather: false, date_corner: 'bottom-right', time_corner: 'bottom-right' } })
+
+    // With the time and the weather both off, the time's corner has nothing to place.
+    await click(wrapper, 'option-show_time')
+    expect(select('time_corner').attributes('disabled')).toBeDefined()
   })
 
   it('offers the initials only once events are coloured', async () => {

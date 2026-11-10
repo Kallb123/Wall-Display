@@ -32,7 +32,11 @@ const CORNER_MS = 15 * 60_000
  * run into it, so the pill takes the top corner on the same side instead.
  */
 export function pillCorner(now: Date, options: { overlay: boolean }): Corner {
-  const corner = CORNERS[Math.floor(now.getTime() / CORNER_MS) % CORNERS.length]!
-  if (!options.overlay) return corner
+  return dodgeOverlay(CORNERS[Math.floor(now.getTime() / CORNER_MS) % CORNERS.length]!, options.overlay)
+}
+
+/** `corner`, or while an overlay banner is showing at the bottom centre, the top corner on the same side for a bottom one. */
+export function dodgeOverlay(corner: Corner, overlay: boolean): Corner {
+  if (!overlay) return corner
   return corner === 'bottom-left' ? 'top-left' : corner === 'bottom-right' ? 'top-right' : corner
 }

@@ -43,6 +43,7 @@ export function fixtureEvents({ configFile = 'config.dev.yaml', today = FIXTURE_
         calendar_id: calendar.id,
         title: event.title,
         display_title: resolved.displayTitle,
+        icon: null,
         location: event.location,
         start: event.startAt.toISOString(),
         end: event.endAt.toISOString(),

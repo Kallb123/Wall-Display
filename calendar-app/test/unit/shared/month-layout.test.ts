@@ -26,7 +26,7 @@ let nextId = 1000
 
 /** A timed event from `start` to `end`, both ISO instants. */
 function timed(start: string, end: string, title = 'Event', people: string[] = [], id = nextId++): CalendarEvent {
-  return { id, calendar_id: 'family', title, display_title: title, location: null, start, end, all_day: false, start_date: null, end_date: null, people: people.map(person) }
+  return { id, calendar_id: 'family', title, display_title: title, location: null, start, end, all_day: false, start_date: null, end_date: null, icon: null, people: people.map(person) }
 }
 
 /** An hour-long event starting at `time` (`HH:MM`, UTC) on `date`. */

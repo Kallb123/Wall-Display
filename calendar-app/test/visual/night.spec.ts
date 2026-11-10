@@ -16,6 +16,7 @@ const swimming: CalendarEvent = {
   calendar_id: 'family',
   title: 'Swimming',
   display_title: 'Swimming',
+  icon: null,
   location: null,
   start: '2026-10-29T08:30:00.000Z',
   end: '2026-10-29T09:30:00.000Z',

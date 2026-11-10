@@ -84,6 +84,7 @@ function lastSyncTitle(calendar: CalendarStatus): string | undefined {
       <header class="head">
         <div class="titles">
           <h2 class="name" data-testid="calendar-name">
+            <span v-if="calendar.icon" class="icon" aria-hidden="true" data-testid="calendar-icon">{{ calendar.icon }}</span>
             {{ calendar.name }}
           </h2>
           <p class="source" data-testid="calendar-source">
@@ -247,6 +248,11 @@ function lastSyncTitle(calendar: CalendarStatus): string | undefined {
   font-size: 32px;
   font-weight: 400;
   line-height: 1.1;
+}
+
+.icon {
+  margin-right: 0.15em;
+  font-size: 0.8em;
 }
 
 .source {

@@ -17,6 +17,8 @@ export interface CalendarEvent {
   title: string
   /** What the wall shows: the title, with any names stripped. */
   display_title: string
+  /** The calendar's `icon` (one emoji) to draw before the title, or null: none is set, or the title already starts with an emoji. */
+  icon: string | null
   location: string | null
   /** ISO 8601 instants, in UTC. */
   start: string

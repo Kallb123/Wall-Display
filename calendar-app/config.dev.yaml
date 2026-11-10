@@ -24,6 +24,7 @@ calendars:
   - id: family
     name: Family
     person: home
+    icon: "🏠"
     detect_people: true
     strip_names: true
     rules:

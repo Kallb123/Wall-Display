@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { badgesOf } from '~/utils/monthPanel'
+import { eventLabel } from '~/utils/eventLabel'
 import type { FittedPanelDay } from '~/utils/monthPanel'
 import { eventFill } from '~/utils/eventFill'
 
@@ -55,7 +56,7 @@ function fillStyle(people: readonly { colour: string }[]) {
         >{{ badge.initial }}</span>
       </span>
       <span class="time">{{ row.item.time ?? 'All day' }}</span>
-      <span class="name">{{ row.item.event.display_title }}</span>
+      <span class="name">{{ eventLabel(row.item.event) }}</span>
     </div>
     <div v-if="day.more" class="row more-row" data-testid="panel-more">
       <span v-if="initials !== false" class="badges" />

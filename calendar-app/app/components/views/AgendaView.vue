@@ -2,6 +2,7 @@
 import { Leaf } from 'lucide-vue-next'
 import type { CalendarEvent } from '../../../shared/types/events'
 import { agendaDays, PORTRAIT_MAX_ROWS } from '~/utils/agenda'
+import { eventLabel } from '~/utils/eventLabel'
 import type { AgendaDay, AgendaItem } from '~/utils/agenda'
 import { formatTime } from '~/utils/format'
 import { eventFill } from '~/utils/eventFill'
@@ -156,7 +157,7 @@ function barColour(event: CalendarEvent): string {
               >{{ person.initial }}</span>
             </span>
             <span v-if="row.item.time" class="time" data-testid="event-time">{{ row.item.time }}</span>
-            <span class="title" data-testid="event-title">{{ row.item.event.display_title }}</span>
+            <span class="title" data-testid="event-title">{{ eventLabel(row.item.event) }}</span>
             <span v-if="row.kind === 'all-day'" class="all-day-label">All day</span>
           </li>
         </template>

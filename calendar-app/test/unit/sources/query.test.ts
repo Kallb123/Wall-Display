@@ -203,6 +203,7 @@ describe('listEvents', () => {
         all_day: true,
         start_date: '2026-10-28',
         end_date: '2026-10-29',
+        icon: null,
         people: [{ id: 'home', name: 'Household', initial: 'H', colour: '#D9A93F' }],
       },
       {
@@ -216,6 +217,7 @@ describe('listEvents', () => {
         all_day: false,
         start_date: null,
         end_date: null,
+        icon: null,
         people: [
           { id: 'theo', name: 'Theo', initial: 'T', colour: '#5F94C4' },
           { id: 'isla', name: 'Isla', initial: 'I', colour: '#D27FA0' },
@@ -224,6 +226,22 @@ describe('listEvents', () => {
     ])
     expect(JSON.stringify(found)).not.toContain('description')
     expect(JSON.stringify(found)).not.toContain('Who:')
+  })
+
+  it('carries the calendar\'s icon, unless the title already starts with an emoji', () => {
+    const { db } = setup([
+      timed('Meals', '10:00', 30),
+      timed('🎂 Party', '11:00', 30),
+      timed('  🏊 Swim', '12:00', 30),
+    ])
+    const withIcon = [calendarConfig({ icon: '🍽️' })]
+
+    expect(list(db, at('00:00'), at('23:00'), { calendars: withIcon }).map(e => [e.title, e.icon])).toEqual([
+      ['Meals', '🍽️'],
+      ['🎂 Party', null],
+      ['  🏊 Swim', null],
+    ])
+    expect(list(db, at('00:00'), at('23:00')).map(e => e.icon)).toEqual([null, null, null])
   })
 
   it('leaves out a person who is no longer in the config, and keeps the event', () => {

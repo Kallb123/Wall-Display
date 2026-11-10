@@ -49,7 +49,7 @@ const weather: WeatherSnapshot = {
 
 function event(changes: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
-    id: 1, calendar_id: 'family', title: 'Swimming', display_title: 'Swimming', location: null,
+    id: 1, calendar_id: 'family', title: 'Swimming', display_title: 'Swimming', icon: null, location: null,
     start: '2026-10-28T15:30:00Z', end: '2026-10-28T16:30:00Z', all_day: false, start_date: null, end_date: null,
     people: [{ id: 'theo', name: 'Theo', initial: 'T', colour: '#5F94C4' }], ...changes,
   }
@@ -718,5 +718,17 @@ describe('the box the photo is drawn in', () => {
     await open({ stage: pane })
 
     expect(requests.map(request => request.query)).toEqual([{ display: 'hallway', orientation: 'portrait', width: 1000, height: 1440 }])
+  })
+})
+
+describe('the next event\'s calendar icon', () => {
+  it('goes before the title in the chip, and an event without one stays bare', async () => {
+    answers = [gives(A)]
+    const view = await open({ events: [event({ display_title: 'Dinner', icon: '🍽️' })] })
+    expect(view.wrapper.find('[data-testid="photo-next-title"]').text()).toBe('🍽️ Dinner')
+
+    await view.update({ events: [event({ display_title: 'Dinner', icon: null })] })
+
+    expect(view.wrapper.find('[data-testid="photo-next-title"]').text()).toBe('Dinner')
   })
 })

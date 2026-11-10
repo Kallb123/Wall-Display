@@ -28,7 +28,7 @@ const weather: WeatherSnapshot = {
 
 const mum = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
 const event = (id: number, overrides: Partial<CalendarEvent> = {}): CalendarEvent => ({
-  id, calendar_id: 'family', title: `Event ${id}`, display_title: `Event ${id}`, location: null,
+  id, calendar_id: 'family', title: `Event ${id}`, display_title: `Event ${id}`, icon: null, location: null,
   start: '2026-10-28T14:00:00Z', end: '2026-10-28T15:00:00Z', all_day: false, start_date: null, end_date: null, people: [mum],
   ...overrides,
 })
@@ -226,5 +226,14 @@ describe('CustomLayoutView with a days pane', () => {
       expect(wrapper.find('[data-testid="layout-pane-days"] [data-testid="day-grid-view"]').exists()).toBe(true)
       expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(count)
     }
+  })
+})
+
+describe('DayGridView calendar icons', () => {
+  it('puts the icon before the title of a card, and leaves an event without one bare', async () => {
+    const wrapper = await open({ events: [event(1, { display_title: 'Dinner', icon: '🍽️' }), event(2, { display_title: 'Dentist', icon: null, start: '2026-10-28T09:00:00Z', end: '2026-10-28T10:00:00Z' })] })
+
+    const cards = tile(wrapper, '2026-10-28').findAll('[data-testid="event"]')
+    expect(cards.map(card => card.find('.name').text())).toEqual(['Dentist', '🍽️ Dinner'])
   })
 })

@@ -35,6 +35,8 @@ export interface CalendarStatus {
   name: string
   /** The calendar's default person. */
   person: SettingsPerson
+  /** The calendar's emoji icon, or null when it has none. */
+  icon: string | null
   detect_people: boolean | 'anywhere'
   detect_in: ('title' | 'description')[]
   source_type: 'ics' | 'homeassistant'

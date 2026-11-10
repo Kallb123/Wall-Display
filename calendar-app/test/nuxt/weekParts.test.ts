@@ -36,7 +36,7 @@ const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
 
 const person = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
 const event = (id: number, overrides: Partial<CalendarEvent>): CalendarEvent => ({
-  id, calendar_id: 'family', title: `Event ${id}`, display_title: `Event ${id}`, location: null,
+  id, calendar_id: 'family', title: `Event ${id}`, display_title: `Event ${id}`, icon: null, location: null,
   start: '2026-10-28T14:00:00Z', end: '2026-10-28T15:00:00Z', all_day: false, start_date: null, end_date: null, people: [person],
   ...overrides,
 })
@@ -314,5 +314,19 @@ describe('WeekPartsView', () => {
       await wrapper.setProps(props({ paneOptions: options({ wrap_titles: false }) }))
       await vi.waitFor(() => expect(lines(wrapper).some((line: { attributes: (name: string) => string | undefined }) => line.attributes('data-wrap') === 'on')).toBe(false))
     })
+  })
+})
+
+describe('WeekPartsView calendar icons', () => {
+  it('puts the icon before the title in its cell', async () => {
+    const wrapper = await mountSuspended(WeekPartsView, { props: props({ events: [event(1, { display_title: 'Dinner', icon: '🍽️', start: '2026-10-28T18:00:00Z', end: '2026-10-28T19:00:00Z' })] }) })
+
+    expect(cell(wrapper, '2026-10-28', 'evening').find('.name').text()).toBe('🍽️ Dinner')
+  })
+
+  it('draws the bare title with no icon', async () => {
+    const wrapper = await mountSuspended(WeekPartsView, { props: props({ events: [at(1, '18:00', 'Dinner')] }) })
+
+    expect(cell(wrapper, '2026-10-28', 'evening').find('.name').text()).toBe('Dinner')
   })
 })

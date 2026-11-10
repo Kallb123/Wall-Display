@@ -39,6 +39,7 @@ export function calendarStatuses({ db, config, now, canSync }: CalendarStatusArg
       name: calendar.name ?? calendar.id,
       // The config check makes sure the default person exists.
       person: people.get(calendar.person)!,
+      icon: calendar.icon ?? null,
       detect_people: calendar.detect_people,
       detect_in: [...calendar.detect_in],
       source_type: calendar.source.type,

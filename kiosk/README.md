@@ -139,7 +139,7 @@ Delete that file and restart `getty@tty1` again to bring the kiosk back.
 | `~/.profile`, or `~/.bash_profile` if it exists | A block between `# >>> wallcal-kiosk >>>` and `# <<< wallcal-kiosk <<<` that starts the kiosk on `tty1`. The rest of the file is left alone. |
 | `/boot/firmware/cmdline.txt` (or `/boot/cmdline.txt`) | Adds `consoleblank=0`, which turns off the console screen blanker. |
 
-It also installs the compositor, `wlr-randr`, `acl`, `curl`, `fonts-noto-color-emoji` (Lite has no emoji font) and Chromium with `apt`, adds the user to the `video`, `render` and `input` groups, and sets the default boot target to `multi-user.target`.
+It also installs the compositor, `wlr-randr`, `acl`, `curl`, `fonts-noto-color-emoji` (Lite has no emoji font, and calendar icons need one) and Chromium with `apt`, adds the user to the `video`, `render` and `input` groups, and sets the default boot target to `multi-user.target`.
 
 ## Checking photo frame performance on the Pi
 

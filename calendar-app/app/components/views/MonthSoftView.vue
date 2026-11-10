@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import MonthPanelRows from './MonthPanelRows.vue'
 import { formatWeekday } from '~/utils/format'
+import { eventLabel } from '~/utils/eventLabel'
 import { todayIn } from '~/utils/eventRanges'
 import { badgesOf, fitPanelDay, laneSpans, PORTRAIT_STRIP_ROWS, PORTRAIT_TODAY_ROWS } from '~/utils/monthPanel'
 import { greetingSize, tileArt } from '~/utils/specialDays'
@@ -343,7 +344,7 @@ function timedStyle(row: { people: readonly { colour: string }[], column: number
                 :style="{ background: badge.colour }"
               >{{ badge.initial }}</span>
             </span>
-            <span class="name">{{ bar.event.display_title }}</span>
+            <span class="name">{{ eventLabel(bar.event) }}</span>
           </div>
 
           <div
@@ -364,7 +365,7 @@ function timedStyle(row: { people: readonly { colour: string }[], column: number
               >{{ badge.initial }}</span>
             </span>
             <span v-if="!portrait" class="time">{{ row.time }}</span>
-            <span class="name">{{ row.event.display_title }}</span>
+            <span class="name">{{ eventLabel(row.event) }}</span>
           </div>
 
           <div

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { greetingSize, tileArt } from '~/utils/specialDays'
+import { eventLabel } from '~/utils/eventLabel'
 import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
@@ -215,7 +216,7 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
                 >{{ badge.initial }}</span>
               </span>
               <span v-if="item.time" class="time">{{ item.time }}</span>
-              <span class="name">{{ item.event.display_title }}</span>
+              <span class="name">{{ eventLabel(item.event) }}</span>
             </div>
             <span v-if="row.head.more" class="head-more" data-testid="head-more">+{{ row.head.more }}</span>
           </div>
@@ -252,7 +253,7 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
               >{{ badge.initial }}</span>
             </span>
             <span class="time">{{ item.time }}</span>
-            <span class="name">{{ item.event.display_title }}</span>
+            <span class="name">{{ eventLabel(item.event) }}</span>
           </div>
           <div v-if="cell.more" class="line-more" data-testid="more">
             +{{ cell.more }} more

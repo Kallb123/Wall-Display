@@ -511,3 +511,23 @@ describe('MonthSoftView', () => {
     })
   })
 })
+
+describe('MonthSoftView calendar icons', () => {
+  const dinner = (icon: string | null) => ({ ...events.find(event => !event.all_day)!, id: 9910, display_title: 'Dinner', icon, people: [], start: '2026-10-29T18:00:00.000Z', end: '2026-10-29T19:00:00.000Z' })
+  const names = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, kind: 'timed' | 'panel') =>
+    wrapper.findAll(`[data-kind="${kind}"] .name`).map((name: { text: () => string }) => name.text())
+
+  it('puts the icon before the title in a tile and in the panel', async () => {
+    const wrapper = await mountSuspended(MonthSoftView, { props: props({ events: [...events, dinner('🍽️')] }) })
+
+    expect(names(wrapper, 'timed')).toContain('🍽️ Dinner')
+    expect(names(wrapper, 'panel')).toContain('🍽️ Dinner')
+  })
+
+  it('draws the bare title when the event has no icon', async () => {
+    const wrapper = await mountSuspended(MonthSoftView, { props: props({ events: [...events, dinner(null)] }) })
+
+    expect(names(wrapper, 'timed')).toContain('Dinner')
+    expect(names(wrapper, 'panel')).toContain('Dinner')
+  })
+})

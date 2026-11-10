@@ -19,7 +19,7 @@ const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
 
 function event(changes: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
-    id: 1, calendar_id: 'family', title: 'Swimming', display_title: 'Swimming', location: null,
+    id: 1, calendar_id: 'family', title: 'Swimming', display_title: 'Swimming', icon: null, location: null,
     start: '2026-10-29T08:30:00Z', end: '2026-10-29T09:30:00Z', all_day: false, start_date: null, end_date: null,
     people: [{ id: 'theo', name: 'Theo', initial: 'T', colour: '#5F94C4' }], ...changes,
   }
@@ -100,5 +100,14 @@ describe('the night view', () => {
     const wrapper = await open({ burnIn: true, stage: { width: 1440, height: 2560, orientation: 'portrait' } })
 
     expect(wrapper.find('[data-testid="night-clock"]').element.parentElement!.style.transform).toBe(`translate(${spot.x}px, ${spot.y}px)`)
+  })
+})
+
+describe('the night view and calendar icons', () => {
+  it('leaves the icon off the line', async () => {
+    const wrapper = await open({ nightText: 'first_event', events: [event({ icon: '🍽️' })] })
+
+    expect(text(wrapper).text()).toContain('Swimming')
+    expect(text(wrapper).text()).not.toContain('🍽️')
   })
 })

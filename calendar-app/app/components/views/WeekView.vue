@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { greetingSize, tileArt } from '~/utils/specialDays'
+import { eventLabel } from '~/utils/eventLabel'
 import { paletteAccent, personFill, PORTRAIT_WEEK_TILE_TINT, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
 import type { ViewProps } from '../../utils/views'
@@ -290,7 +291,7 @@ const BAND_SHOWN = 1
               :style="{ background: badge.colour }"
             >{{ badge.initial }}</span>
           </span>
-          <span class="name">{{ bar.event.display_title }}</span>
+          <span class="name">{{ eventLabel(bar.event) }}</span>
         </div>
         <div
           v-for="more in layout.allDay.more"
@@ -334,7 +335,7 @@ const BAND_SHOWN = 1
                 >{{ badge.initial }}</span>
               </span>
               <span class="time">{{ item.time }}</span>
-              <span class="name">{{ item.event.display_title }}</span>
+              <span class="name">{{ eventLabel(item.event) }}</span>
             </div>
             <span v-if="bandItems(band, day.column).length > BAND_SHOWN" class="chip-more">+{{ bandItems(band, day.column).length - BAND_SHOWN }}</span>
             <!-- The now line, when now is in this band. -->
@@ -399,7 +400,7 @@ const BAND_SHOWN = 1
                 </span>
                 <span class="time">{{ block.time }}</span>
               </span>
-              <span class="name">{{ block.event.display_title }}</span>
+              <span class="name">{{ eventLabel(block.event) }}</span>
             </span>
           </div>
           <!-- Blocks that had no track left, counted where they start. Over the blocks, with a ring in the tile's colour to lift it off them. -->

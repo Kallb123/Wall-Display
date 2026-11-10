@@ -13,12 +13,12 @@ const anna: EventPerson = { id: 'anna', name: 'Anna', initial: 'A', colour: '#ff
 let nextId = 1
 
 function timed(start: string, end: string, title = 'Event', people: EventPerson[] = []): CalendarEvent {
-  return { id: nextId++, calendar_id: 'family', title, display_title: title, location: null, start, end, all_day: false, start_date: null, end_date: null, people }
+  return { id: nextId++, calendar_id: 'family', title, display_title: title, location: null, start, end, all_day: false, start_date: null, end_date: null, icon: null, people }
 }
 
 /** An all-day event on `first` up to but not including `after`. */
 function allDay(first: string, after: string, title = 'All day'): CalendarEvent {
-  return { id: nextId++, calendar_id: 'family', title, display_title: title, location: null, start: `${first}T00:00:00Z`, end: `${after}T00:00:00Z`, all_day: true, start_date: first, end_date: after, people: [] }
+  return { id: nextId++, calendar_id: 'family', title, display_title: title, location: null, start: `${first}T00:00:00Z`, end: `${after}T00:00:00Z`, all_day: true, start_date: first, end_date: after, icon: null, people: [] }
 }
 
 const grid = (rows: number, columns: number, start: DayGrid['start'] = 'today'): DayGrid => ({ rows, columns, start })

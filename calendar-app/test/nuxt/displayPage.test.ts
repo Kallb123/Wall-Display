@@ -473,7 +473,7 @@ describe('a preview', () => {
 
 /** A timed event, for the night view's line. */
 const swimming: CalendarEvent = {
-  id: 1, calendar_id: 'family', title: 'Swimming', display_title: 'Swimming', location: null,
+  id: 1, calendar_id: 'family', title: 'Swimming', display_title: 'Swimming', icon: null, location: null,
   start: '2026-11-01T08:30:00Z', end: '2026-11-01T09:30:00Z', all_day: false, start_date: null, end_date: null, people: [],
 }
 

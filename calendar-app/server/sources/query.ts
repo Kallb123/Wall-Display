@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, gte, inArray, lt, or } from 'drizzle-orm'
 import { z } from 'zod'
 import { startsWithEmoji } from '../../shared/emoji'
+import { createIconResolver } from '../../shared/people'
 import type { CalendarEvent, EventPerson } from '../../shared/types/events'
 import type { CalendarConfig, Person } from '../config/schema'
 import type { Db } from '../db/client'
@@ -84,7 +85,7 @@ export function parseEventRange(query: unknown, timeZone: string): EventRange {
 
 export interface ListEventsArgs extends EventRange {
   /** The calendars in the config. Events of any other calendar are not listed. */
-  calendars: readonly Pick<CalendarConfig, 'id' | 'icon'>[]
+  calendars: readonly Pick<CalendarConfig, 'id' | 'icon' | 'detect_in' | 'rules'>[]
   people: readonly Person[]
 }
 
@@ -105,7 +106,7 @@ export function listEvents(db: Db, { from, to, calendars, people }: ListEventsAr
     ),
   )).orderBy(asc(events.startAt), desc(events.allDay), asc(events.id)).all()
 
-  const icons = new Map(calendars.map(calendar => [calendar.id, calendar.icon]))
+  const iconOf = new Map(calendars.map(calendar => [calendar.id, createIconResolver(calendar)]))
   const known = new Map<string, EventPerson>(people.map(person => [person.id, { id: person.id, name: person.name, initial: person.initial, colour: person.colour }]))
   return rows.map(row => ({
     id: row.id,
@@ -118,8 +119,8 @@ export function listEvents(db: Db, { from, to, calendars, people }: ListEventsAr
     all_day: row.allDay,
     start_date: row.startDate,
     end_date: row.endDate,
-    // A title that already starts with an emoji needs no icon.
-    icon: startsWithEmoji(row.displayTitle) ? null : icons.get(row.calendarId) ?? null,
+    // A rule's icon, else the calendar's. A title that already starts with an emoji needs neither.
+    icon: startsWithEmoji(row.displayTitle) ? null : iconOf.get(row.calendarId)?.(row) ?? null,
     people: row.personIds.flatMap(id => known.get(id) ?? []),
   }))
 }

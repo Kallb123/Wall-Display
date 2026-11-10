@@ -244,6 +244,29 @@ describe('listEvents', () => {
     expect(list(db, at('00:00'), at('23:00')).map(e => e.icon)).toEqual([null, null, null])
   })
 
+  it('gives an event the icon of the first rule that matches it, before the calendar\'s', () => {
+    const { db } = setup([
+      timed('Swimming gala', '09:00', 30),
+      timed('Dinner', '10:00', 30),
+      event({ uid: 'desc', title: 'Club', description: 'Bring <b>swimming</b> kit', startAt: at('11:00'), endAt: at('11:30') }),
+      timed('🎂 Swimming party', '12:00', 30),
+      timed('Theo: Swimming', '13:00', 30),
+    ])
+    const rules = [
+      { match: 'gala', people: ['theo'] },
+      { match: 'swimming', people: [], icon: '🏊' },
+      { match: 'gala|club', people: [], icon: '🏅' },
+    ]
+    const icons = (calendar: Parameters<typeof calendarConfig>[0]) =>
+      list(db, at('00:00'), at('23:00'), { calendars: [calendarConfig(calendar)] }).map(e => e.icon)
+
+    // A rule with no icon is passed over, a name in the title does not get in the way, and the description counts.
+    expect(icons({ icon: '🍽️', rules })).toEqual(['🏊', '🍽️', '🏊', null, '🏊'])
+    expect(icons({ rules })).toEqual(['🏊', null, '🏊', null, '🏊'])
+    // Rules read the fields `detect_in` names, as they do for people.
+    expect(icons({ rules, detect_in: ['title'] })).toEqual(['🏊', null, '🏅', null, '🏊'])
+  })
+
   it('leaves out a person who is no longer in the config, and keeps the event', () => {
     const { db } = setup([event({ title: 'Theo: Swimming', description: 'Who: Theo, Isla' })])
 

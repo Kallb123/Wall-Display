@@ -93,9 +93,19 @@ const group = z.strictObject({
   people: z.array(text).min(1, 'must list at least one person id'),
 })
 
+const emoji = z.string().check((ctx) => {
+  if (!isSingleEmoji(ctx.value)) {
+    ctx.issues.push({ code: 'custom', message: 'must be a single emoji like "🍽️" (quote it)', input: ctx.value, continue: true })
+  }
+})
+
+// A rule gives matching events people, an icon, or both.
 const rule = z.strictObject({
   match: rulePattern,
-  people: z.array(text).min(1, 'must list at least one person or group id'),
+  people: z.array(text).min(1, 'must list at least one person or group id (or leave people out of a rule that only sets an icon)').default([]),
+  icon: emoji.optional(),
+}).refine(value => value.people.length > 0 || value.icon !== undefined, {
+  message: 'must set people, an icon, or both',
 })
 
 const icsSource = (baseDir: string) => z.strictObject({
@@ -114,11 +124,7 @@ const calendar = (baseDir: string) => z.strictObject({
   id: slug,
   name: text.optional(),
   person: text,
-  icon: z.string().check((ctx) => {
-    if (!isSingleEmoji(ctx.value)) {
-      ctx.issues.push({ code: 'custom', message: 'must be a single emoji like "🍽️" (quote it)', input: ctx.value, continue: true })
-    }
-  }).optional(),
+  icon: emoji.optional(),
   detect_people: z.union([z.boolean(), z.literal('anywhere')], { error: 'must be true, false or "anywhere"' }).default(true),
   detect_in: z.array(z.enum(['title', 'description'])).min(1, 'must list "title", "description" or both').default(['title', 'description']),
   strip_names: z.boolean().default(false),

@@ -31,7 +31,10 @@ export interface DetectionGroup {
 export interface DetectionRule {
   /** A regular expression, matched case-insensitively. */
   match: string
+  /** Empty for a rule that only sets an icon. */
   people: readonly string[]
+  /** One emoji, drawn before the title of an event the rule matches. */
+  icon?: string | undefined
 }
 
 export interface DetectionCalendar {
@@ -259,6 +262,29 @@ export function createPeopleResolver(
 
     // Step 3: the calendar's own person.
     return { personIds: [calendar.person], displayTitle: event.title, matchedBy: 'default' }
+  }
+}
+
+/**
+ * Builds the function that picks an event's icon for one calendar: the icon of
+ * the first rule that has one and matches, else the calendar's own, else null.
+ * A rule is tested against the same texts as for people (the title and each
+ * description line, as `detect_in` says), but whoever the event is for: a name
+ * in the title does not stop "swimming" getting its icon.
+ */
+export function createIconResolver(
+  calendar: Pick<DetectionCalendar, 'detect_in' | 'rules'> & { icon?: string | undefined },
+): (event: DetectableEvent) => string | null {
+  const inTitle = calendar.detect_in.includes('title')
+  const inDescription = calendar.detect_in.includes('description')
+  const rules = calendar.rules.flatMap(rule => rule.icon ? [{ pattern: new RegExp(rule.match, 'i'), icon: rule.icon }] : [])
+  const fallback = calendar.icon ?? null
+  if (rules.length === 0) return () => fallback
+
+  return (event) => {
+    const lines = inDescription && event.description ? descriptionLines(event.description) : []
+    const texts = inTitle ? [event.title, ...lines] : lines
+    return rules.find(rule => texts.some(text => rule.pattern.test(text)))?.icon ?? fallback
   }
 }
 

@@ -27,6 +27,7 @@ const calendar = (changes: Partial<CalendarStatus> = {}): CalendarStatus => ({
   id: 'family',
   name: 'Family',
   person: household,
+  icon: null,
   detect_people: true,
   detect_in: ['title', 'description'],
   source_type: 'ics',

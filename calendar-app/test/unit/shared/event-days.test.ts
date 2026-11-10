@@ -8,7 +8,7 @@ import type { CalendarEvent } from '../../../shared/types/events'
 const LONDON = 'Europe/London'
 
 function timed(start: string, end: string, id: number): CalendarEvent {
-  return { id, calendar_id: 'family', title: 'Event', display_title: 'Event', location: null, start, end, all_day: false, start_date: null, end_date: null, people: [] }
+  return { id, calendar_id: 'family', title: 'Event', display_title: 'Event', location: null, start, end, all_day: false, start_date: null, end_date: null, icon: null, people: [] }
 }
 
 function allDay(first: string | null, after: string | null, id: number): CalendarEvent {

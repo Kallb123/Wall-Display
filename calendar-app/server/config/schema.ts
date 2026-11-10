@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isSingleEmoji } from '../../shared/emoji'
 import { layoutIdSchema, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
@@ -113,6 +114,11 @@ const calendar = (baseDir: string) => z.strictObject({
   id: slug,
   name: text.optional(),
   person: text,
+  icon: z.string().check((ctx) => {
+    if (!isSingleEmoji(ctx.value)) {
+      ctx.issues.push({ code: 'custom', message: 'must be a single emoji like "🍽️" (quote it)', input: ctx.value, continue: true })
+    }
+  }).optional(),
   detect_people: z.union([z.boolean(), z.literal('anywhere')], { error: 'must be true, false or "anywhere"' }).default(true),
   detect_in: z.array(z.enum(['title', 'description'])).min(1, 'must list "title", "description" or both').default(['title', 'description']),
   strip_names: z.boolean().default(false),

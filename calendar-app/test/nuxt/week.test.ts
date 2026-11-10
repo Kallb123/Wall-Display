@@ -33,7 +33,7 @@ const props = (overrides: Partial<ViewProps> = {}): ViewProps => ({
 
 const person = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
 const event = (id: number, overrides: Partial<CalendarEvent>): CalendarEvent => ({
-  id, calendar_id: 'family', title: `Event ${id}`, display_title: `Event ${id}`, location: null,
+  id, calendar_id: 'family', title: `Event ${id}`, display_title: `Event ${id}`, icon: null, location: null,
   start: '2026-10-28T14:00:00Z', end: '2026-10-28T15:00:00Z', all_day: false, start_date: null, end_date: null, people: [person],
   ...overrides,
 })
@@ -375,5 +375,18 @@ describe('WeekView as a pane', () => {
       // The columns are still numbered from 2, so the veil and the tiles are where they were.
       expect(wrapper.find('[data-testid="veil"]').attributes('style')).toContain('grid-column: 2 / span 2')
     })
+  })
+})
+
+describe('WeekView calendar icons', () => {
+  it('puts the icon before the title of a block, and leaves an event without one bare', async () => {
+    const wrapper = await mountSuspended(WeekView, { props: props({ events: [
+      event(1, { display_title: 'Dinner', icon: '🍽️' }),
+      event(2, { display_title: 'Dentist', start: '2026-10-28T09:00:00Z', end: '2026-10-28T10:00:00Z' }),
+    ] }) })
+
+    const names = wrapper.findAll('.name').map(name => name.text())
+    expect(names).toContain('🍽️ Dinner')
+    expect(names).toContain('Dentist')
   })
 })

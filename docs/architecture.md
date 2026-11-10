@@ -132,6 +132,8 @@ This means a family can use a **single shared calendar** for everyone: one calen
 
 Detection runs over every source, HA calendars included (their events have a `description` too). It is a pure function in `shared/`, so it can be tested on its own. When the people, groups or rules in config change, stored events are re-resolved at boot without a fresh fetch.
 
+A calendar can also have an `icon`: one emoji (checked as a single grapheme that is an emoji, so it can't carry text) that is drawn before the title of its events in every view that draws event titles except the night view. It is skipped when the title shown already starts with an emoji, and it counts towards the title's width when the views fit text. It is not stored: `GET /api/events` works it out when it reads, from the config, and returns it as `icon` (null when there is none), so changing it in the config applies at once.
+
 ### 3.4 Calendar config (example)
 
 ```yaml
@@ -152,6 +154,7 @@ calendars:
   # description ("Who: Theo") or title, so titles can stay clean in Google Calendar.
   - id: family
     person: home                 # default when nothing matches
+    icon: "🍽️"                   # optional: one emoji drawn before every title
     detect_people: true          # true (start of title / description lines) | anywhere | false
     detect_in: [title, description]
     strip_names: true
@@ -846,7 +849,7 @@ Sources and secrets stay in YAML, as do ids, people, calendars, schedules, the b
 
 **Settings API.** The pages read five open routes, none of which carries a secret (no feed URL, Home Assistant URL or token, MQTT username or password, Immich API key or PIN), and use four writes. Their shapes are in `shared/settings.ts`:
 
-- `GET /api/settings/calendars` has each calendar's default person, detection setting, source type, last attempt, last success, last error and event count, from the config and `sync_status`. A calendar that hasn't been tried yet shows nulls. `fallbacks` lists the events that fell back to the default person. `matchedBy` (§3.3) isn't stored, so it is worked out on read: the server takes the calendar's events from 30 days back to 30 days ahead whose stored people are exactly the default person, runs detection on their title and description again, and keeps those that no name or rule matched. A recurring event's instances are grouped by `uid` into one entry with a count, and the 20 nearest to now are returned. It is empty when `detect_people` is `false`.
+- `GET /api/settings/calendars` has each calendar's default person, `icon`, detection setting, source type, last attempt, last success, last error and event count, from the config and `sync_status`. A calendar that hasn't been tried yet shows nulls. `fallbacks` lists the events that fell back to the default person. `matchedBy` (§3.3) isn't stored, so it is worked out on read: the server takes the calendar's events from 30 days back to 30 days ahead whose stored people are exactly the default person, runs detection on their title and description again, and keeps those that no name or rule matched. A recurring event's instances are grouped by `uid` into one entry with a count, and the 20 nearest to now are returned. It is empty when `detect_people` is `false`.
 - `GET /api/settings/displays` has each display's state, its open sockets by role (`display`, `remote`) and its MQTT link (`off` when there is no `mqtt` block).
 - `GET /api/settings/connections` has the broker as scheme, host and port, and how many displays are connected to it, and the result of asking Home Assistant `GET /api/` with the token. That answer is kept for a minute, failures too, so a page polling every few seconds doesn't call Home Assistant each time.
 - `GET /api/settings/photos` has `{ configured: false }` with no `photos` block, otherwise each running photo source (Immich's mode and host only, or the local folder's path, with its pool and cached counts, last successful listing and last error, from `PhotoService.status()`), the cache's bytes against its cap, `interval_seconds`, `match_orientation` (true if either it or the older `landscape_only` is on) and whether a `google` block is being ignored.

@@ -43,6 +43,7 @@ calendars:
   - id: family
     name: Family
     person: home # used when nothing else matches
+    icon: "🍽️" # optional, one emoji shown before every title from this calendar (quote it)
     detect_people: true # true (start of title / description lines) | anywhere | false
     detect_in: [title, description] # which fields to read names from
     strip_names: true # show "Swimming", not "Theo: Swimming"

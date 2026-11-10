@@ -33,6 +33,7 @@ describe('calendarStatuses', () => {
       id: 'family',
       name: 'Family',
       person: { id: 'home', name: 'Household', initial: 'H', colour: '#D9A93F' },
+      icon: null,
       detect_people: true,
       detect_in: ['title', 'description'],
       source_type: 'ics',

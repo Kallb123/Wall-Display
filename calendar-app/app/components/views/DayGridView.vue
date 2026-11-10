@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useWrapFit } from '~/composables/useWrapFit'
 import { tileArt } from '~/utils/specialDays'
+import { eventLabel } from '~/utils/eventLabel'
 import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
@@ -173,7 +174,7 @@ const cssVars = computed(() => ({
           data-testid="event"
         >
           <span class="lines">
-            <span class="name">{{ item.event.display_title }}</span>
+            <span class="name">{{ eventLabel(item.event) }}</span>
             <span class="time">{{ item.time ?? 'All day' }}</span>
           </span>
           <span v-if="item.initials.length && showInitials" class="badges">

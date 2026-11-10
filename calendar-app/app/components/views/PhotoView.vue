@@ -5,6 +5,7 @@ import type { PhotoInfo } from '../../../shared/photos'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, formatTemperature, weatherLabel } from '../../../shared/weather'
 import { formatLongDate, formatTime } from '~/utils/format'
+import { eventLabel } from '~/utils/eventLabel'
 import { nextEvent } from '~/utils/nextEvent'
 import { photoPills } from '~/utils/photoOverlay'
 import { weatherIcon } from '~/utils/weather'
@@ -267,7 +268,7 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
         <div v-if="pill.time && upcoming" class="next" data-testid="photo-next-event">
           <span class="marker" :style="{ background: upcoming.event.people[0]?.colour ?? 'rgba(255, 255, 255, 0.6)' }" />
           <span class="when" data-testid="photo-next-time">{{ upcoming.time }}</span>
-          <span class="what" data-testid="photo-next-title">{{ upcoming.event.display_title }}</span>
+          <span class="what" data-testid="photo-next-title">{{ eventLabel(upcoming.event) }}</span>
         </div>
       </div>
     </TransitionGroup>

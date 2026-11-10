@@ -242,6 +242,7 @@ assert_contains "missing source file is named" "$WORK/err" "chromium-policy.json
 apt_line=$(grep -A3 'apt-get install' "$REAL_KIOSK/setup.sh")
 assert_true "apt installs acl (setfacl, for the Pi agent's screen control)" grep -qw acl <<<"$apt_line"
 assert_true "apt still installs wlr-randr" grep -qw wlr-randr <<<"$apt_line"
+assert_true "apt installs fonts-noto-color-emoji (for calendar icons)" grep -qw fonts-noto-color-emoji <<<"$apt_line"
 
 echo "# $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

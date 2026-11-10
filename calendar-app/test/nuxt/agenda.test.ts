@@ -106,7 +106,7 @@ describe('AgendaView special days', () => {
 describe('AgendaView portrait', () => {
   const portrait = { width: 1440, height: 2560, orientation: 'portrait' as const }
   const hourly = (day: string, count: number): CalendarEvent[] => Array.from({ length: count }, (_, i) => ({
-    id: Number(day.slice(-2)) * 100 + i, calendar_id: 'family', title: `E${i}`, display_title: `E${i}`, location: null,
+    id: Number(day.slice(-2)) * 100 + i, calendar_id: 'family', title: `E${i}`, display_title: `E${i}`, icon: null, location: null,
     start: `${day}T${String(10 + i).padStart(2, '0')}:00:00Z`, end: `${day}T${String(10 + i).padStart(2, '0')}:30:00Z`, all_day: false, start_date: null, end_date: null, people: [],
   }))
   const count = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, day: 'day-today' | 'day-tomorrow') =>
@@ -132,7 +132,7 @@ describe('AgendaView pane options', () => {
 const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result.value as { background: string }).background)
   const mum = { id: 'mum', name: 'Mum', initial: 'M', colour: '#C67139' }
   const timed: CalendarEvent = {
-    id: 1, calendar_id: 'family', title: 'Dentist', display_title: 'Dentist', location: null,
+    id: 1, calendar_id: 'family', title: 'Dentist', display_title: 'Dentist', icon: null, location: null,
     start: '2026-10-28T14:00:00Z', end: '2026-10-28T15:00:00Z', all_day: false, start_date: null, end_date: null, people: [mum],
   }
   const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
@@ -186,5 +186,24 @@ const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result
     expect(row(wrapper).attributes('style') ?? '').not.toContain('--ring')
     expect(row(wrapper).find('.stripe').exists()).toBe(true)
     expect(wrapper.find('[data-wrap]').exists()).toBe(false)
+  })
+})
+
+describe('AgendaView calendar icons', () => {
+  const dinner = (icon: string | null): CalendarEvent => ({
+    id: 1, calendar_id: 'family', title: 'Dinner', display_title: 'Dinner', icon, location: null,
+    start: '2026-10-28T18:00:00Z', end: '2026-10-28T19:00:00Z', all_day: false, start_date: null, end_date: null, people: [],
+  })
+
+  it('puts the icon before the title', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ events: [dinner('🍽️')] }) })
+
+    expect(wrapper.find('[data-testid="event-title"]').text()).toBe('🍽️ Dinner')
+  })
+
+  it('draws the bare title with no icon', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ events: [dinner(null)] }) })
+
+    expect(wrapper.find('[data-testid="event-title"]').text()).toBe('Dinner')
   })
 })

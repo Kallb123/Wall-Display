@@ -143,6 +143,26 @@ describe('validation errors name the field', () => {
     expect(message).toContain('display: unknown setting')
   })
 
+  it.each(['🍽️', '🏊', '👨‍👩‍👧', '🇬🇧'])('accepts the calendar icon %s', async (icon) => {
+    const config = minimalConfig()
+    config.calendars[0].icon = icon
+    const { config: loaded } = await load({ config })
+
+    expect(loaded.calendars[0]!.icon).toBe(icon)
+  })
+
+  it('leaves the calendar icon undefined when there is none', async () => {
+    const { config: loaded } = await load({ config: minimalConfig() })
+
+    expect(loaded.calendars[0]!.icon).toBeUndefined()
+  })
+
+  it.each(['a', 'ab', '🍽️🍽️', '', '1', '#'])('rejects the calendar icon "%s"', async (icon) => {
+    const message = await messageFor((c) => { c.calendars[0].icon = icon })
+
+    expect(message).toContain('calendars[0].icon: must be a single emoji')
+  })
+
   it('homeassistant source without a homeassistant block', async () => {
     const message = await messageFor((c) => {
       c.calendars.push({ id: 'bins', person: 'mum', source: { type: 'homeassistant', entity_id: 'calendar.bins' } })

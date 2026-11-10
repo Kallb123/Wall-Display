@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, Images, LayoutGrid, ListTodo, Rows3 } from 'lucide-vue-next'
-import type { LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
+import { CalendarDays, CalendarRange, Images, LayoutGrid, ListTodo, Rows3, Star } from 'lucide-vue-next'
+import type { LayoutArrangement, LayoutComponent, LayoutPane } from '../../../shared/layouts'
 import { COMPONENT_LABELS } from '~/utils/layoutEditor'
 
 // A small picture of one arrangement, in the proportions of the wall (16:9, or
@@ -31,8 +31,12 @@ const ICONS: Record<LayoutComponent, Component> = {
   week_parts: Rows3,
   agenda: ListTodo,
   days: LayoutGrid,
+  stars: Star,
   photo: Images,
 }
+
+/** The rows and columns of tiles a pane's sketch draws faintly: the day grid's, or the star chart's cards. */
+const shapeOf = (pane: LayoutPane): { rows: number, columns: number } | undefined => pane.grid ?? pane.star_grid
 
 const summary = computed(() => props.arrangement.rows
   .map(row => row.panes.map(pane => COMPONENT_LABELS[pane.component]).join(' and '))
@@ -63,17 +67,18 @@ const summary = computed(() => props.arrangement.rows
         @click="interactive && emit('select', pane.component)"
       >
         <span
-          v-if="pane.grid"
+          v-if="shapeOf(pane)"
           class="tiles"
           aria-hidden="true"
-          data-testid="preview-grid"
-          :style="{ gridTemplateRows: `repeat(${pane.grid.rows}, 1fr)`, gridTemplateColumns: `repeat(${pane.grid.columns}, 1fr)` }"
+          :data-testid="pane.star_grid ? 'preview-star-grid' : 'preview-grid'"
+          :style="{ gridTemplateRows: `repeat(${shapeOf(pane)!.rows}, 1fr)`, gridTemplateColumns: `repeat(${shapeOf(pane)!.columns}, 1fr)` }"
         >
-          <i v-for="n in pane.grid.rows * pane.grid.columns" :key="n" />
+          <i v-for="n in shapeOf(pane)!.rows * shapeOf(pane)!.columns" :key="n" />
         </span>
         <AppIcon :icon="ICONS[pane.component]" :size="labels ? 20 : 12" />
         <span v-if="labels" class="name">{{ COMPONENT_LABELS[pane.component] }}</span>
         <span v-if="labels && pane.grid" class="caption">{{ pane.grid.rows }}×{{ pane.grid.columns }}</span>
+        <span v-else-if="labels && pane.star_grid" class="caption">{{ pane.star_grid.rows }} × {{ pane.star_grid.columns }} people</span>
       </component>
     </div>
   </div>

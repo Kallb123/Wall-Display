@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import type { CustomLayout, LayoutArrangement, LayoutComponent, LayoutOptions } from '../../shared/layouts'
+import type { StarChart } from '../../shared/stars'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import { fontsReady, playServer, settle } from './helpers'
 import weather from './fixtures/weather.json' with { type: 'json' }
@@ -90,14 +91,71 @@ const partsWithOptions = layout(
   { week_parts: { show_title: false, fill_events: true, wrap_titles: true } },
 )
 
+// The star chart (architecture §4.8b). The frozen clock is Wednesday 28 October,
+// so the week is Monday 26 October to Sunday 1 November. Isla counts the week
+// against a goal of 6 and has beaten it, Theo counts days against a goal of 3
+// and has two stars so far today, Poppy has no goal, and Dad's goal of 25 for the
+// week is more than ten, so his progress is a bar.
+const starChart: StarChart = {
+  people: [
+    { id: 'isla', name: 'Isla', initial: 'I', colour: '#D27FA0', period: 'week', goal: 6 },
+    { id: 'theo', name: 'Theo', initial: 'T', colour: '#5F94C4', period: 'day', goal: 3 },
+    { id: 'poppy', name: 'Poppy', initial: 'P', colour: '#9A7BC4', period: 'week', goal: null },
+    { id: 'dad', name: 'Dad', initial: 'D', colour: '#7A8A5E', period: 'week', goal: 25 },
+  ],
+  counts: {
+    isla: { '2026-10-26': 2, '2026-10-27': 3, '2026-10-28': 2 },
+    theo: { '2026-10-26': 3, '2026-10-27': 4, '2026-10-28': 2 },
+    poppy: { '2026-10-26': 1, '2026-10-27': 2, '2026-10-28': 1 },
+    dad: { '2026-10-26': 5, '2026-10-27': 6, '2026-10-28': 4 },
+  },
+}
+
+/** A layout with a star chart pane in the arrangement `at` (`[row, pane]`), a grid of `rows` by `columns` in each. */
+const withStars = (id: string, landscape: LayoutArrangement, portrait: LayoutArrangement, grids: { landscape: [number, number, number, number], portrait: [number, number, number, number] }, options: LayoutOptions = {}): CustomLayout => {
+  const shown = layout(id, landscape, portrait, options)
+  for (const [arrangement, [rowIndex, paneIndex, rows, columns]] of [[shown.landscape, grids.landscape], [shown.portrait, grids.portrait]] as const) {
+    arrangement.rows[rowIndex]!.panes[paneIndex]!.star_grid = { rows, columns }
+  }
+  return shown
+}
+
+// A strip of three cards under the week, and a column of three in portrait under
+// the week. (Both arrangements hold the same components.)
+const starsStrip = withStars(
+  'stars-strip',
+  { rows: [row(2, ['week', 1]), row(1, ['stars', 1])] },
+  { rows: [row(2, ['week', 1]), row(1, ['stars', 1])] },
+  { landscape: [1, 0, 1, 3], portrait: [1, 0, 3, 1] },
+)
+
+// A two by two block beside the agenda, with all four people, and in portrait a
+// block under the agenda with its title hidden.
+const starsBlock = withStars(
+  'stars-block',
+  { rows: [row(1, ['agenda', 1], ['stars', 2])] },
+  { rows: [row(1, ['agenda', 1]), row(1, ['stars', 1])] },
+  { landscape: [0, 1, 2, 2], portrait: [1, 0, 2, 2] },
+  { stars: { show_title: false } },
+)
+
+const starsAlone = withStars(
+  'stars-alone',
+  { rows: [row(1, ['stars', 1])] },
+  { rows: [row(1, ['stars', 1])] },
+  { landscape: [0, 0, 2, 2], portrait: [0, 0, 2, 2] },
+)
+
 /** Opens `display` showing `shown`, and waits for every pane to be drawn. */
-async function open(page: Page, display: string, shown: CustomLayout) {
+async function open(page: Page, display: string, shown: CustomLayout, stars?: StarChart) {
   await page.route('**/api/photos/next**', route => route.fulfill({ json: { photo: null } }))
-  await playServer(page, { view: 'custom', layout: shown.id }, events, weather, { layouts: [shown] })
+  await playServer(page, { view: 'custom', layout: shown.id }, events, weather, { layouts: [shown], stars })
   await page.goto(`/display?id=${display}`)
   await expect(page.getByTestId('custom-layout-view')).toBeVisible()
   await expect(page.getByTestId('stage')).toHaveAttribute('data-theme', display === 'kitchen' ? 'dark' : 'light')
-  await settle(page)
+  // A layout of the star chart alone has no events to wait for.
+  if (shown.landscape.rows.every(({ panes }) => panes.every(pane => pane.component === 'stars'))) await fontsReady(page)
+  else await settle(page)
   await fontsReady(page)
 }
 
@@ -153,6 +211,35 @@ test.describe('landscape day grid', () => {
 
     await expect(page.getByTestId('day-tile')).toHaveCount(21)
     await expect(page).toHaveScreenshot('custom-days-week-agenda-light.png')
+  })
+})
+
+test.describe('landscape star chart', () => {
+  test('a strip of three cards under the week, light theme', async ({ page }) => {
+    await open(page, 'hallway', starsStrip, { ...starChart, people: starChart.people.slice(0, 3) })
+
+    await expect(page.getByTestId('star-card')).toHaveCount(3)
+    await expect(page).toHaveScreenshot('custom-stars-strip-light.png')
+  })
+
+  test('a strip of three cards, dark theme', async ({ page }) => {
+    await open(page, 'kitchen', starsStrip, { ...starChart, people: starChart.people.slice(0, 3) })
+
+    await expect(page).toHaveScreenshot('custom-stars-strip-dark.png')
+  })
+
+  test('a two by two block of cards beside the agenda, with a bar for a big goal', async ({ page }) => {
+    await open(page, 'hallway', starsBlock, starChart)
+
+    await expect(page.getByTestId('star-card')).toHaveCount(4)
+    await expect(page).toHaveScreenshot('custom-stars-block-light.png')
+  })
+
+  test('no star charts yet', async ({ page }) => {
+    await open(page, 'hallway', starsAlone, { people: [], counts: {} })
+
+    await expect(page.getByTestId('star-empty')).toBeVisible()
+    await expect(page).toHaveScreenshot('custom-stars-empty-light.png')
   })
 })
 
@@ -216,6 +303,20 @@ test.describe('portrait', () => {
     await expect(page.getByTestId('layout-pane-month').getByTestId('today-band')).toHaveCount(0)
     await expect(page.getByTestId('layout-pane-month').getByTestId('next-days')).toHaveCount(0)
     await expect(page).toHaveScreenshot('custom-options-portrait-light.png')
+  })
+
+  test('a column of three cards under the week', async ({ page }) => {
+    await open(page, 'hallway', starsStrip, { ...starChart, people: starChart.people.slice(0, 3) })
+
+    await expect(page.getByTestId('star-card')).toHaveCount(3)
+    await expect(page).toHaveScreenshot('custom-stars-strip-portrait-light.png')
+  })
+
+  test('a two by two block under the agenda, without its title, dark theme', async ({ page }) => {
+    await open(page, 'kitchen', starsBlock, starChart)
+
+    await expect(page.getByTestId('star-card')).toHaveCount(4)
+    await expect(page).toHaveScreenshot('custom-stars-block-portrait-dark.png')
   })
 
   test('a 4 by 2 day grid below a photo', async ({ page }) => {

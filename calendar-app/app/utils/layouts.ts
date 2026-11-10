@@ -1,4 +1,4 @@
-import type { DayGrid, LayoutArrangement, LayoutComponent, ResolvedPaneOptions } from '../../shared/layouts'
+import type { DayGrid, LayoutArrangement, LayoutComponent, ResolvedPaneOptions, StarGrid } from '../../shared/layouts'
 import type { Corner } from './burnIn'
 import type { Stage } from './views'
 
@@ -25,6 +25,8 @@ export interface PaneBox {
   rounded: RoundedCorners
   /** Only the day grid has one: copied from the pane. */
   grid?: DayGrid
+  /** Only the star chart has one: copied from the pane. */
+  starGrid?: StarGrid
 }
 
 /** Splits `total` into whole-pixel lengths in proportion to `weights`; the last takes the remainder so they tile exactly. */
@@ -73,6 +75,7 @@ export function layoutPanes(arrangement: LayoutArrangement, stage: { width: numb
         height,
         rounded: { topLeft: !(top && left), topRight: !(top && right), bottomRight: !(bottom && right), bottomLeft: !(bottom && left) },
         ...(pane.grid && { grid: pane.grid }),
+        ...(pane.star_grid && { starGrid: pane.star_grid }),
       })
       x += width
     })
@@ -92,9 +95,9 @@ interface Minimum {
  * box its view lays out without clipping or overflowing, found by rendering
  * them. A pane smaller than this is drawn at the minimum and scaled down. The
  * photo frame has none: it draws to any box, and the day grid's depends on its
- * grid instead (`MIN_DAY_TILE`).
+ * grid instead (`MIN_DAY_TILE`), and so does the star chart's (`MIN_STAR_TILE`).
  */
-export const COMPONENT_MINIMUMS: Record<Exclude<LayoutComponent, 'photo' | 'days'>, Record<'landscape' | 'portrait', Minimum>> = {
+export const COMPONENT_MINIMUMS: Record<Exclude<LayoutComponent, 'photo' | 'days' | 'stars'>, Record<'landscape' | 'portrait', Minimum>> = {
   month: { landscape: { width: 2200, height: 1300 }, portrait: { width: 1300, height: 2300 } },
   week: { landscape: { width: 1800, height: 1000 }, portrait: { width: 1000, height: 1200 } },
   week_parts: { landscape: { width: 1700, height: 1000 }, portrait: { width: 1100, height: 1400 } },
@@ -118,6 +121,15 @@ export const MONTH_MINIMUMS_NO_SIDEBAR: Record<'landscape' | 'portrait', Minimum
 /** The smallest a day grid's tile is drawn at: a pane with more tiles than fit at this size is drawn on a bigger stage and scaled down. Tall enough for one event card and the "+N more" line under its head (app/utils/dayGrid.ts). */
 export const MIN_DAY_TILE: Minimum = { width: 320, height: 264 }
 
+/**
+ * The smallest a star chart card is drawn at: a pane with more cards than fit
+ * at this size is drawn on a bigger stage and scaled down. Wide and tall enough
+ * for the head (initial, name, total) and a row of star icons for a goal of ten
+ * (app/utils/starChart.ts). The week strip needs a taller card than this
+ * (`starWeekFits`), so it appears only where the pane gives the cards more room.
+ */
+export const MIN_STAR_TILE: Minimum = { width: 540, height: 208 }
+
 /** The week's wide layout needs this much width; a narrower box gets the seven-column one, as the week and photo view's pane does. */
 export const WEEK_WIDE_MIN_WIDTH = 1800
 
@@ -133,18 +145,22 @@ export interface PaneFit {
  * when it is narrower than `WEEK_WIDE_MIN_WIDTH`. A box at least as big as the
  * component's minimum is drawn at its real size; a smaller one is drawn on a
  * stage of the box's shape that is just big enough, and shrunk uniformly. The
- * day grid has no minimum of its own: its tiles are what must not get too
+ * day grid and the star chart have no minimum of their own: its tiles are what must not get too
  * small, so its minimum is `grid.rows` by `grid.columns` tiles of `MIN_DAY_TILE`
- * (without a grid, one tile, which is only a safe fallback). A month with its
+ * (the star chart likewise, with `MIN_STAR_TILE`; without a grid, one tile, which is only a safe fallback). A month with its
  * sidebar hidden (`options.show_sidebar` false) has the smaller
  * `MONTH_MINIMUMS_NO_SIDEBAR`.
  */
-export function paneFit(component: LayoutComponent, box: { width: number, height: number }, grid?: DayGrid, options?: Pick<ResolvedPaneOptions, 'show_sidebar'>): PaneFit {
+export function paneFit(component: LayoutComponent, box: { width: number, height: number }, grid?: DayGrid, options?: Pick<ResolvedPaneOptions, 'show_sidebar'>, starGrid?: StarGrid): PaneFit {
   const narrowWeek = component === 'week' && box.width < WEEK_WIDE_MIN_WIDTH
   const orientation = box.height > box.width || narrowWeek ? 'portrait' : 'landscape'
   if (component === 'photo') return { stage: { width: box.width, height: box.height, orientation }, scale: 1 }
   if (component === 'days') {
     const scale = Math.min(1, box.width / ((grid?.columns ?? 1) * MIN_DAY_TILE.width), box.height / ((grid?.rows ?? 1) * MIN_DAY_TILE.height))
+    return { stage: { width: Math.round(box.width / scale), height: Math.round(box.height / scale), orientation: box.height > box.width ? 'portrait' : 'landscape' }, scale }
+  }
+  if (component === 'stars') {
+    const scale = Math.min(1, box.width / ((starGrid?.columns ?? 1) * MIN_STAR_TILE.width), box.height / ((starGrid?.rows ?? 1) * MIN_STAR_TILE.height))
     return { stage: { width: Math.round(box.width / scale), height: Math.round(box.height / scale), orientation: box.height > box.width ? 'portrait' : 'landscape' }, scale }
   }
   const minimum = component === 'month' && options?.show_sidebar === false ? MONTH_MINIMUMS_NO_SIDEBAR[orientation] : COMPONENT_MINIMUMS[component][orientation]

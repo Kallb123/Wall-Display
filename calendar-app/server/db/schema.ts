@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { PHOTO_RENDITIONS } from '../../shared/photos'
+import { STAR_PERIODS } from '../../shared/stars'
 
 // The database schema. After changing this file, run `pnpm db:generate` and
 // commit the new migration in `server/db/migrations/`. CI fails if they differ.
@@ -265,6 +266,38 @@ export const customLayouts = sqliteTable('custom_layouts', {
   uniqueIndex('custom_layouts_name_idx').on(sql`lower(${table.name})`),
 ])
 
+/**
+ * Who has a star chart (PR 5.20), and how. One row per person in the config
+ * who has ever had their settings saved; no row means the chart is off. Rows
+ * for people since removed from the config are kept and ignored, so adding
+ * the person back brings their settings back.
+ */
+export const starChartPeople = sqliteTable('star_chart_people', {
+  /** The person's id in the config. Not a foreign key: people live in the config, not here. */
+  personId: text('person_id').primaryKey(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  /** What the goal and the wall's total count over. */
+  period: text('period', { enum: STAR_PERIODS }).notNull().default('week'),
+  /** Stars per period that count as a good day or week. Null for no goal. */
+  goal: integer('goal'),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
+}, table => [
+  check('star_chart_people_period_check', sql`${table.period} in ('day', 'week')`),
+  check('star_chart_people_goal_check', sql`${table.goal} is null or ${table.goal} >= 1`),
+])
+
+/** The stars a person has on a day (PR 5.20). A day with none has no row, so a count is always at least 1 in practice, though 0 is allowed. */
+export const starCounts = sqliteTable('star_counts', {
+  personId: text('person_id').notNull(),
+  /** The day in the config's time zone, `YYYY-MM-DD`. */
+  date: text('date').notNull(),
+  count: integer('count').notNull(),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
+}, table => [
+  primaryKey({ columns: [table.personId, table.date] }),
+  check('star_counts_count_check', sql`${table.count} >= 0`),
+])
+
 export type CalendarRow = typeof calendars.$inferSelect
 export type NewCalendarRow = typeof calendars.$inferInsert
 export type EventRow = typeof events.$inferSelect
@@ -287,3 +320,7 @@ export type PreferenceOverrideRow = typeof preferenceOverrides.$inferSelect
 export type NewPreferenceOverrideRow = typeof preferenceOverrides.$inferInsert
 export type CustomLayoutRow = typeof customLayouts.$inferSelect
 export type NewCustomLayoutRow = typeof customLayouts.$inferInsert
+export type StarChartPersonRow = typeof starChartPeople.$inferSelect
+export type NewStarChartPersonRow = typeof starChartPeople.$inferInsert
+export type StarCountRow = typeof starCounts.$inferSelect
+export type NewStarCountRow = typeof starCounts.$inferInsert

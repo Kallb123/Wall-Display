@@ -5,6 +5,7 @@ import { todayIn } from '../../shared/dates'
 import { displayStateSchema } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
 import type { CustomLayout } from '../../shared/layouts'
+import type { StarChart } from '../../shared/stars'
 import { resolvePreview } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { CalendarEvent } from '../../shared/types/events'
@@ -63,6 +64,8 @@ export interface PlayOptions {
   specialDays?: SpecialDaysResolution | null
   /** The custom layouts the server sends on every connect, for a state whose view is `custom`. Left out, none are sent. */
   layouts?: CustomLayout[]
+  /** The star chart the server sends on every connect, after the layouts. Left out, none is sent, as with a server that has not got to it. */
+  stars?: StarChart
 }
 
 /**
@@ -111,6 +114,7 @@ export async function playServer(page: Page, initial: Partial<DisplayState> = {}
     socket.send(JSON.stringify({ type: 'weather.updated', weather }))
     if (specialDays !== undefined) socket.send(specialDaysMessage(specialDays))
     if (options.layouts) socket.send(JSON.stringify({ type: 'layouts.updated', layouts: options.layouts }))
+    if (options.stars) socket.send(JSON.stringify({ type: 'stars.updated', stars: options.stars }))
   })
 
   return {

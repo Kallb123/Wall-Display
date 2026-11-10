@@ -326,6 +326,36 @@ describe('the layouts editor', () => {
     expect(gridIn(body.portrait)).toEqual([{ component: 'days', size: 1, grid: { rows: 4, columns: 2, start: 'today' } }])
   })
 
+  it('edits the star chart grid of the selected stars pane, with no Starts control', async () => {
+    const wrapper = await mountManager()
+    const text = (testid: string) => wrapper.find(`[data-testid="${testid}"]`).text()
+
+    await click(wrapper, 'toggle-stars')
+    await wrapper.find('[data-testid="layout-editor"] [data-component="stars"]').trigger('click')
+    expect(text('grid-rows')).toBe('Rows 1')
+    expect(text('grid-columns')).toBe('Columns 4')
+    expect(wrapper.find('[data-testid="grid-controls"]').text()).toContain('Star chart')
+    expect(wrapper.find('[data-testid="start-today"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="preview-star-grid"]').findAll('i')).toHaveLength(4)
+    expect(wrapper.find('[data-component="stars"]').text()).toContain('1 × 4 people')
+    expect(wrapper.find('[data-testid="option-show_title"]').text()).toBe('Title')
+
+    await click(wrapper, 'rows-more')
+    await click(wrapper, 'columns-fewer')
+    expect(text('grid-rows')).toBe('Rows 2')
+    expect(text('grid-columns')).toBe('Columns 3')
+    expect(wrapper.find('[data-testid="preview-star-grid"]').findAll('i')).toHaveLength(6)
+    for (let i = 0; i < 6; i++) await click(wrapper, 'columns-more')
+    expect(wrapper.find('[data-testid="columns-more"]').attributes('disabled')).toBeDefined()
+
+    await submit(wrapper)
+    const body = writes[0]!.body as { landscape: LayoutArrangement, portrait: LayoutArrangement }
+    expect(customLayoutInputSchema.safeParse(body).success).toBe(true)
+    const starsIn = (a: LayoutArrangement) => a.rows.flatMap(row => row.panes).filter(pane => pane.star_grid)
+    expect(starsIn(body.landscape)).toEqual([{ component: 'stars', size: 1, star_grid: { rows: 2, columns: 6 } }])
+    expect(starsIn(body.portrait)).toEqual([{ component: 'stars', size: 1, star_grid: { rows: 4, columns: 1 } }])
+  })
+
   it('shows Display chips for the selected pane and saves the ones changed', async () => {
     const wrapper = await mountManager()
     const pressed = (key: string) => wrapper.find(`[data-testid="option-${key}"]`).attributes('aria-pressed')

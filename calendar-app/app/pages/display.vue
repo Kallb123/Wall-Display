@@ -5,6 +5,7 @@ import { currentMonth, DEFAULT_DAY_PARTS, DEFAULT_WEEK_HOURS, displayStateSchema
 import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
 import { layoutSummary } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
+import type { StarChart } from '../../shared/stars'
 import { specialDayArtUrl } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { CalendarEvent, EventsResponse } from '../../shared/types/events'
@@ -83,6 +84,8 @@ const alarm = ref<NextAlarm>(null)
 const specialDays = ref<SpecialDaysResolution | null>(null)
 /** The library of custom layouts the server last sent (the cache's until then). */
 const layouts = ref<CustomLayout[]>([])
+/** The star chart the server last sent (the cache's until then), or null for none. */
+const stars = ref<StarChart | null>(null)
 /** The server answered and has no such display. */
 const unknown = ref(false)
 
@@ -97,6 +100,7 @@ function select(id: string) {
   alarm.value = cached?.alarm ?? null
   specialDays.value = cached?.special_days ?? null
   layouts.value = cached?.layouts ?? []
+  stars.value = cached?.stars ?? null
 }
 
 async function loadSettings() {
@@ -229,6 +233,7 @@ const viewProps = computed<ViewProps | null>(() => {
     view: state.value.view,
     stage: stage.value,
     layout: currentLayout.value,
+    stars: stars.value,
     events: events.value,
     now: now.value,
     timezone: display.timezone,
@@ -299,6 +304,11 @@ watch(socket.layouts, (next) => {
   if (next !== undefined) layouts.value = next
 })
 
+// The star chart, likewise: undefined is not heard yet, and the cache's chart stays on show.
+watch(socket.stars, (next) => {
+  if (next !== undefined) stars.value = next
+})
+
 // Like the weather, sent after the state on every connect and again when it changes.
 watch(socket.specialDays, (next) => {
   if (next !== undefined) specialDays.value = next
@@ -313,9 +323,9 @@ watch(socket.settings, (next) => {
 const evening = computed(() => timezone.value !== null && isEvening(now.value, timezone.value))
 useArtPreload(() => previewing.value ? [] : specialDays.value?.tomorrow_art ?? [], evening)
 
-watch([settings, state, events, weather, specialDays, alarm, layouts], () => {
+watch([settings, state, events, weather, specialDays, alarm, layouts, stars], () => {
   if (!displayId.value || !settings.value) return
-  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, weather: weather.value, special_days: specialDays.value, alarm: alarm.value, layouts: layouts.value, saved_at: new Date().toISOString() })
+  saveCache(storage, displayId.value, { settings: settings.value, state: state.value, events: events.value, weather: weather.value, special_days: specialDays.value, alarm: alarm.value, layouts: layouts.value, stars: stars.value, saved_at: new Date().toISOString() })
   saveLastDisplayId(storage, displayId.value)
 })
 

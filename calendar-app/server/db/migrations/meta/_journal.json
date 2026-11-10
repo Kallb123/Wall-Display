@@ -71,6 +71,13 @@
       "when": 1794126274918,
       "tag": "0009_quiet_timeslip",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794266857619,
+      "tag": "0010_star_chart",
+      "breakpoints": true
     }
   ]
 }

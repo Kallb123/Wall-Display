@@ -5,6 +5,7 @@ import CustomLayoutView from '~/components/views/CustomLayoutView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
 import AgendaView from '~/components/views/AgendaView.vue'
 import PhotoView from '~/components/views/PhotoView.vue'
+import StarChartView from '~/components/views/StarChartView.vue'
 import WeekView from '~/components/views/WeekView.vue'
 import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
@@ -181,6 +182,29 @@ describe('CustomLayoutView with one pane', () => {
     const wrapper = await open('landscape', { layout: layout({ landscape: photo, portrait: photo }) })
 
     expect(wrapper.find('[data-testid="photo-pill"]').classes()).not.toContain('compact')
+  })
+})
+
+describe('CustomLayoutView with a star chart pane', () => {
+  it('draws the star chart in its pane with the pane\'s star grid and the chart', async () => {
+    const stars = { rows: [{ size: 1, panes: [{ component: 'week' as const, size: 2 }, { component: 'stars' as const, size: 1, star_grid: { rows: 2, columns: 1 } }] }] }
+    const chart = { people: [{ id: 'ann', name: 'Ann', initial: 'A', colour: '#C67139', period: 'week' as const, goal: 5 }], counts: { ann: { '2026-10-28': 2 } } }
+    const wrapper = await open('landscape', { layout: layout({ landscape: stars }), stars: chart })
+    const view = wrapper.findComponent(StarChartView)
+
+    expect(wrapper.find('[data-testid="layout-pane-stars"]').exists()).toBe(true)
+    expect(view.exists()).toBe(true)
+    expect(view.props('starGrid')).toEqual({ rows: 2, columns: 1 })
+    expect(view.props('view')).toBe('custom')
+    expect(view.props('pane')).toBe(true)
+    expect(view.find('[data-testid="star-card"]').attributes('data-person')).toBe('ann')
+  })
+
+  it('says there are no charts when the page has none', async () => {
+    const stars = { rows: [{ size: 1, panes: [{ component: 'stars' as const, size: 1, star_grid: { rows: 1, columns: 4 } }] }] }
+    const wrapper = await open('landscape', { layout: layout({ landscape: stars }), stars: null })
+
+    expect(wrapper.find('[data-testid="star-empty"]').exists()).toBe(true)
   })
 })
 

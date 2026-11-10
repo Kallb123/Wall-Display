@@ -2,6 +2,8 @@ import { displaySettingsSchema, displayStateSchema, nextAlarmSchema } from '../.
 import type { DisplaySettings, DisplayState, NextAlarm, SocketRole } from '../../shared/display'
 import { customLayoutSchema } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
+import { starChartSchema } from '../../shared/stars'
+import type { StarChart } from '../../shared/stars'
 import { specialDaysResolutionSchema } from '../../shared/special-days'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import { weatherSnapshotSchema } from '../../shared/weather'
@@ -28,7 +30,9 @@ export interface DisplaySocketOptions {
  * tiles and takeover to draw, architecture §6.5) and the next alarm (a null
  * being none, for the night view). `layouts` is the library of custom layouts
  * (PR 5.17), `undefined` until heard, and a message with a layout that does not
- * parse is dropped whole, so the last good list stays. `settings` is this display's own settings
+ * parse is dropped whole, so the last good list stays. `stars` is the star
+ * chart (PR 5.20), `undefined` until heard and kept the same way when a message
+ * does not parse. `settings` is this display's own settings
  * (`settings.updated`, sent on connect and whenever the settings page changes
  * them), `undefined` until heard. `photoNext` counts the
  * `photo.next` messages for this display (the server's cue to show another
@@ -46,6 +50,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
   const specialDays = ref<SpecialDaysResolution | null | undefined>(undefined)
   const alarm = ref<NextAlarm | undefined>(undefined)
   const layouts = ref<CustomLayout[] | undefined>(undefined)
+  const stars = ref<StarChart | undefined>(undefined)
   const settings = ref<DisplaySettings | undefined>(undefined)
   const photoNext = ref(0)
   const opens = ref(0)
@@ -99,7 +104,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       return
     }
     if (typeof message !== 'object' || message === null) return
-    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays, alarm: nextAlarm, layouts: nextLayouts, settings: nextSettings } = message as Record<string, unknown>
+    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays, alarm: nextAlarm, layouts: nextLayouts, stars: nextStars, settings: nextSettings } = message as Record<string, unknown>
 
     if (type === 'state.updated' && from === id) {
       const parsed = displayStateSchema.safeParse(next)
@@ -122,6 +127,10 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       // For every wall too. One bad layout drops the whole message: a half-drawn library is worse than the last good one.
       const parsed = customLayoutSchema.array().safeParse(nextLayouts)
       if (parsed.success) layouts.value = parsed.data
+    } else if (type === 'stars.updated') {
+      // For every wall too, and ignored the same way when it is bad.
+      const parsed = starChartSchema.safeParse(nextStars)
+      if (parsed.success) stars.value = parsed.data
     } else if (type === 'settings.updated' && from === id) {
       // This display's own settings, as the settings page changes them. One that is the wrong shape, or names another display, is ignored.
       const parsed = displaySettingsSchema.safeParse(nextSettings)
@@ -139,6 +148,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
     specialDays.value = undefined
     alarm.value = undefined
     layouts.value = undefined
+    stars.value = undefined
     settings.value = undefined
     if (id) connect(id)
     else status.value = 'closed'
@@ -146,5 +156,5 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
 
   onScopeDispose(close)
 
-  return { status, state, weather, specialDays, alarm, layouts, settings, photoNext, opens }
+  return { status, state, weather, specialDays, alarm, layouts, stars, settings, photoNext, opens }
 }

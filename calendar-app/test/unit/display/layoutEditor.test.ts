@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
+import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
 import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
-import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '../../../app/utils/layoutEditor'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneOption, toggleComponent } from '../../../app/utils/layoutEditor'
 
 const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
@@ -466,5 +466,71 @@ describe('pane options', () => {
     expect(input.options).toEqual({ agenda: { show_initials: false } })
     valid(input)
     expect(setPaneOption(input, 'agenda', 'show_initials', true).options).toEqual({})
+  })
+})
+
+describe('the star chart grid', () => {
+  const withStars = () => toggleComponent(newLayoutInput('x'), 'stars', true)
+  const landscapeAt = { row: 0, pane: 2 }
+  const portraitAt = (input: CustomLayoutInput) => findPane(input.portrait, 'stars')!
+
+  it('gives a new stars pane the default grid, turned on its side in portrait', () => {
+    const next = withStars()
+
+    valid(next)
+    expect(next.landscape.rows[0]!.panes[2]).toEqual({ component: 'stars', size: 1, star_grid: DEFAULT_STAR_GRID })
+    expect(next.landscape.rows[0]!.panes[2]!.star_grid).not.toBe(DEFAULT_STAR_GRID)
+    expect(paneStarGrid(next, 'portrait', portraitAt(next))).toEqual({ rows: DEFAULT_STAR_GRID.columns, columns: DEFAULT_STAR_GRID.rows })
+  })
+
+  it('removes cleanly, with its options', () => {
+    const on = setPaneOption(withStars(), 'stars', 'show_title', false)
+    expect(on.options.stars).toEqual({ show_title: false })
+    const off = toggleComponent(on, 'stars', false)
+    valid(off)
+    expect(off.options.stars).toBeUndefined()
+    expect(componentsOf(off)).not.toContain('stars')
+  })
+
+  it('offers the title option, labelled Title', () => {
+    expect(paneOptionLabel('stars', 'show_title')).toBe('Title')
+    const next = setPaneOption(withStars(), 'stars', 'show_title', false)
+    expect(next.options.stars).toEqual({ show_title: false })
+    expect(setPaneOption(withStars(), 'stars', 'show_sidebar', true)).toEqual(withStars())
+  })
+
+  it('changes rows and columns by one in one arrangement only', () => {
+    const input = withStars()
+    const next = resizeStarGridColumns(resizeStarGridRows(input, 'landscape', landscapeAt, 1), 'landscape', landscapeAt, -1)
+
+    valid(next)
+    expect(paneStarGrid(next, 'landscape', landscapeAt)).toEqual({ rows: 2, columns: 3 })
+    expect(next.portrait).toEqual(input.portrait)
+    expect(paneStarGrid(input, 'landscape', landscapeAt)).toEqual(DEFAULT_STAR_GRID)
+  })
+
+  it('stops at the limits, handing back the same input', () => {
+    let input = withStars()
+    for (let i = 0; i < 10; i++) {
+      input = resizeStarGridRows(input, 'landscape', landscapeAt, 1)
+      input = resizeStarGridColumns(input, 'landscape', landscapeAt, 1)
+    }
+    expect(paneStarGrid(input, 'landscape', landscapeAt)).toEqual({ rows: MAX_STAR_GRID_ROWS, columns: MAX_STAR_GRID_COLUMNS })
+    expect(resizeStarGridRows(input, 'landscape', landscapeAt, 1)).toBe(input)
+    expect(resizeStarGridColumns(input, 'landscape', landscapeAt, 1)).toBe(input)
+    for (let i = 0; i < 10; i++) {
+      input = resizeStarGridRows(input, 'landscape', landscapeAt, -1)
+      input = resizeStarGridColumns(input, 'landscape', landscapeAt, -1)
+    }
+    expect(paneStarGrid(input, 'landscape', landscapeAt)).toEqual({ rows: 1, columns: 1 })
+    expect(resizeStarGridRows(input, 'landscape', landscapeAt, -1)).toBe(input)
+    valid(input)
+  })
+
+  it('changes nothing on a pane that is not a star chart', () => {
+    const input = withStars()
+    expect(resizeStarGridRows(input, 'landscape', { row: 0, pane: 0 }, 1)).toBe(input)
+    expect(resizeGridRows(input, 'landscape', landscapeAt, 1)).toBe(input)
+    expect(paneStarGrid(input, 'landscape', { row: 0, pane: 0 })).toBeNull()
   })
 })

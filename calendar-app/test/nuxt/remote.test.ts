@@ -6,6 +6,7 @@ import RemotePage from '~/pages/remote.vue'
 import { displayStateSchema } from '../../shared/display'
 import type { Command, DisplaySettings, DisplayState, PhotoSource } from '../../shared/display'
 import { PIN_ERRORS, PIN_HEADER } from '../../shared/remote'
+import type { StarChart } from '../../shared/stars'
 import type { SocketStatus } from '~/composables/useDisplaySocket'
 import { OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES } from '~/utils/overlay'
 
@@ -40,6 +41,10 @@ class FakeSocket {
   push(state: DisplayState) {
     this.onmessage?.({ data: JSON.stringify({ type: 'state.updated', display_id: 'hallway', state }) })
   }
+
+  pushStars(stars: StarChart) {
+    this.onmessage?.({ data: JSON.stringify({ type: 'stars.updated', stars }) })
+  }
 }
 
 const stateWith = (changes: Partial<DisplayState> = {}) => displayStateSchema.parse(changes)
@@ -52,6 +57,10 @@ let pinChecks: (string | null)[] = []
 let lockedOut = false
 // The photo sources the pretend server has set up.
 let photoSources: PhotoSource[] = []
+// The star chart the pretend server holds, and every adjustment it was sent.
+const NO_STARS: StarChart = { people: [], counts: {} }
+let starChart: StarChart = NO_STARS
+let starPosts: { url: string, body: unknown, pin: string | null }[] = []
 
 /** What each command does to the state, as far as these tests need. */
 function apply(command: Command): DisplayState {
@@ -78,7 +87,7 @@ function refusal(status: number, message: string) {
 
 const COMMANDS_URL = '/api/displays/hallway/commands'
 
-interface Options { method?: string, body?: Command, headers?: Record<string, string> }
+interface Options { method?: string, body?: unknown, headers?: Record<string, string> }
 
 /** The server: it answers each request as the real routes do (architecture §7.5). */
 async function server(url: string, options: Options = {}) {
@@ -91,12 +100,22 @@ async function server(url: string, options: Options = {}) {
     if (sentPin !== pin) throw refusal(401, PIN_ERRORS.wrong)
     return undefined
   }
+  if (url === '/api/stars') return structuredClone(starChart)
+  if (url.startsWith('/api/stars/')) {
+    starPosts.push({ url, body: options.body, pin: sentPin })
+    if (pin !== null && sentPin !== pin) throw refusal(401, sentPin === null ? PIN_ERRORS.missing : PIN_ERRORS.wrong)
+    const id = decodeURIComponent(url.slice('/api/stars/'.length))
+    const { delta } = options.body as { delta: number }
+    const mine = starChart.counts[id] ?? {}
+    starChart = { ...starChart, counts: { ...starChart.counts, [id]: { ...mine, '2026-10-28': Math.max(0, (mine['2026-10-28'] ?? 0) + delta) } } }
+    return structuredClone(starChart)
+  }
   if (url === COMMANDS_URL) {
-    commands.push({ command: options.body!, pin: sentPin })
+    commands.push({ command: options.body as Command, pin: sentPin })
     if (lockedOut) throw refusal(429, PIN_ERRORS.locked)
     if (pin !== null && sentPin === null) throw refusal(401, PIN_ERRORS.missing)
     if (pin !== null && sentPin !== pin) throw refusal(401, PIN_ERRORS.wrong)
-    return apply(options.body!)
+    return apply(options.body as Command)
   }
   throw refusal(404, `Not found: ${url}`)
 }
@@ -126,6 +145,8 @@ describe('the remote page', () => {
     pinChecks = []
     lockedOut = false
     photoSources = []
+    starChart = NO_STARS
+    starPosts = []
     localStorage.clear()
   })
 
@@ -740,6 +761,109 @@ describe('the remote page', () => {
       await wrapper.find('[data-testid="error"] button').trigger('click')
 
       expect(wrapper.find('[data-testid="error"]').exists()).toBe(false)
+    })
+  })
+
+  describe('the stars', () => {
+    const ISLA = { id: 'isla', name: 'Isla', initial: 'I', colour: '#E8963B' }
+    const MAX = { id: 'max', name: 'Max', initial: 'M', colour: '#4C8FD6' }
+    const chart = (): StarChart => ({
+      people: [{ ...ISLA, period: 'week', goal: 10 }, { ...MAX, period: 'day', goal: null }],
+      // Wednesday 28 October: Isla has 2 today and 3 earlier in the week, Max has 1 today.
+      counts: { isla: { '2026-10-28': 2, '2026-10-26': 3, '2026-10-19': 9 }, max: { '2026-10-28': 1 } },
+    })
+    const text = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper'], id: string) => wrapper.find(`[data-testid="${id}"]`).text()
+
+    it('has no section when nobody has a chart', async () => {
+      const { wrapper } = await mountRemote()
+
+      expect(wrapper.find('[data-testid="stars"]').exists()).toBe(false)
+    })
+
+    it('lists each person with today\'s count and their period total, asking for the chart when the socket has not sent it', async () => {
+      starChart = chart()
+      const { wrapper } = await mountRemote()
+
+      expect(wrapper.findAll('[data-testid^="star-row-"]').map(row => row.attributes('data-testid'))).toEqual(['star-row-isla', 'star-row-max'])
+      expect(text(wrapper, 'star-today-isla')).toBe('2')
+      expect(text(wrapper, 'star-summary-isla')).toBe('5 of 10 this week')
+      expect(text(wrapper, 'star-today-max')).toBe('1')
+      expect(text(wrapper, 'star-summary-max')).toBe('Today')
+      expect(wrapper.find('[data-testid="star-row-isla"]').text()).toContain('Isla')
+    })
+
+    it('adds and takes away a star for today and shows the chart the server answers with', async () => {
+      starChart = chart()
+      const { wrapper } = await mountRemote()
+
+      await wrapper.find('[data-testid="star-plus-isla"]').trigger('click')
+      await flushPromises()
+      await wrapper.find('[data-testid="star-plus-isla"]').trigger('click')
+      await flushPromises()
+      await wrapper.find('[data-testid="star-minus-max"]').trigger('click')
+      await flushPromises()
+
+      expect(starPosts.map(post => [post.url, post.body])).toEqual([
+        ['/api/stars/isla', { delta: 1 }],
+        ['/api/stars/isla', { delta: 1 }],
+        ['/api/stars/max', { delta: -1 }],
+      ])
+      expect(text(wrapper, 'star-today-isla')).toBe('4')
+      expect(text(wrapper, 'star-summary-isla')).toBe('7 of 10 this week')
+      expect(text(wrapper, 'star-today-max')).toBe('0')
+      expect(wrapper.find('[data-testid="star-minus-max"]').attributes('disabled')).toBeDefined()
+    })
+
+    it('follows the chart the socket sends, and appears when the first chart does', async () => {
+      const { wrapper, socket } = await mountRemote()
+      expect(wrapper.find('[data-testid="stars"]').exists()).toBe(false)
+
+      socket!.pushStars(chart())
+      await flushPromises()
+      expect(text(wrapper, 'star-today-isla')).toBe('2')
+
+      const next = chart()
+      next.counts.isla!['2026-10-28'] = 6
+      socket!.pushStars(next)
+      await flushPromises()
+      expect(text(wrapper, 'star-today-isla')).toBe('6')
+
+      socket!.pushStars({ people: [], counts: {} })
+      await flushPromises()
+      expect(wrapper.find('[data-testid="stars"]').exists()).toBe(false)
+    })
+
+    it('asks for the PIN, and sends the tap again once it is right', async () => {
+      pin = '4821'
+      localStorage.setItem('wallcal.remote.pin', '0000')
+      starChart = chart()
+      const { wrapper } = await mountRemote()
+
+      await wrapper.find('[data-testid="star-plus-isla"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="pin-sheet"]').exists()).toBe(true)
+      expect(text(wrapper, 'star-today-isla')).toBe('2')
+
+      await wrapper.find('[data-testid="pin-input"]').setValue('4821')
+      await wrapper.find('[data-testid="pin-sheet"] form').trigger('submit')
+      await flushPromises()
+
+      expect(starPosts.at(-1)).toMatchObject({ url: '/api/stars/isla', body: { delta: 1 }, pin: '4821' })
+      expect(text(wrapper, 'star-today-isla')).toBe('3')
+    })
+
+    it('says so when the server cannot be reached', async () => {
+      starChart = chart()
+      const { wrapper } = await mountRemote()
+      fetchMock.mockImplementation(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+
+      await wrapper.find('[data-testid="star-plus-isla"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="error"]').text()).toContain('Couldn\'t reach the wall')
+      expect(text(wrapper, 'star-today-isla')).toBe('2')
     })
   })
 

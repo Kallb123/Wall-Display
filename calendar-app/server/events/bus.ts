@@ -7,6 +7,7 @@
 
 import type { DisplayState, NextAlarm } from '../../shared/display'
 import type { CustomLayout } from '../../shared/layouts'
+import type { StarChart } from '../../shared/stars'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
 
@@ -28,6 +29,8 @@ export interface BusEvents {
   'alarm.updated': { alarm: NextAlarm }
   /** The custom layouts changed (PR 5.17). `layouts` is the whole new library, by name. */
   'layouts.updated': { layouts: CustomLayout[] }
+  /** The star chart changed (PR 5.20): a star was added or taken away, or someone's chart was switched or set up. `stars` is the whole new chart. */
+  'stars.updated': { stars: StarChart }
   /**
    * Preferences saved on the settings page changed what is in force (PR 5.6).
    * `displayIds` are the displays whose own preferences changed; `shared` is

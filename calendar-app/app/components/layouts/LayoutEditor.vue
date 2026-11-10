@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, Copy, Minus, Monitor, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
-import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, PANE_OPTIONS, paneOptions } from '../../../shared/layouts'
+import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, PANE_OPTIONS, paneOptions } from '../../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent, PaneOptionKey } from '../../../shared/layouts'
 import LayoutPreview from './LayoutPreview.vue'
-import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, sameInput, setGridStart, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
+import { COMPONENT_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
 import type { MoveDirection, Orientation, PaneAt } from '~/utils/layoutEditor'
 import '~/assets/special-days-form.css'
 
@@ -56,6 +56,14 @@ const rowSize = computed(() => arrangement.value.rows[at.value.row]!.size)
 
 /** The selected pane's day grid in this arrangement, or null when it is not the days pane. */
 const dayGrid = computed(() => paneGrid(draft.value, which.value, at.value))
+/** The selected pane's star chart grid in this arrangement, or null when it is not the stars pane. */
+const starGrid = computed(() => paneStarGrid(draft.value, which.value, at.value))
+/** Whichever grid the selected pane has (the day grid's tiles or the star chart's cards), with the words and limits that go with it. Null for any other pane. */
+const gridShape = computed(() => {
+  if (dayGrid.value) return { name: 'Day grid', noun: 'day grid', ...dayGrid.value, minRows: MIN_DAY_GRID_ROWS, maxRows: MAX_DAY_GRID_ROWS, minColumns: MIN_DAY_GRID_COLUMNS, maxColumns: MAX_DAY_GRID_COLUMNS }
+  if (starGrid.value) return { name: 'Star chart', noun: 'star chart', ...starGrid.value, minRows: MIN_STAR_GRID_ROWS, maxRows: MAX_STAR_GRID_ROWS, minColumns: MIN_STAR_GRID_COLUMNS, maxColumns: MAX_STAR_GRID_COLUMNS }
+  return null
+})
 const START_LABELS: Record<DayGridStart, string> = { today: 'Today', week: 'Start of week' }
 
 /** The options the selected pane has, with what they are set to. Shared by both arrangements. */
@@ -96,10 +104,14 @@ const shiftRow = (direction: 'up' | 'down') => {
 }
 
 const gridRows = (delta: 1 | -1) => {
-  draft.value = resizeGridRows(draft.value, which.value, at.value, delta)
+  draft.value = starGrid.value
+    ? resizeStarGridRows(draft.value, which.value, at.value, delta)
+    : resizeGridRows(draft.value, which.value, at.value, delta)
 }
 const gridColumns = (delta: 1 | -1) => {
-  draft.value = resizeGridColumns(draft.value, which.value, at.value, delta)
+  draft.value = starGrid.value
+    ? resizeStarGridColumns(draft.value, which.value, at.value, delta)
+    : resizeGridColumns(draft.value, which.value, at.value, delta)
 }
 const gridStart = (start: DayGridStart) => {
   draft.value = setGridStart(draft.value, which.value, at.value, start)
@@ -248,33 +260,33 @@ function confirmDelete() {
         </div>
       </div>
 
-      <div v-if="dayGrid" class="controls grid-controls" role="group" :aria-label="`Day grid for ${which}`" data-testid="grid-controls">
+      <div v-if="gridShape" class="controls grid-controls" role="group" :aria-label="`${gridShape.name} for ${which}`" data-testid="grid-controls">
         <p class="selection">
-          <strong>Day grid</strong>
-          <span>{{ which }} only, {{ dayGrid.rows }} × {{ dayGrid.columns }}</span>
+          <strong>{{ gridShape.name }}</strong>
+          <span>{{ which }} only, {{ gridShape.rows }} × {{ gridShape.columns }}</span>
         </p>
 
         <div class="group" role="group" aria-label="Rows">
-          <span class="group-label" data-testid="grid-rows">Rows {{ dayGrid.rows }}</span>
-          <button type="button" class="icon" :aria-label="`Fewer rows in the ${which} day grid`" title="Fewer rows" :disabled="dayGrid.rows <= MIN_DAY_GRID_ROWS" data-testid="rows-fewer" @click="gridRows(-1)">
+          <span class="group-label" data-testid="grid-rows">Rows {{ gridShape.rows }}</span>
+          <button type="button" class="icon" :aria-label="`Fewer rows in the ${which} ${gridShape.noun}`" title="Fewer rows" :disabled="gridShape.rows <= gridShape.minRows" data-testid="rows-fewer" @click="gridRows(-1)">
             <AppIcon :icon="Minus" :size="22" />
           </button>
-          <button type="button" class="icon" :aria-label="`More rows in the ${which} day grid`" title="More rows" :disabled="dayGrid.rows >= MAX_DAY_GRID_ROWS" data-testid="rows-more" @click="gridRows(1)">
+          <button type="button" class="icon" :aria-label="`More rows in the ${which} ${gridShape.noun}`" title="More rows" :disabled="gridShape.rows >= gridShape.maxRows" data-testid="rows-more" @click="gridRows(1)">
             <AppIcon :icon="Plus" :size="22" />
           </button>
         </div>
 
         <div class="group" role="group" aria-label="Columns">
-          <span class="group-label" data-testid="grid-columns">Columns {{ dayGrid.columns }}</span>
-          <button type="button" class="icon" :aria-label="`Fewer columns in the ${which} day grid`" title="Fewer columns" :disabled="dayGrid.columns <= MIN_DAY_GRID_COLUMNS" data-testid="columns-fewer" @click="gridColumns(-1)">
+          <span class="group-label" data-testid="grid-columns">Columns {{ gridShape.columns }}</span>
+          <button type="button" class="icon" :aria-label="`Fewer columns in the ${which} ${gridShape.noun}`" title="Fewer columns" :disabled="gridShape.columns <= gridShape.minColumns" data-testid="columns-fewer" @click="gridColumns(-1)">
             <AppIcon :icon="Minus" :size="22" />
           </button>
-          <button type="button" class="icon" :aria-label="`More columns in the ${which} day grid`" title="More columns" :disabled="dayGrid.columns >= MAX_DAY_GRID_COLUMNS" data-testid="columns-more" @click="gridColumns(1)">
+          <button type="button" class="icon" :aria-label="`More columns in the ${which} ${gridShape.noun}`" title="More columns" :disabled="gridShape.columns >= gridShape.maxColumns" data-testid="columns-more" @click="gridColumns(1)">
             <AppIcon :icon="Plus" :size="22" />
           </button>
         </div>
 
-        <div class="group starts" role="group" aria-label="Starts">
+        <div v-if="dayGrid" class="group starts" role="group" aria-label="Starts">
           <span class="group-label">Starts</span>
           <div class="switch">
             <button

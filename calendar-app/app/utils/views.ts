@@ -1,6 +1,7 @@
 import type { DayParts, MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
-import type { CustomLayout, DayGrid, ResolvedPaneOptions } from '../../shared/layouts'
+import type { CustomLayout, DayGrid, ResolvedPaneOptions, StarGrid } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
+import type { StarChart } from '../../shared/stars'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
 import type { Corner } from './burnIn'
@@ -77,6 +78,10 @@ export interface ViewProps {
   layout?: CustomLayout | null
   /** The day grid pane only: its rows, columns and first tile, from the layout's `days` pane. */
   dayGrid?: DayGrid
+  /** The star chart pane only: its rows and columns of person cards, from the layout's `stars` pane. */
+  starGrid?: StarGrid
+  /** The star chart pane only: the people with a chart and their counts, or null for none (nobody has one, or not heard yet). */
+  stars?: StarChart | null
   /** A pane of a custom layout only: how the layout asks this pane to look (hidden title, sidebar or hour labels, filled events, wrapping titles). Undefined means `DEFAULT_PANE_OPTIONS`, which is what every full-screen view and the week and photo view use. */
   paneOptions?: ResolvedPaneOptions
   /** The events fetched for the shown month and the next few days, sorted by start. */

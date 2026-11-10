@@ -3,11 +3,16 @@ import type { Component } from 'vue'
 import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, LayoutGrid, ListTodo, Lock, MessageCircle, Moon, PanelTop, Pencil, Power, Rows3, Settings, SkipForward, X } from 'lucide-vue-next'
 import { MONTH_RANGE, WEEK_RANGE, currentMonth, currentWeek, monthDiff, weekDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
+import { todayIn } from '../../shared/dates'
 import { layoutShowsPhotos, layoutSummary, viewShowsMonth, viewShowsPhotos, viewShowsWeek } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
+import { starChartSchema } from '../../shared/stars'
+import type { StarChart } from '../../shared/stars'
+import RemoteStars from '~/components/stars/RemoteStars.vue'
+import { UNREACHABLE } from '~/composables/useRemoteCommands'
 import { reconnectDelay } from '~/utils/backoff'
 import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
-import { PHOTO_SOURCE_CHOICES, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions, weekCommandFor, weekOptions } from '~/utils/remote'
+import { PHOTO_SOURCE_CHOICES, requestFailure, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions, weekCommandFor, weekOptions } from '~/utils/remote'
 import { THEMES, themeStyle } from '~/utils/themes'
 
 // The phone remote (architecture §7.5). Like the wall it never decides
@@ -63,6 +68,7 @@ onMounted(() => {
   void loadSettings()
   void commands.load()
   void loadLayouts()
+  void loadStars()
 })
 onScopeDispose(() => {
   clearTimeout(retryTimer)
@@ -93,6 +99,40 @@ async function loadLayouts() {
     fetchedLayouts.value = await $fetch<CustomLayout[]>('/api/layouts')
   } catch {
     // Offline for now: the socket will send them, and the tiles come with them.
+  }
+}
+
+// The star chart (PR 5.20): the socket sends it on connect and whenever it
+// changes, and a tap on - or + answers with the new chart, which is shown at
+// once. Until the socket has spoken, or if it never does, ask for it. The
+// section is there only when somebody has a chart switched on.
+const stars = ref<StarChart | null>(null)
+watch(socket.stars, (next) => {
+  if (next) stars.value = next
+})
+const starsToday = computed(() => settings.value ? todayIn(now.value, settings.value.timezone) : '')
+const showStars = computed(() => stars.value !== null && stars.value.people.length > 0 && starsToday.value !== '')
+
+async function loadStars() {
+  try {
+    const fetched = await $fetch<StarChart>('/api/stars')
+    // The socket may have answered first, and its chart is the newer.
+    if (!stars.value) stars.value = fetched
+  } catch {
+    // Offline for now: the socket will send it.
+  }
+}
+
+/** One tap on a person's - or +, behind the same PIN as the commands. */
+async function adjustStars(personId: string, delta: 1 | -1) {
+  try {
+    const sent = await commands.guard(headers => $fetch<unknown>(`/api/stars/${encodeURIComponent(personId)}`, { method: 'POST', body: { delta }, headers }), () => adjustStars(personId, delta))
+    if (!sent) return
+    commands.error.value = null
+    const parsed = starChartSchema.safeParse(sent.value)
+    if (parsed.success) stars.value = parsed.data
+  } catch (caught) {
+    commands.error.value = requestFailure(caught).status === null ? UNREACHABLE : 'The wall didn\'t accept that'
   }
 }
 
@@ -396,6 +436,13 @@ function submitPin() {
               Edit layouts
             </button>
           </div>
+        </section>
+
+        <section v-if="showStars && stars" aria-labelledby="stars-title" data-testid="stars">
+          <h2 id="stars-title" class="label">
+            Stars
+          </h2>
+          <RemoteStars :chart="stars" :today="starsToday" :week-start="settings!.week_start" @adjust="adjustStars" />
         </section>
 
         <section v-if="monthViewOn" aria-labelledby="month-title" data-testid="month-picker">

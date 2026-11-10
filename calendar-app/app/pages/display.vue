@@ -3,7 +3,7 @@ import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { currentMonth, DEFAULT_DAY_PARTS, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
-import { layoutSummary } from '../../shared/layouts'
+import { DEFAULT_PANE_OPTIONS, layoutSummary, paneOptions } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
 import type { StarChart } from '../../shared/stars'
 import { specialDayArtUrl } from '../../shared/special-days'
@@ -23,6 +23,7 @@ import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDispla
 import { dayGridRanges, displayEventRanges, todayIn } from '~/utils/eventRanges'
 import { layoutPanes, photoPillAtTopRight } from '~/utils/layouts'
 import { isOverlayShowing } from '~/utils/overlay'
+import { photoPills } from '~/utils/photoOverlay'
 import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
 import { activePreview, isEvening, takeoverArt, takeoverInForce } from '~/utils/specialDays'
 import { themeStyle, themeTokens } from '~/utils/themes'
@@ -206,15 +207,21 @@ const shift = computed(() => burnIn.value ? burnInOffset(now.value) : { x: 0, y:
 /** The banner is at the bottom centre and the pill must keep out of its way. */
 const overlayShowing = computed(() => isOverlayShowing(state.value.overlay, now.value))
 const photoCorner = computed(() => burnIn.value ? pillCorner(now.value, { overlay: overlayShowing.value }) : 'top-left')
-/** The offline badge is top right, which the pill may have, and then it takes the other side. The pill's pane reaches the stage's top right corner on the photo frame, on the portrait stage of the week and photo view, where the photo is on top (on the landscape stage the photo is on the left), and in a custom layout whose photo pane is there. */
+/** The corners the photo frame's pills are in: the walking corner on the photo frame and the week and photo view, and wherever the layout puts the time and the date in a custom layout. */
+const photoPillCorners = computed(() => {
+  const options = state.value.view === 'custom' ? paneOptions(currentLayout.value, 'photo') : DEFAULT_PANE_OPTIONS
+  return photoPills(options, photoCorner.value, overlayShowing.value).map(pill => pill.corner)
+})
+/** The offline badge is top right, which a pill may have, and then it takes the other side. The pill's pane reaches the stage's top right corner on the photo frame, on the portrait stage of the week and photo view, where the photo is on top (on the landscape stage the photo is on the left), and in a custom layout whose photo pane is there. */
 const offlineSide = computed(() => {
   const view = state.value.view
-  let pillAtTopRight = view === 'photo' || (view === 'week_photo' && stage.value.orientation === 'portrait')
-  if (view === 'custom' && currentLayout.value) {
+  if (view === 'custom') {
+    if (!currentLayout.value) return 'right'
     const arrangement = stage.value.orientation === 'portrait' ? currentLayout.value.portrait : currentLayout.value.landscape
-    pillAtTopRight = photoPillAtTopRight(layoutPanes(arrangement, stage.value), stage.value.width, photoCorner.value)
+    return photoPillAtTopRight(layoutPanes(arrangement, stage.value), stage.value.width, photoPillCorners.value) ? 'left' : 'right'
   }
-  return pillAtTopRight && photoCorner.value === 'top-right' ? 'left' : 'right'
+  const pillAtTopRight = view === 'photo' || (view === 'week_photo' && stage.value.orientation === 'portrait')
+  return pillAtTopRight && photoPillCorners.value.includes('top-right') ? 'left' : 'right'
 })
 /** The sliver the layer uncovers at an edge when it moves: black for the views that are black or a photo, and the stage's own ground otherwise. */
 const shiftStyle = computed(() => ({
@@ -250,6 +257,7 @@ const viewProps = computed<ViewProps | null>(() => {
     photoNext: socket.photoNext.value,
     socketOpens: socket.opens.value,
     photoCorner: photoCorner.value,
+    overlayShowing: overlayShowing.value,
     nightText: display.night_text,
     alarm: alarm.value,
     burnIn: burnIn.value,

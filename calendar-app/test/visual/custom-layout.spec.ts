@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { APIRequestContext, Page } from '@playwright/test'
+import { photoResponseSchema } from '../../shared/photos'
+import type { PhotoInfo } from '../../shared/photos'
 import type { CustomLayout, LayoutArrangement, LayoutComponent, LayoutOptions } from '../../shared/layouts'
 import type { StarChart } from '../../shared/stars'
 import { fixtureEvents } from '../helpers/fixtureEvents'
@@ -91,6 +93,24 @@ const partsWithOptions = layout(
   { week_parts: { show_title: false, fill_events: true, wrap_titles: true } },
 )
 
+// The photo frame's overlays (PR 5.21): beside the agenda, the time and the
+// weather in the walking corner (the top left, as burn-in shifting is off) and
+// the date on its own at the bottom left; alone on the stage, the time and the
+// date sharing a pill at the bottom right, with the weather left off.
+const photoOverlays = layout(
+  'photo-overlays',
+  { rows: [row(1, ['photo', 2], ['agenda', 1])] },
+  { rows: [row(2, ['photo', 1]), row(1, ['agenda', 1])] },
+  { photo: { show_date: true, date_corner: 'bottom-left' } },
+)
+
+const photoAlone = layout(
+  'photo-alone',
+  { rows: [row(1, ['photo', 1])] },
+  { rows: [row(1, ['photo', 1])] },
+  { photo: { show_date: true, show_weather: false, time_corner: 'bottom-right', date_corner: 'bottom-right' } },
+)
+
 // The star chart (architecture §4.8b). The frozen clock is Wednesday 28 October,
 // so the week is Monday 26 October to Sunday 1 November. Isla counts the week
 // against a goal of 6 and has beaten it, Theo counts days against a goal of 3
@@ -145,6 +165,33 @@ const starsAlone = withStars(
   { rows: [row(1, ['stars', 1])] },
   { landscape: [0, 0, 2, 2], portrait: [0, 0, 2, 2] },
 )
+
+/** The server's own render of the fixture photo `id`, asked for on a display no spec here shows a photo on. */
+async function photoNamed(request: APIRequestContext, id: string): Promise<PhotoInfo> {
+  const seen: string[] = []
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const response = await request.get('/api/photos/next?display=porch')
+    const { photo } = photoResponseSchema.parse(await response.json())
+    if (photo?.id === id) return photo
+    if (photo) seen.push(photo.id)
+    else await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  throw new Error(`The server never offered ${id}, only ${seen.join(', ')}`)
+}
+
+/** Opens `display` showing `shown` with `photo` in its photo pane, and waits for the photo to be drawn at full strength. */
+async function openWithPhoto(page: Page, display: string, shown: CustomLayout, photo: PhotoInfo) {
+  await playServer(page, { view: 'custom', layout: shown.id }, events, weather, { layouts: [shown] })
+  // Routes added last are tried first, so this answers before the one `playServer` may have set.
+  await page.route('**/api/photos/next**', route => route.fulfill({ json: { photo } }))
+  await page.goto(`/display?id=${display}`)
+  await expect(page.getByTestId('custom-layout-view')).toBeVisible()
+  await fontsReady(page)
+  const top = page.locator('[data-testid^="photo-layer-"].top')
+  await expect(top).toHaveCount(1)
+  await expect.poll(() => top.evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true)
+  await expect.poll(() => top.evaluate(image => getComputedStyle(image).opacity)).toBe('1')
+}
 
 /** Opens `display` showing `shown`, and waits for every pane to be drawn. */
 async function open(page: Page, display: string, shown: CustomLayout, stars?: StarChart) {
@@ -264,6 +311,33 @@ test.describe('pane options', () => {
 
     await expect(page.getByTestId('week-title')).toHaveCount(0)
     await expect(page).toHaveScreenshot('custom-parts-options-light.png')
+  })
+})
+
+test.describe('the photo frame\'s overlays', () => {
+  test('the time and the weather top left, and the date bottom left, beside the agenda', async ({ page, request }) => {
+    await openWithPhoto(page, 'hallway', photoOverlays, await photoNamed(request, 'local:sunset-landscape.jpg'))
+    await settle(page)
+
+    const pills = page.getByTestId('layout-pane-photo').getByTestId('photo-pill')
+    await expect(pills).toHaveCount(2)
+    await expect(pills.nth(0)).toHaveAttribute('data-corner', 'top-left')
+    await expect(pills.nth(0).getByTestId('photo-clock')).toHaveText('09:41')
+    await expect(pills.nth(0).getByTestId('photo-weather')).toHaveText('12°')
+    await expect(pills.nth(1)).toHaveAttribute('data-corner', 'bottom-left')
+    await expect(pills.nth(1).getByTestId('photo-date')).toHaveText('Wednesday 28 October')
+    await expect(page).toHaveScreenshot('custom-photo-overlays-light.png')
+  })
+
+  test('the time and the date in one pill at the bottom right, without the weather, full screen', async ({ page, request }) => {
+    await openWithPhoto(page, 'kitchen', photoAlone, await photoNamed(request, 'local:sunset-landscape.jpg'))
+
+    const pills = page.getByTestId('photo-pill')
+    await expect(pills).toHaveCount(1)
+    await expect(pills).toHaveAttribute('data-corner', 'bottom-right')
+    await expect(pills.getByTestId('photo-weather')).toHaveCount(0)
+    await expect(pills.getByTestId('photo-date')).toHaveText('Wednesday 28 October')
+    await expect(page).toHaveScreenshot('custom-photo-alone-dark.png')
   })
 })
 

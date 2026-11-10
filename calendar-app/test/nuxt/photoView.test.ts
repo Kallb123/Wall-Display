@@ -4,6 +4,8 @@ import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import PhotoView from '~/components/views/PhotoView.vue'
 import { NO_SPECIAL_DAYS } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
+import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
+import type { ResolvedPaneOptions } from '../../shared/layouts'
 import type { PhotoInfo } from '../../shared/photos'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -565,6 +567,92 @@ describe('as a pane of the week and photo view', () => {
 
     expect(view.wrapper.find('[data-testid="photo-pill"]').classes()).not.toContain('compact')
     expect(view.wrapper.find('[data-testid="photo-next-event"]').exists()).toBe(true)
+  })
+})
+
+describe('the overlays a layout chooses', () => {
+  const overlays = (options: Partial<ResolvedPaneOptions>, overrides: Partial<ViewProps> = {}): Partial<ViewProps> => ({
+    pane: true, weather, paneOptions: { ...DEFAULT_PANE_OPTIONS, ...options }, ...overrides,
+  })
+  const pills = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.findAll('[data-testid="photo-pill"]')
+
+  it('shows the time and the weather and no date by default', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({}))
+
+    expect(pills(view)).toHaveLength(1)
+    expect(view.wrapper.find('[data-testid="photo-clock"]').exists()).toBe(true)
+    expect(view.wrapper.find('[data-testid="photo-weather"]').exists()).toBe(true)
+    expect(view.wrapper.find('[data-testid="photo-date"]').exists()).toBe(false)
+  })
+
+  it('shows the date in the display\'s zone, in the time\'s pill when they share a corner', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ show_date: true }, { photoCorner: 'top-right' }))
+
+    expect(pills(view)).toHaveLength(1)
+    const pill = pills(view)[0]!
+    expect(pill.attributes('data-corner')).toBe('top-right')
+    expect(pill.find('[data-testid="photo-clock"]').exists()).toBe(true)
+    expect(pill.find('[data-testid="photo-date"]').text()).toBe('Wednesday 28 October')
+  })
+
+  it('puts the time and the date in pills of their own in the corners chosen', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ show_date: true, time_corner: 'bottom-left', date_corner: 'top-right' }, { photoCorner: 'top-left' }))
+
+    expect(pills(view).map(pill => pill.attributes('data-corner'))).toEqual(['top-right', 'bottom-left'])
+    expect(pills(view)[0]!.find('[data-testid="photo-date"]').exists()).toBe(true)
+    expect(pills(view)[0]!.find('[data-testid="photo-clock"]').exists()).toBe(false)
+    expect(pills(view)[1]!.find('[data-testid="photo-clock"]').exists()).toBe(true)
+    expect(pills(view)[1]!.find('[data-testid="photo-weather"]').exists()).toBe(true)
+  })
+
+  it('keeps a chosen corner still while the walking one moves', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ show_date: true, date_corner: 'bottom-left' }, { photoCorner: 'top-left' }))
+    await view.update(overlays({ show_date: true, date_corner: 'bottom-left' }, { photoCorner: 'top-right' }))
+
+    expect(pills(view).map(pill => pill.attributes('data-corner'))).toEqual(['top-right', 'bottom-left'])
+  })
+
+  it('takes a chosen bottom corner to the top on its side while the overlay banner shows', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ time_corner: 'bottom-right' }, { overlayShowing: true }))
+
+    expect(pills(view).map(pill => pill.attributes('data-corner'))).toEqual(['top-right'])
+  })
+
+  it('leaves the weather off when asked, and the time when asked', async () => {
+    answers = [gives(A), gives(A)]
+    const noWeather = await open(overlays({ show_weather: false }))
+    expect(noWeather.wrapper.find('[data-testid="photo-clock"]').exists()).toBe(true)
+    expect(noWeather.wrapper.find('[data-testid="photo-weather"]').exists()).toBe(false)
+
+    const weatherOnly = await open(overlays({ show_time: false }))
+    expect(pills(weatherOnly)).toHaveLength(1)
+    expect(weatherOnly.wrapper.find('[data-testid="photo-clock"]').exists()).toBe(false)
+    expect(weatherOnly.wrapper.find('[data-testid="photo-weather"]').exists()).toBe(true)
+  })
+
+  it('draws no pill with the time off and no weather to show, or with everything off', async () => {
+    answers = [gives(A), gives(A)]
+    const noData = await open(overlays({ show_time: false }, { weather: null }))
+    expect(pills(noData)).toHaveLength(0)
+
+    const allOff = await open(overlays({ show_time: false, show_weather: false, show_date: false }))
+    expect(pills(allOff)).toHaveLength(0)
+  })
+
+  it('shows the next event under the clock on a full-screen frame, and not without the clock', async () => {
+    answers = [gives(A), gives(A)]
+    const withClock = await open(overlays({ show_date: true, date_corner: 'bottom-left' }, { pane: false, events: [event()] }))
+    const clockPill = withClock.wrapper.find('[data-corner="top-left"]')
+    expect(clockPill.find('[data-testid="photo-next-event"]').exists()).toBe(true)
+    expect(withClock.wrapper.find('[data-corner="bottom-left"] [data-testid="photo-next-event"]').exists()).toBe(false)
+
+    const noClock = await open(overlays({ show_time: false }, { pane: false, events: [event()] }))
+    expect(noClock.wrapper.find('[data-testid="photo-next-event"]').exists()).toBe(false)
   })
 })
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
 import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
-import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneOption, toggleComponent } from '../../../app/utils/layoutEditor'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, toggleComponent, paneCornerDisabled } from '../../../app/utils/layoutEditor'
 
 const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
@@ -424,6 +424,28 @@ describe('pane options', () => {
 
     expect(back.options).toEqual({ week: { show_hours: false } })
     expect(setPaneOption(back, 'week', 'show_hours', true).options).toEqual({})
+  })
+
+  it('sets where the photo frame\'s overlays sit, keeping only what differs from the default', () => {
+    const input = toggleComponent(newLayoutInput('X'), 'photo', true)
+    const next = setPaneCorner(input, 'photo', 'date_corner', 'bottom-right')
+
+    expect(next.options).toEqual({ photo: { date_corner: 'bottom-right' } })
+    valid(next)
+    expect(setPaneCorner(next, 'photo', 'date_corner', 'auto').options).toEqual({})
+    expect(setPaneCorner(next, 'photo', 'date_corner', 'bottom-right')).toBe(next)
+    // Only the photo frame has corners, and only when it is shown.
+    expect(setPaneCorner(input, 'week', 'time_corner', 'top-left')).toBe(input)
+    expect(setPaneCorner(newLayoutInput('X'), 'photo', 'time_corner', 'top-left').options).toEqual({})
+  })
+
+  it('offers a corner only for an overlay that is shown, and the time\'s for the weather alone', () => {
+    const options = { ...DEFAULT_PANE_OPTIONS }
+    expect(paneCornerDisabled('time_corner', options)).toBe(false)
+    expect(paneCornerDisabled('date_corner', options)).toBe(true)
+    expect(paneCornerDisabled('date_corner', { ...options, show_date: true })).toBe(false)
+    expect(paneCornerDisabled('time_corner', { ...options, show_time: false })).toBe(false)
+    expect(paneCornerDisabled('time_corner', { ...options, show_time: false, show_weather: false })).toBe(true)
   })
 
   it('hands back the same input when nothing changes', () => {

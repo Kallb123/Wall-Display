@@ -154,20 +154,20 @@ describe('photoPillAtTopRight', () => {
   const panes = layoutPanes({ rows: [row(1, ['week', 1], ['photo', 1])] }, LANDSCAPE)
 
   it('is true when the pill is in the corner and a photo pane reaches that corner of the stage', () => {
-    expect(photoPillAtTopRight(panes, LANDSCAPE.width, 'top-right')).toBe(true)
+    expect(photoPillAtTopRight(panes, LANDSCAPE.width, ['top-right'])).toBe(true)
   })
 
   it('is false for any other corner', () => {
-    expect(photoPillAtTopRight(panes, LANDSCAPE.width, 'top-left')).toBe(false)
-    expect(photoPillAtTopRight(panes, LANDSCAPE.width, 'bottom-right')).toBe(false)
+    expect(photoPillAtTopRight(panes, LANDSCAPE.width, ['top-left'])).toBe(false)
+    expect(photoPillAtTopRight(panes, LANDSCAPE.width, ['bottom-right'])).toBe(false)
   })
 
   it('is false when the photo is not at the top right', () => {
     const left = layoutPanes({ rows: [row(1, ['photo', 1], ['week', 1])] }, LANDSCAPE)
     const below = layoutPanes({ rows: [row(1, ['week', 1]), row(1, ['photo', 1])] }, LANDSCAPE)
 
-    expect(photoPillAtTopRight(left, LANDSCAPE.width, 'top-right')).toBe(false)
-    expect(photoPillAtTopRight(below, LANDSCAPE.width, 'top-right')).toBe(false)
+    expect(photoPillAtTopRight(left, LANDSCAPE.width, ['top-right'])).toBe(false)
+    expect(photoPillAtTopRight(below, LANDSCAPE.width, ['top-right'])).toBe(false)
   })
 })
 

@@ -1,5 +1,5 @@
-import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, PANE_OPTIONS, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
-import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, PaneOptionKey, StarGrid, PaneOptions, ResolvedPaneOptions } from '../../shared/layouts'
+import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, PANE_CORNERS, PANE_OPTIONS, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
+import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, OverlayCorner, PaneCornerKey, PaneOptionKey, StarGrid, PaneOptions, ResolvedPaneOptions } from '../../shared/layouts'
 
 // What the layout editor does to the layout it is editing (architecture §7.6,
 // PR 5.17): turning a component on or off, moving a pane, making a pane or a
@@ -41,11 +41,34 @@ export function paneOptionLabel(component: LayoutComponent, key: PaneOptionKey):
     case 'fill_events': return 'Colour whole events'
     case 'show_initials': return 'Initials'
     case 'wrap_titles': return 'Wrap long titles'
+    case 'show_time': return 'Time'
+    case 'show_date': return 'Date'
+    case 'show_weather': return 'Weather'
   }
 }
 
 /** Whether the editor shows an option switched off and out of reach: the initials only matter on events that are coloured. */
 export const paneOptionDisabled = (key: PaneOptionKey, options: ResolvedPaneOptions): boolean => key === 'show_initials' && !options.fill_events
+
+/** The words the editor uses for each corner option. The weather sits beside the time, so it goes where the time goes. */
+export const PANE_CORNER_LABELS: Record<PaneCornerKey, string> = {
+  time_corner: 'Time and weather',
+  date_corner: 'Date',
+}
+
+/** The words the editor uses for each corner. `auto` walks round the corners against burn-in. */
+export const OVERLAY_CORNER_LABELS: Record<OverlayCorner, string> = {
+  'auto': 'Moving',
+  'top-left': 'Top left',
+  'top-right': 'Top right',
+  'bottom-left': 'Bottom left',
+  'bottom-right': 'Bottom right',
+}
+
+/** Whether the editor shows a corner choice out of reach: there is nothing to place when what it places is off. The time's corner is still the weather's when the time is off. */
+export function paneCornerDisabled(key: PaneCornerKey, options: ResolvedPaneOptions): boolean {
+  return key === 'time_corner' ? !options.show_time && !options.show_weather : !options.show_date
+}
 
 /** A copy that shares nothing with the original, so an edit can't reach back into it. */
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
@@ -263,6 +286,21 @@ export function resizeStarGridColumns(input: CustomLayoutInput, which: Orientati
  */
 export function setPaneOption(input: CustomLayoutInput, component: LayoutComponent, key: PaneOptionKey, value: boolean): CustomLayoutInput {
   if (!PANE_OPTIONS[component].includes(key) || !componentsOf(input).includes(component)) return input
+  const current = input.options[component] ?? {}
+  if ((current[key] ?? DEFAULT_PANE_OPTIONS[key]) === value) return input
+  const set: PaneOptions = value === DEFAULT_PANE_OPTIONS[key] ? withoutKey(current, key) : { ...current, [key]: value }
+  const options = Object.keys(set).length > 0 ? { ...input.options, [component]: set } : withoutKey(input.options, component)
+  return { ...input, options }
+}
+
+/**
+ * Sets where one of a component's overlays sits, as `setPaneOption` does for an
+ * on-or-off option: only a corner that differs from the default is kept, and an
+ * option that does not apply, or a component the input does not show, changes
+ * nothing.
+ */
+export function setPaneCorner(input: CustomLayoutInput, component: LayoutComponent, key: PaneCornerKey, value: OverlayCorner): CustomLayoutInput {
+  if (!PANE_CORNERS[component].includes(key) || !componentsOf(input).includes(component)) return input
   const current = input.options[component] ?? {}
   if ((current[key] ?? DEFAULT_PANE_OPTIONS[key]) === value) return input
   const set: PaneOptions = value === DEFAULT_PANE_OPTIONS[key] ? withoutKey(current, key) : { ...current, [key]: value }

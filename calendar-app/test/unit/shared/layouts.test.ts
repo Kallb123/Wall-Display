@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, layoutShowsStars, LAYOUT_COMPONENTS, PANE_OPTIONS, PANE_OPTION_KEYS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
+  DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, layoutShowsStars, LAYOUT_COMPONENTS, PANE_CORNERS, PANE_OPTIONS, PANE_OPTION_KEYS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
   layoutDayGrids, layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, paneOptions, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
 } from '../../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput, LayoutArrangement, LayoutComponent, LayoutRow } from '../../../shared/layouts'
@@ -397,14 +397,31 @@ describe('pane options', () => {
   })
 
   it('knows which options each component has', () => {
-    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles'])
+    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather'])
     expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles'])
     for (const component of ['week_parts', 'agenda', 'days'] as const) expect(PANE_OPTIONS[component]).toContain('show_initials')
     expect(PANE_OPTIONS.week).not.toContain('show_initials')
     expect(DEFAULT_PANE_OPTIONS.show_initials).toBe(true)
     expect(PANE_OPTIONS.week).toEqual(['show_title', 'show_hours'])
-    expect(PANE_OPTIONS.photo).toEqual([])
+    expect(PANE_OPTIONS.photo).toEqual(['show_time', 'show_date', 'show_weather'])
     expect(Object.keys(PANE_OPTIONS)).toEqual([...LAYOUT_COMPONENTS])
+    expect(PANE_CORNERS.photo).toEqual(['time_corner', 'date_corner'])
+    for (const component of LAYOUT_COMPONENTS.filter(component => component !== 'photo')) expect(PANE_CORNERS[component]).toEqual([])
+    expect(Object.keys(PANE_CORNERS)).toEqual([...LAYOUT_COMPONENTS])
+  })
+
+  it('shows the photo frame\'s time and weather in the walking corner and no date, unless the layout says otherwise', () => {
+    expect(paneOptions(null, 'photo')).toMatchObject({ show_time: true, show_date: false, show_weather: true, time_corner: 'auto', date_corner: 'auto' })
+    const options = { photo: { show_date: true, show_weather: false, time_corner: 'bottom-left', date_corner: 'bottom-left' } }
+    expect(customLayoutInputSchema.parse(withOptions(options)).options).toEqual(options)
+    expect(paneOptions(customLayoutInputSchema.parse(withOptions(options)), 'photo')).toMatchObject({ show_time: true, show_date: true, show_weather: false, time_corner: 'bottom-left', date_corner: 'bottom-left' })
+  })
+
+  it('takes a corner for the photo frame\'s overlays, and only there', () => {
+    expect(problem(withOptions({ photo: { time_corner: 'middle' } }))).toBe('options.photo.time_corner: must be auto, top-left, top-right, bottom-left or bottom-right')
+    expect(problem(withOptions({ photo: { date_corner: true } }))).toBe('options.photo.date_corner: must be auto, top-left, top-right, bottom-left or bottom-right')
+    expect(problem(withOptions({ week: { time_corner: 'top-left' } }))).toBe('options.week.time_corner: must not be set on a week pane')
+    expect(problem(withOptions({ week: { show_date: true } }))).toBe('options.week.show_date: must not be set on a week pane')
   })
 
   it('takes show_initials as a boolean on the components that colour events, and nowhere else', () => {

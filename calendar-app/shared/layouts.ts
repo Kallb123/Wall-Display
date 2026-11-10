@@ -94,19 +94,34 @@ export interface LayoutArrangement {
  * or the week's hour labels, colour a whole event with its person's colour, and
  * let long titles wrap onto more lines where there is room. `show_initials`
  * only means something with `fill_events`: it is whether the coloured events
- * still show their people's initials. Not every option
+ * still show their people's initials. The photo frame's are its overlays: the
+ * time, the date and the weather, each of which can be left off (the weather
+ * sits beside the time, in the time's corner). Not every option
  * means something to every component (`PANE_OPTIONS`).
  */
-export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles'] as const
+export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather'] as const
 export type PaneOptionKey = (typeof PANE_OPTION_KEYS)[number]
 
+/**
+ * Where an overlay of the photo frame sits: a corner of its pane, or `auto`,
+ * which is the corner the page walks round against burn-in (the top left when
+ * the display has burn-in shifting off). Two overlays in the same corner share
+ * one pill.
+ */
+export const OVERLAY_CORNERS = ['auto', 'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
+export type OverlayCorner = (typeof OVERLAY_CORNERS)[number]
+
+/** The pane options that are a corner rather than on or off: where the photo frame's time (with the weather) and its date sit. */
+export const PANE_CORNER_KEYS = ['time_corner', 'date_corner'] as const
+export type PaneCornerKey = (typeof PANE_CORNER_KEYS)[number]
+
 /** The options set on a pane. A key that is left out has its default (`DEFAULT_PANE_OPTIONS`). */
-export type PaneOptions = Partial<Record<PaneOptionKey, boolean>>
+export type PaneOptions = Partial<Record<PaneOptionKey, boolean> & Record<PaneCornerKey, OverlayCorner>>
 
 /** The options a view draws by: every key present. */
-export type ResolvedPaneOptions = Record<PaneOptionKey, boolean>
+export type ResolvedPaneOptions = Record<PaneOptionKey, boolean> & Record<PaneCornerKey, OverlayCorner>
 
-/** What a pane looks like when nothing is set, and what every full-screen view uses. */
+/** What a pane looks like when nothing is set, and what every full-screen view uses. The photo frame shows the time and the weather in the walking corner, and no date. */
 export const DEFAULT_PANE_OPTIONS: ResolvedPaneOptions = {
   show_title: true,
   show_sidebar: true,
@@ -114,9 +129,14 @@ export const DEFAULT_PANE_OPTIONS: ResolvedPaneOptions = {
   fill_events: false,
   show_initials: true,
   wrap_titles: false,
+  show_time: true,
+  show_date: false,
+  show_weather: true,
+  time_corner: 'auto',
+  date_corner: 'auto',
 }
 
-/** Which options apply to which component. The editor offers these and the schema refuses any other. */
+/** Which on-or-off options apply to which component. The editor offers these and the schema refuses any other. */
 export const PANE_OPTIONS: Record<LayoutComponent, readonly PaneOptionKey[]> = {
   month: ['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles'],
   week: ['show_title', 'show_hours'],
@@ -124,7 +144,18 @@ export const PANE_OPTIONS: Record<LayoutComponent, readonly PaneOptionKey[]> = {
   agenda: ['fill_events', 'show_initials', 'wrap_titles'],
   days: ['fill_events', 'show_initials', 'wrap_titles'],
   stars: ['show_title'],
-  photo: [],
+  photo: ['show_time', 'show_date', 'show_weather'],
+}
+
+/** Which corner options apply to which component: only the photo frame has overlays to place. */
+export const PANE_CORNERS: Record<LayoutComponent, readonly PaneCornerKey[]> = {
+  month: [],
+  week: [],
+  week_parts: [],
+  agenda: [],
+  days: [],
+  stars: [],
+  photo: ['time_corner', 'date_corner'],
 }
 
 /** The options of a layout, by component. They are shared by both arrangements: they are style, where a day grid's shape is geometry. */
@@ -199,6 +230,8 @@ const nameSchema = z.string().trim().min(1, 'must not be empty').max(MAX_LAYOUT_
 
 const optionFlag = z.boolean({ error: 'must be true or false' }).optional()
 
+const cornerOption = z.enum(OVERLAY_CORNERS, { error: `must be ${OVERLAY_CORNERS.slice(0, -1).join(', ')} or ${OVERLAY_CORNERS.at(-1)}` }).optional()
+
 const paneOptionsSchema = z.strictObject({
   show_title: optionFlag,
   show_sidebar: optionFlag,
@@ -206,6 +239,11 @@ const paneOptionsSchema = z.strictObject({
   fill_events: optionFlag,
   show_initials: optionFlag,
   wrap_titles: optionFlag,
+  show_time: optionFlag,
+  show_date: optionFlag,
+  show_weather: optionFlag,
+  time_corner: cornerOption,
+  date_corner: cornerOption,
 })
 
 const optionsSchema = z.strictObject({
@@ -269,6 +307,11 @@ function checkArrangements(value: CustomLayoutInput, ctx: z.RefinementCtx): void
     }
     for (const key of PANE_OPTION_KEYS) {
       if (set[key] !== undefined && !PANE_OPTIONS[component].includes(key)) {
+        ctx.addIssue({ code: 'custom', path: ['options', component, key], message: `must not be set on a ${component} pane` })
+      }
+    }
+    for (const key of PANE_CORNER_KEYS) {
+      if (set[key] !== undefined && !PANE_CORNERS[component].includes(key)) {
         ctx.addIssue({ code: 'custom', path: ['options', component, key], message: `must not be set on a ${component} pane` })
       }
     }

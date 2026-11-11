@@ -1,5 +1,5 @@
 import { displayStateSchema } from '../../shared/display'
-import type { Command, DisplayState } from '../../shared/display'
+import type { CommandInput, DisplayState } from '../../shared/display'
 import { requestFailure } from '~/utils/remote'
 
 /** What the page says when a request gets no answer, or one it didn't expect. */
@@ -24,7 +24,7 @@ export function useRemoteCommands(displayId: MaybeRefOrGetter<string | null>, on
   let sendCount = 0
 
   /** Sends one command. Returns whether the server took it. */
-  async function send(command: Command): Promise<boolean> {
+  async function send(command: CommandInput): Promise<boolean> {
     const id = toValue(displayId)
     if (!id) return false
     const count = ++sendCount

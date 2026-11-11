@@ -1,5 +1,5 @@
 import { addMonths, addWeeks, currentMonth, currentWeek, displayStateSchema, firstDayOfWeek, MONTH_RANGE, monthDiff, NEXT_VIEW_ORDER, showsPhotos, WEEK_RANGE, weekDiff } from '../../shared/display'
-import type { Command, DisplayState, MonthKey, View, WeekKey } from '../../shared/display'
+import type { CameraSummary, Command, DisplayState, MonthKey, View, WeekKey } from '../../shared/display'
 import { layoutShowsPhotos, viewShowsMonth, viewShowsWeek } from '../../shared/layouts'
 import type { LayoutSummary } from '../../shared/layouts'
 
@@ -32,6 +32,8 @@ export interface ControlContext {
   photosConfigured: boolean
   /** The custom layouts (PR 5.17), by name. What `set_layout` may name, and what `next_view` steps through after the built-in views. */
   layouts: readonly LayoutSummary[]
+  /** The cameras in the config: what `set_camera` may name. Default: none. */
+  cameras?: readonly CameraSummary[]
 }
 
 const MINUTE_MS = 60_000
@@ -202,7 +204,8 @@ function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext
     case 'toggle_photo': return { ...state, view: state.view === 'photo' ? state.last_calendar_view : 'photo' }
     case 'set_month': return setMonth(state, command.month, ctx)
     case 'set_week': return setWeek(state, command.week, ctx)
-    case 'set_screen': return { ...state, screen: command.screen }
+    // Someone (or a policy) choosing the screen takes over from a camera that woke it: the camera going leaves the screen as it is.
+    case 'set_screen': return { ...state, screen: command.screen, camera: state.camera?.restore_screen ? { ...state.camera, restore_screen: false } : state.camera }
     case 'set_brightness': return { ...state, brightness: command.brightness }
     case 'set_photo_source': return { ...state, photo_source: command.photo_source }
     case 'set_auto_presence': return { ...state, auto_presence: command.auto_presence }
@@ -219,6 +222,7 @@ function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext
       const until = overlay.ttl === undefined ? null : new Date(ctx.now.getTime() + overlay.ttl * 1000).toISOString()
       return { ...state, overlay: { text: overlay.text, icon: overlay.icon ?? null, until } }
     }
+    case 'set_camera': return setCamera(state, command, ctx)
     case 'preview_special_day': {
       const until = new Date(ctx.now.getTime() + command.seconds * 1000).toISOString()
       // The schema makes sure exactly one of the two is there. A new preview replaces the one running.
@@ -228,6 +232,40 @@ function apply(state: DisplayState, command: ControlCommand, ctx: ControlContext
     case 'refresh':
       return state
   }
+}
+
+/**
+ * `set_camera`. Showing a camera puts it up for `seconds` (a camera already up
+ * is replaced, and its time starts again); with `wake` a screen that is off comes
+ * on, and is remembered as the camera's to turn off again. Taking it down (null)
+ * does what running out would. The service refuses an id that isn't in the
+ * config; if one does arrive, nothing changes.
+ */
+function setCamera(state: DisplayState, command: Extract<Command, { type: 'set_camera' }>, ctx: ControlContext): DisplayState {
+  if (command.camera === null) return closeCamera(state)
+  const camera = ctx.cameras?.find(known => known.id === command.camera)
+  if (!camera) return state
+  const wakes = command.wake && state.screen === 'off'
+  // A camera that replaces one which woke the screen inherits the job of turning it off again.
+  const restore = wakes || (state.camera?.restore_screen === true && state.screen === 'on')
+  return {
+    ...state,
+    screen: wakes ? 'on' : state.screen,
+    camera: {
+      id: camera.id,
+      name: camera.name,
+      url: camera.url,
+      kind: camera.kind,
+      until: new Date(ctx.now.getTime() + command.seconds * 1000).toISOString(),
+      restore_screen: restore,
+    },
+  }
+}
+
+/** Takes the camera down, and turns the screen off again if the camera turned it on. A screen someone turned off meanwhile stays off. */
+function closeCamera(state: DisplayState): DisplayState {
+  if (state.camera === null) return state
+  return { ...state, camera: null, screen: state.camera.restore_screen ? 'off' : state.screen }
 }
 
 /**
@@ -268,7 +306,8 @@ function weekReturnsAt(state: DisplayState, ctx: ControlContext): Date | null {
  *   become the current week and when it is more than 52 weeks out; if the
  *   display's week start changed, it is moved to the first day of its week;
  * - an overlay goes at its `until`;
- * - a special day preview goes at its `until`.
+ * - a special day preview goes at its `until`;
+ * - a camera goes at its `until`, turning the screen off again if it turned it on.
  *
  * Returns the same object when nothing changed, so a caller can skip a write.
  */
@@ -314,6 +353,10 @@ export function expireState(state: DisplayState, ctx: ControlContext): DisplaySt
     next = { ...next, preview: null }
   }
 
+  if (state.camera !== null && ctx.now.getTime() >= Date.parse(state.camera.until)) {
+    next = closeCamera(next)
+  }
+
   return next
 }
 
@@ -330,5 +373,6 @@ export function nextExpiry(state: DisplayState, ctx: ControlContext): Date | nul
   if (weekReturns !== null) times.push(weekReturns.getTime())
   if (state.overlay?.until != null) times.push(Date.parse(state.overlay.until))
   if (state.preview !== null) times.push(Date.parse(state.preview.until))
+  if (state.camera !== null) times.push(Date.parse(state.camera.until))
   return times.length === 0 ? null : new Date(Math.min(...times))
 }

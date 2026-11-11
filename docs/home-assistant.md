@@ -7,7 +7,7 @@ You need:
 - An MQTT broker that both the app and HA connect to (see Broker setup below).
 - An `mqtt` block in `config/config.yaml`.
 
-Optional: a `homeassistant` block with a long-lived access token lets the app read calendars from HA (`homeassistant` calendar sources) a weather entity ([Weather](#weather) below) and the next alarm for the night view ([Next alarm](#next-alarm) below). That uses HA's REST API and has nothing to do with MQTT. It is described in the README and in [`config.example.yaml`](../config.example.yaml).
+Optional: a `homeassistant` block with a long-lived access token lets the app read calendars from HA (`homeassistant` calendar sources) a weather entity ([Weather](#weather) below) and the next alarm for the night view ([Next alarm](#next-alarm) below). That uses HA's REST API and has nothing to do with MQTT. The same block lets the wall listen for things happening in HA, such as the doorbell ringing, and show a camera when they do ([Doorbell camera](#doorbell-camera) below), over HA's WebSocket API. It is described in the README and in [`config.example.yaml`](../config.example.yaml).
 
 ## Broker setup
 
@@ -198,6 +198,66 @@ displays:
 - **Only these two kinds.** The entity id must start with `sensor.` or `input_datetime.`, and the `homeassistant` block must be there too, or the config is refused at start-up. So is a display with `night_text: next_alarm` and no `alarm` block.
 - **What shows.** The wall shows an alarm that is still to come and within the next 24 hours, with "Today" or "Tomorrow" in front of the time. An alarm that has passed, or is further away, is left out. With no alarm the line is left out.
 - **How often.** Every `poll_seconds`, 5 minutes by default, so an alarm you set on your phone appears on the wall within about that long. A failing HA is retried after twice the interval, then four times, up to an hour, and the last good answer is kept meanwhile. A failure is logged once, with a `[alarm]` prefix, and never contains the URL or the token. The **Refresh calendars** button, the `refresh` command and `POST /api/refresh` read the alarm again too.
+
+## Doorbell camera
+
+The wall can show a camera's live feed over whatever it is showing when something happens in HA, such as the doorbell ringing, then put the view back by itself. The app listens to HA directly, so there is no automation to write in HA and MQTT is not needed. Two blocks in the config do it: `cameras`, the feeds, and `triggers`, what to listen for and what to do.
+
+```yaml
+homeassistant:
+  url: http://homeassistant.local:8123
+  token: !secret ha_token   # an administrator's long-lived access token
+
+cameras:
+  - id: front-door
+    name: Front door
+    url: http://go2rtc.local:1984/stream.html?src=front_door&mode=webrtc,mse
+
+triggers:
+  - id: doorbell
+    when:
+      entity_id: binary_sensor.front_doorbell
+      to: "on"
+    displays: [hallway]   # left out: every display
+    actions:
+      - type: set_camera
+        camera: front-door
+        seconds: 60
+      - type: set_overlay
+        overlay: { text: Someone is at the door, icon: bell, ttl: 60 }
+```
+
+- **The feed.** The wall's browser loads the camera's `url` itself; the app never touches the video. go2rtc gives several addresses for each stream, all of which work:
+  - `stream.html?src=<stream>` is go2rtc's own player, shown in a frame. It plays WebRTC or MSE, which start fastest. `&mode=webrtc,mse` keeps it to those two.
+  - `api/stream.mp4?src=<stream>` is a plain MP4 stream, shown in a `<video>`.
+  - `api/stream.mjpeg?src=<stream>` is MJPEG, shown in an `<img>`. It uses the most bandwidth but works everywhere.
+
+  `kind` (`page`, `image` or `video`) says which of those a feed is. Left out, it is worked out from the address: `.mp4` and `.webm` are video, `.mjpeg` and pictures are an image, and anything else is a page. The address must be one the Pi can reach (go2rtc listens on port 1984 by default), and since it is sent to the displays it should not hold a password. A wall served over `https://` needs an `https://` feed too, or the browser blocks it. A `video` feed plays muted, as a browser won't start sound by itself; go2rtc's player page decides for itself.
+- **What to listen for.** `when` is either a state change or an event:
+  - `entity_id` (one, or a list) with optional `from` and `to` (a state or a list of states; quote them, as in `"on"`). A doorbell's `binary_sensor` going `"on"` is the usual one. With neither `from` nor `to`, any change of state counts except to or from `unavailable` and to `unknown`. That is what an [event entity](https://www.home-assistant.io/integrations/event/) needs, such as `event.front_door_ding` from a Ring, Reolink, UniFi Protect or Nest doorbell, whose state is the time of the last ring.
+  - `event_type` with optional `event_data`, for an integration that fires an event on HA's bus instead. The event's data must contain everything in `event_data`. Developer tools → Events → Listen to events shows what a press sends.
+- **What to do.** `actions` are the commands `POST /api/displays/:id/commands` takes, applied in order to each display in `displays`. `set_camera` shows a camera for `seconds` (5 to 1800, 60 by default). A camera already up is replaced, and its time starts again, so a second ring keeps it there. By default it also wakes a screen that is off and turns it off again when the camera goes (`wake: false` leaves the screen alone); someone turning the screen on or off while it is up leaves the screen as they set it. Any other command works as an action too, such as a message (`set_overlay`), a view (`set_view`) or a custom layout (`set_layout`).
+- **Taking it down.** The camera goes by itself after `seconds`. The remote shows a Camera card with a Close button while one is up, and `{ "type": "set_camera", "camera": null }` sent to `POST /api/displays/:id/commands` does the same from anywhere else.
+- **The connection.** The app logs in to `ws://<homeassistant url>/api/websocket` with the token and subscribes to each trigger with HA's `subscribe_trigger` command, so HA does the matching and sends nothing else. HA only lets an administrator subscribe to triggers: with another user's token, the log says `Home Assistant refused trigger "doorbell": Unauthorized`. If HA goes away (a restart, say) the app connects again after 2 seconds, then 4, and so on up to 5 minutes, and pings every 30 seconds to notice a connection that died quietly. A refused token is tried again every 5 minutes. Problems are logged once with a `[triggers]` prefix, never with the URL or the token, and each ring is logged as `[triggers] "doorbell" fired: …`.
+- **Checking it.** Developer tools → States can set the sensor to `on` by hand (Set state), which fires the trigger like a real ring.
+
+To show a camera from an automation of your own instead, for a condition the `when` block can't express, give the trigger an `event_type` of your own and fire that event from the automation:
+
+```yaml
+- alias: Wall calendar – doorbell camera, only in the daytime
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.front_doorbell
+      to: "on"
+  conditions:
+    - condition: time
+      after: "07:00:00"
+      before: "22:00:00"
+  actions:
+    - event: wallcal_front_door
+```
+
+with `when: { event_type: wallcal_front_door }` in the app's trigger.
 
 ## Example automations
 

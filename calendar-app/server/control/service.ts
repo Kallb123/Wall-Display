@@ -1,4 +1,4 @@
-import type { DisplayState } from '../../shared/display'
+import type { CameraSummary, DisplayState } from '../../shared/display'
 import type { LayoutSummary } from '../../shared/layouts'
 import type { DisplayConfig } from '../config/schema'
 import type { Db } from '../db/client'
@@ -25,6 +25,8 @@ export interface DisplayControlOptions {
   bus: EventBus
   /** The custom layouts at start, by name (PR 5.17). They change while it runs through `setLayouts`. Default: none. */
   layouts?: readonly LayoutSummary[]
+  /** The cameras in the config: the only ids `set_camera` accepts. Default: none. */
+  cameras?: readonly CameraSummary[]
   /** Whether a photo source is set up, asked when a command arrives because the photo service starts after this one. Default: yes. */
   photosConfigured?: () => boolean
   /** Forces a sync of every calendar. Called, not awaited, for `refresh`; a rejection is logged. */
@@ -41,7 +43,7 @@ export interface DisplayControl {
   getState: (displayId: string) => DisplayState
   /** Whether the display has a built-in schedule with this id. False for an unknown display. */
   hasSchedule: (displayId: string, scheduleId: string) => boolean
-  /** Applies `command`, stores the new state, broadcasts it, and returns it. Throws `UnknownDisplayError`, `UnknownScheduleError` for a `set_schedule` the display has no schedule for, and `UnknownLayoutError` for a `set_layout` that names a layout that isn't in the library. */
+  /** Applies `command`, stores the new state, broadcasts it, and returns it. Throws `UnknownDisplayError`, `UnknownScheduleError` for a `set_schedule` the display has no schedule for, `UnknownLayoutError` for a `set_layout` that names a layout that isn't in the library, and `UnknownCameraError` for a `set_camera` that names a camera that isn't in the config. */
   applyCommand: (displayId: string, command: ControlCommand) => DisplayState
   /** The display's current `week_start`, as the settings page last set it. Throws `UnknownDisplayError`. */
   weekStartOf: (displayId: string) => 'monday' | 'sunday'
@@ -78,6 +80,13 @@ export class UnknownLayoutError extends Error {
   }
 }
 
+export class UnknownCameraError extends Error {
+  constructor(readonly cameraId: string) {
+    super(`Unknown camera "${cameraId}"`)
+    this.name = 'UnknownCameraError'
+  }
+}
+
 /** The longest one timer waits. A timer can't be longer than about 24.8 days, and re-arming daily costs nothing. */
 export const MAX_TIMER_MS = 24 * 60 * 60 * 1000
 
@@ -87,12 +96,13 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
   const weekStarts = new Map(options.displays.map(display => [display.id, display.week_start]))
   const scheduleIds = new Map(options.displays.map(display => [display.id, new Set((display.schedules ?? []).map(schedule => schedule.id))]))
   let layouts: readonly LayoutSummary[] = options.layouts ?? []
+  const cameras: readonly CameraSummary[] = options.cameras ?? []
   const states = new Map<string, DisplayState>()
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   let stopped = false
 
   function contextFor(displayId: string): ControlContext {
-    return { now: now(), timeZone, monthReturnMinutes: monthReturnMinutes.get(displayId)!, weekStart: weekStarts.get(displayId)!, photosConfigured: photosConfigured(), layouts }
+    return { now: now(), timeZone, monthReturnMinutes: monthReturnMinutes.get(displayId)!, weekStart: weekStarts.get(displayId)!, photosConfigured: photosConfigured(), layouts, cameras }
   }
 
   function assertKnown(displayId: string): void {
@@ -170,6 +180,7 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
       assertKnown(displayId)
       if (command.type === 'set_schedule' && !scheduleIds.get(displayId)!.has(command.schedule)) throw new UnknownScheduleError(displayId, command.schedule)
       if (command.type === 'set_layout' && !layouts.some(layout => layout.id === command.layout)) throw new UnknownLayoutError(command.layout)
+      if (command.type === 'set_camera' && command.camera !== null && !cameras.some(camera => camera.id === command.camera)) throw new UnknownCameraError(command.camera)
       commit(displayId, reduceCommand(settle(displayId), command, contextFor(displayId)))
 
       if (command.type === 'photo_next') bus.emit('photo.next', { displayId })

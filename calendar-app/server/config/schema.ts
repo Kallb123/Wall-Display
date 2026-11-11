@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { isSingleEmoji } from '../../shared/emoji'
-import { layoutIdSchema, MOTIONS, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
+import { CAMERA_KINDS, commandSchema, layoutIdSchema, MOTIONS, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
+import type { CameraKind } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -187,6 +188,87 @@ const schedule = z.strictObject({
   name: text.optional(),
   rules: z.array(scheduleRule).min(1, 'must have at least one rule'),
 }).transform(value => ({ ...value, name: value.name ?? value.id }))
+
+// A camera the wall can show over its view (a doorbell, say), by the address of
+// a feed the wall's browser loads itself, such as one from go2rtc. `kind` says
+// how to show it; left as `auto` it is read from the address (see
+// `cameraKindFor`). The address goes to the displays, so it must be one the
+// wall can reach, and should hold no password.
+const camera = z.strictObject({
+  id: slug,
+  name: text.optional(),
+  url: httpUrl,
+  kind: z.enum(['auto', ...CAMERA_KINDS], { error: `must be auto, ${CAMERA_KINDS.join(', ')}` }).default('auto'),
+}).transform(value => ({
+  id: value.id,
+  name: value.name ?? value.id,
+  url: value.url,
+  kind: value.kind === 'auto' ? cameraKindFor(value.url) : value.kind,
+}))
+
+/**
+ * How to show a feed, read from its address: go2rtc's `stream.mp4` (or any
+ * `.mp4` or `.webm`) is a video, `stream.mjpeg` and `frame.jpeg` (or any
+ * picture) are an image, and anything else, go2rtc's `stream.html` included,
+ * is a page in a frame.
+ */
+export function cameraKindFor(url: string): CameraKind {
+  let path: string
+  try {
+    path = new URL(url).pathname.toLowerCase()
+  } catch {
+    return 'page'
+  }
+  if (/\.(mp4|webm)$/.test(path)) return 'video'
+  if (/\.(mjpeg|mjpg|jpe?g|png|webp|gif)$/.test(path)) return 'image'
+  return 'page'
+}
+
+// A Home Assistant state as a trigger names it. States are text, so a number is
+// taken as its text; true and false are refused, as `on` and `off` are meant.
+const haState = z.union([
+  z.string().min(1, 'must not be empty'),
+  z.number().transform(String),
+], { error: 'must be a state such as "on" (quote it)' })
+const haStates = z.union([haState.transform(value => [value]), z.array(haState).min(1, 'must list at least one state')], { error: 'must be a state such as "on", or a list of states (quote them)' })
+const entityId = z.string().regex(/^[a-z0-9_]+\.[a-z0-9_]+$/, 'must be an entity id like "binary_sensor.front_doorbell"')
+
+/**
+ * What a trigger listens for: an entity changing state (`entity_id`, with
+ * optional `from` and `to`), or an event on Home Assistant's bus (`event_type`,
+ * with optional `event_data` that the event's data must contain).
+ */
+const triggerWhen = z.strictObject({
+  entity_id: z.union([entityId.transform(value => [value]), z.array(entityId).min(1, 'must list at least one entity id')]).optional(),
+  from: haStates.optional(),
+  to: haStates.optional(),
+  event_type: z.string().regex(/^[A-Za-z0-9_.-]+$/, 'must be an event type like "doorbell_pressed"').optional(),
+  event_data: z.record(z.string(), z.unknown()).optional(),
+}).superRefine((value, ctx) => {
+  const issue = (message: string, path: string[] = []) => ctx.addIssue({ code: 'custom', message, path })
+  if ((value.entity_id === undefined) === (value.event_type === undefined)) issue('must set either entity_id (a state change) or event_type (an event), not both')
+  if (value.event_type !== undefined) {
+    if (value.from !== undefined) issue('is only for a state change (entity_id)', ['from'])
+    if (value.to !== undefined) issue('is only for a state change (entity_id)', ['to'])
+  }
+  if (value.entity_id !== undefined && value.event_data !== undefined) issue('is only for an event (event_type)', ['event_data'])
+}).transform((value): TriggerWhen => value.entity_id !== undefined
+  ? { kind: 'state', entity_ids: value.entity_id, from: value.from ?? null, to: value.to ?? null }
+  : { kind: 'event', event_type: value.event_type!, event_data: value.event_data ?? null })
+
+export type TriggerWhen =
+  | { kind: 'state', entity_ids: string[], from: string[] | null, to: string[] | null }
+  | { kind: 'event', event_type: string, event_data: Record<string, unknown> | null }
+
+// Something in Home Assistant that the wall acts on (a doorbell ringing): when
+// it happens, each of `actions`, which are the commands `POST /api/displays/:id/commands`
+// takes, is applied to each display in `displays` (every display if left out).
+const trigger = z.strictObject({
+  id: slug,
+  when: triggerWhen,
+  displays: z.array(slug).min(1, 'must list at least one display id (or leave displays out for every display)').optional(),
+  actions: z.array(commandSchema).min(1, 'must have at least one action'),
+})
 
 // The fields of a display that can also be changed on the settings page (PR 5.6),
 // without their defaults. The page checks a saved change with these same
@@ -528,6 +610,8 @@ export function createConfigSchema(baseDir: string) {
     weather: weather.optional(),
     alarm: alarm.optional(),
     photos: photos(baseDir).optional(),
+    cameras: z.array(camera).default([]),
+    triggers: z.array(trigger).default([]),
   }).superRefine(crossChecks)
 }
 
@@ -540,6 +624,8 @@ type RawConfig = {
   photos?: unknown
   weather?: unknown
   alarm?: unknown
+  cameras: { id: string }[]
+  triggers: { id: string, displays?: string[] | undefined, actions: { type: string, camera?: string | null, schedule?: string }[] }[]
 }
 
 // Checks that look across the whole file: unique ids, references that must
@@ -560,6 +646,8 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
   unique(config.groups, ['groups'])
   unique(config.calendars, ['calendars'])
   unique(config.displays, ['displays'])
+  unique(config.cameras, ['cameras'])
+  unique(config.triggers, ['triggers'])
 
   // Detection could not tell two people (or a person and a group) apart if they share a name or alias.
   const owners = new Map<string, string>()
@@ -617,6 +705,27 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
   if (config.alarm && !config.homeassistant) {
     issue(['alarm'], 'reads a Home Assistant alarm entity, but there is no "homeassistant" block (it needs a url and token)')
   }
+  const displayIds = new Set(config.displays.map(display => display.id))
+  const cameraIds = new Set(config.cameras.map(camera => camera.id))
+  config.triggers.forEach((trigger, index) => {
+    if (!config.homeassistant) {
+      issue(['triggers', index], 'listens to Home Assistant, but there is no "homeassistant" block (it needs a url and token)')
+    }
+    trigger.displays?.forEach((id, i) => {
+      if (!displayIds.has(id)) issue(['triggers', index, 'displays', i], `unknown display "${id}" (must be the id of an entry in displays)`)
+    })
+    const targets = config.displays.filter(display => trigger.displays === undefined || trigger.displays.includes(display.id))
+    trigger.actions.forEach((action, i) => {
+      if (action.type === 'set_camera' && typeof action.camera === 'string' && !cameraIds.has(action.camera)) {
+        issue(['triggers', index, 'actions', i, 'camera'], `unknown camera "${action.camera}" (must be the id of an entry in cameras)`)
+      }
+      if (action.type === 'set_schedule' && action.schedule !== undefined) {
+        const without = targets.filter(display => !display.schedules.some(schedule => schedule.id === action.schedule))
+        if (without.length > 0) issue(['triggers', index, 'actions', i, 'schedule'], `display "${without[0]!.id}" has no schedule "${action.schedule}"`)
+      }
+    })
+  })
+
   config.displays.forEach((display, index) => {
     if (display.night_text === 'next_alarm' && !config.alarm) {
       issue(['displays', index, 'night_text'], 'is next_alarm, but there is no "alarm" block (it needs the entity_id of the Home Assistant entity that holds the next alarm)')
@@ -656,3 +765,5 @@ export type AlarmConfig = NonNullable<AppConfig['alarm']>
 export type PhotosConfig = NonNullable<AppConfig['photos']>
 export type ImmichConfig = NonNullable<PhotosConfig['immich']>
 export type HomeAssistantConfig = NonNullable<AppConfig['homeassistant']>
+export type CameraConfig = AppConfig['cameras'][number]
+export type TriggerConfig = AppConfig['triggers'][number]

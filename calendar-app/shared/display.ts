@@ -93,6 +93,27 @@ export const DEFAULT_PREVIEW_SECONDS = 60
 /** The shortest and longest a preview may run, in seconds. */
 export const MIN_PREVIEW_SECONDS = 5
 export const MAX_PREVIEW_SECONDS = 600
+/** How long `set_camera` shows a camera for when it isn't told. */
+export const DEFAULT_CAMERA_SECONDS = 60
+/** The shortest and longest a camera may stay up, in seconds. */
+export const MIN_CAMERA_SECONDS = 5
+export const MAX_CAMERA_SECONDS = 1800
+
+/**
+ * How the wall shows a camera's feed: `page` is a web page in a frame (go2rtc's
+ * `stream.html`, which plays WebRTC or MSE), `image` an MJPEG stream or a still
+ * in an <img>, and `video` a stream a <video> plays itself (go2rtc's `stream.mp4`).
+ */
+export const CAMERA_KINDS = ['page', 'image', 'video'] as const
+export type CameraKind = (typeof CAMERA_KINDS)[number]
+
+/** A camera from the config's `cameras`, as the control service and the wall need it. The URL is the browser's to load, so it must be one the wall can reach. */
+export interface CameraSummary {
+  id: string
+  name: string
+  url: string
+  kind: CameraKind
+}
 
 /**
  * A built-in schedule's id (PR 5.4): lowercase letters, digits and hyphens, as
@@ -145,6 +166,21 @@ export const previewSchema = z.union([
 ])
 
 /**
+ * A camera on the wall (a doorbell ringing, say): the camera from the config,
+ * copied in so the wall needs nothing else to draw it, and the instant it goes.
+ * `restore_screen` is true when the camera turned the screen on, so the screen
+ * goes off again with it.
+ */
+export const cameraStateSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  url: z.string().min(1),
+  kind: z.enum(CAMERA_KINDS),
+  until: z.iso.datetime(),
+  restore_screen: z.boolean().default(false),
+})
+
+/**
  * The schedule window that put the view on the wall (PR 5.4, architecture §7.8):
  * the schedule's id, the rule's index in its `rules`, the view the rule shows,
  * and the view to go back to when the window ends. For a custom view it also
@@ -185,6 +221,8 @@ export const displayStateSchema = z.object({
   overlay: overlaySchema.nullable().default(null),
   /** The special day or scene being previewed on the wall, or null. */
   preview: previewSchema.nullable().default(null),
+  /** The camera feed shown over the view, or null. */
+  camera: cameraStateSchema.nullable().default(null),
   /** The layout the custom view shows. Sticky: it stays when the view changes away, so coming back to `custom` shows the same layout. */
   layout: layoutIdSchema.nullable().default(null),
   /** The ids of this display's schedules that are turned off (from Home Assistant). A schedule not listed is on. Sorted, no repeats. */
@@ -195,6 +233,7 @@ export const displayStateSchema = z.object({
 
 export type Overlay = z.output<typeof overlaySchema>
 export type Preview = z.output<typeof previewSchema>
+export type CameraState = z.output<typeof cameraStateSchema>
 export type ScheduleWindow = z.output<typeof scheduleWindowSchema>
 export type DisplayState = z.output<typeof displayStateSchema>
 
@@ -225,6 +264,18 @@ export const commandSchema = z.discriminatedUnion('type', [
       ttl: z.number().int('must be a whole number').min(1, 'must be at least 1 second').max(MAX_OVERLAY_TTL_SECONDS, 'must be at most 604800 seconds (a week)').optional(),
     }).nullable(),
   }),
+  // Shows a camera from the config's `cameras` over the view for `seconds`, or with `camera: null` takes it down. An id the config doesn't have is refused by the control service.
+  // `wake` (on unless set to false) turns the screen on if it is off, and off again when the camera goes.
+  z.strictObject({
+    type: z.literal('set_camera'),
+    camera: z.string().trim().min(1, 'must not be empty').nullable(),
+    seconds: z.number()
+      .int('must be a whole number')
+      .min(MIN_CAMERA_SECONDS, `must be from ${MIN_CAMERA_SECONDS} to ${MAX_CAMERA_SECONDS}`)
+      .max(MAX_CAMERA_SECONDS, `must be from ${MIN_CAMERA_SECONDS} to ${MAX_CAMERA_SECONDS}`)
+      .default(DEFAULT_CAMERA_SECONDS),
+    wake: z.boolean().default(true),
+  }),
   z.strictObject({ type: z.literal('photo_next') }),
   // The photo frame if it isn't on, otherwise the view it replaced (`last_calendar_view`). The button's double press, not an MQTT topic.
   z.strictObject({ type: z.literal('toggle_photo') }),
@@ -240,9 +291,11 @@ export const commandSchema = z.discriminatedUnion('type', [
       .max(MAX_PREVIEW_SECONDS, `must be from ${MIN_PREVIEW_SECONDS} to ${MAX_PREVIEW_SECONDS}`)
       .default(DEFAULT_PREVIEW_SECONDS),
   }).refine(command => (command.id === undefined) !== (command.scene === undefined), { message: 'needs exactly one of id and scene' }),
-], { error: 'must be set_view, next_view, set_month, set_week, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_schedule, set_layout, set_overlay, photo_next, toggle_photo, refresh or preview_special_day' })
+], { error: 'must be set_view, next_view, set_month, set_week, set_screen, set_brightness, set_photo_source, set_auto_presence, set_auto_brightness, set_schedule, set_layout, set_overlay, set_camera, photo_next, toggle_photo, refresh or preview_special_day' })
 
 export type Command = z.output<typeof commandSchema>
+/** A command as it is sent, before the schema fills in the defaults (`set_camera`'s `seconds` and `wake`, say). */
+export type CommandInput = z.input<typeof commandSchema>
 export type CommandType = Command['type']
 
 /** The hours of the day the week view draws in full, `from` inclusive to `to` exclusive. Whole hours, 0 to 24. */

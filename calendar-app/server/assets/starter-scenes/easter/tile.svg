@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <!-- Two painted eggs in the grass. Square and transparent, for the corner of a calendar tile. -->
+  <defs>
+    <clipPath id="tile-egg-a"><path d="M44 42 C63.3 42 68.8 79.2 67 84 C65.2 100.8 53.2 102 44 102 C34.8 102 22.8 100.8 21 84 C19.2 79.2 24.7 42 44 42 Z"/></clipPath>
+    <clipPath id="tile-egg-b"><path d="M80 52 C96.8 52 101.6 84.2 100 88.4 C98.4 103 88 104 80 104 C72 104 61.6 103 60 88.4 C58.4 84.2 63.2 52 80 52 Z"/></clipPath>
+  </defs>
+  <g>
+    <g transform="rotate(-12 44 72)">
+      <path d="M44 42 C63.3 42 68.8 79.2 67 84 C65.2 100.8 53.2 102 44 102 C34.8 102 22.8 100.8 21 84 C19.2 79.2 24.7 42 44 42 Z" fill="#f4b8c8"/>
+      <g clip-path="url(#tile-egg-a)">
+        <path d="M-2 73.2 L9.5 68.4 L21 78 L32.5 68.4 L44 78 L55.5 68.4 L67 78 L78.5 68.4 L90 78" fill="none" stroke="#ffffff" stroke-width="4.1" stroke-linejoin="round" stroke-linecap="round"/>
+      </g>
+      <ellipse cx="34.8" cy="58.8" rx="4.1" ry="7.2" fill="#ffffff" opacity="0.45" transform="rotate(-20 34.8 58.8)"/>
+    </g>
+    <g transform="rotate(10 80 78)">
+      <path d="M80 52 C96.8 52 101.6 84.2 100 88.4 C98.4 103 88 104 80 104 C72 104 61.6 103 60 88.4 C58.4 84.2 63.2 52 80 52 Z" fill="#f6d36b"/>
+      <g clip-path="url(#tile-egg-b)">
+        <circle cx="71.2" cy="68.6" r="3.2" fill="#f29e6b"/>
+        <circle cx="87.2" cy="74.9" r="3.2" fill="#f29e6b"/>
+        <circle cx="75.2" cy="85.3" r="3.2" fill="#f29e6b"/>
+        <circle cx="90.4" cy="90.5" r="3.2" fill="#f29e6b"/>
+        <circle cx="80" cy="61.4" r="3.2" fill="#f29e6b"/>
+        <circle cx="68" cy="94.6" r="3.2" fill="#f29e6b"/>
+      </g>
+      <ellipse cx="72" cy="66.6" rx="3.6" ry="6.2" fill="#ffffff" opacity="0.45" transform="rotate(-20 72 66.6)"/>
+    </g>
+    <path d="M8 118 L8 100 Q12.6 91.7 14.5 90.8 Q15.8 97.5 21 100 Q25.6 92.3 27.5 91.5 Q28.8 97.7 34 100 Q38.5 90.9 40.5 90 Q41.8 97.3 47 100 Q51.5 92.1 53.5 91.3 Q54.8 97.6 60 100 Q64.5 92.5 66.5 91.7 Q67.8 97.7 73 100 Q77.5 90.9 79.5 90 Q80.8 97.3 86 100 Q90.5 88.4 92.5 87.2 Q93.8 96.5 99 100 Q103.5 89 105.5 87.9 Q106.8 96.7 112 100 L112 118 Z" fill="#8fa073"/>
+  </g>
+</svg>

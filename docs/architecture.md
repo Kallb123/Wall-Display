@@ -575,6 +575,25 @@ More palettes can be added in code. They aren't user-editable, so every palette 
 - **Uploads.** Tile art is PNG, WebP or SVG, up to 2 MB. Raster images are resized to fit 512×512. SVGs are sanitised on upload (no scripts, event handlers or external references) and served with a locked-down `Content-Security-Policy` and `X-Content-Type-Options: nosniff`. Full-screen art can be any image `sharp` reads, up to 20 MB. It is cropped to fill 2560×1440 and saved as WebP. Extra art is the same, but must have transparency (PNG, WebP or SVG), keeps it, and is cropped the same way so it lines up with the full art. The portrait slots (`full-portrait` for days and scenes, `extra-portrait` for days) follow the same rules and limits but are cropped to fill 1440×2560. Scenes and days both take uploads. Files are named by a hash of their content, so they can be cached for good: they are served at `/special-days/<hash>.<webp|svg>` with `Cache-Control: public, max-age=31536000, immutable` and `X-Content-Type-Options: nosniff` (SVGs also with the `Content-Security-Policy` above), outside `/api` so the displays need no PIN to load them. A file is deleted only once no day or scene refers to it in any of its art columns (tile, full, portrait full, extra, portrait extra), because copies share files. Duplicating a day or scene copies the portrait art along with the rest.
 - **Home Assistant.** The app publishes today's special day name (or empty) as a sensor, so automations can react to it, for example with themed lights.
 
+### 6.6 Starter scenes
+
+A few ready-made scenes ship with the app, so a takeover looks good before anyone has drawn anything. On the special days page, the Scenes list has **Add a starter scene**, which opens a picker showing each one's tile art, palette and a line about it.
+
+| Starter | Palette | Lead | Greeting | Art |
+|---|---|---|---|---|
+| Birthday | `warm` | week | `Happy birthday, {who}!` | Bunting, balloons, presents and a cake, on a transparent ground so the display's own theme, light or dark, shows through |
+| Christmas | `frost` | month | `Merry Christmas!` | A winter night: fairy lights along the top, snow in the margins, a tree, firs and the moon on snowy hills |
+| Easter | `sage` | week | `Happy Easter!` | A pale spring green: bunting, a bunny, painted eggs and flowers, more eggs in the grass along the bottom |
+
+All three take over. The birthday greeting uses only `{who}`, so a birthday with no `since_year` can use it; `Happy {nth} birthday, {who}!` is one edit away.
+
+- **The list and the art.** The starters are listed in `shared/starter-scenes.ts`: an id, a line for the picker, and the scene they create. Their art is in `server/assets/starter-scenes/<id>/` as `tile.svg`, `full.svg` (2560×1440) and `full-portrait.svg` (1440×2560), bundled into the build as Nitro server assets. The pictures are flat shapes with no outlines, in the Organic design's soft colours, drawn by `scripts/draw-starter-scenes.py` (which a new starter can reuse) and editable by hand. As §6.3 asks, the busy parts are where a takeover shows the art: the corner below the today panel, a strip along the top right of the month title, the margins and the gaps. On a portrait wall only the top strip beside the title, the margins and a band at the bottom show, so the portrait cut moves its subject to the top right corner.
+- **Adding one.** `POST /api/special-day-scenes/starters/<id>` (behind the PIN like any write) runs each file through the same `processArt` as an upload, for its slot, so it is sanitised, cropped and converted exactly as user art is, and stores the results in `/data/special-days/`. It then creates the scene with them and answers 201 with it. From then on it is an ordinary scene: edited, duplicated or deleted like any other, and none of that touches the bundled original. Adding the same starter again makes another copy, under the next free id (`christmas-2`), sharing the art files, which are named by their contents. An unknown starter is a 404. `starters` is a reserved id (§6.1's slugs), so no scene can be shadowed by the route.
+- **The picker's tiles.** `GET /special-days/starters/<id>.svg` serves a starter's bundled tile, with the same locked-down headers as stored SVG art but cached for an hour, as an update of the app can change it.
+- **Checks.** The unit tests hold every starter's art to the upload checks and its scene to the API's schema, the e2e test adds one from the built app (so the art is shown to ship), and the visual tests draw each one taking over the month, landscape and portrait.
+
+More starters (Halloween, Bonfire Night, New Year) are a matter of drawing their art and adding a line to the list.
+
 ## 7. Control
 
 ### 7.1 State model
@@ -805,7 +824,7 @@ It talks to the same command handler as MQTT, so it works even if HA is down. It
 **Special days editor.** The left column has a **Days** / **Scenes** switch above its list.
 
 - **Days** lists the special days, each with a date chip (day and month), its name and a summary such as "Birthday scene · 2 changes" or "Every year · tile art · full screen", plus an **Add** button.
-- **Scenes** lists the scenes, each with its tile art, its name and how many days use it ("Used by 4 days"), plus an **Add** button.
+- **Scenes** lists the scenes, each with its tile art, its name and how many days use it ("Used by 4 days"), plus an **Add** button and **Add a starter scene**, which opens a picker of the ready-made scenes (§6.6). Adding one asks about unsaved changes first, copies it into the list and opens the copy.
 
 On the right, a selected day has:
 

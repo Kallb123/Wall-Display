@@ -34,11 +34,22 @@ export function getScene(db: Db, id: string): SpecialDayScene | undefined {
   return row && toSpecialDayScene(row)
 }
 
-/** Stores a new scene under a slug of its name, and returns it. */
-export function createScene(db: Db, input: SpecialDaySceneInput, now: Date): SpecialDayScene {
+/** Art files a new scene starts with, by slot. A starter scene has all three; one made in the editor has none. */
+export type SceneArt = Partial<Record<SceneArtSlot, string>>
+
+/** Stores a new scene under a slug of its name, with any art it starts with, and returns it. */
+export function createScene(db: Db, input: SpecialDaySceneInput, now: Date, art: SceneArt = {}): SpecialDayScene {
   const taken = new Set(db.select({ id: specialDayScenes.id }).from(specialDayScenes).all().map(row => row.id))
   const id = slugFor(input.name, taken, 'scene')
-  const row = db.insert(specialDayScenes).values({ id, ...editableColumns(input), createdAt: now, updatedAt: now }).returning().get()
+  const row = db.insert(specialDayScenes).values({
+    id,
+    ...editableColumns(input),
+    tileArt: art.tile ?? null,
+    fullArt: art.full ?? null,
+    fullArtPortrait: art['full-portrait'] ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }).returning().get()
   return toSpecialDayScene(row)
 }
 

@@ -472,7 +472,7 @@ export function leadLabel(lead: SpecialDayLead, leadDays: number | null): string
   return LEAD_OPTIONS.find(option => option.value === lead)?.label ?? lead
 }
 
-const PALETTE_LABELS: Record<SpecialDayPalette, string> = { warm: 'Warm', night: 'Night', frost: 'Frost', sage: 'Sage' }
+export const PALETTE_LABELS: Record<SpecialDayPalette, string> = { warm: 'Warm', night: 'Night', frost: 'Frost', sage: 'Sage' }
 
 export const PALETTE_OPTIONS: readonly { value: SpecialDayPalette, label: string }[] = SPECIAL_DAY_PALETTES.map(value => ({ value, label: PALETTE_LABELS[value] }))
 

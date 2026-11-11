@@ -234,7 +234,7 @@ PR S.1 shipped each special day with its whole look stored on it. PR S.1b adds *
 - **Event detail on the remote.** Tap an event on the phone to see its location and description. (The wall itself now shows the location under an event's title where there is room, issue 74; the remote still has none.)
 - **Special days linked to a person.** A birthday picks up that child's colour for its tint (as in mock 2b) and could show their initial in the greeting. Matching a day's `who` (PR S.1b) to a configured person's name or aliases is the likely way in.
 - **Special days from a calendar.** Create special days from a birthdays calendar or an HA holidays integration, so they don't have to be entered by hand. Each source would pick a scene (for example, every birthday from the calendar uses the Birthday scene).
-- **Starter scenes.** A few ready-made scenes with their art (Halloween, Bonfire Night, Christmas, birthday) to add from the admin page, then use or duplicate.
+- **More starter scenes.** Birthday, Christmas and Easter ship (architecture §6.6). Halloween, Bonfire Night and New Year would each need their art drawn and a line in `shared/starter-scenes.ts`.
 - **More palettes.** For example Easter or spring. Each one needs a contrast check.
 
 ---

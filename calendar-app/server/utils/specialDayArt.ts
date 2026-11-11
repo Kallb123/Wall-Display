@@ -105,3 +105,17 @@ export function clearArt<T>(apply: () => ArtChange<T> | null): T | null {
   removeUnreferencedArt(useDb(), useSpecialDayArtDir(), [change.previous])
   return change.row
 }
+
+/**
+ * The bytes of a file in the server assets (server/assets/, bundled into the
+ * build), such as a starter scene's art at `starter-scenes/birthday/tile.svg`.
+ * Null if there is no such file.
+ */
+export async function readServerAsset(path: string): Promise<Buffer | null> {
+  const raw = await useStorage('assets:server').getItemRaw(path)
+  if (raw === null || raw === undefined) return null
+  if (typeof raw === 'string') return Buffer.from(raw, 'utf8')
+  if (raw instanceof Uint8Array) return Buffer.from(raw)
+  if (raw instanceof ArrayBuffer) return Buffer.from(new Uint8Array(raw))
+  return null
+}

@@ -12,8 +12,8 @@ import { daysUsing, sceneSavedMessage, writeFailure } from '~/utils/specialDayEd
 // dates, and the scenes (shared looks) they can use. A list on the left, the
 // editor for the chosen day or scene on the right. This page owns everything
 // that happens: it loads the days and scenes, makes every write (behind the
-// shared PIN), uploads the art, and decides what unsaved changes allow. The
-// editors only hold the form. What is open lives in the address (`?day=`,
+// shared PIN), uploads the art, adds the starter scenes, and decides what
+// unsaved changes allow. The editors only hold the form. What is open lives in the address (`?day=`,
 // `?scene=` or `?new=day|scene`) so a link to a day works and Back goes back.
 
 useHead({ title: 'Special days · Settings' })
@@ -330,6 +330,30 @@ async function saveAsScene(id: string) {
   }, 'The server couldn\'t make a scene from the day', () => saveAsScene(id))
 }
 
+// Starter scenes
+
+/** The starter picker is open. */
+const pickingStarter = ref(false)
+/** The starter being added, while it is. */
+const addingStarter = computed(() => busy.value?.startsWith('starter:') ? busy.value.slice('starter:'.length) : null)
+
+/**
+ * Copies a starter into the scenes and opens the copy. Whatever is open is
+ * left for it, so unsaved changes are asked about first. The picker stays open,
+ * saying "Adding…", while the server stores the art, and closes once it is
+ * done, or has failed, so the note saying which can be seen.
+ */
+async function addStarter(id: string) {
+  if (!(await mayLeave())) return
+  await write(`starter:${id}`, headers => $fetch<SpecialDayScene>(`/api/special-day-scenes/starters/${encode(id)}`, { method: 'POST', headers }), async (scene) => {
+    await load()
+    dirty.value = false
+    say(`Added ${scene.name} to your scenes. It is yours now: change anything you like.`, 'note', keyOf({ kind: 'scene', id: scene.id }))
+    await navigate({ kind: 'scene', id: scene.id })
+  }, 'The server couldn\'t add the starter scene', () => addStarter(id))
+  pickingStarter.value = false
+}
+
 /** Shows what is open on every display for a minute: the wall that matters is whichever the person is looking at. */
 async function preview(target: Selection) {
   if (busy.value || target.id === null) return
@@ -447,6 +471,7 @@ async function clearArt(slots: ArtSlot[]) {
         @update:mode="switchMode"
         @select="select"
         @add="add"
+        @add-starter="pickingStarter = true"
       />
 
       <div class="column">
@@ -501,6 +526,13 @@ async function clearArt(slots: ArtSlot[]) {
         </SettingsCard>
       </div>
     </div>
+
+    <SpecialDaysStarterPicker
+      v-if="pickingStarter"
+      :adding="addingStarter"
+      @add="addStarter"
+      @close="pickingStarter = false"
+    />
 
     <SettingsConfirmDialog
       v-if="question"

@@ -6,6 +6,7 @@ import SpecialDaysPage from '~/pages/settings/special-days.vue'
 import { PIN_ERRORS, PIN_HEADER } from '../../shared/remote'
 import { effectiveLook, specialDayInputSchema, specialDaySceneInputSchema } from '../../shared/special-days'
 import type { SpecialDay, SpecialDayScene } from '../../shared/special-days'
+import { findStarterScene } from '../../shared/starter-scenes'
 
 // The Special days tab against a pretend server: `$fetch` is replaced by one
 // that answers as the real routes do (architecture §6, §7.6) and records every
@@ -147,6 +148,15 @@ async function server(url: string, options: Options = {}) {
     const parsed = specialDaySceneInputSchema.safeParse(body)
     if (!parsed.success) throw invalid(parsed.error)
     const created = scene({ ...parsed.data, id: slug(parsed.data.name, scenes) })
+    scenes.push(created)
+    return structuredClone(created)
+  }
+
+  const starterRoute = path.match(/^\/api\/special-day-scenes\/starters\/([^/]+)$/)
+  if (method === 'POST' && starterRoute) {
+    const starter = findStarterScene(starterRoute[1]!)
+    if (!starter) throw refusal(404, `Unknown starter scene "${starterRoute[1]}"`)
+    const created = scene({ ...starter.scene, id: slug(starter.scene.name, scenes), tile_art: `${starter.id}-tile.svg`, full_art: `${starter.id}-full.webp`, full_art_portrait: `${starter.id}-tall.webp` })
     scenes.push(created)
     return structuredClone(created)
   }
@@ -1228,6 +1238,103 @@ describe('the scene form', () => {
     expect(findAll(wrapper, 'mark-from')).toHaveLength(0)
     expect(findAll(wrapper, 'mark-changed')).toHaveLength(0)
     expect(find(wrapper, 'art-extra').exists()).toBe(false)
+  })
+})
+
+describe('starter scenes', () => {
+  it('offers them with the scenes, not the days', async () => {
+    const wrapper = await open('/settings/special-days?day=isla-birthday')
+    expect(find(wrapper, 'add-starter-scene').exists()).toBe(false)
+
+    await click(wrapper, 'switch-scenes')
+    expect(find(wrapper, 'add-starter-scene').text()).toBe('Add a starter scene')
+  })
+
+  it('lists each starter with its tile, palette and description, and closes without adding anything', async () => {
+    const wrapper = await open('/settings/special-days?scene=birthday')
+
+    await click(wrapper, 'add-starter-scene')
+    const starters = findAll(wrapper, 'starter')
+    expect(starters.map(row => row.attributes('data-id'))).toEqual(['birthday', 'christmas', 'easter'])
+    expect(starters.map(row => row.find('.name').text())).toEqual(['Birthday', 'Christmas', 'Easter'])
+    expect(starters[1]!.find('.palette').text()).toBe('Frost palette')
+    expect(starters[1]!.find('img').attributes('src')).toBe('/special-days/starters/christmas.svg')
+
+    await click(wrapper, 'starter-close')
+    expect(find(wrapper, 'starter-picker').exists()).toBe(false)
+    expect(written()).toEqual([])
+  })
+
+  it('adds one, closes the picker and opens the new scene', async () => {
+    const wrapper = await open('/settings/special-days?scene=birthday')
+
+    await click(wrapper, 'add-starter-scene')
+    await findAll(wrapper, 'starter-add')[1]!.trigger('click')
+    await settle()
+
+    expect(written()).toEqual(['POST /api/special-day-scenes/starters/christmas'])
+    expect(find(wrapper, 'starter-picker').exists()).toBe(false)
+    expect(query()).toEqual({ scene: 'christmas' })
+    expect(text(wrapper, 'editor-note')).toBe('Added Christmas to your scenes. It is yours now: change anything you like.')
+    expect((find(wrapper, 'scene-name').element as HTMLInputElement).value).toBe('Christmas')
+    expect(rowNames(wrapper, 'scene')).toContain('Christmas')
+  })
+
+  it('makes a second copy when the same one is added again', async () => {
+    const wrapper = await open('/settings/special-days?scene=birthday')
+
+    for (let round = 0; round < 2; round++) {
+      await click(wrapper, 'add-starter-scene')
+      await findAll(wrapper, 'starter-add')[0]!.trigger('click')
+      await settle()
+    }
+
+    expect(written()).toEqual(['POST /api/special-day-scenes/starters/birthday', 'POST /api/special-day-scenes/starters/birthday'])
+    expect(query()).toEqual({ scene: 'birthday-3' })
+  })
+
+  it('asks about unsaved changes first, and adds nothing on Cancel', async () => {
+    const wrapper = await open('/settings/special-days?scene=birthday')
+    await type(wrapper, 'scene-name', 'Party')
+
+    await click(wrapper, 'add-starter-scene')
+    await findAll(wrapper, 'starter-add')[2]!.trigger('click')
+    await settle()
+    expect(find(wrapper, 'confirm-dialog').exists()).toBe(true)
+    await click(wrapper, 'confirm-cancel')
+
+    expect(written()).toEqual([])
+    expect(query()).toEqual({ scene: 'birthday' })
+  })
+
+  it('asks for the PIN, then adds the starter', async () => {
+    pin = '2468'
+    const wrapper = await open('/settings/special-days?scene=birthday')
+
+    await click(wrapper, 'add-starter-scene')
+    await findAll(wrapper, 'starter-add')[2]!.trigger('click')
+    await settle()
+    expect(find(wrapper, 'pin-dialog').exists()).toBe(true)
+
+    await type(wrapper, 'pin-input', '2468')
+    await wrapper.find('[data-testid="pin-dialog"] form').trigger('submit')
+    await settle()
+
+    expect(writes().map(request => request.pin)).toEqual([null, '2468'])
+    expect(query()).toEqual({ scene: 'easter' })
+  })
+
+  it('says so when the server refuses', async () => {
+    const wrapper = await open('/settings/special-days?scene=birthday')
+    refuseNext = refusal(500, 'The art for the starter scene "easter" is missing')
+
+    await click(wrapper, 'add-starter-scene')
+    await findAll(wrapper, 'starter-add')[2]!.trigger('click')
+    await settle()
+
+    expect(find(wrapper, 'starter-picker').exists()).toBe(false)
+    expect(text(wrapper, 'editor-note')).toBe('The server couldn\'t add the starter scene')
+    expect(query()).toEqual({ scene: 'birthday' })
   })
 })
 

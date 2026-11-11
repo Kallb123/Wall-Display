@@ -25,6 +25,7 @@ const values: DisplayPreferences = {
   show_locations: true,
   burn_in: true,
   motion: 'off',
+  takeover_art: 'behind',
   night_text: 'none',
   orientation: 'auto',
 }
@@ -118,6 +119,9 @@ describe('labels', () => {
     ['show_locations', false, 'off'],
     ['motion', 'off', 'Off'],
     ['motion', 'subtle', 'Subtle'],
+    ['takeover_art', 'behind', 'Behind'],
+    ['takeover_art', 'over_in_portrait', 'Over in portrait'],
+    ['takeover_art', 'over', 'Over'],
     ['month_return_minutes', 5, '5 min'],
     ['week_hours', { from: 7, to: 21 }, '07:00 to 21:00'],
     ['day_parts', { afternoon: 12, evening: 17 }, 'afternoon from 12:00, evening from 17:00'],

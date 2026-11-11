@@ -1,4 +1,5 @@
-import type { Preview, View } from '../../shared/display'
+import { DEFAULT_TAKEOVER_ART } from '../../shared/display'
+import type { Preview, TakeoverArtPlace, View } from '../../shared/display'
 import { layoutShowsCalendar } from '../../shared/layouts'
 import type { LayoutSummary } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover, TileDecoration } from '../../shared/special-days'
@@ -78,6 +79,18 @@ export function takeoverArt(takeover: Takeover | null, orientation: 'landscape' 
   return orientation === 'portrait'
     ? { full: takeover.full_art_portrait ?? null, extra: takeover.extra_art_portrait ?? null }
     : { full: takeover.full_art, extra: takeover.extra_art }
+}
+
+/**
+ * Whether the takeover's art goes over the view rather than behind it, by the
+ * display's `takeover_art` and the stage's shape. Behind, the view's solid
+ * panels hide most of it, which on the portrait stage is nearly all of it;
+ * over, the whole picture shows and the view shows through its clear parts.
+ * (`behind` for settings cached before `takeover_art` existed.)
+ */
+export function takeoverArtOver(place: TakeoverArtPlace | undefined, orientation: 'landscape' | 'portrait'): boolean {
+  const chosen = place ?? DEFAULT_TAKEOVER_ART
+  return chosen === 'over' || (chosen === 'over_in_portrait' && orientation === 'portrait')
 }
 
 /** The art files of a tile's decorations, in the order they are drawn. Not every decoration has some. */

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { isSingleEmoji } from '../../shared/emoji'
-import { CAMERA_KINDS, commandSchema, layoutIdSchema, MOTIONS, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
+import { CAMERA_KINDS, commandSchema, layoutIdSchema, MOTIONS, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, TAKEOVER_ART_PLACES, VIEWS } from '../../shared/display'
 import type { CameraKind } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
@@ -282,6 +282,8 @@ export const displayFields = {
   burn_in: z.boolean(),
   /** Slow ambient motion on the wall (the photo frame's pan and zoom): `off` or `subtle`. */
   motion: z.enum(MOTIONS),
+  /** Where a special day's takeover art is drawn: `behind` the view, `over` it, or `over_in_portrait` (over on the portrait stage only). */
+  takeover_art: z.enum(TAKEOVER_ART_PLACES),
   /** What the night view shows under its clock (PR 5.2). `next_alarm` needs the top-level `alarm` block. */
   night_text: z.enum(NIGHT_TEXTS),
   /**
@@ -337,6 +339,7 @@ const display = z.strictObject({
   week_start: displayFields.week_start.default('monday'),
   burn_in: displayFields.burn_in.default(true),
   motion: displayFields.motion.default('off'),
+  takeover_art: displayFields.takeover_art.default('behind'),
   night_text: displayFields.night_text.default('none'),
   orientation: displayFields.orientation.default('auto'),
   week_hours: displayFields.week_hours.default({ from: 7, to: 21 }),

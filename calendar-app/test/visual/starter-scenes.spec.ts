@@ -43,7 +43,15 @@ function dayOf(id: string): SpecialDay {
   }
 }
 
-async function showStarter(page: Page, id: string, display: string, orientation?: 'portrait') {
+async function showStarter(page: Page, id: string, display: string, orientation?: 'portrait', takeoverArt?: 'over') {
+  // The real server's settings, with the art put over the view for this test only.
+  if (takeoverArt) {
+    await page.route('**/api/displays', async (route) => {
+      const response = await route.fetch()
+      const displays = (await response.json()) as { takeover_art: string }[]
+      await route.fulfill({ response, json: displays.map(settings => ({ ...settings, takeover_art: takeoverArt })) })
+    })
+  }
   await playServer(page, { view: 'month' }, quiet, null, {
     now: THURSDAY_29,
     specialDays: resolveSpecialDays([dayOf(id)], [sceneOf(id)], { ...resolutionRange(TODAY), today: TODAY }),
@@ -83,4 +91,11 @@ test.describe('portrait', () => {
       await expect(page).toHaveScreenshot(`starter-${id}-portrait.png`)
     })
   }
+
+  // Birthday's art is clear but for its decorations, so over the view the whole of it shows and so does the calendar. (Christmas and Easter fill the picture with a sky, which over the view would hide the calendar.)
+  test('birthday takes over the portrait month with its art over the view', async ({ page }) => {
+    await showStarter(page, 'birthday', 'hallway', 'portrait', 'over')
+    await expect(page.getByTestId('takeover-full')).toHaveAttribute('data-place', 'over')
+    await expect(page).toHaveScreenshot('starter-birthday-portrait-over.png')
+  })
 })

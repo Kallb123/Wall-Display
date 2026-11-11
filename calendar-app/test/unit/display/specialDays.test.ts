@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Preview } from '../../../shared/display'
 import type { SpecialDaysResolution, Takeover } from '../../../shared/special-days'
-import { activePreview, greetingSize, isEvening, previewKey, previewQuery, takeoverArt, takeoverInForce, tileArt } from '../../../app/utils/specialDays'
+import { activePreview, greetingSize, isEvening, previewKey, previewQuery, takeoverArt, takeoverArtOver, takeoverInForce, tileArt } from '../../../app/utils/specialDays'
 import { CALENDAR_VIEWS, isCalendarView } from '../../../app/utils/views'
 
 const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: 'bat.png', full_art_portrait: 'wall-tall.webp', extra_art_portrait: null }
@@ -24,6 +24,24 @@ describe('takeoverArt', () => {
     expect(takeoverArt(null, 'landscape')).toEqual({ full: null, extra: null })
     const { full_art_portrait: _full, extra_art_portrait: _extra, ...old } = takeover
     expect(takeoverArt(old as Takeover, 'portrait')).toEqual({ full: null, extra: null })
+  })
+})
+
+describe('takeoverArtOver', () => {
+  it('is behind on both stages for behind, and over on both for over', () => {
+    expect(takeoverArtOver('behind', 'landscape')).toBe(false)
+    expect(takeoverArtOver('behind', 'portrait')).toBe(false)
+    expect(takeoverArtOver('over', 'landscape')).toBe(true)
+    expect(takeoverArtOver('over', 'portrait')).toBe(true)
+  })
+
+  it('is over on the portrait stage only for over_in_portrait', () => {
+    expect(takeoverArtOver('over_in_portrait', 'landscape')).toBe(false)
+    expect(takeoverArtOver('over_in_portrait', 'portrait')).toBe(true)
+  })
+
+  it('is behind for settings cached before takeover_art existed', () => {
+    expect(takeoverArtOver(undefined, 'portrait')).toBe(false)
   })
 })
 

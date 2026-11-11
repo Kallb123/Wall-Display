@@ -41,6 +41,7 @@ export function readDisplayPreferences(display: DisplayConfig): DisplayPreferenc
     show_locations: display.show_locations,
     burn_in: display.burn_in,
     motion: display.motion,
+    takeover_art: display.takeover_art,
     night_text: display.night_text,
     orientation: display.orientation,
   }
@@ -74,6 +75,7 @@ const displaySchemas: Record<DisplayPreferenceKey, z.ZodType> = {
   show_locations: displayFields.show_locations,
   burn_in: displayFields.burn_in,
   motion: displayFields.motion,
+  takeover_art: displayFields.takeover_art,
   night_text: displayFields.night_text,
   orientation: displayFields.orientation,
 }

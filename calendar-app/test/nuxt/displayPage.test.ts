@@ -89,7 +89,7 @@ let eventsAnswer: CalendarEvent[]
 
 function server(url: string, options?: { query?: Record<string, string> }) {
   requests.push({ url, query: options?.query })
-  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, ...settingsExtra }]
+  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, ...settingsExtra }]
   if (url === '/api/events') return { events: eventsAnswer }
   if (url === '/api/special-days/preview') {
     const answer = previewAnswer(options?.query ?? {})
@@ -202,6 +202,30 @@ describe('a takeover today', () => {
     expect(layers.every(layer => layer.attributes('alt') === '')).toBe(true)
     // Before the view in the stage, so the view is painted over it.
     expect(wall.positionInStage(layers[1]!.element)).toBeLessThan(wall.positionInStage(wall.wrapper.find('[data-testid="month-view"]').element))
+  })
+
+  it('puts its art over the view when the display\'s takeover_art is over, still under the badges and the banner', async () => {
+    settingsExtra = { takeover_art: 'over' }
+    const wall = await openWall({ state: state({ overlay: { text: 'Dinner', icon: null, until: null } }), specialDays: resolution() })
+
+    const layers = wall.stage().findAll('img.takeover-art')
+    expect(layers.map(layer => layer.attributes('data-testid'))).toEqual(['takeover-full', 'takeover-extra'])
+    expect(layers.every(layer => layer.attributes('data-place') === 'over')).toBe(true)
+    const view = wall.wrapper.find('[data-testid="month-view"]')
+    // After the view in the stage, so it is painted over it, and the view keeps its own z-indexes to itself.
+    expect(wall.positionInStage(layers[0]!.element)).toBeGreaterThan(wall.positionInStage(view.element))
+    expect(view.classes()).toContain('under-art')
+    const banner = wall.wrapper.find('[data-testid="overlay-banner"]')
+    expect(banner.exists()).toBe(true)
+    expect(wall.positionInStage(banner.element)).toBeGreaterThan(wall.positionInStage(layers[1]!.element))
+  })
+
+  it('keeps the art behind on the landscape stage when takeover_art is over_in_portrait', async () => {
+    settingsExtra = { takeover_art: 'over_in_portrait' }
+    const wall = await openWall({ specialDays: resolution() })
+
+    expect(wall.wrapper.find('[data-testid="takeover-full"]').attributes('data-place')).toBe('behind')
+    expect(wall.wrapper.find('[data-testid="month-view"]').classes()).not.toContain('under-art')
   })
 
   it('draws no layer for art it does not have, and still changes the palette', async () => {
@@ -655,7 +679,7 @@ describe('settings changed on the settings page', () => {
   const update = (changes: Record<string, unknown>) => ({
     type: 'settings.updated',
     display_id: 'hallway',
-    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [], ...changes },
+    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [], ...changes },
   })
 
   it('re-themes the wall at once', async () => {
@@ -925,7 +949,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])
 
-    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [] } })
+    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [] } })
     await flushPromises()
     expect(stageSize(wall)).toEqual([2560, 1440])
   })
@@ -982,6 +1006,17 @@ describe('orientation', () => {
     await wall.setState({ view: 'month' })
     expect(wall.wrapper.find('[data-testid="takeover-full"]').attributes('src')).toBe('/special-days/wall.webp')
     expect(wall.wrapper.find('[data-testid="takeover-extra"]').attributes('src')).toBe('/special-days/bat.png')
+  })
+
+  it('puts the art over the view on the portrait stage when takeover_art is over_in_portrait', async () => {
+    resizeWindow(720, 1280)
+    settingsExtra = { takeover_art: 'over_in_portrait' }
+    const wall = await openWall({ state: state({ view: 'agenda' }), specialDays: resolution() })
+    expect(wall.stage().attributes('data-orientation')).toBe('portrait')
+    const full = wall.wrapper.find('[data-testid="takeover-full"]')
+    expect(full.attributes('src')).toBe('/special-days/wall-tall.webp')
+    expect(full.attributes('data-place')).toBe('over')
+    expect(wall.positionInStage(full.element)).toBeGreaterThan(wall.positionInStage(wall.wrapper.find('[data-testid="agenda-view"]').element))
   })
 
   it('draws no art on the portrait stage for a takeover with only landscape art', async () => {

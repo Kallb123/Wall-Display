@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown } from 'lucide-vue-next'
-import { MOTIONS, NIGHT_TEXTS, ORIENTATIONS } from '../../../shared/display'
+import { MOTIONS, NIGHT_TEXTS, ORIENTATIONS, TAKEOVER_ART_PLACES } from '../../../shared/display'
 import { DISPLAY_PREFERENCE_KEYS } from '../../../shared/settings'
 import type { DisplayPreferenceKey, DisplayPreferences, DisplayPreferencesEntry, PreferencesUpdate } from '../../../shared/settings'
 import {
@@ -8,6 +8,7 @@ import {
   MOTION_LABELS,
   NIGHT_TEXT_LABELS,
   ORIENTATION_LABELS,
+  TAKEOVER_ART_LABELS,
   THEME_LABELS,
   WEATHER_ON_DATES_KEYS,
   WEATHER_ON_DATES_LABELS,
@@ -25,7 +26,7 @@ import '~/assets/special-days-form.css'
 
 // One display's preferences (PR 5.6): theme, month style, orientation
 // (PR 5.10), week start, how long a pinned month stays, the hours the week
-// view draws, where the week by part of day view splits a day (PR 5.16), which views show the forecast next to their dates, burn-in shifting, slow ambient motion and the night view's text. The form edits a draft; Save sends only the keys
+// view draws, where the week by part of day view splits a day (PR 5.16), which views show the forecast next to their dates, burn-in shifting, slow ambient motion, where a special day's takeover art goes and the night view's text. The form edits a draft; Save sends only the keys
 // that were edited and Reset (beside a key with a saved change) drops that
 // change. The page does the sending, and tells the form what the server
 // refused in `errors`.
@@ -314,6 +315,24 @@ function setMinutes(event: Event) {
           <label v-for="value in MOTIONS" :key="value" class="sd-pill">
             <input v-model="draft.motion" type="radio" :name="id('motion')" :value="value" :data-testid="`motion-${value}`">
             <span class="face">{{ MOTION_LABELS[value] }}</span>
+          </label>
+        </div>
+      </SettingsPreferenceField>
+
+      <SettingsPreferenceField
+        :scope="entry.id"
+        name="takeover_art"
+        label="Takeover art"
+        :changed="changed('takeover_art')"
+        :config-text="configText('takeover_art')"
+        hint="Where a special day's full-screen art is drawn. Behind the calendar it shows in the margins and gaps, which on a portrait wall is very little. Over it, the whole picture shows and the calendar shows through its clear parts, so it suits art with a clear background (such as the Birthday starter); art that fills the picture, such as a sky, would hide the calendar."
+        :error="errors.takeover_art"
+        @reset="reset('takeover_art')"
+      >
+        <div class="sd-pills" role="radiogroup" aria-label="Takeover art">
+          <label v-for="value in TAKEOVER_ART_PLACES" :key="value" class="sd-pill">
+            <input v-model="draft.takeover_art" type="radio" :name="id('takeover_art')" :value="value" :data-testid="`takeover_art-${value}`">
+            <span class="face">{{ TAKEOVER_ART_LABELS[value] }}</span>
           </label>
         </div>
       </SettingsPreferenceField>

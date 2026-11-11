@@ -26,7 +26,7 @@ import { motionRuns } from '~/utils/motion'
 import { isOverlayShowing } from '~/utils/overlay'
 import { photoPills } from '~/utils/photoOverlay'
 import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
-import { activePreview, isEvening, takeoverArt, takeoverInForce } from '~/utils/specialDays'
+import { activePreview, isEvening, takeoverArt, takeoverArtOver, takeoverInForce } from '~/utils/specialDays'
 import { themeStyle, themeTokens } from '~/utils/themes'
 import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
 import type { ViewProps } from '~/utils/views'
@@ -194,6 +194,13 @@ const takeover = computed(() => takeoverInForce({
 /** The takeover's art cut for this stage's shape. */
 const fullArt = computed(() => takeoverArt(takeover.value, stage.value.orientation).full)
 const extraArt = computed(() => takeoverArt(takeover.value, stage.value.orientation).extra)
+/** Whether the art goes over the view (the display's `takeover_art`, for this stage's shape) rather than behind it. */
+const artOver = computed(() => takeoverArtOver(settings.value?.takeover_art, stage.value.orientation))
+/** The art's layers, bottom first: the full art, then the day's extra layer over it. */
+const artLayers = computed(() => [
+  { file: fullArt.value, testid: 'takeover-full' },
+  { file: extraArt.value, testid: 'takeover-extra' },
+].filter((layer): layer is { file: string, testid: string } => layer.file !== null))
 
 // Burn-in shifting is on unless the display says otherwise. Settings cached before PR 5.3 have no word on it, and the default is on. Until there are settings at all nothing moves, so a display that has it off never starts out nudged and slides back.
 const burnIn = computed(() => settings.value !== null && settings.value.burn_in !== false)
@@ -382,24 +389,20 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
     >
       <!-- Everything the burn-in shift moves. The dimmer is outside it, so it covers the whole stage whatever the offset. -->
       <div class="shift" data-testid="shift" :style="shiftStyle">
-        <!-- Behind the view, which is solid where it has text, so the art shows in the margins and the gaps. -->
+        <!-- Behind the view by default, which is solid where it has text, so the art shows in the margins and the gaps. -->
         <!-- Each stage draws the art cut for its shape (2560×1440 or 1440×2560), never the other: cropped to the wrong one it wouldn't hold up. A portrait wall whose day has none shows no art. -->
-        <img
-          v-if="fullArt"
-          class="takeover-art"
-          :src="specialDayArtUrl(fullArt)"
-          alt=""
-          draggable="false"
-          data-testid="takeover-full"
-        >
-        <img
-          v-if="extraArt"
-          class="takeover-art"
-          :src="specialDayArtUrl(extraArt)"
-          alt=""
-          draggable="false"
-          data-testid="takeover-extra"
-        >
+        <template v-if="!artOver">
+          <img
+            v-for="layer in artLayers"
+            :key="layer.testid"
+            class="takeover-art"
+            :src="specialDayArtUrl(layer.file)"
+            alt=""
+            draggable="false"
+            :data-testid="layer.testid"
+            data-place="behind"
+          >
+        </template>
 
         <p v-if="unknown" class="message">
           Unknown display
@@ -411,9 +414,24 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
           <component
             :is="viewFor(state.view)"
             :key="state.view"
+            :class="{ 'under-art': artOver && artLayers.length > 0 }"
             v-bind="viewProps"
           />
         </Transition>
+
+        <!-- Or over the view, when the display's `takeover_art` says so (always, or on the portrait stage only): the whole picture shows and the view shows through its clear parts. Still under the badges, the banner and the camera, which come after it. -->
+        <template v-if="artOver">
+          <img
+            v-for="layer in artLayers"
+            :key="layer.testid"
+            class="takeover-art"
+            :src="specialDayArtUrl(layer.file)"
+            alt=""
+            draggable="false"
+            :data-testid="layer.testid"
+            data-place="over"
+          >
+        </template>
 
         <div v-if="previewing" class="preview-badge" data-testid="preview-badge">
           <AppIcon :icon="Eye" :size="32" />
@@ -517,6 +535,11 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
 </style>
 
 <style>
+/* With the takeover art over it, the view keeps the z-indexes inside it (such as the week's now line) to itself, so none of it paints over the art. */
+.under-art {
+  isolation: isolate;
+}
+
 .view-fade-enter-active,
 .view-fade-leave-active {
   transition: opacity 0.4s ease;

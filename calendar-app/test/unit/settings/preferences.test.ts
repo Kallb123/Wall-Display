@@ -29,6 +29,7 @@ describe('reading preferences from the config', () => {
       show_locations: true,
       burn_in: true,
       motion: 'off',
+      takeover_art: 'behind',
       night_text: 'none',
       orientation: 'auto',
     })
@@ -110,6 +111,7 @@ describe('reading an update', () => {
     ['a key that is not editable here (default_view)', { set: { default_view: 'week' } }, { default_view: expect.any(String) }],
     ['a wrong type', { set: { burn_in: 'yes' } }, { burn_in: 'must be a boolean' }],
     ['a motion that is not off or subtle', { set: { motion: 'lots' } }, { motion: 'must be one of off, subtle' }],
+    ['a takeover_art that is not a place', { set: { takeover_art: 'under' } }, { takeover_art: 'must be one of behind, over_in_portrait, over' }],
     ['a wrong enum value', { set: { theme: 'blue' } }, { theme: 'must be one of light, dark' }],
     ['a number out of range', { set: { month_return_minutes: 0 } }, { month_return_minutes: expect.any(String) }],
     ['a fraction', { set: { month_return_minutes: 1.5 } }, { month_return_minutes: expect.any(String) }],

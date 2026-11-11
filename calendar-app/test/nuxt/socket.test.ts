@@ -267,6 +267,7 @@ describe('useDisplaySocket settings', () => {
     timezone: 'Europe/London',
     burn_in: false,
     motion: 'off',
+    takeover_art: 'behind',
     orientation: 'auto',
     night_text: 'first_event',
     week_hours: { from: 6, to: 22 },

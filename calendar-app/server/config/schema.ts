@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { isSingleEmoji } from '../../shared/emoji'
-import { layoutIdSchema, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
+import { layoutIdSchema, MOTIONS, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, VIEWS } from '../../shared/display'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -181,6 +181,8 @@ export const displayFields = {
   week_start: z.enum(['monday', 'sunday']),
   /** Shift the content in a slow orbit and move the photo frame's pill between corners, against burn-in (PR 5.3). */
   burn_in: z.boolean(),
+  /** Slow ambient motion on the wall (the photo frame's pan and zoom): `off` or `subtle`. */
+  motion: z.enum(MOTIONS),
   /** What the night view shows under its clock (PR 5.2). `next_alarm` needs the top-level `alarm` block. */
   night_text: z.enum(NIGHT_TEXTS),
   /**
@@ -230,6 +232,7 @@ const display = z.strictObject({
   month_return_minutes: displayFields.month_return_minutes.default(15),
   week_start: displayFields.week_start.default('monday'),
   burn_in: displayFields.burn_in.default(true),
+  motion: displayFields.motion.default('off'),
   night_text: displayFields.night_text.default('none'),
   orientation: displayFields.orientation.default('auto'),
   week_hours: displayFields.week_hours.default({ from: 7, to: 21 }),

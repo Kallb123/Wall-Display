@@ -73,8 +73,10 @@ describe('the photo routes', async () => {
 
       expect(response.status).toBe(200)
       expect(response.headers.get('cache-control')).toBe('no-store')
-      const { photo } = photoResponseSchema.parse(await response.json())
+      const { photo, interval_seconds } = photoResponseSchema.parse(await response.json())
       expect(photo).not.toBeNull()
+      // The interval in force, here the one in config.dev.yaml, so the frame can pace its drift to it.
+      expect(interval_seconds).toBe(15)
       first = photo!
       expect(first.provider).toBe('local')
       expect(first.id in SHAPES).toBe(true)

@@ -88,7 +88,7 @@ let eventsAnswer: CalendarEvent[]
 
 function server(url: string, options?: { query?: Record<string, string> }) {
   requests.push({ url, query: options?.query })
-  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, ...settingsExtra }]
+  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, ...settingsExtra }]
   if (url === '/api/events') return { events: eventsAnswer }
   if (url === '/api/special-days/preview') {
     const answer = previewAnswer(options?.query ?? {})
@@ -596,11 +596,65 @@ describe('burn-in shifting', () => {
   })
 })
 
+describe('ambient motion', () => {
+  const PHOTO = { id: 'local:a.jpg', url: `/photos/${'a'.padEnd(64, '0')}.webp`, width: 1280, height: 720, orientation: 'landscape', taken_at: null, provider: 'local' }
+
+  /** Opens the photo frame with a photo to show, and answers what its first layer's drift is: whether it has one, and whether it is paused. */
+  async function frame(extra: Record<string, unknown>, changes: Partial<DisplayState> = {}) {
+    fetchMock.mockImplementation((url: string, options?: { query?: Record<string, string> }) => url === '/api/photos/next' ? { photo: PHOTO, interval_seconds: 60 } : server(url, options))
+    settingsExtra = extra
+    const wall = await openWall({ state: state({ view: 'photo', ...changes }) })
+    await flushPromises()
+    const layer = () => wall.wrapper.find('[data-testid="photo-layer-0"]')
+    return {
+      wall,
+      drifting: () => layer().classes().some(name => name.startsWith('drift-')),
+      paused: () => layer().attributes('style')?.includes('animation-play-state: paused') ?? false,
+    }
+  }
+
+  it('drifts the photo only when the display says subtle', async () => {
+    expect((await frame({ motion: 'subtle' })).drifting()).toBe(true)
+    expect((await frame({ motion: 'off' })).drifting()).toBe(false)
+    expect((await frame({ motion: undefined })).drifting()).toBe(false)
+  })
+
+  it('pauses it where it is when the wall is dimmed for the night, and carries on when it is brighter', async () => {
+    const { wall, drifting, paused } = await frame({ motion: 'subtle' })
+    expect(paused()).toBe(false)
+
+    await wall.setState({ view: 'photo', brightness: 30 })
+    expect(drifting()).toBe(true)
+    expect(paused()).toBe(true)
+
+    await wall.setState({ view: 'photo', brightness: 80 })
+    expect(paused()).toBe(false)
+  })
+
+  it('pauses it with the screen off', async () => {
+    const { wall, paused } = await frame({ motion: 'subtle' })
+
+    await wall.setState({ view: 'photo', screen: 'off' })
+
+    expect(paused()).toBe(true)
+  })
+
+  it('does not drift a photo that arrives while the wall is dimmed until it is brighter', async () => {
+    const { wall, drifting, paused } = await frame({ motion: 'subtle' }, { brightness: 20 })
+    expect(drifting()).toBe(false)
+
+    await wall.setState({ view: 'photo', brightness: 100 })
+
+    expect(drifting()).toBe(true)
+    expect(paused()).toBe(false)
+  })
+})
+
 describe('settings changed on the settings page', () => {
   const update = (changes: Record<string, unknown>) => ({
     type: 'settings.updated',
     display_id: 'hallway',
-    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, photo_sources: [], ...changes },
+    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, photo_sources: [], ...changes },
   })
 
   it('re-themes the wall at once', async () => {
@@ -845,7 +899,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])
 
-    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, photo_sources: [] } })
+    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, photo_sources: [] } })
     await flushPromises()
     expect(stageSize(wall)).toEqual([2560, 1440])
   })

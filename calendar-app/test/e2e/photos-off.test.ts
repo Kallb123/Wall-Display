@@ -10,9 +10,10 @@ import { builtApp } from '../helpers/builtApp'
 // job, which copies only config.dev.yaml), the app starts and the photo
 // routes answer that there is nothing to show.
 describe.each([
-  ['no photos block', (config: string) => config.slice(0, config.indexOf('\n# Photo frame mode'))],
-  ['a photos folder that does not exist', (config: string) => config],
-])('with %s', async (_name, change) => {
+  // The interval is only known with a block to read it from.
+  ['no photos block', (config: string) => config.slice(0, config.indexOf('\n# Photo frame mode')), { photo: null }],
+  ['a photos folder that does not exist', (config: string) => config, { photo: null, interval_seconds: 15 }],
+])('with %s', async (_name, change, answer) => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
   const dir = mkdtempSync(join(tmpdir(), 'wallcal-e2e-'))
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -34,10 +35,10 @@ describe.each([
   })
 
   it('has no photo to give', async () => {
-    expect(await $fetch('/api/photos/next?display=hallway')).toEqual({ photo: null })
+    expect(await $fetch('/api/photos/next?display=hallway')).toEqual(answer)
     // Asked again, and after the first listing has had time to fail.
     await new Promise(resolve => setTimeout(resolve, 200))
-    expect(await $fetch('/api/photos/next?display=hallway')).toEqual({ photo: null })
+    expect(await $fetch('/api/photos/next?display=hallway')).toEqual(answer)
   })
 
   it('still checks the display', async () => {

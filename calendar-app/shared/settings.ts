@@ -1,4 +1,4 @@
-import type { DayParts, DisplayState, NightText, Orientation, PhotoSource, SocketRole, Theme, WeatherOnDates, WeekHours } from './display'
+import type { DayParts, DisplayState, Motion, NightText, Orientation, PhotoSource, SocketRole, Theme, WeatherOnDates, WeekHours } from './display'
 
 // What the settings pages (architecture §7.6) and the server agree on. Pure
 // types: no I/O, and no imports from server/, so the pages can use them too.
@@ -161,13 +161,15 @@ export interface DisplayPreferences {
   /** Which views draw the day's forecast next to their dates: all four keys, always. */
   weather_on_dates: WeatherOnDates
   burn_in: boolean
+  /** Whether the wall has slow ambient motion. */
+  motion: Motion
   /** `next_alarm` needs the config's `alarm` block. */
   night_text: NightText
   /** Which way up the display is laid out; `auto` follows the window's shape. */
   orientation: Orientation
 }
 
-export const DISPLAY_PREFERENCE_KEYS = ['theme', 'month_style', 'week_start', 'month_return_minutes', 'week_hours', 'day_parts', 'weather_on_dates', 'burn_in', 'night_text', 'orientation'] as const satisfies readonly (keyof DisplayPreferences)[]
+export const DISPLAY_PREFERENCE_KEYS = ['theme', 'month_style', 'week_start', 'month_return_minutes', 'week_hours', 'day_parts', 'weather_on_dates', 'burn_in', 'motion', 'night_text', 'orientation'] as const satisfies readonly (keyof DisplayPreferences)[]
 export type DisplayPreferenceKey = (typeof DISPLAY_PREFERENCE_KEYS)[number]
 
 /** A quiet hours window: `HH:MM` times in the config's time zone, which must differ and may wrap midnight. */

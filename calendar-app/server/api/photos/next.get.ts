@@ -2,9 +2,12 @@ import { boxQuery, renditionQuery } from '../../../shared/photos'
 import type { PhotoResponse } from '../../../shared/photos'
 
 // Moves a display on to its next photo and answers it (architecture §5.1):
-// `{ photo: { id, url, width, height, orientation, taken_at, provider } }`, or
+// `{ photo: { id, url, width, height, orientation, taken_at, provider }, interval_seconds }`, or
 // `{ photo: null }` when there is nothing to show (no photos block, an empty
-// pool, or a provider that is down with nothing cached). The image is loaded
+// pool, or a provider that is down with nothing cached; there is no interval then
+// either). `interval_seconds` is the interval in force now, read from the
+// settings, which follow the settings page, so the frame can pace its slow drift
+// to the time the photo will be on show. The image is loaded
 // from `url`, rendered for the shape of the display's stage:
 // `?orientation=landscape|portrait`, landscape if it is left out (an older page
 // or a cached app shell doesn't send it). `?width=&height=` say the size of the box
@@ -30,5 +33,6 @@ export default defineEventHandler(async (event): Promise<PhotoResponse> => {
   setResponseHeader(event, 'Cache-Control', 'no-store')
   const photos = usePhotos()
   if (!photos) return { photo: null }
-  return { photo: await photos.next(display, control.getState(display).photo_source, rendition, box) }
+  const photo = await photos.next(display, control.getState(display).photo_source, rendition, box)
+  return { photo, interval_seconds: useSettings().config().photos?.interval_seconds }
 })

@@ -51,6 +51,13 @@ export type ScreenState = (typeof SCREEN_STATES)[number]
 export const THEMES = ['light', 'dark'] as const
 export type Theme = (typeof THEMES)[number]
 
+/** Whether the wall has slow ambient motion, set per display (`off` is the default). */
+export const MOTIONS = ['off', 'subtle'] as const
+export type Motion = (typeof MOTIONS)[number]
+
+/** Motion when config does not say, and what the client uses for settings cached before `motion` existed. */
+export const DEFAULT_MOTION: Motion = 'off'
+
 /**
  * What the night view shows under its clock (PR 5.2), set per display in
  * config: nothing, the first timed event still to come in the next 24 hours,
@@ -291,6 +298,8 @@ export const displaySettingsSchema = z.object({
   timezone: z.string().min(1),
   /** Whether the wall shifts its content in a slow orbit and moves the photo frame's pill between corners, against burn-in (PR 5.3). */
   burn_in: z.boolean(),
+  /** Whether the wall has slow ambient motion (the photo frame's pan and zoom). The client takes settings cached before it existed as `off`. */
+  motion: z.enum(MOTIONS),
   /** What the night view shows under its clock. */
   night_text: z.enum(NIGHT_TEXTS),
   /** Which way up the wall is laid out (PR 5.10). The client takes settings cached before it existed as `auto`. */

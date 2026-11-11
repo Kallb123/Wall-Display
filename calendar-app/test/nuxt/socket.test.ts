@@ -266,6 +266,7 @@ describe('useDisplaySocket settings', () => {
     week_start: 'sunday',
     timezone: 'Europe/London',
     burn_in: false,
+    motion: 'off',
     orientation: 'auto',
     night_text: 'first_event',
     week_hours: { from: 6, to: 22 },

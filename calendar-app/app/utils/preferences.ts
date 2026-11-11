@@ -1,4 +1,4 @@
-import type { DayParts, NightText, Orientation, Theme, WeatherOnDates, WeekHours } from '../../shared/display'
+import type { DayParts, Motion, NightText, Orientation, Theme, WeatherOnDates, WeekHours } from '../../shared/display'
 import type { NightAction, PreferencesUpdate, QuietHours } from '../../shared/settings'
 import { requestFailure } from './remote'
 
@@ -12,6 +12,7 @@ export const MONTH_STYLE_LABELS = { soft: 'Soft', classic: 'Classic' } as const
 export const WEEK_START_LABELS = { monday: 'Monday', sunday: 'Sunday' } as const
 export const NIGHT_TEXT_LABELS: Record<NightText, string> = { none: 'None', first_event: 'First event', next_alarm: 'Next alarm' }
 export const ORIENTATION_LABELS: Record<Orientation, string> = { auto: 'Auto', landscape: 'Landscape', portrait: 'Portrait' }
+export const MOTION_LABELS: Record<Motion, string> = { off: 'Off', subtle: 'Subtle' }
 export const NIGHT_ACTION_LABELS: Record<NightAction, string> = { none: 'Nothing', night_view: 'Night view', screen_off: 'Screen off' }
 
 /** The views with a weather-on-dates switch, in the order the form lists them, and what each is called there. */
@@ -34,6 +35,7 @@ export function preferenceText(key: string, value: unknown): string {
     case 'orientation': return ORIENTATION_LABELS[value as Orientation] ?? String(value)
     case 'night_action': return NIGHT_ACTION_LABELS[value as NightAction] ?? String(value)
     case 'burn_in': return value ? 'on' : 'off'
+    case 'motion': return MOTION_LABELS[value as Motion] ?? String(value)
     case 'month_return_minutes': case 'off_after_minutes': return `${value} min`
     case 'photo_interval_seconds': case 'smoothing_seconds': return `${value} s`
     case 'night_below_lux': case 'night_above_lux': return `${value} lux`

@@ -290,6 +290,109 @@ describe('the crossfade', () => {
   })
 })
 
+describe('the slow drift', () => {
+  /** What a layer's drift is, read from its classes and style: undefined for a still layer. */
+  const driftOf = (view: Awaited<ReturnType<typeof open>>, index: 0 | 1) => {
+    const layer = view.layer(index)
+    const name = layer.classes().find(name => name.startsWith('drift-'))
+    const style = (layer.element as HTMLElement).style
+    return name === undefined
+      ? undefined
+      : { name, from: style.getPropertyValue('--drift-from'), to: style.getPropertyValue('--drift-to'), seconds: style.getPropertyValue('--drift-seconds'), state: style.getPropertyValue('animation-play-state') }
+  }
+
+  it('has none at all while motion is left out: no class, no style', async () => {
+    answers = [gives(A), gives(B)]
+    const view = await open()
+    await view.update({ photoNext: 1 })
+
+    for (const index of [0, 1] as const) {
+      expect(view.layer(index).classes().some(name => name.startsWith('drift'))).toBe(false)
+      expect(view.layer(index).attributes('style')).toBeUndefined()
+    }
+  })
+
+  it('gives a photo shown with motion on a drift, for the interval and the crossfade, running', async () => {
+    fetchMock.mockImplementation(async () => ({ photo: A, interval_seconds: 60 }))
+    const view = await open({ motion: true })
+
+    expect(driftOf(view, 0)).toEqual({ name: 'drift-a', from: 'scale(1)', to: 'scale(1.04) translate(-1%, -1%)', seconds: '61.5s', state: '' })
+    expect(driftOf(view, 1)).toBeUndefined()
+  })
+
+  it('falls back to a minute when the server gives no interval', async () => {
+    answers = [gives(A)]
+    const view = await open({ motion: true })
+
+    expect(driftOf(view, 0)!.seconds).toBe('60s')
+  })
+
+  it('gives the next photo a different drift, and the layer beneath keeps its own through the fade', async () => {
+    answers = [gives(A), gives(B)]
+    const view = await open({ motion: true })
+    const first = driftOf(view, 0)
+
+    await view.update({ photoNext: 1 })
+
+    expect(view.layer(0).classes()).toContain('under')
+    expect(driftOf(view, 0)).toEqual(first)
+    expect(driftOf(view, 1)).toBeDefined()
+    expect(driftOf(view, 1)!.from).not.toBe(first!.from)
+
+    await fade()
+
+    expect(view.srcs()).toEqual([null, B.url])
+    expect(driftOf(view, 0)).toBeUndefined()
+    expect(driftOf(view, 1)).toBeDefined()
+  })
+
+  it('restarts a reused layer by giving it the other keyframes', async () => {
+    answers = [gives(A), gives(B), gives(C)]
+    const view = await open({ motion: true })
+    await view.update({ photoNext: 1 })
+    await fade()
+    await view.update({ photoNext: 2 })
+
+    // The first layer had `a` for the first photo and has `b` for the third.
+    expect(driftOf(view, 0)!.name).toBe('drift-b')
+    expect(driftOf(view, 1)!.name).toBe('drift-a')
+    expect(driftOf(view, 0)!.from).not.toBe(driftOf(view, 1)!.from)
+  })
+
+  it('pauses where it is when motion goes off, and carries on when it comes back', async () => {
+    answers = [gives(A)]
+    const view = await open({ motion: true })
+    const running = driftOf(view, 0)!
+
+    await view.update({ motion: false })
+    expect(driftOf(view, 0)).toEqual({ ...running, state: 'paused' })
+
+    await view.update({ motion: true })
+    expect(driftOf(view, 0)).toEqual(running)
+  })
+
+  it('begins from rest when motion comes on with a photo on show that has none', async () => {
+    answers = [gives(A), gives(B)]
+    const view = await open()
+    expect(driftOf(view, 0)).toBeUndefined()
+
+    await view.update({ motion: true })
+    expect(driftOf(view, 0)).toBeDefined()
+
+    // And the next photo after it has one of its own.
+    await view.update({ motion: true, photoNext: 1 })
+    expect(driftOf(view, 1)).toBeDefined()
+  })
+
+  it('does not drift a photo shown with motion off, and leaves the pill out of it', async () => {
+    answers = [gives(A)]
+    const view = await open({ motion: false })
+
+    expect(driftOf(view, 0)).toBeUndefined()
+    expect(view.wrapper.find('[data-testid="photo-pill"]').attributes('style')).toBeUndefined()
+  })
+})
+
 describe('answers that are late, empty or wrong', () => {
   it('ignores a slower answer to an earlier request', async () => {
     let late!: (value: unknown) => void

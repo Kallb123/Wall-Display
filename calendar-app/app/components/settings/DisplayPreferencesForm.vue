@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ChevronDown } from 'lucide-vue-next'
-import { NIGHT_TEXTS, ORIENTATIONS } from '../../../shared/display'
+import { MOTIONS, NIGHT_TEXTS, ORIENTATIONS } from '../../../shared/display'
 import { DISPLAY_PREFERENCE_KEYS } from '../../../shared/settings'
 import type { DisplayPreferenceKey, DisplayPreferences, DisplayPreferencesEntry, PreferencesUpdate } from '../../../shared/settings'
 import {
   MONTH_STYLE_LABELS,
+  MOTION_LABELS,
   NIGHT_TEXT_LABELS,
   ORIENTATION_LABELS,
   THEME_LABELS,
@@ -24,7 +25,7 @@ import '~/assets/special-days-form.css'
 
 // One display's preferences (PR 5.6): theme, month style, orientation
 // (PR 5.10), week start, how long a pinned month stays, the hours the week
-// view draws, where the week by part of day view splits a day (PR 5.16), which views show the forecast next to their dates, burn-in shifting and the night view's text. The form edits a draft; Save sends only the keys
+// view draws, where the week by part of day view splits a day (PR 5.16), which views show the forecast next to their dates, burn-in shifting, slow ambient motion and the night view's text. The form edits a draft; Save sends only the keys
 // that were edited and Reset (beside a key with a saved change) drops that
 // change. The page does the sending, and tells the form what the server
 // refused in `errors`.
@@ -272,6 +273,24 @@ function setMinutes(event: Event) {
           <span class="track" aria-hidden="true"><span class="knob" /></span>
           <span>{{ draft.burn_in ? 'On' : 'Off' }}</span>
         </button>
+      </SettingsPreferenceField>
+
+      <SettingsPreferenceField
+        :scope="entry.id"
+        name="motion"
+        label="Motion"
+        :changed="changed('motion')"
+        :config-text="configText('motion')"
+        hint="Slow, subtle movement: the photo frame pans and zooms very slightly. Stops when the screen is off or dimmed, in the night view, and when the device asks for reduced motion."
+        :error="errors.motion"
+        @reset="reset('motion')"
+      >
+        <div class="sd-pills" role="radiogroup" aria-label="Motion">
+          <label v-for="value in MOTIONS" :key="value" class="sd-pill">
+            <input v-model="draft.motion" type="radio" :name="id('motion')" :value="value" :data-testid="`motion-${value}`">
+            <span class="face">{{ MOTION_LABELS[value] }}</span>
+          </label>
+        </div>
       </SettingsPreferenceField>
 
       <SettingsPreferenceField

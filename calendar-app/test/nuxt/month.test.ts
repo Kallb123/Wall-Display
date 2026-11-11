@@ -271,8 +271,9 @@ describe('MonthSoftView', () => {
 
   describe('weather in the day cells', () => {
     const pumpkin: TileDecoration = { id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }
-    const cells = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.findAll('[data-testid="cell-weather"]')
-    const dates = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => cells(wrapper).map(cell => cell.attributes('data-date'))
+    type Wrapper = Awaited<ReturnType<typeof mountSuspended>>
+    const cells = (wrapper: Wrapper): DOMWrapper<Element>[] => wrapper.findAll('[data-testid="cell-weather"]')
+    const dates = (wrapper: Wrapper) => cells(wrapper).map(cell => cell.attributes('data-date'))
 
     it('has the icon and the high on today and the days after that have a forecast, and nowhere else', async () => {
       const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather }) })

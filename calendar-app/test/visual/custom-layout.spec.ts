@@ -166,6 +166,15 @@ const starsAlone = withStars(
   { landscape: [0, 0, 2, 2], portrait: [0, 0, 2, 2] },
 )
 
+// A month pane beside an agenda: the forecast beside the dates in the month's
+// small tiles (the icon alone), and with the pane's option off.
+const monthAgenda = (id: string, options: LayoutOptions = {}) => layout(
+  id,
+  { rows: [row(1, ['month', 3], ['agenda', 1])] },
+  { rows: [row(2, ['month', 1]), row(1, ['agenda', 1])] },
+  options,
+)
+
 /** The server's own render of the fixture photo `id`, asked for on a display no spec here shows a photo on. */
 async function photoNamed(request: APIRequestContext, id: string): Promise<PhotoInfo> {
   const seen: string[] = []
@@ -398,5 +407,22 @@ test.describe('portrait', () => {
 
     await expect(page.getByTestId('day-tile')).toHaveCount(8)
     await expect(page).toHaveScreenshot('custom-photo-days-portrait-light.png')
+  })
+})
+
+test.describe('weather on dates', () => {
+  test('a month pane beside an agenda shows the forecast beside the dates', async ({ page }) => {
+    await open(page, 'hallway', monthAgenda('month-agenda'))
+
+    await expect(page.getByTestId('cell-weather').first()).toBeVisible()
+    await expect(page).toHaveScreenshot('custom-month-weather-dates-light.png')
+  })
+
+  test('the pane option leaves it out of the month and the agenda', async ({ page }) => {
+    await open(page, 'hallway', monthAgenda('month-agenda-off', { month: { weather_on_dates: false }, agenda: { weather_on_dates: false } }))
+
+    await expect(page.getByTestId('cell-weather')).toHaveCount(0)
+    await expect(page.getByTestId('agenda-weather')).toHaveCount(0)
+    await expect(page).toHaveScreenshot('custom-month-weather-dates-off-light.png')
   })
 })

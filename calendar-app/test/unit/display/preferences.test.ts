@@ -22,6 +22,7 @@ const values: DisplayPreferences = {
   week_hours: { from: 7, to: 21 },
   day_parts: { afternoon: 12, evening: 17 },
   weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
+  show_locations: true,
   burn_in: true,
   motion: 'off',
   night_text: 'none',
@@ -55,6 +56,12 @@ describe('saveUpdate', () => {
     const draft = draftOf(values)
     draft.weather_on_dates.week_parts = false
     expect(saveUpdate(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual({ set: { weather_on_dates: { month: true, week: true, week_parts: false, agenda: true } } })
+  })
+
+  it('sends show_locations when it is switched off', () => {
+    const draft = draftOf(values)
+    draft.show_locations = false
+    expect(saveUpdate(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual({ set: { show_locations: false } })
   })
 
   it('does not send a key that was edited and put back', () => {
@@ -107,6 +114,8 @@ describe('labels', () => {
     ['theme', 'dark', 'Dark'],
     ['orientation', 'portrait', 'Portrait'],
     ['burn_in', true, 'on'],
+    ['show_locations', true, 'on'],
+    ['show_locations', false, 'off'],
     ['motion', 'off', 'Off'],
     ['motion', 'subtle', 'Subtle'],
     ['month_return_minutes', 5, '5 min'],

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
-import { hasPortraitLayout, LANDSCAPE_PHOTO_PANE_WIDTH, PORTRAIT_PHOTO_PANE_HEIGHT, PORTRAIT_VIEWS, showsWeatherOnDates, stageFor, weekPhotoPanes } from '../../../app/utils/views'
+import { hasPortraitLayout, LANDSCAPE_PHOTO_PANE_WIDTH, PORTRAIT_PHOTO_PANE_HEIGHT, PORTRAIT_VIEWS, showsLocations, showsWeatherOnDates, stageFor, weekPhotoPanes } from '../../../app/utils/views'
 
 describe('the views with a portrait layout', () => {
   it('are all of them: the night, agenda, photo, month, week, week by part of day and week and photo views', () => {
@@ -63,5 +63,21 @@ describe('showsWeatherOnDates', () => {
     const paneOptions = { ...DEFAULT_PANE_OPTIONS, weather_on_dates: false }
     expect(showsWeatherOnDates({ paneOptions, weatherOnDates: all }, 'month')).toBe(false)
     expect(showsWeatherOnDates({ paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: true }, weatherOnDates: { ...all, month: false } }, 'month')).toBe(true)
+  })
+})
+
+describe('showsLocations', () => {
+  it('is on when nothing is given', () => {
+    expect(showsLocations({})).toBe(true)
+  })
+
+  it('goes by the display preference', () => {
+    expect(showsLocations({ showLocations: false })).toBe(false)
+    expect(showsLocations({ showLocations: true })).toBe(true)
+  })
+
+  it('lets a pane option win over the preference, either way', () => {
+    expect(showsLocations({ paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: false }, showLocations: true })).toBe(false)
+    expect(showsLocations({ paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: true }, showLocations: false })).toBe(true)
   })
 })

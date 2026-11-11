@@ -26,6 +26,7 @@ describe('reading preferences from the config', () => {
       week_hours: { from: 7, to: 21 },
       day_parts: { afternoon: 12, evening: 17 },
       weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
+      show_locations: true,
       burn_in: true,
       motion: 'off',
       night_text: 'none',
@@ -85,6 +86,12 @@ describe('reading an update', () => {
       set: { weather_on_dates: { month: true, week: true, week_parts: true, agenda: false } },
       reset: [],
     })
+  })
+
+  it('saves show_locations as a boolean, and refuses anything else', () => {
+    expect(parseDisplayUpdate({ set: { show_locations: false } })).toEqual({ ok: true, set: { show_locations: false }, reset: [] })
+    expect(parseDisplayUpdate({ reset: ['show_locations'] })).toEqual({ ok: true, set: {}, reset: ['show_locations'] })
+    expect(parseDisplayUpdate({ set: { show_locations: 'no' } })).toEqual({ ok: false, fields: { show_locations: 'must be a boolean' } })
   })
 
   it('accepts null for the shared values the config can leave out', () => {

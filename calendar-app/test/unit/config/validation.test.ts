@@ -355,6 +355,12 @@ describe('validation errors name the field', () => {
     expect(message).toContain('displays[0].weather_on_dates.month: must be true or false')
   })
 
+  it('show_locations that is not true or false', async () => {
+    const message = await messageFor((c) => { c.displays[0].show_locations = 'yes' })
+
+    expect(message).toContain('displays[0].show_locations')
+  })
+
   it('weather_on_dates with an unknown key', async () => {
     const message = await messageFor((c) => { c.displays[0].weather_on_dates = { day: true } })
 

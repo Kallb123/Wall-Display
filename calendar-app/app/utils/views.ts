@@ -102,6 +102,8 @@ export interface ViewProps {
   weather: WeatherSnapshot | null
   /** Which full-screen views draw the forecast next to their dates (the display's `weather_on_dates`). All of them when left out. A pane of a custom layout goes by its own `paneOptions.weather_on_dates` instead (`showsWeatherOnDates`). */
   weatherOnDates?: WeatherOnDates
+  /** Whether the views draw an event's location under its title where there is room (the display's `show_locations`). On when left out. A pane of a custom layout goes by its own `paneOptions.show_locations` instead (`showsLocations`). */
+  showLocations?: boolean
   /** The day a week starts on, for the month grid. */
   weekStart: 'monday' | 'sunday'
   /**
@@ -146,4 +148,9 @@ export const NO_SPECIAL_DAYS: ViewProps['specialDays'] = Object.freeze({ tiles: 
  */
 export function showsWeatherOnDates(props: Pick<ViewProps, 'paneOptions' | 'weatherOnDates'>, view: WeatherOnDatesView): boolean {
   return props.paneOptions?.weather_on_dates ?? props.weatherOnDates?.[view] ?? true
+}
+
+/** Whether a view draws an event's location under its title where there is room: a pane's own option, else the display's preference, else on. */
+export function showsLocations(props: Pick<ViewProps, 'paneOptions' | 'showLocations'>): boolean {
+  return props.paneOptions?.show_locations ?? props.showLocations ?? true
 }

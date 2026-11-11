@@ -92,7 +92,7 @@ weather:
 
 # One entry per screen. Open /display?id=hallway on it.
 # theme, month_style, month_return_minutes, week_start, week_hours, day_parts,
-# weather_on_dates, burn_in, motion, night_text and orientation can also be changed on the /settings Displays tab
+# weather_on_dates, show_locations, burn_in, motion, night_text and orientation can also be changed on the /settings Displays tab
 # while the app runs. A change made there is stored in the database on top of
 # this file and wins over it until you press Reset there; this file is never written.
 displays:
@@ -109,6 +109,7 @@ displays:
     week_hours: { from: 7, to: 21 } # the hours the week view draws in full (whole hours, from 0-23 to 1-24); earlier and later hours are folded into a thin band
     day_parts: { afternoon: 12, evening: 17 } # where the week by part of day view (week_parts) splits a day: morning is before afternoon, evening from evening on (whole hours, 1 <= afternoon < evening <= 23)
     # weather_on_dates: { month: true, week: true, week_parts: true, agenda: true } # which views show each day's forecast next to its date; every key defaults to true, so list only the ones to turn off, such as { week_parts: false }
+    # show_locations: true # default true; the views show an event's location as a quieter line under its title, only where there is room left once every title has what it needs
     # Optional built-in schedules: rules that put a view on the wall for part of
     # the day. Each schedule has an id (letters, digits, - and _), an optional
     # name (default: the id) and rules. A rule is a view, from and to ("HH:MM",

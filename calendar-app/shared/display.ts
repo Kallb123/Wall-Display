@@ -310,6 +310,8 @@ export const displaySettingsSchema = z.object({
   day_parts: z.object({ afternoon: z.number().int().min(1).max(22), evening: z.number().int().min(2).max(23) }),
   /** Which views draw the forecast next to their dates. The client takes settings cached before it existed as `DEFAULT_WEATHER_ON_DATES`. */
   weather_on_dates: z.object({ month: z.boolean(), week: z.boolean(), week_parts: z.boolean(), agenda: z.boolean() }),
+  /** Whether the views show an event's location under its title where there is room. The client takes settings cached before it existed as on. */
+  show_locations: z.boolean(),
   /**
    * The photo sources the server has set up, in the order a display falls back
    * to them (Immich, Google, folder). Empty with no `photos` block. The remote

@@ -68,6 +68,7 @@ describe('defaults', () => {
       week_hours: { from: 7, to: 21 },
       day_parts: { afternoon: 12, evening: 17 },
       weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
+      show_locations: true,
       schedules: [],
     })
   })
@@ -198,6 +199,13 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.displays[0]!.day_parts).toEqual({ afternoon: 11, evening: 18 })
+  })
+
+  it('keeps show_locations as set on a display, and has it on when left out', async () => {
+    const raw = minimalConfig()
+    expect((await load({ config: raw })).config.displays[0]!.show_locations).toBe(true)
+    raw.displays[0].show_locations = false
+    expect((await load({ config: raw })).config.displays[0]!.show_locations).toBe(false)
   })
 
   it('keeps weather_on_dates as set on a display, with the views it leaves out on', async () => {

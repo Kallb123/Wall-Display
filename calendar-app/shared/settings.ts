@@ -160,6 +160,8 @@ export interface DisplayPreferences {
   day_parts: DayParts
   /** Which views draw the day's forecast next to their dates: all four keys, always. */
   weather_on_dates: WeatherOnDates
+  /** Whether the views show an event's location under its title where there is room. */
+  show_locations: boolean
   burn_in: boolean
   /** Whether the wall has slow ambient motion. */
   motion: Motion
@@ -169,7 +171,7 @@ export interface DisplayPreferences {
   orientation: Orientation
 }
 
-export const DISPLAY_PREFERENCE_KEYS = ['theme', 'month_style', 'week_start', 'month_return_minutes', 'week_hours', 'day_parts', 'weather_on_dates', 'burn_in', 'motion', 'night_text', 'orientation'] as const satisfies readonly (keyof DisplayPreferences)[]
+export const DISPLAY_PREFERENCE_KEYS = ['theme', 'month_style', 'week_start', 'month_return_minutes', 'week_hours', 'day_parts', 'weather_on_dates', 'show_locations', 'burn_in', 'motion', 'night_text', 'orientation'] as const satisfies readonly (keyof DisplayPreferences)[]
 export type DisplayPreferenceKey = (typeof DISPLAY_PREFERENCE_KEYS)[number]
 
 /** A quiet hours window: `HH:MM` times in the config's time zone, which must differ and may wrap midnight. */

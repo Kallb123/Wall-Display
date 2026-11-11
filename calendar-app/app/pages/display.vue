@@ -255,6 +255,8 @@ const viewProps = computed<ViewProps | null>(() => {
     dayParts: display.day_parts ?? DEFAULT_DAY_PARTS,
     // Settings cached before weather_on_dates existed lack it.
     weatherOnDates: display.weather_on_dates ?? DEFAULT_WEATHER_ON_DATES,
+    // Settings cached before show_locations existed lack it, and count as on.
+    showLocations: display.show_locations ?? true,
     weekOf: weekDate,
     weather: weather.value,
     specialDays: activeSpecialDays.value ? { tiles: activeSpecialDays.value.tiles, takeover: takeover.value } : NO_SPECIAL_DAYS,

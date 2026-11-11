@@ -222,6 +222,11 @@ export const displayFields = {
     week_parts: z.boolean({ error: 'must be true or false' }).default(true),
     agenda: z.boolean({ error: 'must be true or false' }).default(true),
   }),
+  /**
+   * Whether the views show an event's location as a quieter second line under
+   * its title, where there is room left over once every title has what it needs.
+   */
+  show_locations: z.boolean(),
 }
 
 const display = z.strictObject({
@@ -238,6 +243,7 @@ const display = z.strictObject({
   week_hours: displayFields.week_hours.default({ from: 7, to: 21 }),
   day_parts: displayFields.day_parts.default({ afternoon: 12, evening: 17 }),
   weather_on_dates: displayFields.weather_on_dates.default({ month: true, week: true, week_parts: true, agenda: true }),
+  show_locations: displayFields.show_locations.default(true),
   /** Built-in schedules (PR 5.4): rules that change the view at set times. Each can be turned off from Home Assistant. */
   schedules: z.array(schedule).default([]),
 })

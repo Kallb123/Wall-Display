@@ -397,12 +397,12 @@ describe('pane options', () => {
   })
 
   it('knows which options each component has', () => {
-    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'weather_on_dates'])
-    expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates'])
+    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'weather_on_dates', 'show_locations'])
+    expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates', 'show_locations'])
     for (const component of ['week_parts', 'agenda', 'days'] as const) expect(PANE_OPTIONS[component]).toContain('show_initials')
     expect(PANE_OPTIONS.week).not.toContain('show_initials')
     expect(DEFAULT_PANE_OPTIONS.show_initials).toBe(true)
-    expect(PANE_OPTIONS.week).toEqual(['show_title', 'show_hours', 'weather_on_dates'])
+    expect(PANE_OPTIONS.week).toEqual(['show_title', 'show_hours', 'weather_on_dates', 'show_locations'])
     expect(PANE_OPTIONS.photo).toEqual(['show_time', 'show_date', 'show_weather'])
     expect(Object.keys(PANE_OPTIONS)).toEqual([...LAYOUT_COMPONENTS])
     expect(PANE_CORNERS.photo).toEqual(['time_corner', 'date_corner'])
@@ -440,6 +440,17 @@ describe('pane options', () => {
     expect(problem(withOptions({ week: { weather_on_dates: 'no' } }))).toBe('options.week.weather_on_dates: must be true or false')
     expect(problem(withOptions({ photo: { weather_on_dates: false } }))).toBe('options.photo.weather_on_dates: must not be set on a photo pane')
     expect(paneOptions({ options: { week: { weather_on_dates: false } } }, 'week').weather_on_dates).toBe(false)
+  })
+
+  it('takes show_locations on the calendar components and the day grid, on by default, and not on the photo frame or the stars', () => {
+    expect(DEFAULT_PANE_OPTIONS.show_locations).toBe(true)
+    for (const component of ['month', 'week', 'week_parts', 'agenda', 'days'] as const) expect(PANE_OPTIONS[component]).toContain('show_locations')
+    for (const component of ['photo', 'stars'] as const) expect(PANE_OPTIONS[component]).not.toContain('show_locations')
+    expect(customLayoutInputSchema.parse(withOptions({ week: { show_locations: false } })).options).toEqual({ week: { show_locations: false } })
+    expect(problem(withOptions({ week: { show_locations: 'no' } }))).toBe('options.week.show_locations: must be true or false')
+    expect(problem(withOptions({ photo: { show_locations: false } }))).toBe('options.photo.show_locations: must not be set on a photo pane')
+    expect(paneOptions({ options: { agenda: { show_locations: false } } }, 'agenda').show_locations).toBe(false)
+    expect(paneOptions({ options: {} }, 'agenda').show_locations).toBe(true)
   })
 
   it('refuses an option that does not apply to the component', () => {

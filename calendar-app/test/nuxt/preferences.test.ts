@@ -21,6 +21,7 @@ const displayValues: DisplayPreferences = {
   week_hours: { from: 7, to: 21 },
   day_parts: { afternoon: 12, evening: 17 },
   weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
+  show_locations: true,
   burn_in: true,
   motion: 'off',
   night_text: 'none',
@@ -152,6 +153,7 @@ describe('the display preferences', () => {
     for (const view of ['month', 'week', 'week_parts', 'agenda']) {
       expect((card.find(`[data-testid="weather_on_dates-${view}"]`).element as HTMLInputElement).checked).toBe(true)
     }
+    expect(card.find('[data-testid="show_locations"]').attributes('aria-checked')).toBe('true')
     expect(card.find('[data-testid="burn_in"]').attributes('aria-checked')).toBe('true')
     expect((card.find('[data-testid="motion-off"]').element as HTMLInputElement).checked).toBe(true)
     expect((card.find('[data-testid="motion-subtle"]').element as HTMLInputElement).checked).toBe(false)
@@ -169,6 +171,18 @@ describe('the display preferences', () => {
     await flushPromises()
 
     expect(puts()).toEqual([{ method: 'PUT', url: '/api/settings/preferences/displays/hallway', body: { set: { motion: 'subtle' } }, pin: null }])
+  })
+
+  it('saves show_locations when it is switched off', async () => {
+    const wrapper = await open()
+    const card = hallway(wrapper)
+
+    await card.find('[data-testid="show_locations"]').trigger('click')
+    expect(card.find('[data-testid="show_locations"]').text()).toBe('Off')
+    await card.find('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(puts()).toEqual([{ method: 'PUT', url: '/api/settings/preferences/displays/hallway', body: { set: { show_locations: false } }, pin: null }])
   })
 
   it('marks a key with a saved change, Changed with a Reset, on that card only', async () => {

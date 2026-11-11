@@ -596,6 +596,74 @@ describe('MonthSoftView', () => {
   })
 })
 
+describe('MonthSoftView locations', () => {
+  const portraitStage = { width: 1440, height: 2560, orientation: 'portrait' } as const
+  const afterFit = () => new Promise(resolve => setTimeout(resolve, 50))
+  const base = events.find(event => !event.all_day)!
+  const at = (id: number, title: string, location: string | null, day = '2026-10-28') => ({ ...base, id, display_title: title, icon: null, people: [], location, start: `${day}T14:00:00.000Z`, end: `${day}T15:00:00.000Z` })
+  const withLocations = () => [
+    at(9920, 'Swimming', 'Leisure Centre, 12 High Street, Town'),
+    at(9921, 'Call', 'https://meet.example.com/abc'),
+    at(9922, 'Dentist', null),
+    at(9923, 'Pottery', 'Studio 4, Mill Lane', '2026-10-29'),
+  ]
+  const located = (overrides: Partial<ViewProps>) => props(overrides)
+  const lines = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.findAll('[data-testid="event-location"]').map((line: { text: () => string }) => line.text())
+
+  it('draws the shortened location under the title in the panel, and nothing for none or a link', async () => {
+    const wrapper = await mountSuspended(MonthSoftView, { props: located({ events: withLocations() }) })
+
+    expect(lines(wrapper)).toEqual(['Leisure Centre', 'Studio 4'])
+    const row = wrapper.findAll('[data-testid="panel"] [data-testid="event"]').find(candidate => candidate.text().includes('Swimming'))!
+    expect(row.find('[data-location-line]').text()).toBe('Leisure Centre')
+    const call = wrapper.findAll('[data-testid="panel"] [data-testid="event"]').find(candidate => candidate.text().includes('Call'))!
+    expect(call.find('[data-location-line]').exists()).toBe(false)
+  })
+
+  it('marks the row once the fit has found room', async () => {
+    const wrapper = await mountSuspended(MonthSoftView, { props: located({ events: withLocations() }) })
+    await afterFit()
+
+    const row = wrapper.findAll('[data-testid="panel"] [data-testid="event"]').find(candidate => candidate.text().includes('Swimming'))!
+    expect(row.attributes('data-location')).toBe('on')
+    expect(row.attributes('data-wrap')).toBeUndefined()
+  })
+
+  it('never draws a location in a day tile', async () => {
+    const wrapper = await mountSuspended(MonthSoftView, { props: located({ events: withLocations() }) })
+
+    expect(wrapper.find('[data-testid="day-tile"] [data-location-line]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="day-tile"] [data-testid="event-location"]').exists()).toBe(false)
+  })
+
+  it('shows the line when the preference is left out', async () => {
+    const wrapper = await mountSuspended(MonthSoftView, { props: props({ events: withLocations(), showLocations: undefined }) })
+
+    expect(lines(wrapper)).toEqual(['Leisure Centre', 'Studio 4'])
+  })
+
+  it('leaves the line out when the display turns locations off, or the pane does', async () => {
+    const off = await mountSuspended(MonthSoftView, { props: located({ events: withLocations(), showLocations: false }) })
+    expect(lines(off)).toEqual([])
+
+    const pane = await mountSuspended(MonthSoftView, { props: located({ events: withLocations(), paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: false } }) })
+    expect(lines(pane)).toEqual([])
+
+    const paneOn = await mountSuspended(MonthSoftView, { props: located({ events: withLocations(), showLocations: false, paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: true } }) })
+    expect(lines(paneOn)).toEqual(['Leisure Centre', 'Studio 4'])
+  })
+
+  it('draws the line in the strip\'s cards but not in the portrait band', async () => {
+    const wrapper = await mountSuspended(MonthSoftView, { props: located({ stage: portraitStage, events: withLocations() }) })
+    await afterFit()
+
+    expect(wrapper.find('[data-testid="today-band"] [data-location-line]').exists()).toBe(false)
+    const cards = wrapper.findAll('[data-testid="next-days"] [data-testid="event-location"]')
+    expect(cards.map(line => line.text())).toEqual(['Studio 4'])
+    expect(wrapper.find('[data-testid="next-days"] [data-location="on"]').exists()).toBe(true)
+  })
+})
+
 describe('MonthSoftView calendar icons', () => {
   const dinner = (icon: string | null) => ({ ...events.find(event => !event.all_day)!, id: 9910, display_title: 'Dinner', icon, people: [], start: '2026-10-29T18:00:00.000Z', end: '2026-10-29T19:00:00.000Z' })
   const names = (wrapper: Awaited<ReturnType<typeof mountSuspended>>, kind: 'timed' | 'panel') =>

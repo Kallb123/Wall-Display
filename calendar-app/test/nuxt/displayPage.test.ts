@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
+import AgendaView from '~/components/views/AgendaView.vue'
 import NightView from '~/components/views/NightView.vue'
 import DisplayPage from '~/pages/display.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
@@ -88,7 +89,7 @@ let eventsAnswer: CalendarEvent[]
 
 function server(url: string, options?: { query?: Record<string, string> }) {
   requests.push({ url, query: options?.query })
-  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, ...settingsExtra }]
+  if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, ...settingsExtra }]
   if (url === '/api/events') return { events: eventsAnswer }
   if (url === '/api/special-days/preview') {
     const answer = previewAnswer(options?.query ?? {})
@@ -654,7 +655,7 @@ describe('settings changed on the settings page', () => {
   const update = (changes: Record<string, unknown>) => ({
     type: 'settings.updated',
     display_id: 'hallway',
-    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, photo_sources: [], ...changes },
+    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [], ...changes },
   })
 
   it('re-themes the wall at once', async () => {
@@ -677,6 +678,31 @@ describe('settings changed on the settings page', () => {
     await flushPromises()
 
     expect(wall.wrapper.find('[data-testid="night-text"]').text()).toBe('Tomorrow 08:30 \u00B7 Swimming')
+  })
+
+  it('gives the views the display\'s event locations switch, on at first and off when turned off', async () => {
+    const wall = await openWall({ state: state({ view: 'agenda' }) })
+    expect(wall.wrapper.findComponent(AgendaView).props('showLocations')).toBe(true)
+
+    FakeSocket.all.at(-1)!.push(update({ show_locations: false }))
+    await flushPromises()
+
+    expect(wall.wrapper.findComponent(AgendaView).props('showLocations')).toBe(false)
+    expect(JSON.parse(localStorage.getItem('wallcal:display:hallway')!).settings.show_locations).toBe(false)
+  })
+
+  it('counts cached settings from before the switch as locations on', async () => {
+    localStorage.setItem('wallcal:display:hallway', JSON.stringify({
+      settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
+      state: state({ view: 'agenda' }),
+      events: [],
+      saved_at: NOW.toISOString(),
+    }))
+    fetchMock.mockRejectedValue(new Error('offline'))
+    const wrapper = await mountSuspended(DisplayPage, { route: '/display?id=hallway' })
+    mounted.push(wrapper)
+
+    expect(wrapper.findComponent(AgendaView).props('showLocations')).toBe(true)
   })
 
   it('ignores a bad one, and keeps the cache in step with a good one', async () => {
@@ -899,7 +925,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])
 
-    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, photo_sources: [] } })
+    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [] } })
     await flushPromises()
     expect(stageSize(wall)).toEqual([2560, 1440])
   })

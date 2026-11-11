@@ -252,6 +252,31 @@ function setMinutes(event: Event) {
 
       <SettingsPreferenceField
         :scope="entry.id"
+        name="show_locations"
+        label="Event locations"
+        label-id="show-locations-label"
+        :changed="changed('show_locations')"
+        :config-text="configText('show_locations')"
+        hint="Shows an event's location under its title where there is room."
+        :error="errors.show_locations"
+        @reset="reset('show_locations')"
+      >
+        <button
+          type="button"
+          class="sd-switch"
+          role="switch"
+          :aria-checked="draft.show_locations"
+          aria-labelledby="show-locations-label"
+          data-testid="show_locations"
+          @click="draft.show_locations = !draft.show_locations"
+        >
+          <span class="track" aria-hidden="true"><span class="knob" /></span>
+          <span>{{ draft.show_locations ? 'On' : 'Off' }}</span>
+        </button>
+      </SettingsPreferenceField>
+
+      <SettingsPreferenceField
+        :scope="entry.id"
         name="burn_in"
         label="Burn-in shifting"
         label-id="burn-in-label"

@@ -8,7 +8,7 @@ import { greetingSize, tileArt } from '~/utils/specialDays'
 import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatCurrent, formatHighLow, formatHighLowWords, weatherIcon } from '~/utils/weather'
-import { showsWeatherOnDates } from '../../utils/views'
+import { showsLocations, showsWeatherOnDates } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import { monthLayout, LANES, PORTRAIT_LANES } from '../../../shared/month-layout'
 import type { DayCell } from '../../../shared/month-layout'
@@ -64,6 +64,12 @@ import { currentWeather, forecastOn, formatTemperature, weatherOn } from '../../
 // it is left out. The panel's and the cards' weather above is not affected by
 // the toggle.
 //
+// An event's location (issue 74) is never drawn in a tile. The panel's rows and the
+// strip's cards show it as a second, quieter line under the title, and only where
+// `useWrapFit` finds room left over once every title has its own (the display's
+// preference, or a pane's `show_locations`); it never costs a title a line, clips
+// a row or changes a "+N more". The portrait band is not fitted, so it has none.
+//
 // A custom layout's pane options (architecture §4.8) change the pieces, never
 // the month: `show_title` and `show_sidebar` leave out the heading, and the
 // panel (the band and the strip in portrait), so the grid takes their room; a
@@ -80,13 +86,15 @@ import { currentWeather, forecastOn, formatTemperature, weatherOn } from '../../
 // as tall as its content, so a wrapped row would push the weeks down instead of
 // using spare room. Without the options (every full-screen month) none of this
 // shows.
-const props = defineProps<ViewProps>()
+// `showLocations` left out means on, not the false Vue makes of an omitted boolean.
+const props = withDefaults(defineProps<ViewProps>(), { showLocations: undefined })
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
 /** Whether coloured events show their people's initials: always, unless they are coloured and the pane asks for none. */
 const showInitials = computed(() => !options.value.fill_events || options.value.show_initials)
 const root = ref<HTMLElement | null>(null)
 useWrapFit(root, () => options.value.wrap_titles)
+const locationsOn = computed(() => showsLocations(props))
 
 /** The grid's outer padding and the gap between its columns (px), as in the styles below. */
 const VIEW_PADDING = 48
@@ -330,7 +338,7 @@ function timedStyle(row: { people: readonly { colour: string }[], column: number
               Nothing planned
             </p>
 
-            <MonthPanelRows v-else :day="day" :fill="options.fill_events" :initials="showInitials" />
+            <MonthPanelRows v-else :day="day" :fill="options.fill_events" :initials="showInitials" :locations="locationsOn" />
           </section>
         </div>
       </div>
@@ -452,7 +460,7 @@ function timedStyle(row: { people: readonly { colour: string }[], column: number
           Nothing planned
         </p>
 
-        <MonthPanelRows v-else :day="day" size="card" :fill="options.fill_events" :initials="showInitials" />
+        <MonthPanelRows v-else :day="day" size="card" :fill="options.fill_events" :initials="showInitials" :locations="locationsOn" />
       </section>
     </div>
   </section>

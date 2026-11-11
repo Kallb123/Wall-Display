@@ -9,10 +9,12 @@ import {
   DAY_CARD_GAP, DAY_CARD_HEIGHT, DAY_GRID_GAP, DAY_GRID_PADDING, DAY_HEAD_GAP, DAY_HEAD_HEIGHT, DAY_MORE_HEIGHT, DAY_TILE_PADDING,
   dayGridCellItems, dayGridOverflowItems, dayTileHeight,
 } from '../../utils/dayGrid'
+import { showsLocations } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import { dayGridLayout } from '../../../shared/day-grid-layout'
 import type { DayGridCell } from '../../../shared/day-grid-layout'
 import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
+import { eventLocation } from '../../../shared/location'
 import type { CalendarEvent } from '../../../shared/types/events'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { specialDayArtUrl } from '../../../shared/special-days'
@@ -50,7 +52,15 @@ import { MAX_BADGE_INITIALS } from '../../../shared/week-layout'
 // fixed height, so a wrapped card only uses the tile's spare room, and
 // `useWrapFit` turns wrapping on one card at a time while the tile's cards
 // still fit (each `.cards` is the fixed-size box, each card an item in it).
-const props = defineProps<ViewProps>()
+//
+// An event's location is a third line on its card, after the time and as quiet,
+// only where there is room: once the titles have theirs, `useWrapFit` turns it
+// on (`data-location="on"`) card by card while the tile's cards still fit, and
+// the card grows by that line, as a wrapped one does. A card with no location,
+// or with locations switched off (the display's preference, or the pane's
+// option), is as it always was.
+// `showLocations: undefined` keeps Vue from reading a prop that is left out as false: left out means on.
+const props = withDefaults(defineProps<ViewProps>(), { showLocations: undefined })
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
 /** Whether the cards show their people's initials: always, unless they are coloured and the pane asks for none. */
@@ -64,6 +74,9 @@ function cardStyle(event: CalendarEvent) {
   const { background, ring } = eventFill(event.people)
   return { background, '--card-ring': ring }
 }
+
+/** The location a card shows, or null for none (no location, only a link, or locations switched off). */
+const locationOf = (event: CalendarEvent): string | null => showsLocations(props) ? eventLocation(event.location) : null
 
 const grid = computed(() => props.dayGrid ?? DEFAULT_DAY_GRID)
 
@@ -178,6 +191,7 @@ const cssVars = computed(() => ({
           <span class="lines">
             <span class="name">{{ eventLabel(item.event) }}</span>
             <span class="time">{{ item.time ?? 'All day' }}</span>
+            <span v-if="locationOf(item.event)" class="place" data-location-line data-testid="event-location">{{ locationOf(item.event) }}</span>
           </span>
           <span v-if="item.initials.length && showInitials" class="badges">
             <span
@@ -360,17 +374,28 @@ const cssVars = computed(() => ({
   color: var(--bar-text);
 }
 
-/* The muted time, on a fill. */
-.card.filled .time {
+/* The muted time and location, on a fill. */
+.card.filled .time,
+.card.filled .place {
   color: inherit;
   opacity: 0.75;
 }
 
 /* A title that may wrap (useWrapFit sets data-wrap): the card grows from its fixed height, with the same 32px title line, so a one-line title looks as before. */
-.card[data-wrap='on'] {
+.card[data-wrap='on'],
+.card[data-location='on'] {
   height: auto;
   min-height: var(--card-height);
   padding-block: 6px;
+}
+
+/* With a location line the card is taller than the badges, which stay level with the name and time as in a card without one: (74 - 32) / 2 - 6. */
+.card[data-location='on'] {
+  align-items: flex-start;
+}
+
+.card[data-location='on'] .badges {
+  margin-top: 15px;
 }
 
 .card.past {
@@ -412,6 +437,22 @@ const cssVars = computed(() => ({
   line-height: 26px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The location, under the time, smaller and just as quiet; hidden unless useWrapFit found room for it. */
+.place {
+  display: none;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-location='on'] .place {
+  display: block;
 }
 
 .badges {

@@ -207,6 +207,51 @@ const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result
   })
 })
 
+describe('AgendaView locations', () => {
+  const timed = (location: string | null, overrides: Partial<CalendarEvent> = {}): CalendarEvent => ({
+    id: 1, calendar_id: 'family', title: 'Dentist', display_title: 'Dentist', icon: null, location,
+    start: '2026-10-28T14:00:00Z', end: '2026-10-28T15:00:00Z', all_day: false, start_date: null, end_date: null, people: [],
+    ...overrides,
+  })
+  const row = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.find('[data-testid="day-today"] [data-testid="event"]')
+  const place = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => row(wrapper).find('[data-testid="event-location"]')
+
+  it('draws the shortened location under the title, and the fit turns it on', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ events: [timed('Leisure Centre, 12 High Street, Town')] }) })
+
+    await vi.waitFor(() => expect(place(wrapper).text()).toBe('Leisure Centre'))
+    expect(row(wrapper).find('[data-testid="event-title"]').text()).toBe('Dentist')
+    await vi.waitFor(() => expect(row(wrapper).attributes('data-location')).toBe('on'))
+  })
+
+  it('draws a location on an all-day row too', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ events: [timed('Lake District', { all_day: true, start: '2026-10-28T00:00:00Z', end: '2026-10-29T00:00:00Z', start_date: '2026-10-28', end_date: '2026-10-29' })] }) })
+
+    await vi.waitFor(() => expect(place(wrapper).text()).toBe('Lake District'))
+  })
+
+  it('draws nothing for no location or a link', async () => {
+    for (const location of [null, '', 'https://meet.google.com/abc-defg-hij']) {
+      const wrapper = await mountSuspended(AgendaView, { props: props({ events: [timed(location)] }) })
+      expect(place(wrapper).exists()).toBe(false)
+    }
+  })
+
+  it('draws nothing when locations are off, by the preference or by the pane', async () => {
+    const events = [timed('Leisure Centre')]
+    expect(place(await mountSuspended(AgendaView, { props: props({ events, showLocations: false }) })).exists()).toBe(false)
+    expect(place(await mountSuspended(AgendaView, { props: props({ events, paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: false } }) })).exists()).toBe(false)
+    expect(place(await mountSuspended(AgendaView, { props: props({ events, showLocations: false, paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: true } }) })).exists()).toBe(true)
+  })
+
+  it('shows the location together with wrapping', async () => {
+    const wrapper = await mountSuspended(AgendaView, { props: props({ events: [timed('Leisure Centre')], paneOptions: { ...DEFAULT_PANE_OPTIONS, wrap_titles: true } }) })
+
+    await vi.waitFor(() => expect(row(wrapper).attributes('data-location')).toBe('on'))
+    expect(row(wrapper).attributes('data-wrap')).toBe('on')
+  })
+})
+
 describe('AgendaView calendar icons', () => {
   const dinner = (icon: string | null): CalendarEvent => ({
     id: 1, calendar_id: 'family', title: 'Dinner', display_title: 'Dinner', icon, location: null,

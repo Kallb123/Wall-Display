@@ -3,12 +3,14 @@ import { greetingSize, tileArt } from '~/utils/specialDays'
 import { eventLabel } from '~/utils/eventLabel'
 import { paletteAccent, personFill, PORTRAIT_WEEK_TILE_TINT, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
-import { showsWeatherOnDates } from '../../utils/views'
+import { showsLocations, showsWeatherOnDates } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
+import { useWrapFit } from '~/composables/useWrapFit'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { todayIn } from '../../../shared/dates'
 import { currentWeek, weekDiff } from '../../../shared/display'
+import { eventLocation } from '../../../shared/location'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { forecastOn } from '../../../shared/weather'
 import { MAX_BADGE_INITIALS, PORTRAIT_MAX_TRACKS, shortWeekRange, weekLayout } from '../../../shared/week-layout'
@@ -67,9 +69,27 @@ import type { AllDayBar, Band, TimedBlock, WeekDay } from '../../../shared/week-
 // with no width (so the columns, the strip's subgrid and the veil keep their
 // numbers) and the grid is pulled back by the one gap after it; the seven days
 // take the width. The hour rules and the now line are in the columns, and stay.
-const props = defineProps<ViewProps>()
+//
+// A timed block shows its event's location (`eventLocation`, the first part of an
+// address) as a second, quieter line under the title, but only in a block with
+// room for it, a long event. The line is left out of the markup when locations
+// are off (`showsLocations`: the display's preference, or the pane's
+// `show_locations`), when the event has none worth showing and in a one-line
+// block. Otherwise it is hidden unless `useWrapFit` set `data-location="on"` on
+// the block's words (its title and location, which take no box of their own), which
+// it does when the block's inner box still does not overflow with it. For that
+// measure the title does not give way to the location, so a block whose title is
+// already cut gets none, and a title is never cut shorter for a location. This view
+// does not wrap titles, so the fit is only for the locations. The all-day bars,
+// the band items and the "+N" chips have none.
+// An optional boolean prop left out is false in Vue; `showLocations` left out means on (`showsLocations`), so it defaults to undefined.
+const props = withDefaults(defineProps<ViewProps>(), { showLocations: undefined })
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
+const locationsOn = computed(() => showsLocations(props))
+
+const root = ref<HTMLElement | null>(null)
+useWrapFit(root, () => false)
 const showHeader = computed(() => options.value.show_title || !!props.specialDays.takeover?.greeting)
 
 const portrait = computed(() => props.stage.orientation === 'portrait')
@@ -214,7 +234,7 @@ const BAND_SHOWN = 1
 </script>
 
 <template>
-  <section class="view" :class="{ 'portrait': portrait, pane, 'no-hours': !options.show_hours }" data-testid="week-view">
+  <section ref="root" class="view" :class="{ 'portrait': portrait, pane, 'no-hours': !options.show_hours }" data-testid="week-view">
     <header v-if="showHeader" class="header">
       <h1 v-if="options.show_title && pane" class="title" data-testid="week-title">
         <span class="range">{{ shortTitle.range }}</span>{{ ' ' }}<span class="year" data-testid="week-label">{{ shortTitle.label }}</span>
@@ -396,7 +416,7 @@ const BAND_SHOWN = 1
             :data-track="block.track"
             :data-tracks="block.tracks"
           >
-            <span class="inner">
+            <span class="inner" data-wrap-box>
               <span class="top">
                 <span v-if="block.initials.length" class="badges">
                   <span
@@ -408,7 +428,15 @@ const BAND_SHOWN = 1
                 </span>
                 <span class="time">{{ block.time }}</span>
               </span>
-              <span class="name">{{ eventLabel(block.event) }}</span>
+              <span class="words" data-wrap-item>
+                <span class="name">{{ eventLabel(block.event) }}</span>
+                <span
+                  v-if="locationsOn && block.height >= ONE_LINE_MINUTES && eventLocation(block.event.location)"
+                  class="location"
+                  data-location-line
+                  data-testid="event-location"
+                >{{ eventLocation(block.event.location) }}</span>
+              </span>
             </span>
           </div>
           <!-- Blocks that had no track left, counted where they start. Over the blocks, with a ring in the tile's colour to lift it off them. -->
@@ -805,6 +833,38 @@ const BAND_SHOWN = 1
   overflow-wrap: anywhere;
 }
 
+/* The title and the location: no box of their own, so they are the inner's flex items as the title alone was. */
+.block .words {
+  display: contents;
+}
+
+/* A second, quieter line under the title, only where the fit found room for it (data-location is set by useWrapFit on the words). */
+.block .location {
+  display: none;
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0.7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block .words[data-location='on'] .location {
+  display: block;
+}
+
+/* With the location in, the title keeps its lines and the fit sees whether the two fit. */
+.block .words[data-location='on'] .name {
+  flex-shrink: 0;
+}
+
+.block.one-line .location {
+  display: none;
+}
+
 /* Squeezed between neighbours as well: the title matters more than the time, which the hour scale gives anyway. */
 .block.one-line.shared .time {
   display: none;
@@ -1054,6 +1114,10 @@ const BAND_SHOWN = 1
   overflow: hidden;
   font-size: 17px;
   white-space: nowrap;
+}
+
+.portrait .block .location {
+  font-size: 15px;
 }
 
 /* One line: the badge and the title, with no time. */

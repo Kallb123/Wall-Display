@@ -351,3 +351,52 @@ describe('WeekPartsView calendar icons', () => {
     expect(cell(wrapper, '2026-10-28', 'evening').find('.name').text()).toBe('Dinner')
   })
 })
+
+describe('WeekPartsView locations', () => {
+  const place = (id: number, location: string | null, start = '10:00') => event(id, { location, start: `2026-10-28T${start}:00Z`, end: `2026-10-28T${start.slice(0, 2)}:59:00Z` })
+  const locations = (wrapper: Wrapper) => wrapper.findAll('[data-testid="event-location"]')
+  const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
+
+  it('draws the first part of a location under the title and shows it once the fit has run', async () => {
+    const wrapper = await mountSuspended(WeekPartsView, { props: props({ events: [place(1, 'Leisure Centre, 12 High Street, Town')] }) })
+
+    const line = cell(wrapper, '2026-10-28', 'morning').find('[data-kind="line"]')
+    expect(locations(wrapper).map((item: { text: () => string }) => item.text())).toEqual(['Leisure Centre'])
+    expect(line.find('.name + [data-testid="event-location"]').exists()).toBe(true)
+    await vi.waitFor(() => expect(line.attributes('data-location')).toBe('on'))
+  })
+
+  it('shows the location with titles wrapping as well', async () => {
+    const wrapper = await mountSuspended(WeekPartsView, { props: props({ paneOptions: options({ wrap_titles: true }), events: [place(1, 'Leisure Centre')] }) })
+
+    const line = cell(wrapper, '2026-10-28', 'morning').find('[data-kind="line"]')
+    await vi.waitFor(() => expect(line.attributes('data-location')).toBe('on'))
+    expect(line.attributes('data-wrap')).toBe('on')
+  })
+
+  it('draws the location when showLocations is left out', async () => {
+    const wrapper = await mountSuspended(WeekPartsView, { props: props({ events: [place(1, 'Leisure Centre')] }) })
+
+    expect(wrapper.props('showLocations')).toBeUndefined()
+    expect(locations(wrapper)).toHaveLength(1)
+  })
+
+  it('draws none for no location or a link, and none when locations are off', async () => {
+    const none = await mountSuspended(WeekPartsView, { props: props({ events: [place(1, null), place(2, 'https://meet.example.com/abc', '11:00')] }) })
+    expect(locations(none)).toHaveLength(0)
+    expect(none.findAll('[data-kind="line"]').every(line => line.attributes('data-location') === undefined)).toBe(true)
+
+    const off = await mountSuspended(WeekPartsView, { props: props({ showLocations: false, events: [place(1, 'Leisure Centre')] }) })
+    expect(locations(off)).toHaveLength(0)
+
+    const pane = await mountSuspended(WeekPartsView, { props: props({ paneOptions: options({ show_locations: false }), events: [place(1, 'Leisure Centre')] }) })
+    expect(locations(pane)).toHaveLength(0)
+  })
+
+  it('draws none for an all-day item in the row head', async () => {
+    const wrapper = await mountSuspended(WeekPartsView, { props: props({ events: [event(1, { location: 'Hall', all_day: true, start: '2026-10-28T00:00:00Z', end: '2026-10-29T00:00:00Z', start_date: '2026-10-28', end_date: '2026-10-29' })] }) })
+
+    expect(row(wrapper, '2026-10-28').find('[data-kind="head"]').exists()).toBe(true)
+    expect(locations(wrapper)).toHaveLength(0)
+  })
+})

@@ -8,9 +8,10 @@ import { formatTime } from '~/utils/format'
 import { eventFill } from '~/utils/eventFill'
 import { useWrapFit } from '~/composables/useWrapFit'
 import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
-import { showsWeatherOnDates } from '../../utils/views'
+import { showsLocations, showsWeatherOnDates } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
+import { eventLocation } from '../../../shared/location'
 import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather'
 
 // Today and tomorrow in large type (architecture §4.1): a card for each, with
@@ -38,7 +39,16 @@ import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather
 // only where the list has room: each card's list is a fixed-size box and each
 // event a row in it, and `useWrapFit` turns wrapping on one row at a time, top
 // to bottom, while the list still fits.
-const props = defineProps<ViewProps>()
+//
+// An event's location (architecture §4.8) is a second, quieter line under its
+// title, in the same middle column, and only where there is room: the row grows
+// by that line inside the list, after every title has the room it asked for
+// (`useWrapFit` sets `data-location="on"` on a row it fits). Without room, or
+// with the location switched off (the display's preference, or the pane's
+// option), a row is as it always was. The title's first line, the time, the
+// badges and the stripe stay where they are in a row without one.
+// `showLocations: undefined` keeps Vue from reading a prop that is left out as false: left out means on.
+const props = withDefaults(defineProps<ViewProps>(), { showLocations: undefined })
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
 const root = ref<HTMLElement | null>(null)
@@ -90,6 +100,9 @@ function rowStyle(row: { kind: 'all-day' | 'timed', item: AgendaItem }) {
 
 /** Whether a row shows its badges: always, unless it is a timed row the option filled and the pane asks for no initials. */
 const showsInitials = (row: { kind: 'all-day' | 'timed' }): boolean => row.kind === 'all-day' || !options.value.fill_events || options.value.show_initials
+
+/** The location a row shows under its title, or null for none (no location, only a link, or locations switched off). */
+const locationOf = (event: CalendarEvent): string | null => showsLocations(props) ? eventLocation(event.location) : null
 
 function barColour(event: CalendarEvent): string {
   return event.people[0]?.colour ?? 'var(--muted)'
@@ -160,7 +173,10 @@ function barColour(event: CalendarEvent): string {
               >{{ person.initial }}</span>
             </span>
             <span v-if="row.item.time" class="time" data-testid="event-time">{{ row.item.time }}</span>
-            <span class="title" data-testid="event-title">{{ eventLabel(row.item.event) }}</span>
+            <span class="text">
+              <span class="title" data-testid="event-title">{{ eventLabel(row.item.event) }}</span>
+              <span v-if="locationOf(row.item.event)" class="location" data-location-line data-testid="event-location">{{ locationOf(row.item.event) }}</span>
+            </span>
             <span v-if="row.kind === 'all-day'" class="all-day-label">All day</span>
           </li>
         </template>
@@ -356,23 +372,56 @@ span + .range {
   font-variant-numeric: tabular-nums;
 }
 
+/* The title, and the location under it where there is room. */
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
 /* One line, cut with an ellipsis, so a long title never pushes the badges or the time out. */
 .title {
-  flex: 1;
-  min-width: 0;
   overflow: hidden;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The location: one line, smaller and quieter than the title, and hidden unless useWrapFit found room for it (data-location). On a fill it takes the row's own colour, as the time does. */
+.location {
+  display: none;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 40px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-location='on'] .location {
+  display: block;
+}
+
+.event.all-day .location,
+.event.filled .location {
+  color: inherit;
+  opacity: 0.7;
+}
+
 /*
- * A title that may wrap (useWrapFit sets data-wrap). The row grows from its
- * fixed 92px and keeps the first line where it was: every part has the 68px
- * line box of the single-line row, aligned to the top, so a one-line title
- * looks as before.
+ * A title that may wrap (useWrapFit sets data-wrap) or a location under it
+ * (data-location). The row grows from its fixed 92px and keeps the first line
+ * where it was: every part has the 68px line box of the single-line row,
+ * aligned to the top, so a one-line title looks as before.
  */
-[data-wrap='on'].event {
+[data-location='on'] .title {
+  line-height: 68px;
+}
+
+[data-wrap='on'].event,
+[data-location='on'].event {
   align-items: flex-start;
   height: auto;
   min-height: 92px;
@@ -393,20 +442,26 @@ span + .range {
 
 /* A pill would turn into a stadium once it is several lines tall; the single-line row's own radius keeps the ends round. */
 [data-wrap='on'].event.all-day,
-[data-wrap='on'].event.filled {
+[data-wrap='on'].event.filled,
+[data-location='on'].event.all-day,
+[data-location='on'].event.filled {
   border-radius: 46px;
 }
 
 [data-wrap='on'] .time,
-[data-wrap='on'] .all-day-label {
+[data-wrap='on'] .all-day-label,
+[data-location='on'] .time,
+[data-location='on'] .all-day-label {
   line-height: 68px;
 }
 
-[data-wrap='on'] .badges {
+[data-wrap='on'] .badges,
+[data-location='on'] .badges {
   margin-top: 4px;
 }
 
-[data-wrap='on'] .stripe {
+[data-wrap='on'] .stripe,
+[data-location='on'] .stripe {
   margin-top: 2px;
 }
 

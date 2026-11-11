@@ -477,6 +477,14 @@ describe('pane options', () => {
     expect(paneOptionLabel('month', 'weather_on_dates')).toBe('Weather on dates')
   })
 
+  it('labels show_locations, and stores it only when it is off and only on the components that have it', () => {
+    expect(paneOptionLabel('agenda', 'show_locations')).toBe('Locations')
+    const input = setPaneOption(newLayoutInput('X'), 'week', 'show_locations', false)
+    expect(input.options).toEqual({ week: { show_locations: false } })
+    expect(setPaneOption(input, 'week', 'show_locations', true).options).toEqual({})
+    expect(setPaneOption(newLayoutInput('X'), 'stars', 'show_locations', false)).toEqual(newLayoutInput('X'))
+  })
+
   it('stores weather_on_dates only when it is off, and only on the components that have it', () => {
     const input = setPaneOption(newLayoutInput('X'), 'agenda', 'weather_on_dates', false)
     expect(input.options).toEqual({ agenda: { weather_on_dates: false } })

@@ -23,3 +23,51 @@ export function fitWraps<T>(items: readonly T[], set: (item: T, on: boolean) => 
   }
   return kept
 }
+
+/** What `fitRows` decided for a box: the items that wrap, and the items that show a location line, each in order. */
+export interface RowsFit<T> {
+  wrapped: T[]
+  located: T[]
+}
+
+/**
+ * Decides which items of a fixed-size box wrap their title and which show
+ * their location line (a quieter second line under the title). Titles come
+ * first, so a location only gets the room that is left over:
+ *
+ * 1. Every location is turned off.
+ * 2. With `wrap`, the wrap fit runs as `fitWraps` does; without it, every
+ *    wrap is turned off.
+ * 3. From the first to the last, each item that has a location has it turned
+ *    on and, if the box now overflows, turned off again. One that does not
+ *    fit never stops a later one from showing.
+ *
+ * `setWrap`, `setLocation` and `overflows` work on the box synchronously, as
+ * with `fitWraps`. Returns the items left wrapping and the items left showing
+ * a location.
+ */
+export function fitRows<T>(items: readonly T[], options: {
+  wrap: boolean
+  hasLocation: (item: T) => boolean
+  setWrap: (item: T, on: boolean) => void
+  setLocation: (item: T, on: boolean) => void
+  overflows: () => boolean
+}): RowsFit<T> {
+  const { wrap, hasLocation, setWrap, setLocation, overflows } = options
+  for (const item of items) setLocation(item, false)
+  let wrapped: T[]
+  if (wrap) {
+    wrapped = fitWraps(items, setWrap, overflows)
+  } else {
+    for (const item of items) setWrap(item, false)
+    wrapped = []
+  }
+  const located: T[] = []
+  for (const item of items) {
+    if (!hasLocation(item)) continue
+    setLocation(item, true)
+    if (overflows()) setLocation(item, false)
+    else located.push(item)
+  }
+  return { wrapped, located }
+}

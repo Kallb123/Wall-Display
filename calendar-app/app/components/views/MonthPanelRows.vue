@@ -3,6 +3,7 @@ import { badgesOf } from '~/utils/monthPanel'
 import { eventLabel } from '~/utils/eventLabel'
 import type { FittedPanelDay } from '~/utils/monthPanel'
 import { eventFill } from '~/utils/eventFill'
+import { eventLocation } from '../../../shared/location'
 
 // A day's rows in the Soft month view's panel: a badge for each person, the time
 // (or "All day"), the title, and a "+N more" row when the day was trimmed. The
@@ -20,12 +21,21 @@ import { eventFill } from '~/utils/eventFill'
 // room (only asked for with `fill`, the parent decides). Every row is marked as an item for
 // `useWrapFit`: it only does anything where the parent has put the list in a
 // `[data-wrap-box]`, and then a row with `data-wrap="on"` lets its title wrap.
+//
+// `locations` (issue 74) adds the event's location (`eventLocation`, nothing for
+// none or a link) as a second, quieter line under the title, in the title's column.
+// The line is hidden unless `useWrapFit` has found room for it and set
+// `data-location="on"` on the row, so it never costs a line of a title, clips a
+// row or changes a "+N more". A parent that does not fit its rows (the portrait
+// band) leaves `locations` off, and then no line is drawn at all.
 defineProps<{
   day: FittedPanelDay
   size?: 'standard' | 'roomy' | 'card'
   fill?: boolean
   /** Draw the initials badges. False leaves them out of the rows, with their column. */
   initials?: boolean
+  /** Draw each event's location under its title, where the parent's fit finds room. Off when left out. */
+  locations?: boolean
 }>()
 
 /** A filled row's background and the ring of its overlapping badges. */
@@ -57,6 +67,12 @@ function fillStyle(people: readonly { colour: string }[]) {
       </span>
       <span class="time">{{ row.item.time ?? 'All day' }}</span>
       <span class="name">{{ eventLabel(row.item.event) }}</span>
+      <span
+        v-if="locations && eventLocation(row.item.event.location)"
+        class="location"
+        data-location-line
+        data-testid="event-location"
+      >{{ eventLocation(row.item.event.location) }}</span>
     </div>
     <div v-if="day.more" class="row more-row" data-testid="panel-more">
       <span v-if="initials !== false" class="badges" />
@@ -147,6 +163,28 @@ function fillStyle(people: readonly { colour: string }[]) {
   line-clamp: 3;
 }
 
+/* The location: a second line in the title's column (the last one), hidden until the fit finds room for it. */
+.row .location {
+  display: none;
+  grid-column: -2 / -1;
+  overflow: hidden;
+  color: var(--panel-muted);
+  font-size: 0.8em;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row[data-location='on'] .location {
+  display: block;
+}
+
+.row.filled .location {
+  padding-bottom: 4px;
+  color: inherit;
+  opacity: 0.8;
+}
+
 /* The badge column is at least one badge wide, so an event with nobody on it still lines up. */
 .row .badges {
   min-width: 40px;
@@ -195,6 +233,14 @@ function fillStyle(people: readonly { colour: string }[]) {
   column-gap: 12px;
   font-size: 24px;
   --ring: var(--tile);
+}
+
+.rows.card .row .location {
+  color: var(--muted);
+}
+
+.rows.card .row.filled .location {
+  color: inherit;
 }
 
 .rows.card .row .time {

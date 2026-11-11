@@ -34,7 +34,7 @@ export function preferenceText(key: string, value: unknown): string {
     case 'night_text': return NIGHT_TEXT_LABELS[value as NightText] ?? String(value)
     case 'orientation': return ORIENTATION_LABELS[value as Orientation] ?? String(value)
     case 'night_action': return NIGHT_ACTION_LABELS[value as NightAction] ?? String(value)
-    case 'burn_in': return value ? 'on' : 'off'
+    case 'burn_in': case 'show_locations': return value ? 'on' : 'off'
     case 'motion': return MOTION_LABELS[value as Motion] ?? String(value)
     case 'month_return_minutes': case 'off_after_minutes': return `${value} min`
     case 'photo_interval_seconds': case 'smoothing_seconds': return `${value} s`

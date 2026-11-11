@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
+import AgendaView from '~/components/views/AgendaView.vue'
 import NightView from '~/components/views/NightView.vue'
 import DisplayPage from '~/pages/display.vue'
 import { burnInOffset, pillCorner } from '~/utils/burnIn'
@@ -677,6 +678,31 @@ describe('settings changed on the settings page', () => {
     await flushPromises()
 
     expect(wall.wrapper.find('[data-testid="night-text"]').text()).toBe('Tomorrow 08:30 \u00B7 Swimming')
+  })
+
+  it('gives the views the display\'s event locations switch, on at first and off when turned off', async () => {
+    const wall = await openWall({ state: state({ view: 'agenda' }) })
+    expect(wall.wrapper.findComponent(AgendaView).props('showLocations')).toBe(true)
+
+    FakeSocket.all.at(-1)!.push(update({ show_locations: false }))
+    await flushPromises()
+
+    expect(wall.wrapper.findComponent(AgendaView).props('showLocations')).toBe(false)
+    expect(JSON.parse(localStorage.getItem('wallcal:display:hallway')!).settings.show_locations).toBe(false)
+  })
+
+  it('counts cached settings from before the switch as locations on', async () => {
+    localStorage.setItem('wallcal:display:hallway', JSON.stringify({
+      settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' },
+      state: state({ view: 'agenda' }),
+      events: [],
+      saved_at: NOW.toISOString(),
+    }))
+    fetchMock.mockRejectedValue(new Error('offline'))
+    const wrapper = await mountSuspended(DisplayPage, { route: '/display?id=hallway' })
+    mounted.push(wrapper)
+
+    expect(wrapper.findComponent(AgendaView).props('showLocations')).toBe(true)
   })
 
   it('ignores a bad one, and keeps the cache in step with a good one', async () => {

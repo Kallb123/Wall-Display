@@ -231,7 +231,7 @@ PR S.1 shipped each special day with its whole look stored on it. PR S.1b adds *
 - **Google Calendar API with `syncToken`.** Only worth it if ICS freshness turns out not to be good enough.
 - **DDC/CI backlight.** If H.1 finds the M80F supports it, drive the real backlight from `brightness`.
 - **ESP32 / ESPHome sensors.** The alternative to the Pi agent's sensors. The app already accepts presence and lux over MQTT, so this is mostly docs.
-- **Event detail on the remote.** Tap an event on the phone to see its location and description.
+- **Event detail on the remote.** Tap an event on the phone to see its location and description. (The wall itself now shows the location under an event's title where there is room, issue 74; the remote still has none.)
 - **Special days linked to a person.** A birthday picks up that child's colour for its tint (as in mock 2b) and could show their initial in the greeting. Matching a day's `who` (PR S.1b) to a configured person's name or aliases is the likely way in.
 - **Special days from a calendar.** Create special days from a birthdays calendar or an HA holidays integration, so they don't have to be entered by hand. Each source would pick a scene (for example, every birthday from the calendar uses the Birthday scene).
 - **Starter scenes.** A few ready-made scenes with their art (Halloween, Bonfire Night, Christmas, birthday) to add from the admin page, then use or duplicate.

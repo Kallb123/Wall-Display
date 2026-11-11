@@ -126,6 +126,7 @@ const hallwayPreferences: DisplayPreferences = {
   week_hours: { from: 7, to: 21 },
   day_parts: { afternoon: 12, evening: 17 },
   weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
+  show_locations: true,
   burn_in: true,
   motion: 'off',
   night_text: 'none',

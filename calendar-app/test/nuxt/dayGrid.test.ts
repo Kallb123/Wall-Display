@@ -219,6 +219,41 @@ const fillsGiven = () => vi.mocked(eventFill).mock.results.map(result => (result
   })
 })
 
+describe('DayGridView locations', () => {
+  const options = (overrides: Partial<typeof DEFAULT_PANE_OPTIONS>) => ({ ...DEFAULT_PANE_OPTIONS, ...overrides })
+  const card = (wrapper: Wrapper) => tile(wrapper, '2026-10-28').find('[data-testid="event"]')
+  const place = (wrapper: Wrapper) => card(wrapper).find('[data-testid="event-location"]')
+
+  it('draws the shortened location after the time, and the fit turns it on', async () => {
+    const wrapper = await open({ events: [event(1, { location: 'Leisure Centre, 12 High Street, Town' })] })
+
+    await vi.waitFor(() => expect(place(wrapper).text()).toBe('Leisure Centre'))
+    expect(card(wrapper).find('.lines').element.lastElementChild).toBe(place(wrapper).element)
+    await vi.waitFor(() => expect(card(wrapper).attributes('data-location')).toBe('on'))
+  })
+
+  it('draws nothing for no location or a link', async () => {
+    for (const location of [null, '', 'https://meet.google.com/abc-defg-hij']) {
+      const wrapper = await open({ events: [event(1, { location })] })
+      expect(place(wrapper).exists()).toBe(false)
+    }
+  })
+
+  it('draws nothing when locations are off, by the preference or by the pane', async () => {
+    const events = [event(1, { location: 'Leisure Centre' })]
+    expect(place(await open({ events, showLocations: false })).exists()).toBe(false)
+    expect(place(await open({ events, paneOptions: options({ show_locations: false }) })).exists()).toBe(false)
+    expect(place(await open({ events, showLocations: false, paneOptions: options({ show_locations: true }) })).exists()).toBe(true)
+  })
+
+  it('shows the location together with wrapping', async () => {
+    const wrapper = await open({ events: [event(1, { location: 'Leisure Centre' })], paneOptions: options({ wrap_titles: true }) })
+
+    await vi.waitFor(() => expect(card(wrapper).attributes('data-location')).toBe('on'))
+    expect(card(wrapper).attributes('data-wrap')).toBe('on')
+  })
+})
+
 describe('CustomLayoutView with a days pane', () => {
   const layout = (): CustomLayout => ({
     id: 'days',

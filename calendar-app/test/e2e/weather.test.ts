@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { ServerMessage } from '../../shared/display'
 import type { WeatherResponse } from '../../shared/weather'
+import { builtApp } from '../helpers/builtApp'
 
 describe('weather from Home Assistant', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -69,7 +70,7 @@ describe('weather from Home Assistant', async () => {
   writeFileSync(configFile, `${devConfig}\nhomeassistant:\n  url: http://127.0.0.1:${haPort}\n  token: ${token}\n\nweather:\n  entity_id: weather.home\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { DisplayState, ServerMessage } from '../../shared/display'
+import { builtApp } from '../helpers/builtApp'
 
 // The photo frame's rotation on the real server: while the display is on the
 // photo view (or the week and photo view) the server tells it to move on every `photos.interval_seconds`
@@ -26,7 +27,7 @@ describe('the photo rotation', async () => {
     .replace('path: ./test/fixtures/photos', `path: ${appDir}/test/fixtures/photos`))
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

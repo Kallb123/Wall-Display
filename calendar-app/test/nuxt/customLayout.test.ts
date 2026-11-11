@@ -142,6 +142,16 @@ describe('CustomLayoutView with pane options', () => {
     expect(wrapper.findComponent(PhotoView).props('paneOptions')).toEqual(DEFAULT_PANE_OPTIONS)
   })
 
+  it('gives the weather on dates option to the pane it is set on, and draws the forecast in the others', async () => {
+    const weather = { current: { condition: 'rainy' as const, temperature: 12 }, daily: [{ date: '2026-10-28', condition: 'rainy' as const, high: 14, low: 8 }], temperature_unit: '°C', updated_at: NOW.toISOString() }
+    const wrapper = await open('landscape', { weather, layout: layout({ options: { week: { weather_on_dates: false } } }) })
+
+    expect(wrapper.findComponent(WeekView).props('paneOptions')).toMatchObject({ weather_on_dates: false })
+    expect(wrapper.findComponent(AgendaView).props('paneOptions')).toMatchObject({ weather_on_dates: true })
+    expect(wrapper.find('[data-testid="layout-pane-week"] [data-testid="day-weather"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="layout-pane-agenda"] [data-testid="agenda-weather"]').exists()).toBe(true)
+  })
+
   it('fits a month with no sidebar to its smaller minimum', async () => {
     const month = { rows: [{ size: 1, panes: [{ component: 'month' as const, size: 3 }, { component: 'agenda' as const, size: 1 }] }] }
     const scaleOf = async (options: CustomLayout['options']) => {

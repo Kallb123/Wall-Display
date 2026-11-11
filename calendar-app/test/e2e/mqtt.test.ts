@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup } from '@nuxt/test-utils/e2e'
 import type { DisplayState } from '../../shared/display'
+import { builtApp } from '../helpers/builtApp'
 
 // An mqtt block is in the config but nothing listens at its address: the app
 // has to boot, serve and take commands as if MQTT were off.
@@ -27,7 +28,7 @@ describe('the app with an MQTT broker that is not there', async () => {
   writeFileSync(configFile, `${config}\nmqtt:\n  url: mqtt://127.0.0.1:${port}\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

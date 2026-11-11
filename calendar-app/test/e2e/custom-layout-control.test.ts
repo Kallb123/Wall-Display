@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { DisplayState, ServerMessage } from '../../shared/display'
 import type { CustomLayout } from '../../shared/layouts'
+import { builtApp } from '../helpers/builtApp'
 
 // Choosing a custom layout over the command API, and what deleting the layout
 // on show does to the wall. The tests build on each other, in order.
@@ -18,7 +19,7 @@ describe('custom layout control', async () => {
   writeFileSync(configFile, readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`))
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

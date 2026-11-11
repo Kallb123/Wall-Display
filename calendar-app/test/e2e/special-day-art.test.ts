@@ -10,6 +10,7 @@ import type { ServerMessage } from '../../shared/display'
 import { PIN_HEADER } from '../../shared/remote'
 import { specialDayArtUrl } from '../../shared/special-days'
 import type { SpecialDay, SpecialDayScene, SpecialDaysResponse } from '../../shared/special-days'
+import { builtApp } from '../helpers/builtApp'
 
 // Art uploads for days and scenes, and the route that serves the files, on the
 // dev config with `remote.pin` set: the writes need the PIN, and the tests
@@ -24,7 +25,7 @@ describe('special day art', async () => {
   const artDir = join(dir, 'data', 'special-days')
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

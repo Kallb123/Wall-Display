@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
+import { builtApp } from '../helpers/builtApp'
 
 // With no `photos` block, or one whose folder is not there (as in the Docker CI
 // job, which copies only config.dev.yaml), the app starts and the photo
@@ -21,7 +22,7 @@ describe.each([
   writeFileSync(configFile, change(readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`)))
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

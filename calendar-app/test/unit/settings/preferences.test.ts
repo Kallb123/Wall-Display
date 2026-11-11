@@ -111,7 +111,7 @@ describe('reading an update', () => {
     ['a day_parts out of range', { set: { day_parts: { afternoon: 0, evening: 17 } } }, { day_parts: expect.stringContaining('afternoon must be from 1 to 22') }],
     ['a day_parts with an extra key', { set: { day_parts: { afternoon: 12, evening: 17, x: 3 } } }, { day_parts: expect.stringContaining('"x"') }],
     ['a weather_on_dates that is not an object', { set: { weather_on_dates: true } }, { weather_on_dates: expect.any(String) }],
-    ['a weather_on_dates with a value that is not true or false', { set: { weather_on_dates: { month: 'yes' } } }, { weather_on_dates: expect.stringContaining('true or false') }],
+    ['a weather_on_dates with a value that is not true or false', { set: { weather_on_dates: { month: 'yes' } } }, { weather_on_dates: 'month must be a boolean' }],
     ['a weather_on_dates with an extra key', { set: { weather_on_dates: { month: true, day: true } } }, { weather_on_dates: expect.stringContaining('"day"') }],
     ['a key in both set and reset', { set: { theme: 'dark' }, reset: ['theme'] }, { theme: expect.stringContaining('both') }],
   ])('refuses %s', (_name, body, fields) => {

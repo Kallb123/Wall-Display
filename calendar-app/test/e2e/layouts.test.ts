@@ -7,6 +7,7 @@ import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { ServerMessage } from '../../shared/display'
 import type { CustomLayout } from '../../shared/layouts'
 import { PIN_HEADER } from '../../shared/remote'
+import { builtApp } from '../helpers/builtApp'
 
 // The layouts API, on the dev config with `remote.pin` set: the writes need
 // the PIN, and the tests send it. The tests build on each other, in order.
@@ -22,7 +23,7 @@ describe('custom layouts', async () => {
   writeFileSync(configFile, `${dev}\nremote:\n  pin: "2468"\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

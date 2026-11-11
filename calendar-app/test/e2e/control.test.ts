@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { DisplaySettings, DisplayState, ServerMessage } from '../../shared/display'
 import type { RemoteInfo } from '../../shared/remote'
+import { builtApp } from '../helpers/builtApp'
 
 describe('display state, commands and the WebSocket', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -17,7 +18,7 @@ describe('display state, commands and the WebSocket', async () => {
   writeFileSync(configFile, readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`))
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

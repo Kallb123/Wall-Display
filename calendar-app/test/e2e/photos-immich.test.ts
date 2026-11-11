@@ -9,6 +9,7 @@ import sharp from 'sharp'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
 import { photoResponseSchema } from '../../shared/photos'
+import { builtApp } from '../helpers/builtApp'
 
 // The photo routes with `photos.immich` pointing at a small fake Immich on a
 // random local port (it answers from test/fixtures/immich/, as the real one
@@ -79,7 +80,7 @@ photos:
 `)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

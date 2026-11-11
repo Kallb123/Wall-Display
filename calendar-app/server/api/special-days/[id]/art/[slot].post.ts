@@ -1,8 +1,8 @@
 import type { SpecialDay } from '../../../../../shared/special-days'
 import { getSpecialDay, setSpecialDayArt } from '../../../../special-days/store'
 
-// Sets one art slot of a special day (`tile`, `full`, `extra` or the portrait
-// `full-portrait` and `extra-portrait`) from a
+// Sets one art slot of a special day (`tile`, `full`, `backdrop`, `extra` or the
+// portrait `full-portrait`, `backdrop-portrait` and `extra-portrait`) from a
 // multipart upload with the picture in a `file` field, and answers 200 with
 // the day. 404 for an unknown day or slot (checked before the body is read),
 // 411 with no Content-Length, 413 when it is too big, 415 for the wrong kind of

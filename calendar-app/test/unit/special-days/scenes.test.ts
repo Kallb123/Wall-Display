@@ -61,6 +61,8 @@ describe('createScene and getScene', () => {
       takeover: true,
       full_art: null,
       full_art_portrait: null,
+      backdrop_art: null,
+      backdrop_art_portrait: null,
       greeting: 'Happy {nth} birthday, {who}!',
       palette: 'sage',
       updated_at: '2026-10-28T12:00:00.000Z',
@@ -117,6 +119,8 @@ describe('updateScene', () => {
       takeover: false,
       full_art: 'scene-full.webp',
       full_art_portrait: null,
+      backdrop_art: null,
+      backdrop_art_portrait: null,
       greeting: null,
       palette: 'frost',
       updated_at: '2026-10-29T08:30:00.000Z',
@@ -364,6 +368,8 @@ describe('saveDayAsScene', () => {
       takeover: true,
       full_art: 'full.webp',
       full_art_portrait: null,
+      backdrop_art: null,
+      backdrop_art_portrait: null,
       greeting: 'Happy {nth}, {who}!',
       palette: 'night',
       updated_at: '2026-10-29T08:30:00.000Z',
@@ -395,7 +401,7 @@ describe('saveDayAsScene', () => {
     const saved = saveDayAsScene(db, 'first-birthday', undefined, LATER)!
 
     expect(saved.scene).toMatchObject({ full_art: 'full.webp', full_art_portrait: 'tall.webp' })
-    expect(saved.day).toMatchObject({ full_art: null, full_art_portrait: null, extra_art: 'seven.webp', extra_art_portrait: 'seven-tall.webp' })
+    expect(saved.day).toMatchObject({ full_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, extra_art: 'seven.webp', extra_art_portrait: 'seven-tall.webp' })
   })
 
   it('takes a lone portrait art of the day, and leaves the scene\'s full art behind it', () => {

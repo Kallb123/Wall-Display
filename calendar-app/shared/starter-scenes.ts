@@ -5,7 +5,8 @@ import type { SpecialDaySceneInput } from './special-days'
 // into the scene library (`POST /api/special-day-scenes/starters/:id`), and
 // from then on it is an ordinary scene. The art is in
 // server/assets/starter-scenes/<id>/, as `tile.svg`, `full.svg` and
-// `full-portrait.svg`. Pure, so the settings page can list them.
+// `full-portrait.svg`, and `backdrop.svg` and `backdrop-portrait.svg` for one
+// with a backdrop. Pure, so the settings page can list them.
 
 export interface StarterScene {
   /** Names the starter and its art folder. Not the id the copy gets: that is a slug of the name, as for any scene. */
@@ -14,6 +15,8 @@ export interface StarterScene {
   description: string
   /** What the copy is created with. */
   scene: SpecialDaySceneInput
+  /** Whether it has a backdrop (`backdrop.svg` and `backdrop-portrait.svg`), a sky that stays behind the view while the rest of its art may go over it. */
+  backdrop?: boolean
 }
 
 export const STARTER_SCENES: readonly StarterScene[] = [
@@ -26,11 +29,13 @@ export const STARTER_SCENES: readonly StarterScene[] = [
     id: 'christmas',
     description: 'Fairy lights, falling snow and a tree under a winter moon, on the frost palette.',
     scene: { name: 'Christmas', lead: 'month', lead_days: null, takeover: true, greeting: 'Merry Christmas!', palette: 'frost' },
+    backdrop: true,
   },
   {
     id: 'easter',
     description: 'A bunny, painted eggs and spring flowers, on the sage palette.',
     scene: { name: 'Easter', lead: 'week', lead_days: null, takeover: true, greeting: 'Happy Easter!', palette: 'sage' },
+    backdrop: true,
   },
 ]
 

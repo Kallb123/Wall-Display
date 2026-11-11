@@ -8,7 +8,7 @@ import { STARTER_SCENES, findStarterScene, starterTileUrl } from '../../../share
 import { processArt, sanitiseSvg } from '../../../server/special-days/art'
 import { ART_FILE_NAME, referencedArt } from '../../../server/special-days/files'
 import { listScenes } from '../../../server/special-days/scenes'
-import { STARTER_ART_SLOTS, addStarterScene, starterArtPath } from '../../../server/special-days/starters'
+import { addStarterScene, starterArtPath, starterArtSlots } from '../../../server/special-days/starters'
 import { migratedMemoryDb } from '../db/helpers'
 
 // The starter scenes: their looks, their bundled art (held to the same checks
@@ -43,12 +43,14 @@ describe('STARTER_SCENES', () => {
 })
 
 describe.each(STARTER_SCENES.map(starter => [starter.id] as const))('the %s art', (id) => {
-  it('is an SVG for every scene slot, and nothing else', () => {
-    expect(readdirSync(join(ASSETS, 'starter-scenes', id)).sort()).toEqual(STARTER_ART_SLOTS.map(slot => `${slot}.svg`).sort())
+  const slots = starterArtSlots(findStarterScene(id)!)
+
+  it('is an SVG for every slot it has, and nothing else', () => {
+    expect(readdirSync(join(ASSETS, 'starter-scenes', id)).sort()).toEqual(slots.map(slot => `${slot}.svg`).sort())
   })
 
   it('passes the sanitiser untouched in substance: nothing in it is refused', async () => {
-    for (const slot of STARTER_ART_SLOTS) expect(() => sanitiseSvg(readFileSync(join(ASSETS, starterArtPath(id, slot))))).not.toThrow()
+    for (const slot of slots) expect(() => sanitiseSvg(readFileSync(join(ASSETS, starterArtPath(id, slot))))).not.toThrow()
   })
 
   it('passes the upload checks for each slot, and comes out the size the slot is cropped to', async () => {
@@ -57,11 +59,19 @@ describe.each(STARTER_SCENES.map(starter => [starter.id] as const))('the %s art'
     const { width, height } = await sharp(tile.data).metadata()
     expect(width).toBe(height)
 
-    for (const [slot, box] of [['full', [2560, 1440]], ['full-portrait', [1440, 2560]]] as const) {
+    for (const [slot, box] of [['full', [2560, 1440]], ['full-portrait', [1440, 2560]], ['backdrop', [2560, 1440]], ['backdrop-portrait', [1440, 2560]]] as const) {
+      if (!slots.includes(slot)) continue
       const full = await processArt(slot, await read(starterArtPath(id, slot)))
       expect(full.ext).toBe('webp')
       const meta = await sharp(full.data).metadata()
       expect([meta.width, meta.height]).toEqual(box)
+    }
+  })
+
+  it('leaves the ground of its full art clear, so it can go over the view: any sky is in the backdrop', async () => {
+    for (const slot of ['full', 'full-portrait'] as const) {
+      const full = await processArt(slot, await read(starterArtPath(id, slot)))
+      expect((await sharp(full.data).stats()).isOpaque, slot).toBe(false)
     }
   })
 })
@@ -78,7 +88,7 @@ describe('addStarterScene', () => {
     const scene = await addStarterScene(db, dir, findStarterScene('christmas')!, read, NOW)
 
     expect(scene).toMatchObject({ id: 'christmas', name: 'Christmas', lead: 'month', takeover: true, greeting: 'Merry Christmas!', palette: 'frost', updated_at: NOW.toISOString() })
-    for (const name of [scene.tile_art, scene.full_art, scene.full_art_portrait]) {
+    for (const name of [scene.tile_art, scene.full_art, scene.full_art_portrait, scene.backdrop_art, scene.backdrop_art_portrait]) {
       expect(name).toMatch(ART_FILE_NAME)
       expect(existsSync(join(dir, name!))).toBe(true)
     }

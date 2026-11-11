@@ -28,6 +28,8 @@ const scene = (changes: Partial<SpecialDayScene> & Pick<SpecialDayScene, 'id' | 
   takeover: false,
   full_art: null,
   full_art_portrait: null,
+  backdrop_art: null,
+  backdrop_art_portrait: null,
   greeting: null,
   palette: 'warm',
   updated_at: UPDATED,
@@ -46,6 +48,8 @@ const day = (changes: Partial<SpecialDay> & Pick<SpecialDay, 'id' | 'name' | 'mo
   takeover: null,
   full_art: null,
   full_art_portrait: null,
+  backdrop_art: null,
+  backdrop_art_portrait: null,
   greeting: null,
   palette: null,
   extra_art: null,
@@ -185,7 +189,7 @@ async function server(url: string, options: Options = {}) {
       const look = effectiveLook(existing, scenes.find(candidate => candidate.id === existing.scene_id))
       const made = scene({ ...look, id: slug(existing.name, scenes), name: existing.name })
       scenes.push(made)
-      Object.assign(existing, { scene_id: made.id, lead: null, lead_days: null, tile_art: null, takeover: null, full_art: null, full_art_portrait: null, greeting: null, palette: null })
+      Object.assign(existing, { scene_id: made.id, lead: null, lead_days: null, tile_art: null, takeover: null, full_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, greeting: null, palette: null })
       return structuredClone({ scene: made, day: existing })
     }
     if (method === 'DELETE' && action?.startsWith('art/')) {

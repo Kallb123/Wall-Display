@@ -1,10 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440">
-  <!-- Easter, 2560×1440, on the sage palette's pale green. The top left, where the month title sits, is plain. The bunny, its eggs and the flowers fill the corner below the today panel, more eggs hide in the grass along the bottom, and bunting hangs along the top. -->
+  <!-- Easter, 2560×1440, transparent over the spring sky of backdrop.svg. The top left, where the month title sits, is plain. The bunny, its eggs and the flowers fill the corner below the today panel, more eggs hide in the grass along the bottom, and bunting hangs along the top. -->
   <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f5fbea"/>
-      <stop offset="1" stop-color="#e4f1cf"/>
-    </linearGradient>
     <clipPath id="egg-0"><path d="M520 1338 C541 1338 547 1377.7 545 1382.8 C543 1400.7 530 1402 520 1402 C510 1402 497 1400.7 495 1382.8 C493 1377.7 499 1338 520 1338 Z"/></clipPath>
     <clipPath id="egg-1"><path d="M580 1350 C598.5 1350 603.8 1384.7 602 1389.2 C600.2 1404.9 588.8 1406 580 1406 C571.2 1406 559.8 1404.9 558 1389.2 C556.2 1384.7 561.5 1350 580 1350 Z"/></clipPath>
     <clipPath id="egg-2"><path d="M466 1363 C482 1363 486.5 1394 485 1398 C483.5 1412 473.6 1413 466 1413 C458.4 1413 448.5 1412 447 1398 C445.5 1394 450 1363 466 1363 Z"/></clipPath>
@@ -15,7 +11,6 @@
     <clipPath id="grass-egg-3"><path d="M2140 1391 C2152.6 1391 2156.2 1414.6 2155 1417.6 C2153.8 1428.2 2146 1429 2140 1429 C2134 1429 2126.2 1428.2 2125 1417.6 C2123.8 1414.6 2127.4 1391 2140 1391 Z"/></clipPath>
     <clipPath id="grass-egg-4"><path d="M2460 1391 C2472.6 1391 2476.2 1414.6 2475 1417.6 C2473.8 1428.2 2466 1429 2460 1429 C2454 1429 2446.2 1428.2 2445 1417.6 C2443.8 1414.6 2447.4 1391 2460 1391 Z"/></clipPath>
   </defs>
-  <rect width="2560" height="1440" fill="url(#sky)"/>
   <g>
     <path d="M620 4 Q1105 18 1590 4" fill="none" stroke="#8c7b66" stroke-width="4" stroke-linecap="round"/>
     <path d="M-17 0 L17 0 L4 29 Q0 36 -4 29 Z" fill="#f6d36b" transform="translate(664.1 5.2) rotate(1.5)"/>

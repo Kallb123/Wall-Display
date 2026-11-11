@@ -165,7 +165,7 @@ describe('processArt: size', () => {
 
   it('has limits of 2 MB for a tile and 20 MB for the rest', () => {
     const big = 20 * 1024 * 1024
-    expect(ART_LIMITS).toEqual({ 'tile': 2 * 1024 * 1024, 'full': big, 'full-portrait': big, 'extra': big, 'extra-portrait': big })
+    expect(ART_LIMITS).toEqual({ 'tile': 2 * 1024 * 1024, 'full': big, 'full-portrait': big, 'backdrop': big, 'backdrop-portrait': big, 'extra': big, 'extra-portrait': big })
   })
 
   it('refuses over-size full and extra art too', async () => {

@@ -182,7 +182,7 @@ const weekOf = computed(() => (previewing.value ? previewDays.value?.today : nul
 // The week's first day, which is what the events are fetched for. A pinned week can be far from the month grid, so it may need a request of its own.
 const shownWeek = computed(() => settings.value && weekOf.value ? firstDayOfWeek(weekOf.value, settings.value.week_start) : null)
 
-/** The takeover in force, which sets the palette, the art behind the view and the greeting. */
+/** The takeover in force, which sets the palette, the art and the greeting. */
 const takeover = computed(() => takeoverInForce({
   resolution: activeSpecialDays.value,
   view: state.value.view,
@@ -192,14 +192,13 @@ const takeover = computed(() => takeoverInForce({
 }))
 
 /** The takeover's art cut for this stage's shape. */
-const fullArt = computed(() => takeoverArt(takeover.value, stage.value.orientation).full)
-const extraArt = computed(() => takeoverArt(takeover.value, stage.value.orientation).extra)
+const stageArt = computed(() => takeoverArt(takeover.value, stage.value.orientation))
 /** Whether the art goes over the view (the display's `takeover_art`, for this stage's shape) rather than behind it. */
 const artOver = computed(() => takeoverArtOver(settings.value?.takeover_art, stage.value.orientation))
-/** The art's layers, bottom first: the full art, then the day's extra layer over it. */
+/** The art's layers that may go over the view, bottom first: the full art, then the day's extra layer over it. The backdrop is drawn apart, always behind. */
 const artLayers = computed(() => [
-  { file: fullArt.value, testid: 'takeover-full' },
-  { file: extraArt.value, testid: 'takeover-extra' },
+  { file: stageArt.value.full, testid: 'takeover-full' },
+  { file: stageArt.value.extra, testid: 'takeover-extra' },
 ].filter((layer): layer is { file: string, testid: string } => layer.file !== null))
 
 // Burn-in shifting is on unless the display says otherwise. Settings cached before PR 5.3 have no word on it, and the default is on. Until there are settings at all nothing moves, so a display that has it off never starts out nudged and slides back.
@@ -389,8 +388,17 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
     >
       <!-- Everything the burn-in shift moves. The dimmer is outside it, so it covers the whole stage whatever the offset. -->
       <div class="shift" data-testid="shift" :style="shiftStyle">
-        <!-- Behind the view by default, which is solid where it has text, so the art shows in the margins and the gaps. -->
+        <!-- Behind the view by default, which is solid where it has text, so the art shows in the margins and the gaps. The backdrop (a sky, say) is behind it always, under the rest of the art. -->
         <!-- Each stage draws the art cut for its shape (2560×1440 or 1440×2560), never the other: cropped to the wrong one it wouldn't hold up. A portrait wall whose day has none shows no art. -->
+        <img
+          v-if="stageArt.backdrop"
+          class="takeover-art"
+          :src="specialDayArtUrl(stageArt.backdrop)"
+          alt=""
+          draggable="false"
+          data-testid="takeover-backdrop"
+          data-place="behind"
+        >
         <template v-if="!artOver">
           <img
             v-for="layer in artLayers"

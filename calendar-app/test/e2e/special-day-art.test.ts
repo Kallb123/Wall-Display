@@ -310,7 +310,7 @@ describe('special day art', async () => {
 
     // The day has a portrait picture of its own and no landscape one, so a landscape wall shows
     // none rather than its scene's, and a portrait wall shows the day's.
-    expect((await resolved()).takeover).toMatchObject({ id: 'party', full_art: null, full_art_portrait: day.full_art_portrait, extra_art_portrait: extra.extra_art_portrait })
+    expect((await resolved()).takeover).toMatchObject({ id: 'party', full_art: null, full_art_portrait: day.full_art_portrait, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: extra.extra_art_portrait })
 
     const cleared = await (await remove('/api/special-days/party/art/full-portrait')).json() as SpecialDay
     expect(cleared.full_art_portrait).toBeNull()
@@ -331,6 +331,25 @@ describe('special day art', async () => {
     const cleared = await (await remove('/api/special-day-scenes/birthday/art/full-portrait')).json() as SpecialDayScene
     expect(cleared.full_art_portrait).toBeNull()
     expect((await served(scene.full_art_portrait!)).status).toBe(404)
+    expect(stored()).toEqual(before)
+  })
+
+  it('gives a scene a backdrop in both shapes, which the takeover carries, and removes the files with them', async () => {
+    const before = stored()
+    // A colour no other test uploads, so the files are this test's own and not shared.
+    const sky = (width: number, height: number) => sharp({ create: { width, height, channels: 3, background: { r: 30, g: 40, b: 70 } } }).jpeg().toBuffer()
+    const wide = await (await upload('/api/special-day-scenes/birthday/art/backdrop', await sky(1000, 500))).json() as SpecialDayScene
+    expect(wide.backdrop_art).toMatch(/^[0-9a-f]{64}\.webp$/)
+    expect(await sharp(Buffer.from(await (await served(wide.backdrop_art!)).arrayBuffer())).metadata()).toMatchObject({ width: 2560, height: 1440 })
+    const tall = await (await upload('/api/special-day-scenes/birthday/art/backdrop-portrait', await sky(500, 1000))).json() as SpecialDayScene
+    expect(await sharp(Buffer.from(await (await served(tall.backdrop_art_portrait!)).arrayBuffer())).metadata()).toMatchObject({ width: 1440, height: 2560 })
+
+    expect((await resolved()).takeover).toMatchObject({ id: 'party', backdrop_art: wide.backdrop_art, backdrop_art_portrait: tall.backdrop_art_portrait })
+
+    expect((await remove('/api/special-day-scenes/birthday/art/backdrop')).status).toBe(200)
+    const cleared = await (await remove('/api/special-day-scenes/birthday/art/backdrop-portrait')).json() as SpecialDayScene
+    expect(cleared).toMatchObject({ backdrop_art: null, backdrop_art_portrait: null })
+    expect((await served(wide.backdrop_art!)).status).toBe(404)
     expect(stored()).toEqual(before)
   })
 

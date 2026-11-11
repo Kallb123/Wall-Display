@@ -67,23 +67,31 @@ export function takeoverInForce({ resolution, view, today, previewing, layout }:
   return previewing || takeover.date === today ? takeover : null
 }
 
+/** A takeover's art for one stage: the backdrop (always behind the view), the full art and the day's extra layer over it, each null for none. */
+export interface StageArt {
+  backdrop: string | null
+  full: string | null
+  extra: string | null
+}
+
 /**
  * The takeover's art for the stage it is drawn on: the landscape cuts on a
  * landscape stage, the portrait ones on a portrait stage, each null for none.
  * Never the other shape's, which cropped to fit wouldn't hold up, so a portrait
  * wall whose day has no portrait art shows none. (`?? null` for a resolution
- * cached before the portrait art, which has neither field.)
+ * cached before the portrait art or the backdrops, which has no such field.)
  */
-export function takeoverArt(takeover: Takeover | null, orientation: 'landscape' | 'portrait'): { full: string | null, extra: string | null } {
-  if (!takeover) return { full: null, extra: null }
+export function takeoverArt(takeover: Takeover | null, orientation: 'landscape' | 'portrait'): StageArt {
+  if (!takeover) return { backdrop: null, full: null, extra: null }
   return orientation === 'portrait'
-    ? { full: takeover.full_art_portrait ?? null, extra: takeover.extra_art_portrait ?? null }
-    : { full: takeover.full_art, extra: takeover.extra_art }
+    ? { backdrop: takeover.backdrop_art_portrait ?? null, full: takeover.full_art_portrait ?? null, extra: takeover.extra_art_portrait ?? null }
+    : { backdrop: takeover.backdrop_art ?? null, full: takeover.full_art, extra: takeover.extra_art }
 }
 
 /**
- * Whether the takeover's art goes over the view rather than behind it, by the
- * display's `takeover_art` and the stage's shape. Behind, the view's solid
+ * Whether the takeover's art (the full art and the extra layer; never the
+ * backdrop, which is always behind) goes over the view rather than behind it,
+ * by the display's `takeover_art` and the stage's shape. Behind, the view's solid
  * panels hide most of it, which on the portrait stage is nearly all of it;
  * over, the whole picture shows and the view shows through its clear parts.
  * (`behind` for settings cached before `takeover_art` existed.)

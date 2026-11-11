@@ -56,7 +56,7 @@ class FakeImage {
 // Halloween 2026, a Saturday, at 10:00 in London (the clocks went back on the 25th).
 const NOW = new Date('2026-10-31T10:00:00Z')
 
-const halloween: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: 'bat.png', full_art_portrait: 'wall-tall.webp', extra_art_portrait: 'bat-tall.png' }
+const halloween: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: 'bat.png', full_art_portrait: 'wall-tall.webp', backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: 'bat-tall.png' }
 const resolution = (changes: Partial<SpecialDaysResolution> = {}): SpecialDaysResolution => ({
   today: '2026-10-31',
   from: '2026-09-28',
@@ -74,7 +74,7 @@ const christmas = resolution({
   to: '2027-01-10',
   tiles: [{ date: '2026-12-25', days: [{ id: 'christmas', name: 'Christmas', palette: 'frost', tile_art: 'tree.svg' }] }],
   current: { id: 'christmas', name: 'Christmas' },
-  takeover: { id: 'christmas', name: 'Christmas', date: '2026-12-25', greeting: 'Merry Christmas', palette: 'frost', full_art: 'snow.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null },
+  takeover: { id: 'christmas', name: 'Christmas', date: '2026-12-25', greeting: 'Merry Christmas', palette: 'frost', full_art: 'snow.webp', extra_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: null },
 })
 
 const state = (changes: Partial<DisplayState> = {}): DisplayState => displayStateSchema.parse({ view: 'month', ...changes })
@@ -218,6 +218,17 @@ describe('a takeover today', () => {
     const banner = wall.wrapper.find('[data-testid="overlay-banner"]')
     expect(banner.exists()).toBe(true)
     expect(wall.positionInStage(banner.element)).toBeGreaterThan(wall.positionInStage(layers[1]!.element))
+  })
+
+  it('keeps the backdrop behind the view even when the rest of the art goes over it', async () => {
+    settingsExtra = { takeover_art: 'over' }
+    const wall = await openWall({ specialDays: resolution({ takeover: { ...halloween, backdrop_art: 'sky.webp' } }) })
+
+    const backdrop = wall.wrapper.find('[data-testid="takeover-backdrop"]')
+    expect(backdrop.attributes('src')).toBe('/special-days/sky.webp')
+    const view = wall.positionInStage(wall.wrapper.find('[data-testid="month-view"]').element)
+    expect(wall.positionInStage(backdrop.element)).toBeLessThan(view)
+    expect(wall.positionInStage(wall.wrapper.find('[data-testid="takeover-full"]').element)).toBeGreaterThan(view)
   })
 
   it('keeps the art behind on the landscape stage when takeover_art is over_in_portrait', async () => {
@@ -1021,7 +1032,7 @@ describe('orientation', () => {
 
   it('draws no art on the portrait stage for a takeover with only landscape art', async () => {
     resizeWindow(720, 1280)
-    const landscapeOnly = { ...halloween, full_art_portrait: null, extra_art_portrait: null }
+    const landscapeOnly = { ...halloween, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: null }
     const wall = await openWall({ state: state({ view: 'agenda' }), specialDays: resolution({ takeover: landscapeOnly }) })
     expect(wall.stage().attributes('data-orientation')).toBe('portrait')
     expect(wall.stage().findAll('img.takeover-art')).toHaveLength(0)

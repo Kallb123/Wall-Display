@@ -54,21 +54,33 @@ export function referencedArt(db: Db): Set<string> {
   const add = (name: string | null) => {
     if (name !== null) names.add(name)
   }
-  for (const row of db.select({ tile: specialDayScenes.tileArt, full: specialDayScenes.fullArt, portrait: specialDayScenes.fullArtPortrait }).from(specialDayScenes).all()) {
+  for (const row of db.select({
+    tile: specialDayScenes.tileArt,
+    full: specialDayScenes.fullArt,
+    portrait: specialDayScenes.fullArtPortrait,
+    backdrop: specialDayScenes.backdropArt,
+    backdropPortrait: specialDayScenes.backdropArtPortrait,
+  }).from(specialDayScenes).all()) {
     add(row.tile)
     add(row.full)
     add(row.portrait)
+    add(row.backdrop)
+    add(row.backdropPortrait)
   }
   for (const row of db.select({
     tile: specialDays.tileArt,
     full: specialDays.fullArt,
     portrait: specialDays.fullArtPortrait,
+    backdrop: specialDays.backdropArt,
+    backdropPortrait: specialDays.backdropArtPortrait,
     extra: specialDays.extraArt,
     extraPortrait: specialDays.extraArtPortrait,
   }).from(specialDays).all()) {
     add(row.tile)
     add(row.full)
     add(row.portrait)
+    add(row.backdrop)
+    add(row.backdropPortrait)
     add(row.extra)
     add(row.extraPortrait)
   }

@@ -200,8 +200,9 @@ export type SpecialDaySceneInput = z.output<typeof specialDaySceneInputSchema>
 /**
  * The parts of a look. Each is null on a day to use its scene's. `lead_days`
  * goes with `lead` and is not a field of its own: the two come from the same
- * place. So does `full_art_portrait` with `full_art`: the two are one picture
- * cropped two ways, so a day that sets either has both of its own.
+ * place. So do `full_art_portrait`, `backdrop_art` and `backdrop_art_portrait`
+ * with `full_art`: they are one picture, in two layers and cropped two ways, so
+ * a day that sets any of them has all four of its own.
  */
 export const LOOK_FIELDS = ['lead', 'tile_art', 'takeover', 'full_art', 'greeting', 'palette'] as const
 export type LookField = (typeof LOOK_FIELDS)[number]
@@ -221,6 +222,10 @@ export const specialDaySceneSchema = z.object({
   full_art: z.string().nullable(),
   /** The full art for a portrait stage (1440×2560): a file name in `/data/special-days/`, or null for none, when a portrait wall shows no full art. */
   full_art_portrait: z.string().nullable(),
+  /** A layer that is always behind the view, under the full art, such as a sky: a file name in `/data/special-days/`, or null. A display that puts the full art over the view still keeps this behind it. */
+  backdrop_art: z.string().nullable(),
+  /** The backdrop for a portrait stage (1440×2560), or null. */
+  backdrop_art_portrait: z.string().nullable(),
   /** May use `{who}`, `{years}` and `{nth}`. */
   greeting: z.string().nullable(),
   palette: z.enum(SPECIAL_DAY_PALETTES),
@@ -255,6 +260,9 @@ export const specialDaySchema = z.object({
   full_art: z.string().nullable(),
   /** The full art for a portrait stage (1440×2560), or null. Goes with `full_art`: if the day has either, both are the day's own (see `effectiveLook`). */
   full_art_portrait: z.string().nullable(),
+  /** The layer always behind the view, under the full art (a sky), and its portrait cut, or null. They go with `full_art` too. */
+  backdrop_art: z.string().nullable(),
+  backdrop_art_portrait: z.string().nullable(),
   greeting: z.string().nullable(),
   palette: z.enum(SPECIAL_DAY_PALETTES).nullable(),
   /** A layer drawn over the full art for this day only, such as a "7" balloon: a file name in `/data/special-days/`, or null. The day's own; scenes have none. */
@@ -274,6 +282,8 @@ export interface SpecialDayLook {
   takeover: boolean
   full_art: string | null
   full_art_portrait: string | null
+  backdrop_art: string | null
+  backdrop_art_portrait: string | null
   greeting: string | null
   palette: SpecialDayPalette
 }
@@ -286,26 +296,37 @@ export const DEFAULT_LOOK: Readonly<SpecialDayLook> = {
   takeover: false,
   full_art: null,
   full_art_portrait: null,
+  backdrop_art: null,
+  backdrop_art_portrait: null,
   greeting: null,
   palette: 'warm',
 }
 
 /** The parts of a day or a scene that make up a look. A scene fits this too, so a scene that hasn't been saved yet can be checked. */
-export type LookSource = Pick<SpecialDay, LookField | 'lead_days' | 'full_art_portrait'>
+export type LookSource = Pick<SpecialDay, LookField | 'lead_days' | PictureField>
+
+/** The files that make up the full-screen picture, besides `full_art`: they always come from the same place (see `effectiveLook`). */
+export const PICTURE_FIELDS = ['full_art', 'full_art_portrait', 'backdrop_art', 'backdrop_art_portrait'] as const
+export type PictureField = (typeof PICTURE_FIELDS)[number]
+
+/** Whether `source` has any part of the full-screen picture of its own. */
+export function hasOwnPicture(source: Pick<SpecialDay, PictureField>): boolean {
+  return PICTURE_FIELDS.some(field => source[field] !== null)
+}
 
 /**
  * The look a day uses, one field at a time (architecture §6.1): its own value
  * if it has one, otherwise its scene's, otherwise the default. `lead` and
  * `lead_days` are one field, taken together from the day if it has a `lead`,
- * otherwise from the scene. `full_art` and `full_art_portrait` are one field
- * the same way: from the day if it has either, otherwise from the scene, so a
- * day with a picture of its own never shows its scene's picture on a portrait
- * wall. A day with no scene (or one that no longer exists) has only its own
+ * otherwise from the scene. `full_art`, `full_art_portrait` and the two
+ * backdrops are one field the same way: from the day if it has any of them,
+ * otherwise from the scene, so a day with a picture of its own never shows its
+ * scene's picture on a portrait wall, or its scene's sky behind its own art. A day with no scene (or one that no longer exists) has only its own
  * values and the defaults.
  */
 export function effectiveLook(day: LookSource, scene?: LookSource | null): SpecialDayLook {
   const leadFrom = day.lead !== null ? day : scene && scene.lead !== null ? scene : null
-  const artFrom = day.full_art !== null || day.full_art_portrait !== null ? day : scene
+  const artFrom = hasOwnPicture(day) ? day : scene
   return {
     lead: leadFrom?.lead ?? DEFAULT_LOOK.lead,
     lead_days: leadFrom ? leadFrom.lead_days : DEFAULT_LOOK.lead_days,
@@ -313,6 +334,8 @@ export function effectiveLook(day: LookSource, scene?: LookSource | null): Speci
     takeover: day.takeover ?? scene?.takeover ?? DEFAULT_LOOK.takeover,
     full_art: artFrom?.full_art ?? DEFAULT_LOOK.full_art,
     full_art_portrait: artFrom?.full_art_portrait ?? DEFAULT_LOOK.full_art_portrait,
+    backdrop_art: artFrom?.backdrop_art ?? DEFAULT_LOOK.backdrop_art,
+    backdrop_art_portrait: artFrom?.backdrop_art_portrait ?? DEFAULT_LOOK.backdrop_art_portrait,
     greeting: day.greeting ?? scene?.greeting ?? DEFAULT_LOOK.greeting,
     palette: day.palette ?? scene?.palette ?? DEFAULT_LOOK.palette,
   }
@@ -342,6 +365,9 @@ export interface Takeover {
   /** The two above for the portrait stage (1440×2560), each null for none. A portrait wall draws only these, never the landscape ones. */
   full_art_portrait: string | null
   extra_art_portrait: string | null
+  /** The layer always behind the view, under the full art (a sky), on a landscape and a portrait stage, each null for none. */
+  backdrop_art: string | null
+  backdrop_art_portrait: string | null
 }
 
 /**
@@ -368,7 +394,7 @@ export interface SpecialDaysResolution {
   takeover: Takeover | null
   /**
    * The art files the wall will need tomorrow that it may not have loaded yet:
-   * tomorrow's takeover's full and extra art (landscape and portrait), and the `tile_art` of every
+   * tomorrow's takeover's backdrop, full and extra art (landscape and portrait), and the `tile_art` of every
    * tile that is decorated tomorrow in the range. Each once, no order promised.
    * The display preloads them in the evening (architecture §6.5).
    */
@@ -399,6 +425,9 @@ export const specialDaysResolutionSchema: z.ZodType<SpecialDaysResolution> = z.o
     // An answer from before the portrait art has none.
     full_art_portrait: z.string().nullable().default(null),
     extra_art_portrait: z.string().nullable().default(null),
+    // An answer from before the backdrops has none.
+    backdrop_art: z.string().nullable().default(null),
+    backdrop_art_portrait: z.string().nullable().default(null),
   }).nullable(),
   // An answer from before PR S.3 has none.
   tomorrow_art: z.array(z.string()).default([]),
@@ -448,6 +477,8 @@ export function resolveSpecialDays(days: readonly SpecialDay[], scenes: readonly
     tomorrow.takeover?.extra_art,
     tomorrow.takeover?.full_art_portrait,
     tomorrow.takeover?.extra_art_portrait,
+    tomorrow.takeover?.backdrop_art,
+    tomorrow.takeover?.backdrop_art_portrait,
     ...tomorrow.tiles.flatMap(({ days: onDate }) => onDate.map(({ tile_art }) => tile_art)),
   ]
   return { ...resolveOn(days, scenes, options), tomorrow_art: [...new Set(art.filter((name): name is string => typeof name === 'string'))] }
@@ -502,6 +533,8 @@ function resolveOn(days: readonly SpecialDay[], scenes: readonly SpecialDayScene
           extra_art: taking.day.extra_art,
           full_art_portrait: taking.look.full_art_portrait,
           extra_art_portrait: taking.day.extra_art_portrait,
+          backdrop_art: taking.look.backdrop_art,
+          backdrop_art_portrait: taking.look.backdrop_art_portrait,
         }
       : null,
     tomorrow_art: [],
@@ -616,6 +649,8 @@ export function resolvePreview(days: readonly SpecialDay[], scenes: readonly Spe
         takeover: null,
         full_art: null,
         full_art_portrait: null,
+        backdrop_art: null,
+        backdrop_art_portrait: null,
         greeting: null,
         palette: null,
         extra_art: null,

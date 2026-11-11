@@ -1,11 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440">
-  <!-- Christmas, 2560×1440, on the frost palette's deep blue. The top left, where the month title sits, is plain sky. The tree, the moon and the snowy hills fill the corner below the today panel, fairy lights hang along the top and snow falls in the margins. -->
+  <!-- Christmas, 2560×1440, transparent over the night sky of backdrop.svg. The top left, where the month title sits, is left clear. The tree, the moon and the snowy hills fill the corner below the today panel, fairy lights hang along the top and snow falls in the margins. -->
   <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0c2238"/>
-      <stop offset="0.6" stop-color="#112d48"/>
-      <stop offset="1" stop-color="#1f4a6e"/>
-    </linearGradient>
     <radialGradient id="moon-glow" cx="0.5" cy="0.5" r="0.5">
       <stop offset="0" stop-color="#d7eaff" stop-opacity="0.35"/>
       <stop offset="1" stop-color="#d7eaff" stop-opacity="0"/>
@@ -15,7 +10,6 @@
       <stop offset="1" stop-color="#fff3c4" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <rect width="2560" height="1440" fill="url(#sky)"/>
   <g>
     <circle cx="2553.4" cy="1188" r="3.2" fill="#eef6fe" opacity="0.8"/>
     <circle cx="7.4" cy="1103.9" r="3.4" fill="#eef6fe" opacity="0.6"/>

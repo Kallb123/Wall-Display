@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="2560" viewBox="0 0 1440 2560">
+  <!-- Easter, 1440×2560: the spring sky alone, for a portrait wall. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f5fbea"/>
+      <stop offset="1" stop-color="#e4f1cf"/>
+    </linearGradient>
+  </defs>
+  <rect width="1440" height="2560" fill="url(#sky)"/>
+</svg>

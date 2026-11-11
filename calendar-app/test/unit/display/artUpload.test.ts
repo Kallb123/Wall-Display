@@ -10,7 +10,7 @@ const file = (name: string, type: string, size = 1000) => ({ name, type, size })
 
 describe('ART_SLOT_LABELS', () => {
   it('names the slots', () => {
-    expect(ART_SLOT_LABELS).toEqual({ 'tile': 'Tile art', 'full': 'Full-screen art', 'extra': 'Extra layer', 'full-portrait': 'Portrait art', 'extra-portrait': 'Portrait extra layer' })
+    expect(ART_SLOT_LABELS).toEqual({ 'tile': 'Tile art', 'full': 'Full-screen art', 'extra': 'Extra layer', 'full-portrait': 'Portrait art', 'extra-portrait': 'Portrait extra layer', 'backdrop': 'Backdrop', 'backdrop-portrait': 'Portrait backdrop' })
   })
 })
 

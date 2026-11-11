@@ -78,6 +78,13 @@
       "when": 1794266857619,
       "tag": "0010_star_chart",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794428826436,
+      "tag": "0011_special_day_backdrop_art",
+      "breakpoints": true
     }
   ]
 }

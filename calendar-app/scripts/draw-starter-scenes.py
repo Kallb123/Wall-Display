@@ -338,6 +338,68 @@ def grass(x0, x1, y, depth, colour, blade=26, rng=None, jitter=8):
     return f'    <path d="{d}" fill="{colour}"/>\n'
 
 
+def streamer(x, y0, y1, amp, period, colours, width=9, phase=0.0):
+    """Party streamers down a margin: one wavy ribbon per colour, each a little out of step with the last."""
+    out = ''
+    for k, col in enumerate(colours):
+        off = phase + k * period / len(colours)
+        d = ''
+        y = y0
+        steps = int((y1 - y0) / 10) + 1
+        for i in range(steps + 1):
+            yy = y0 + i * 10
+            xx = x + amp * math.sin((yy - y0 + off) / period * 2 * math.pi)
+            d += (f'M{n(xx)} {n(yy)}' if i == 0 else f' L{n(xx)} {n(yy)}')
+        out += f'    <path d="{d}" fill="none" stroke="{col}" stroke-width="{n(width)}" stroke-linecap="round" stroke-linejoin="round"/>\n'
+    return out
+
+
+def pine_garland(rng, x, y0, y1, step=26, bulbs=None, every=4):
+    """A garland of pine down a margin: tufts of needles in three greens, with a bulb on every few tufts."""
+    greens = ['#1d5a4c', '#2f7a68', '#3d8a6e', '#24685a']
+    out = ''
+    y = y0
+    i = 0
+    while y <= y1:
+        cx = x + rng.uniform(-3, 3)
+        for _ in range(5):
+            a = math.radians(rng.uniform(0, 360))
+            ln = rng.uniform(15, 23)
+            out += f'    <path d="M{n(cx)} {n(y)} L{n(cx + ln * math.cos(a))} {n(y + ln * math.sin(a))}" stroke="{rng.choice(greens)}" stroke-width="6" stroke-linecap="round"/>\n'
+        if bulbs and i % every == every // 2:
+            col = bulbs[(i // every) % len(bulbs)]
+            bx, by = cx + rng.uniform(-6, 6), y + rng.uniform(-4, 4)
+            out += f'    <circle cx="{n(bx)}" cy="{n(by)}" r="18" fill="url(#bulb-glow)"/>\n'
+            out += f'    <circle cx="{n(bx)}" cy="{n(by)}" r="8" fill="{col}"/>\n'
+            out += f'    <circle cx="{n(bx - 2.5)}" cy="{n(by - 2.5)}" r="2.5" fill="#ffffff" opacity="0.6"/>\n'
+        y += step
+        i += 1
+    return out
+
+
+def vine(rng, x, y0, y1, amp=8, leaf='#7fa36a', stem='#8fa073', flowers=None, every=5):
+    """A climbing vine down a margin: a wavy stem with leaves on alternate sides, and a flower on every few leaves."""
+    d = ''
+    pts = []
+    y = y0
+    i = 0
+    while y <= y1:
+        xx = x + amp * math.sin(i * 0.9)
+        pts.append((xx, y))
+        d += (f'M{n(xx)} {n(y)}' if i == 0 else f' L{n(xx)} {n(y)}')
+        y += 30
+        i += 1
+    out = f'    <path d="{d}" fill="none" stroke="{stem}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>\n'
+    for k, (px, py) in enumerate(pts):
+        side = 1 if k % 2 == 0 else -1
+        rot = 40 * side + rng.uniform(-10, 10)
+        out += f'    <ellipse cx="{n(px + side * 12)}" cy="{n(py)}" rx="14" ry="7" fill="{leaf}" transform="rotate({n(rot)} {n(px + side * 12)} {n(py)})"/>\n'
+        if flowers and k % every == every // 2:
+            col = flowers[(k // every) % len(flowers)]
+            out += daisy(px, py, 15, petal=col, centre='#f6c544')
+    return out
+
+
 def write(name, content):
     path = os.path.join(OUT, name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -383,21 +445,34 @@ def birthday():
     # Portrait.
     rng = random.Random(8)
     body = ''
-    body += g(bunting(580, 1060, 4, 7, 7, PARTY))
+    # Bunting right across the top, kept above the title.
+    body += g(bunting(0, 720, 2, 4, 10, PARTY, w=30, h=30) + bunting(720, 1440, 2, 4, 10, PARTY[3:] + PARTY[:3], w=30, h=30))
+    # Streamers down both margins, and confetti over them.
+    body += g(streamer(24, 170, 2500, 9, 220, ['#f4a8c0', '#8fb8e0', '#f6b73c'], width=8)
+              + streamer(1416, 170, 2500, 9, 220, ['#b49ad8', '#9cc49a', '#f6a06b'], width=8, phase=60))
     body += g(confetti(rng, [
-        (1402, 180, 1436, 2480, 5),
-        (6, 180, 36, 2480, 5),
-        (40, 2516, 1400, 2552, 4),
-        (560, 100, 1000, 140, 1),
-    ], 55, PARTY))
+        (1398, 170, 1438, 2500, 4),
+        (2, 170, 42, 2500, 4),
+        (20, 2512, 1420, 2556, 6),
+        (560, 92, 1040, 146, 2),
+    ], 120, PARTY, size=1.15))
+    # The party in the top right corner, beside the title, on a shelf just above the panel.
     corner = ''
-    corner += present(1100, 74, 74, 62, '#f6b73c', '#f6a06b')
-    corner += present(1186, 90, 60, 46, '#8fb8e0', '#fff6f0')
-    corner += balloon(1320, 56, 34, 42, '#e07a9a', 150, 8)
-    corner += balloon(1388, 76, 30, 38, '#b49ad8', 150, -6)
-    corner += '    <rect x="1080" y="134" width="360" height="22" rx="11" fill="#c8a07e"/>\n'
+    corner += balloon(1230, 58, 40, 50, '#f6b73c', 152, 10)
+    corner += balloon(1316, 46, 44, 54, '#e07a9a', 152, -8)
+    corner += balloon(1398, 66, 38, 48, '#b49ad8', 152, 6)
+    corner += balloon(1140, 74, 32, 40, '#8fb8e0', 152, -6)
+    corner += present(964, 88, 76, 64, '#f6b73c', '#f6a06b')
+    corner += present(1050, 104, 58, 48, '#8fb8e0', '#fff6f0')
+    corner += cake(880, 152, 0.42, '#f4a8c0', '#fff6f0', '#e9d5c0', ['#5f94c4', '#e07a9a', '#9a7bc4'])
+    corner += '    <rect x="760" y="148" width="680" height="12" rx="6" fill="#c8a07e"/>\n'
     body += g(corner)
-    write('birthday/full-portrait.svg', svg(1440, 2560, body, comment='Birthday, 1440×2560, transparent like the landscape one. On a portrait wall only the top strip beside the title, the margins and a band at the very bottom show, so the presents and balloons sit in the top right corner.'))
+    # Along the bottom: presents in both corners and a run of little balloons.
+    foot = ''
+    foot += present(0, 2508, 64, 52, '#f4a8c0', '#fff6f0') + present(56, 2524, 48, 36, '#f6b73c', '#f6a06b')
+    foot += present(1376, 2508, 64, 52, '#8fb8e0', '#fff6f0') + present(1336, 2524, 48, 36, '#b49ad8', '#fff6f0')
+    body += g(foot)
+    write('birthday/full-portrait.svg', svg(1440, 2560, body, comment='Birthday, 1440×2560, transparent like the landscape one. Behind a portrait wall only the top strip beside the title, the margins and a band at the bottom show, so the bunting runs right across the top, the cake, presents and balloons fill the top right corner, streamers run down both margins and presents sit in the bottom corners. Over the view, the same parts frame the calendar.'))
 
 
 # ---------------------------------------------------------------------------
@@ -422,8 +497,12 @@ def christmas():
             '    </radialGradient>\n' + BULB_GLOW)
     COLS = ['#f6c544', '#e8786b', '#9cc49a', '#b5d8fd', '#f2a7c3']
 
-    body = '  <rect width="2560" height="1440" fill="url(#sky)"/>\n'
-    body += g(snow(rng, [
+    sky = defs.split('    <radialGradient id="moon-glow"')[0]
+    write('christmas/backdrop.svg', svg(2560, 1440, '  <rect width="2560" height="1440" fill="url(#sky)"/>\n', sky, comment='Christmas, 2560×1440: the night sky alone. It stays behind the view, whichever side of it the rest of the art is drawn.'))
+    write('christmas/backdrop-portrait.svg', svg(1440, 2560, '  <rect width="1440" height="2560" fill="url(#sky)"/>\n', sky, comment='Christmas, 1440×2560: the night sky alone, for a portrait wall.'))
+    defs = defs.replace(sky, '')
+
+    body = g(snow(rng, [
         (760, 4, 2556, 40, 4),
         (2520, 100, 2556, 1390, 4),
         (6, 170, 40, 1150, 3),
@@ -453,26 +532,31 @@ def christmas():
     scene += present(538, 1350, 60, 44, '#92bce8', '#e8786b')
     scene += present(394, 1360, 50, 34, '#f6c544', '#e8786b')
     body += g(scene)
-    write('christmas/full.svg', svg(2560, 1440, body, defs, comment='Christmas, 2560×1440, on the frost palette\'s deep blue. The top left, where the month title sits, is plain sky. The tree, the moon and the snowy hills fill the corner below the today panel, fairy lights hang along the top and snow falls in the margins.'))
+    write('christmas/full.svg', svg(2560, 1440, body, defs, comment='Christmas, 2560×1440, transparent over the night sky of backdrop.svg. The top left, where the month title sits, is left clear. The tree, the moon and the snowy hills fill the corner below the today panel, fairy lights hang along the top and snow falls in the margins.'))
 
     # Portrait.
     rng = random.Random(26)
-    body = '  <rect width="1440" height="2560" fill="url(#sky)"/>\n'
-    body += g(snow(rng, [
-        (560, 8, 1060, 150, 3),
-        (1404, 180, 1436, 2490, 4),
-        (6, 180, 36, 2490, 4),
-    ], 110))
-    body += g(snowflake(1420, 420, 14, opacity=0.8) + snowflake(1420, 1180, 12, opacity=0.7) + snowflake(1420, 1980, 15, opacity=0.8)
-              + snowflake(20, 760, 12, opacity=0.6) + snowflake(20, 1560, 14, opacity=0.7) + snowflake(20, 2300, 12, opacity=0.6))
-    body += g(lights(580, 1080, -6, 6, 7, COLS))
+    body = g(snow(rng, [
+        (560, 60, 1040, 150, 3),
+        (1400, 170, 1438, 2496, 3),
+        (2, 170, 40, 2496, 3),
+    ], 90))
+    # Pine garlands with lights down both margins.
+    body += g(pine_garland(rng, 22, 170, 2500, bulbs=COLS) + pine_garland(rng, 1418, 170, 2500, bulbs=COLS[2:] + COLS[:2]))
+    # Fairy lights right across the top, above the title.
+    body += g(lights(0, 720, -6, 4, 11, COLS) + lights(720, 1440, -6, 4, 11, COLS[2:] + COLS[:2]))
+    # Baubles and a holly sprig in the top right corner, beside the title.
     corner = ''
-    for i, (bx, length, r, col, band) in enumerate([(1120, 34, 28, '#e8786b', '#f6c544'), (1214, 70, 24, '#92bce8', '#eef6fe'), (1300, 22, 30, '#f6c544', '#e8786b'), (1388, 56, 24, '#9cc49a', '#eef6fe')]):
+    for bx, length, r, col, band in [(940, 40, 26, '#92bce8', '#eef6fe'), (1030, 72, 30, '#e8786b', '#f6c544'), (1124, 30, 34, '#f6c544', '#e8786b'), (1218, 80, 28, '#9cc49a', '#eef6fe'), (1310, 44, 36, '#e8786b', '#eef6fe'), (1394, 70, 28, '#92bce8', '#f6c544')]:
         corner += bauble(bx, 0, length, r, col, band)
+    corner += star(860, 96, 26, '#f6c544', rot=8)
     body += g(corner)
-    ground = '    <path d="M0 2560 L0 2512 Q360 2496 720 2514 Q1080 2530 1440 2508 L1440 2560 Z" fill="#eef6fe"/>\n'
+    # A snowy bank along the bottom, with a little fir in each corner.
+    ground = '    <path d="M0 2560 L0 2500 Q360 2484 720 2504 Q1080 2522 1440 2496 L1440 2560 Z" fill="#eef6fe"/>\n'
+    ground += fir(54, 2548, 120, colours=('#1d5a4c', '#24685a', '#2f7a68'), snowcap='#eef6fe')
+    ground += fir(1386, 2548, 120, colours=('#1d5a4c', '#24685a', '#2f7a68'), snowcap='#eef6fe')
     body += g(ground)
-    write('christmas/full-portrait.svg', svg(1440, 2560, body, defs, comment='Christmas, 1440×2560. Only the top strip, the margins and a thin band at the bottom show on a portrait wall, so baubles hang in the top right corner beside the title and the lights run along the top.'))
+    write('christmas/full-portrait.svg', svg(1440, 2560, body, BULB_GLOW, comment='Christmas, 1440×2560, transparent over the night sky of backdrop-portrait.svg. Behind a portrait wall only the top strip beside the title, the margins and a band at the bottom show, so fairy lights run right across the top, baubles and a star fill the top right corner, pine garlands with lights run down both margins and a snowy bank with a fir in each corner lines the bottom. Over the view, the same parts frame the calendar.'))
 
 
 # ---------------------------------------------------------------------------
@@ -500,10 +584,12 @@ def easter():
            '      <stop offset="1" stop-color="#e4f1cf"/>\n'
            '    </linearGradient>\n')
 
+    write('easter/backdrop.svg', svg(2560, 1440, '  <rect width="2560" height="1440" fill="url(#sky)"/>\n', sky, comment='Easter, 2560×1440: the spring sky alone. It stays behind the view, whichever side of it the rest of the art is drawn.'))
+    write('easter/backdrop-portrait.svg', svg(1440, 2560, '  <rect width="1440" height="2560" fill="url(#sky)"/>\n', sky, comment='Easter, 1440×2560: the spring sky alone, for a portrait wall.'))
+
     # Landscape.
-    defs = sky
-    body = '  <rect width="2560" height="1440" fill="url(#sky)"/>\n'
-    body += g(bunting(620, 1590, 4, 7, 11, SPRING) + bunting(1590, 2560, 4, 7, 11, SPRING[3:] + SPRING[:3]))
+    defs = ''
+    body = g(bunting(620, 1590, 4, 7, 11, SPRING) + bunting(1590, 2560, 4, 7, 11, SPRING[3:] + SPRING[:3]))
     edge = ''
     for y in (300, 760, 1180):
         edge += daisy(2540, y, 18)
@@ -531,36 +617,37 @@ def easter():
     # The front grass hides the bottoms of the eggs.
     scene += grass(0, 2560, 1424, 20, '#8fa073', blade=24, rng=rng, jitter=6)
     body += g(scene)
-    write('easter/full.svg', svg(2560, 1440, body, defs, comment='Easter, 2560×1440, on the sage palette\'s pale green. The top left, where the month title sits, is plain. The bunny, its eggs and the flowers fill the corner below the today panel, more eggs hide in the grass along the bottom, and bunting hangs along the top.'))
+    write('easter/full.svg', svg(2560, 1440, body, defs, comment='Easter, 2560×1440, transparent over the spring sky of backdrop.svg. The top left, where the month title sits, is plain. The bunny, its eggs and the flowers fill the corner below the today panel, more eggs hide in the grass along the bottom, and bunting hangs along the top.'))
 
     # Portrait.
     rng = random.Random(5)
-    defs = sky
-    body = '  <rect width="1440" height="2560" fill="url(#sky)"/>\n'
-    body += g(bunting(580, 1060, 4, 7, 7, SPRING))
-    edge = ''
-    for y in (480, 1240, 2040):
-        edge += daisy(1420, y, 15)
-    for y in (820, 1640, 2380):
-        edge += daisy(20, y, 14)
-    body += g(edge)
-    corner = '    <path d="M1460 18 Q1300 30 1180 70 Q1120 92 1080 132" fill="none" stroke="#8c7b66" stroke-width="9" stroke-linecap="round"/>\n'
-    corner += '    <path d="M1250 46 Q1230 80 1236 108" fill="none" stroke="#8c7b66" stroke-width="6" stroke-linecap="round"/>\n'
-    for bx, by in [(1400, 20), (1330, 38), (1162, 84), (1098, 122), (1236, 110)]:
-        corner += daisy(bx, by, 13, petal='#f9d9e2', centre='#f6c544')
-    for i, (cx, top, length, st) in enumerate([(1360, 30, 40, 0), (1290, 50, 64, 2), (1140, 96, 18, 1)]):
+    defs = ''
+    # Bunting right across the top, kept above the title.
+    body = g(bunting(0, 720, 2, 4, 10, SPRING, w=30, h=30) + bunting(720, 1440, 2, 4, 10, SPRING[3:] + SPRING[:3], w=30, h=30))
+    # Flowering vines climbing both margins.
+    body += g(vine(rng, 22, 170, 2500, flowers=['#f9d9e2', '#ffffff', '#c8b4e4']) + vine(rng, 1418, 170, 2500, flowers=['#ffffff', '#f9d9e2', '#f6d36b']))
+    # A blossom branch with hanging eggs in the top right corner, beside the title.
+    corner = '    <path d="M1460 30 Q1260 44 1100 96 Q980 134 880 150" fill="none" stroke="#8c7b66" stroke-width="11" stroke-linecap="round"/>\n'
+    corner += '    <path d="M1240 54 Q1210 92 1220 130" fill="none" stroke="#8c7b66" stroke-width="7" stroke-linecap="round"/>\n'
+    corner += '    <path d="M1040 112 Q1060 70 1100 52" fill="none" stroke="#8c7b66" stroke-width="7" stroke-linecap="round"/>\n'
+    for bx, by, r in [(1410, 30, 17), (1340, 40, 15), (1220, 130, 16), (1100, 52, 15), (1150, 84, 17), (1000, 128, 16), (900, 146, 14), (1270, 58, 14)]:
+        corner += daisy(bx, by, r, petal='#f9d9e2', centre='#f6c544')
+    for i, (cx, top, length, st, w) in enumerate([(1380, 36, 30, 0, 40), (1300, 50, 50, 2, 44), (1180, 76, 22, 1, 38), (1060, 110, 8, 4, 34), (960, 136, 2, 5, 30)]):
         corner += f'    <path d="M{cx} {top} L{cx} {top + length}" stroke="#c8b4e4" stroke-width="3" stroke-linecap="round"/>\n'
-        e, d = egg(cx, top + length + 26, 36, 48, EGG_STYLES[st], f'hanging-egg-{i}')
+        e, d = egg(cx, top + length + w * 0.7, w, w * 1.3, EGG_STYLES[st], f'hanging-egg-{i}')
         corner += e
         defs += d
     body += g(corner)
-    ground = grass(0, 1440, 2516, 50, '#aebf92', blade=28, rng=rng, jitter=8)
-    for i, (cx, st, rot) in enumerate([(180, 4, 8), (520, 5, -10), (900, 0, 6), (1260, 3, -6)]):
-        e, d = egg(cx, 2530, 26, 32, EGG_STYLES[st], f'grass-egg-{i}', rot)
+    # Grass along the bottom, with eggs and flowers in it.
+    ground = grass(0, 1440, 2500, 70, '#aebf92', blade=28, rng=rng, jitter=9)
+    ground += tulip(46, 2556, 90, '#f4b8c8') + daffodil(1394, 2556, 90)
+    for i, (cx, st, rot) in enumerate([(160, 4, 8), (420, 1, -6), (700, 5, -10), (980, 0, 6), (1250, 3, -6)]):
+        e, d = egg(cx, 2522, 30, 38, EGG_STYLES[st], f'grass-egg-{i}', rot)
         ground += e
         defs += d
+    ground += grass(0, 1440, 2530, 30, '#8fa073', blade=24, rng=rng, jitter=6)
     body += g(ground)
-    write('easter/full-portrait.svg', svg(1440, 2560, body, defs, comment='Easter, 1440×2560. Only the top strip, the margins and a thin band at the bottom show on a portrait wall, so a blossom branch with hanging eggs reaches into the top right corner beside the title.'))
+    write('easter/full-portrait.svg', svg(1440, 2560, body, defs, comment='Easter, 1440×2560, transparent over the spring sky of backdrop-portrait.svg. Behind a portrait wall only the top strip beside the title, the margins and a band at the bottom show, so bunting runs right across the top, a blossom branch with hanging eggs fills the top right corner, flowering vines climb both margins and a strip of grass with eggs and flowers lines the bottom. Over the view, the same parts frame the calendar.'))
 
 
 birthday()

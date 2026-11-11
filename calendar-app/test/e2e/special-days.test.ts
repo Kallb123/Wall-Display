@@ -91,6 +91,8 @@ describe('special days', async () => {
       takeover: true,
       full_art: null,
       full_art_portrait: null,
+      backdrop_art: null,
+      backdrop_art_portrait: null,
       greeting: 'Merry Christmas',
       palette: 'warm',
       extra_art: null,

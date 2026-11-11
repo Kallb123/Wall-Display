@@ -91,8 +91,9 @@ function reset(field: Exclude<MarkedField, 'tile_art' | 'full_art'>) {
 }
 
 /**
- * Reset on the full-screen art, which carries the mark for its portrait cut too
- * (the two come from the same place), takes both back to the scene's. Without
+ * Reset on the full-screen art, which carries the mark for its portrait cut and
+ * the backdrops too (they all come from the same place), takes them all back
+ * to the scene's. Without
  * a scene it is Remove, and takes just the landscape one.
  */
 function resetFullArt() {
@@ -103,6 +104,8 @@ function resetFullArt() {
   const own: ArtSlot[] = []
   if (props.saved?.full_art != null) own.push('full')
   if (props.saved?.full_art_portrait != null) own.push('full-portrait')
+  if (props.saved?.backdrop_art != null) own.push('backdrop')
+  if (props.saved?.backdrop_art_portrait != null) own.push('backdrop-portrait')
   emit('clear-art', own)
 }
 
@@ -489,6 +492,35 @@ const running = (action: string) => props.busy === action
             :clearable="saved?.full_art_portrait != null"
             @file="emit('upload', 'full-portrait', $event)"
             @clear="emit('clear-art', ['full-portrait'])"
+          />
+        </div>
+
+        <div class="art-pair">
+          <SpecialDaysArtDrop
+            label="Backdrop"
+            art-slot="backdrop"
+            :art="look.backdrop_art"
+            aspect="wide"
+            :progress="uploads.backdrop?.progress ?? null"
+            :error="uploads.backdrop?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the day first to add art' : 'Optional: a sky or ground that always stays behind the calendar, even on a wall that puts the art over it'"
+            :clearable="saved?.backdrop_art != null"
+            @file="emit('upload', 'backdrop', $event)"
+            @clear="emit('clear-art', ['backdrop'])"
+          />
+          <SpecialDaysArtDrop
+            label="Portrait backdrop"
+            art-slot="backdrop-portrait"
+            :art="look.backdrop_art_portrait"
+            aspect="tall"
+            :progress="uploads['backdrop-portrait']?.progress ?? null"
+            :error="uploads['backdrop-portrait']?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the day first to add art' : 'The backdrop for a portrait wall'"
+            :clearable="saved?.backdrop_art_portrait != null"
+            @file="emit('upload', 'backdrop-portrait', $event)"
+            @clear="emit('clear-art', ['backdrop-portrait'])"
           />
         </div>
 

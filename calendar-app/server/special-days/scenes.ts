@@ -34,7 +34,7 @@ export function getScene(db: Db, id: string): SpecialDayScene | undefined {
   return row && toSpecialDayScene(row)
 }
 
-/** Art files a new scene starts with, by slot. A starter scene has all three; one made in the editor has none. */
+/** Art files a new scene starts with, by slot. A starter scene has its own; one made in the editor has none. */
 export type SceneArt = Partial<Record<SceneArtSlot, string>>
 
 /** Stores a new scene under a slug of its name, with any art it starts with, and returns it. */
@@ -47,6 +47,8 @@ export function createScene(db: Db, input: SpecialDaySceneInput, now: Date, art:
     tileArt: art.tile ?? null,
     fullArt: art.full ?? null,
     fullArtPortrait: art['full-portrait'] ?? null,
+    backdropArt: art.backdrop ?? null,
+    backdropArtPortrait: art['backdrop-portrait'] ?? null,
     createdAt: now,
     updatedAt: now,
   }).returning().get()
@@ -106,16 +108,18 @@ export function deleteScene(db: Db, id: string, { detach = false }: { detach?: b
 
     for (const day of users) {
       const ownLead = day.lead !== null
-      const ownArt = day.fullArt !== null || day.fullArtPortrait !== null
+      const ownArt = day.fullArt !== null || day.fullArtPortrait !== null || day.backdropArt !== null || day.backdropArtPortrait !== null
       tx.update(specialDays).set({
         sceneId: null,
         lead: ownLead ? day.lead : scene.lead,
         leadDays: ownLead ? day.leadDays : scene.leadDays,
         tileArt: day.tileArt ?? scene.tileArt,
         takeover: day.takeover ?? scene.takeover,
-        // The two full arts move together, as `effectiveLook` takes them.
+        // The full arts and the backdrops move together, as `effectiveLook` takes them.
         fullArt: ownArt ? day.fullArt : scene.fullArt,
         fullArtPortrait: ownArt ? day.fullArtPortrait : scene.fullArtPortrait,
+        backdropArt: ownArt ? day.backdropArt : scene.backdropArt,
+        backdropArtPortrait: ownArt ? day.backdropArtPortrait : scene.backdropArtPortrait,
         greeting: day.greeting ?? scene.greeting,
         palette: day.palette ?? scene.palette,
         // Set to itself: left out, the column's on-update default would stamp it.
@@ -123,7 +127,7 @@ export function deleteScene(db: Db, id: string, { detach = false }: { detach?: b
       }).where(and(eq(specialDays.id, day.id), eq(specialDays.sceneId, id))).run()
     }
     tx.delete(specialDayScenes).where(eq(specialDayScenes.id, id)).run()
-    return [...new Set([scene.tileArt, scene.fullArt, scene.fullArtPortrait].filter((name): name is string => name !== null))]
+    return [...new Set([scene.tileArt, scene.fullArt, scene.fullArtPortrait, scene.backdropArt, scene.backdropArtPortrait].filter((name): name is string => name !== null))]
   })
 }
 
@@ -135,7 +139,7 @@ export function deleteScene(db: Db, id: string, { detach = false }: { detach?: b
  * it. Null if there is no such scene.
  */
 export function setSceneArt(db: Db, id: string, slot: SceneArtSlot, name: string | null, now: Date): { scene: SpecialDayScene, previous: string | null } | null {
-  const column = { 'tile': 'tileArt', 'full': 'fullArt', 'full-portrait': 'fullArtPortrait' } as const satisfies Record<SceneArtSlot, string>
+  const column = { 'tile': 'tileArt', 'full': 'fullArt', 'full-portrait': 'fullArtPortrait', 'backdrop': 'backdropArt', 'backdrop-portrait': 'backdropArtPortrait' } as const satisfies Record<SceneArtSlot, string>
   return db.transaction((tx) => {
     const before = tx.select().from(specialDayScenes).where(eq(specialDayScenes.id, id)).get()
     if (!before) return null

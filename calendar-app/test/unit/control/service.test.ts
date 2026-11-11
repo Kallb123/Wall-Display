@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Command, DisplayState } from '../../../shared/display'
 import { defaultDisplayState } from '../../../server/control/commands'
-import { createDisplayControl, UnknownDisplayError, UnknownLayoutError, UnknownScheduleError } from '../../../server/control/service'
+import { createDisplayControl, UnknownCameraError, UnknownDisplayError, UnknownLayoutError, UnknownScheduleError } from '../../../server/control/service'
 import type { DisplayControl } from '../../../server/control/service'
 import type { LayoutSummary } from '../../../shared/layouts'
 import { loadDisplayState, saveDisplayState } from '../../../server/control/store'
@@ -69,7 +69,7 @@ describe('the state of a display', () => {
     const { control } = setup()
 
     expect(control.getState('hallway')).toEqual({
-      view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, layout: null, schedules_off: [], schedule: null,
+      view: 'month', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', last_calendar_view: 'month', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null, camera: null, layout: null, schedules_off: [], schedule: null,
     })
   })
 
@@ -495,12 +495,12 @@ describe('the store', () => {
     const old = { view: 'photo', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'on', photo_source: 'immich', brightness: 100, auto_presence: true, auto_brightness: true, overlay: null, preview: null }
     handle.db.insert(displayState).values({ displayId: 'hallway', state: old as never, updatedAt: new Date() }).run()
 
-    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', layout: null, schedules_off: [], schedule: null })
+    expect(loadDisplayState(handle.db, 'hallway')).toEqual({ ...old, last_calendar_view: 'month', camera: null, layout: null, schedules_off: [], schedule: null })
   })
 
   it('saves and loads a state', () => {
     const handle = migratedMemoryDb()
-    const state = { view: 'week', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, layout: null, schedules_off: ['mornings'], schedule: null } as const
+    const state = { view: 'week', month: null, month_set_at: null, week: null, week_set_at: null, screen: 'off', photo_source: 'local', last_calendar_view: 'week', brightness: 20, auto_presence: false, auto_brightness: true, overlay: null, preview: null, camera: null, layout: null, schedules_off: ['mornings'], schedule: null } as const
 
     saveDisplayState(handle.db, 'hallway', state)
 
@@ -701,5 +701,48 @@ describe('custom layouts', () => {
     const { control } = withLayouts([kitchen])
 
     expect(control.applyCommand('hallway', { type: 'schedule_start', schedule: 'mornings', rule: 0, view: 'custom', layout: 'kitchen' })).toMatchObject({ view: 'custom', layout: 'kitchen', schedule: { layout: 'kitchen' } })
+  })
+})
+
+describe('cameras', () => {
+  const frontDoor = { id: 'front-door', name: 'Front door', url: 'http://go2rtc.local:1984/stream.html?src=front_door', kind: 'page' } as const
+
+  function withCameras() {
+    const { handle, bus } = setup()
+    const stateUpdates = vi.fn<(payload: { displayId: string, state: DisplayState }) => void>()
+    bus.on('state.updated', stateUpdates)
+    const control = createDisplayControl({ db: handle.db, displays: DISPLAYS, timeZone: 'Europe/London', bus, cameras: [frontDoor], refresh: () => Promise.resolve([]) })
+    controls.push(control)
+    return { control, stateUpdates }
+  }
+
+  it('shows a camera from the config, and takes it down on time with the screen it woke', () => {
+    const { control, stateUpdates } = withCameras()
+    control.applyCommand('hallway', { type: 'set_screen', screen: 'off' })
+
+    const shown = control.applyCommand('hallway', { type: 'set_camera', camera: 'front-door', seconds: 30, wake: true })
+    expect(shown).toMatchObject({ screen: 'on', camera: { id: 'front-door', name: 'Front door' } })
+
+    stateUpdates.mockClear()
+    vi.advanceTimersByTime(30_000)
+
+    expect(control.getState('hallway')).toMatchObject({ screen: 'off', camera: null })
+    expect(stateUpdates).toHaveBeenCalledWith({ displayId: 'hallway', state: expect.objectContaining({ camera: null, screen: 'off' }) })
+  })
+
+  it('refuses a camera that is not in the config, and changes nothing', () => {
+    const { control } = withCameras()
+    const before = control.getState('hallway')
+
+    expect(() => control.applyCommand('hallway', { type: 'set_camera', camera: 'attic', seconds: 60, wake: true })).toThrow(UnknownCameraError)
+    expect(() => control.applyCommand('hallway', { type: 'set_camera', camera: 'attic', seconds: 60, wake: true })).toThrow('Unknown camera "attic"')
+    expect(control.getState('hallway')).toEqual(before)
+  })
+
+  it('refuses every camera when there are none, but taking one down is always fine', () => {
+    const { control } = setup()
+
+    expect(() => control.applyCommand('hallway', { type: 'set_camera', camera: 'front-door', seconds: 60, wake: true })).toThrow(UnknownCameraError)
+    expect(control.applyCommand('hallway', { type: 'set_camera', camera: null, seconds: 60, wake: true }).camera).toBeNull()
   })
 })

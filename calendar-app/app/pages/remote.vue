@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, LayoutGrid, ListTodo, Lock, MessageCircle, Moon, PanelTop, Pencil, Power, Rows3, Settings, SkipForward, X } from 'lucide-vue-next'
+import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, LayoutGrid, ListTodo, Lock, MessageCircle, Moon, PanelTop, Pencil, Power, Rows3, Settings, SkipForward, Video, X } from 'lucide-vue-next'
 import { MONTH_RANGE, WEEK_RANGE, currentMonth, currentWeek, monthDiff, weekDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
 import { todayIn } from '../../shared/dates'
@@ -11,6 +11,7 @@ import type { StarChart } from '../../shared/stars'
 import RemoteStars from '~/components/stars/RemoteStars.vue'
 import { UNREACHABLE } from '~/composables/useRemoteCommands'
 import { reconnectDelay } from '~/utils/backoff'
+import { isCameraShowing } from '~/utils/camera'
 import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
 import { PHOTO_SOURCE_CHOICES, requestFailure, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions, weekCommandFor, weekOptions } from '~/utils/remote'
 import { THEMES, themeStyle } from '~/utils/themes'
@@ -289,6 +290,13 @@ async function showOverlay() {
 
 function clearOverlay() {
   void commands.send({ type: 'set_overlay', overlay: null })
+}
+
+// The camera on the wall, if there is one (the doorbell rang, say), so it can be taken down once the door is answered.
+const camera = computed(() => state.value && isCameraShowing(state.value.camera, now.value) ? state.value.camera : null)
+
+function closeCamera() {
+  void commands.send({ type: 'set_camera', camera: null })
 }
 
 const refresh = ref<'idle' | 'sending' | 'asked'>('idle')
@@ -585,6 +593,30 @@ function submitPin() {
             <p v-if="!photosShown" id="next-photo-reason" class="hint reason" data-testid="photo-next-reason">
               Turn on the photo frame or the week and photo view to skip photos.
             </p>
+          </div>
+        </section>
+
+        <section v-if="camera" aria-labelledby="camera-title" data-testid="camera">
+          <h2 id="camera-title" class="label">
+            Camera
+          </h2>
+          <div class="card note">
+            <div class="current" data-testid="camera-current">
+              <span class="power live">
+                <AppIcon :icon="Video" :size="26" />
+              </span>
+              <div class="current-text">
+                <p class="current-message" data-testid="camera-current-name">
+                  {{ camera.name }}
+                </p>
+                <p class="hint">
+                  On the wall now
+                </p>
+              </div>
+              <button type="button" class="button small" data-testid="camera-close" @click="closeCamera">
+                Close
+              </button>
+            </div>
           </div>
         </section>
 

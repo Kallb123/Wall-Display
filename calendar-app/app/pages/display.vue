@@ -423,6 +423,9 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
         <!-- Outside the view's transition, so a view change doesn't fade it out and back. Under the dimmer, so screen off blacks it out too. -->
         <OverlayBanner v-if="!unknown" :overlay="state.overlay" :now="now" />
 
+        <!-- Over the view and the banner, such as the front door when the doorbell rings. Under the dimmer like the rest. -->
+        <CameraFeed v-if="!unknown" :camera="state.camera" :now="now" />
+
         <OfflineBadge :status="socket.status.value" :side="offlineSide" />
       </div>
 

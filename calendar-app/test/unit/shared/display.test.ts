@@ -17,6 +17,7 @@ describe('the display state schema', () => {
       auto_brightness: true,
       overlay: null,
       preview: null,
+      camera: null,
       layout: null,
       schedules_off: [],
       schedule: null,

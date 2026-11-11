@@ -77,7 +77,7 @@ calendars:
     person: home
     source: { type: homeassistant, entity_id: calendar.bin_collection } # poll_seconds default 300
 
-# Needed if a calendar uses a homeassistant source, or you set up weather below.
+# Needed if a calendar uses a homeassistant source, or you set up weather, alarm or triggers below.
 homeassistant:
   url: http://homeassistant.local:8123
   token: !secret ha_token # a long-lived access token
@@ -97,6 +97,44 @@ weather:
 # alarm:
 #   entity_id: sensor.pixel_8_next_alarm # a sensor or input_datetime entity
 #   poll_seconds: 300 # default 300; at least 30
+
+# Camera feeds the wall can show over its view, such as the front door when the
+# doorbell rings (see triggers below). The wall's browser loads the address
+# itself, so it must be one the Pi can reach. go2rtc gives one for each stream:
+# stream.html (WebRTC or MSE, the smoothest), api/stream.mp4 or api/stream.mjpeg.
+# Leave this out if you have no cameras.
+cameras:
+  - id: front-door # lowercase letters, digits and hyphens
+    name: Front door # shown above the feed; default the id
+    url: http://go2rtc.local:1984/stream.html?src=front_door&mode=webrtc,mse
+    kind: auto # auto (default: worked out from the address), page, image or video
+
+# Things in Home Assistant the wall acts on. The app keeps a WebSocket open to
+# Home Assistant (through the homeassistant block above) and subscribes to each
+# one. When it happens, each action is applied to each display in displays
+# (every display if left out). An action is any command that
+# POST /api/displays/:id/commands takes. Home Assistant only lets an
+# administrator's token subscribe, so make the token as an administrator.
+triggers:
+  - id: doorbell
+    when:
+      # A state change: entity_id (one or a list), with from and to optional
+      # (quote states such as "on"). With neither, any real change counts, which
+      # suits an event entity such as event.front_door_ding.
+      entity_id: binary_sensor.front_doorbell
+      to: "on"
+      # Or an event on Home Assistant's bus instead:
+      # event_type: doorbell_pressed
+      # event_data: { device: front } # optional; the event's data must contain it
+    displays: [hallway] # optional; default every display
+    actions:
+      - type: set_camera
+        camera: front-door
+        seconds: 60 # default 60; 5 to 1800
+        wake: true # default true; turns a screen that is off on, and off again after
+      # Any other command works too, for example a message under the feed:
+      # - type: set_overlay
+      #   overlay: { text: Someone is at the door, icon: bell, ttl: 60 }
 
 # One entry per screen. Open /display?id=hallway on it.
 # theme, month_style, month_return_minutes, week_start, week_hours, day_parts,

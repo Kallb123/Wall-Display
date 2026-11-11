@@ -31,6 +31,7 @@ export default defineNitroPlugin((nitroApp) => {
     bus,
     // The layouts plugin (02) has started already.
     layouts: useLayouts().summaries(),
+    cameras: config.cameras,
     // The photo service starts after this plugin, so it is looked up when the command arrives.
     photosConfigured: () => photoSourcesOf(usePhotos()?.configured() ?? []).length > 0,
     // The weather and alarm services start after this plugin, so they are looked up when the command arrives.

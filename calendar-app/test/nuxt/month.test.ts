@@ -269,6 +269,89 @@ describe('MonthSoftView', () => {
     })
   })
 
+  describe('weather in the day cells', () => {
+    const pumpkin: TileDecoration = { id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }
+    const cells = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.findAll('[data-testid="cell-weather"]')
+    const dates = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => cells(wrapper).map(cell => cell.attributes('data-date'))
+
+    it('has the icon and the high on today and the days after that have a forecast, and nowhere else', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather }) })
+
+      // Yesterday has a forecast but is over; the 30th has a low and nothing to draw; the rest have none.
+      expect(dates(wrapper)).toEqual(['2026-10-28', '2026-10-29'])
+      expect(cells(wrapper)[0]!.text()).toBe('14°')
+      expect(cells(wrapper)[0]!.find('svg').classes()).toContain('lucide-cloud-rain-icon')
+      expect(cells(wrapper)[1]!.text()).toBe('13°')
+    })
+
+    it('draws nothing without a snapshot', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props() })
+
+      expect(cells(wrapper)).toHaveLength(0)
+    })
+
+    it('is on the days of a neighbouring month that are shown', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather, month: '2026-09', now: new Date('2026-09-30T09:00:00Z') }) })
+      const next = { ...weather, daily: [{ date: '2026-10-01', condition: 'sunny' as const, high: 15, low: 9 }, ...weather.daily] }
+      await wrapper.setProps({ weather: next })
+
+      expect(dates(wrapper)).toContain('2026-10-01')
+    })
+
+    it('is the icon alone on the portrait stage', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather, stage: { width: 1440, height: 2560, orientation: 'portrait' } }) })
+
+      expect(dates(wrapper)).toEqual(['2026-10-28', '2026-10-29'])
+      for (const cell of cells(wrapper)) {
+        expect(cell.text()).toBe('')
+        expect(cell.find('svg').exists()).toBe(true)
+      }
+    })
+
+    it('is the icon alone in a small pane, and gone from one too narrow for it', async () => {
+      const small = await mountSuspended(MonthSoftView, { props: props({ weather, pane: true, stage: { width: 1200, height: 800, orientation: 'landscape' }, paneOptions: { ...DEFAULT_PANE_OPTIONS, show_sidebar: false } }) })
+      expect(cells(small)[0]!.text()).toBe('')
+      expect(cells(small)[0]!.find('svg').exists()).toBe(true)
+
+      const tiny = await mountSuspended(MonthSoftView, { props: props({ weather, pane: true, stage: { width: 700, height: 800, orientation: 'landscape' }, paneOptions: { ...DEFAULT_PANE_OPTIONS, show_sidebar: false } }) })
+      expect(cells(tiny)).toHaveLength(0)
+    })
+
+    it('leaves out the tile of a special day with art in its corner', async () => {
+      const specialDays = { tiles: [{ date: '2026-10-29', days: [pumpkin] }], takeover: null }
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather, specialDays }) })
+
+      expect(dates(wrapper)).toEqual(['2026-10-28'])
+    })
+
+    it('is off when the display\'s preference for the month is off, and on when it is another view that is', async () => {
+      const off = await mountSuspended(MonthSoftView, { props: props({ weather, weatherOnDates: { month: false, week: true, week_parts: true, agenda: true } }) })
+      expect(cells(off)).toHaveLength(0)
+
+      const other = await mountSuspended(MonthSoftView, { props: props({ weather, weatherOnDates: { month: true, week: false, week_parts: false, agenda: false } }) })
+      expect(cells(other)).toHaveLength(2)
+    })
+
+    it('goes by the pane option in a pane, whatever the preference says', async () => {
+      const off = await mountSuspended(MonthSoftView, { props: props({ weather, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: false } }) })
+      expect(cells(off)).toHaveLength(0)
+
+      const on = await mountSuspended(MonthSoftView, { props: props({ weather, weatherOnDates: { month: false, week: true, week_parts: true, agenda: true }, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: true } }) })
+      expect(cells(on)).toHaveLength(2)
+    })
+
+    it('leaves the panel\'s and the cards\' weather as it was when it is off', async () => {
+      const wrapper = await mountSuspended(MonthSoftView, { props: props({ weather, weatherOnDates: { month: false, week: false, week_parts: false, agenda: false }, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: false } }) })
+
+      expect(wrapper.findAll('[data-testid="panel-day"] [data-testid="day-weather"]')).toHaveLength(3)
+      expect(wrapper.find('[data-testid="weather-now"]').exists()).toBe(true)
+
+      const portrait = await mountSuspended(MonthSoftView, { props: props({ weather, stage: { width: 1440, height: 2560, orientation: 'portrait' }, weatherOnDates: { month: false, week: true, week_parts: true, agenda: true } }) })
+      expect(portrait.find('[data-testid="today-high-low"]').exists()).toBe(true)
+      expect(portrait.findAll('[data-testid="next-days"] [data-testid="day-weather"]')).toHaveLength(2)
+    })
+  })
+
   describe('portrait', () => {
     const portrait = (overrides: Partial<ViewProps> = {}) => props({ stage: { width: 1440, height: 2560, orientation: 'portrait' }, weather, ...overrides })
     /** `count` timed events on `date` from 10:00 (so none is over at 09:41). */

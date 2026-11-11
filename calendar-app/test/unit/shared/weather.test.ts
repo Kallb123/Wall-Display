@@ -4,6 +4,7 @@ import {
   WEATHER_CONDITIONS,
   WEATHER_LABELS,
   currentWeather,
+  forecastOn,
   formatTemperature,
   weatherLabel,
   weatherOn,
@@ -39,6 +40,22 @@ describe('weatherOn', () => {
 
   it('keeps a day with only some of it known', () => {
     expect(weatherOn(snapshot(), '2026-10-30')).toEqual({ date: '2026-10-30', condition: 'sunny', high: null, low: 6 })
+  })
+})
+
+describe('forecastOn', () => {
+  it('is the forecast for today and the days after', () => {
+    expect(forecastOn(snapshot(), '2026-10-28', '2026-10-28')).toEqual({ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 })
+    expect(forecastOn(snapshot(), '2026-10-30', '2026-10-28')).toEqual({ date: '2026-10-30', condition: 'sunny', high: null, low: 6 })
+  })
+
+  it('is null for a day before today, even if the snapshot still lists it', () => {
+    expect(forecastOn(snapshot(), '2026-10-28', '2026-10-29')).toBeNull()
+  })
+
+  it('is null with no entry or no snapshot', () => {
+    expect(forecastOn(snapshot(), '2026-11-05', '2026-10-28')).toBeNull()
+    expect(forecastOn(null, '2026-10-28', '2026-10-28')).toBeNull()
   })
 })
 

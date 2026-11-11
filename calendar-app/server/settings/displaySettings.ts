@@ -28,6 +28,7 @@ export function displaySettings(config: Pick<AppConfig, 'timezone' | 'displays'>
     orientation: display.orientation,
     week_hours: { from: display.week_hours.from, to: display.week_hours.to },
     day_parts: { afternoon: display.day_parts.afternoon, evening: display.day_parts.evening },
+    weather_on_dates: { month: display.weather_on_dates.month, week: display.weather_on_dates.week, week_parts: display.weather_on_dates.week_parts, agenda: display.weather_on_dates.agenda },
     photo_sources: photoSources,
   }
 }

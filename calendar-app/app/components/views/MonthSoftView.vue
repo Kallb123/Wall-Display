@@ -8,12 +8,13 @@ import { greetingSize, tileArt } from '~/utils/specialDays'
 import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatCurrent, formatHighLow, formatHighLowWords, weatherIcon } from '~/utils/weather'
+import { showsWeatherOnDates } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import { monthLayout, LANES, PORTRAIT_LANES } from '../../../shared/month-layout'
 import type { DayCell } from '../../../shared/month-layout'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { specialDayArtUrl } from '../../../shared/special-days'
-import { currentWeather, weatherOn } from '../../../shared/weather'
+import { currentWeather, forecastOn, formatTemperature, weatherOn } from '../../../shared/weather'
 
 // The month in the Soft style (mocks 1c and 1d, architecture §4.4): the month
 // title above a sage panel for today and the next three days on the left, and
@@ -51,6 +52,18 @@ import { currentWeather, weatherOn } from '../../../shared/weather'
 // known is left out, and with no weather at all nothing is drawn, so the panel
 // is exactly as it was.
 //
+// The weather is also drawn in the grid (issue 72): a day's tile that is today
+// or later and has a forecast shows its icon and high at the right end of the
+// date row, opposite the day number, in muted type. Past days and days without
+// a forecast stay plain, and so does every tile when the month's forecast on
+// dates is off (the display's preference, or a pane's `weather_on_dates`). It
+// takes no lane and no height, and gives way rather than push or cut the day
+// number: in a narrow tile (`COMPACT_TILE_WIDTH`, the portrait stage or a small
+// pane) it is the icon alone, and where the right end is taken by a special
+// day's art, or the tile is too narrow even for the icon (`MIN_TILE_WIDTH`),
+// it is left out. The panel's and the cards' weather above is not affected by
+// the toggle.
+//
 // A custom layout's pane options (architecture §4.8) change the pieces, never
 // the month: `show_title` and `show_sidebar` leave out the heading, and the
 // panel (the band and the strip in portrait), so the grid takes their room; a
@@ -75,6 +88,16 @@ const showInitials = computed(() => !options.value.fill_events || options.value.
 const root = ref<HTMLElement | null>(null)
 useWrapFit(root, () => options.value.wrap_titles)
 
+/** The grid's outer padding and the gap between its columns (px), as in the styles below. */
+const VIEW_PADDING = 48
+const SIDE_COLUMN = 640
+const VIEW_GAP = 48
+const TILE_GAP = 14
+/** Below this tile width (px) the weather beside the date is the icon alone; the portrait stage's tiles are about 180 and the landscape stage's about 240. */
+const COMPACT_TILE_WIDTH = 220
+/** Below this tile width (px) there is no room for even the icon beside the day number, so none is drawn. */
+const MIN_TILE_WIDTH = 120
+
 const today = computed(() => todayIn(props.now, props.timezone))
 const portrait = computed(() => props.stage.orientation === 'portrait')
 
@@ -86,6 +109,25 @@ const layout = computed(() => monthLayout({
   events: props.events,
   lanes: portrait.value ? PORTRAIT_LANES : undefined,
 }))
+
+/** How wide a day's tile is (px) on this stage: the grid is the stage less its padding, and less the side column when that sits at its left (landscape with the sidebar). */
+const tileWidth = computed(() => {
+  const side = !portrait.value && options.value.show_sidebar ? SIDE_COLUMN + VIEW_GAP : 0
+  const grid = props.stage.width - 2 * VIEW_PADDING - side
+  return (grid - 6 * TILE_GAP) / 7
+})
+const compactTiles = computed(() => tileWidth.value < COMPACT_TILE_WIDTH)
+const showsCellWeather = computed(() => showsWeatherOnDates(props, 'month') && tileWidth.value >= MIN_TILE_WIDTH)
+
+/** The mark in a day's date row: the icon and the high (the high is left out when the tiles are compact); null for a day that is over or has no forecast, or where the art of a special day holds that end of the row. */
+function cellWeather(cell: DayCell) {
+  if (!showsCellWeather.value || decorated.value.get(cell.date)?.art.length) return null
+  const day = forecastOn(props.weather, cell.date, today.value)
+  if (!day) return null
+  const icon = weatherIcon(day.condition)
+  const text = compactTiles.value || day.high === null ? null : formatTemperature(day.high)
+  return icon || text ? { icon, text } : null
+}
 
 /** The takeover's greeting when it has no panel to go in, to be drawn in the header row. */
 const headerGreeting = computed(() => options.value.show_sidebar ? null : props.specialDays.takeover?.greeting ?? null)
@@ -324,6 +366,10 @@ function timedStyle(row: { people: readonly { colour: string }[], column: number
             </div>
             <div class="date" :style="{ gridColumn: cell.column + 1 }">
               <span class="number" :style="numberColours(cell)" :data-testid="cell.today ? 'today-number' : undefined">{{ cell.day }}</span>
+              <span v-if="cellWeather(cell)" class="cell-weather" data-testid="cell-weather" :data-date="cell.date">
+                <AppIcon v-if="cellWeather(cell)!.icon" :icon="cellWeather(cell)!.icon!" :size="30" />
+                <span v-if="cellWeather(cell)!.text">{{ cellWeather(cell)!.text }}</span>
+              </span>
             </div>
           </template>
 
@@ -553,6 +599,27 @@ function timedStyle(row: { people: readonly { colour: string }[], column: number
   line-height: 1.1;
 }
 
+/* The forecast at the right end of the date row: it may shrink and clip itself, never the day number. */
+.cell-weather {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-left: auto;
+  padding-right: 16px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cell-weather svg {
+  flex: none;
+}
+
 /* At the right of the heading, where it doesn't compete with the events below. */
 .day-weather {
   display: flex;
@@ -714,6 +781,7 @@ function timedStyle(row: { people: readonly { colour: string }[], column: number
 
 .number {
   display: grid;
+  flex: none;
   place-items: center;
   min-width: 40px;
   height: 40px;

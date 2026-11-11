@@ -20,6 +20,7 @@ const displayValues: DisplayPreferences = {
   month_return_minutes: 5,
   week_hours: { from: 7, to: 21 },
   day_parts: { afternoon: 12, evening: 17 },
+  weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
   burn_in: true,
   night_text: 'none',
   orientation: 'auto',
@@ -147,6 +148,9 @@ describe('the display preferences', () => {
     expect((card.find('[data-testid="week_hours-to"]').element as HTMLSelectElement).value).toBe('21')
     expect((card.find('[data-testid="day_parts-afternoon"]').element as HTMLSelectElement).value).toBe('12')
     expect((card.find('[data-testid="day_parts-evening"]').element as HTMLSelectElement).value).toBe('17')
+    for (const view of ['month', 'week', 'week_parts', 'agenda']) {
+      expect((card.find(`[data-testid="weather_on_dates-${view}"]`).element as HTMLInputElement).checked).toBe(true)
+    }
     expect(card.find('[data-testid="burn_in"]').attributes('aria-checked')).toBe('true')
     expect(card.find('[data-testid="mark-changed"]').exists()).toBe(false)
     expect(card.find('[data-testid="save"]').attributes('disabled')).toBeDefined()
@@ -214,6 +218,17 @@ describe('the display preferences', () => {
     await flushPromises()
 
     expect(puts()[0]!.body).toEqual({ set: { day_parts: { afternoon: 11, evening: 18 } } })
+  })
+
+  it('sends the whole weather_on_dates when a view is unticked', async () => {
+    const wrapper = await open()
+    const card = hallway(wrapper)
+
+    await card.find('[data-testid="weather_on_dates-week_parts"]').setValue(false)
+    await card.find('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(puts()[0]!.body).toEqual({ set: { weather_on_dates: { month: true, week: true, week_parts: false, agenda: true } } })
   })
 
   it('shows the server\'s message under the parts of the day when it refuses them', async () => {

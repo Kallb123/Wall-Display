@@ -58,8 +58,8 @@ describe('the preferences API', async () => {
       {
         id: 'hallway',
         name: 'Hallway',
-        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, burn_in: true, night_text: 'none', orientation: 'auto' },
-        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, burn_in: true, night_text: 'none', orientation: 'auto' },
+        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, burn_in: true, night_text: 'none', orientation: 'auto' },
+        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, burn_in: true, night_text: 'none', orientation: 'auto' },
         changed: [],
       },
     ])
@@ -135,6 +135,17 @@ describe('the preferences API', async () => {
     expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ day_parts: { afternoon: 12, evening: 17 } })
   })
 
+  it('PUT .../displays/:id saves weather_on_dates, and GET /api/displays shows it', async () => {
+    const off = { month: true, week: false, week_parts: true, agenda: true }
+    const status = await $fetch<PreferencesStatus>('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { set: { weather_on_dates: off } } })
+
+    expect(status.displays[0]).toMatchObject({ values: { weather_on_dates: off }, config: { weather_on_dates: { month: true, week: true, week_parts: true, agenda: true } }, changed: expect.arrayContaining(['weather_on_dates']) })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ weather_on_dates: off })
+
+    await $fetch('/api/settings/preferences/displays/hallway', { method: 'PUT', headers: right, body: { reset: ['weather_on_dates'] } })
+    expect((await $fetch<DisplaySettings[]>('/api/displays'))[0]).toMatchObject({ weather_on_dates: { month: true, week: true, week_parts: true, agenda: true } })
+  })
+
   it('PUT .../displays/:id answers 404 for an unknown display, and 400 with data.fields for a bad body, saving nothing', async () => {
     await expect($fetch('/api/settings/preferences/displays/garage', { method: 'PUT', headers: right, body: { set: { theme: 'dark' } } })).rejects.toMatchObject(reason(404, 'Unknown display'))
 
@@ -145,6 +156,7 @@ describe('the preferences API', async () => {
       [{ set: { month_return_minutes: 5000 } }, { month_return_minutes: expect.any(String) }],
       [{ set: { week_hours: { from: 12, to: 8 } } }, { week_hours: expect.stringContaining('before') }],
       [{ set: { day_parts: { afternoon: 17, evening: 12 } } }, { day_parts: expect.stringContaining('before') }],
+      [{ set: { weather_on_dates: { month: 'yes' } } }, { weather_on_dates: expect.stringContaining('true or false') }],
       [{ set: { theme: 'dark' }, reset: ['theme'] }, { theme: expect.stringContaining('both') }],
       [{ set: { night_text: 'next_alarm' } }, { night_text: expect.stringContaining('alarm') }],
       [[1], { _: expect.any(String) }],

@@ -37,6 +37,7 @@ export function readDisplayPreferences(display: DisplayConfig): DisplayPreferenc
     month_return_minutes: display.month_return_minutes,
     week_hours: { from: display.week_hours.from, to: display.week_hours.to },
     day_parts: { afternoon: display.day_parts.afternoon, evening: display.day_parts.evening },
+    weather_on_dates: { month: display.weather_on_dates.month, week: display.weather_on_dates.week, week_parts: display.weather_on_dates.week_parts, agenda: display.weather_on_dates.agenda },
     burn_in: display.burn_in,
     night_text: display.night_text,
     orientation: display.orientation,
@@ -67,6 +68,7 @@ const displaySchemas: Record<DisplayPreferenceKey, z.ZodType> = {
   month_return_minutes: displayFields.month_return_minutes,
   week_hours: displayFields.week_hours,
   day_parts: displayFields.day_parts,
+  weather_on_dates: displayFields.weather_on_dates,
   burn_in: displayFields.burn_in,
   night_text: displayFields.night_text,
   orientation: displayFields.orientation,
@@ -304,7 +306,7 @@ export function mergeOverrides(config: AppConfig, overrides: Overrides): AppConf
   const displays = config.displays.map((display) => {
     const own = overrides.displays[display.id]
     if (!own || Object.keys(own).length === 0) return display
-    return Object.freeze({ ...display, ...own, ...(own.week_hours ? { week_hours: Object.freeze({ ...own.week_hours }) } : {}), ...(own.day_parts ? { day_parts: Object.freeze({ ...own.day_parts }) } : {}) })
+    return Object.freeze({ ...display, ...own, ...(own.week_hours ? { week_hours: Object.freeze({ ...own.week_hours }) } : {}), ...(own.day_parts ? { day_parts: Object.freeze({ ...own.day_parts }) } : {}), ...(own.weather_on_dates ? { weather_on_dates: Object.freeze({ ...own.weather_on_dates }) } : {}) })
   })
 
   const shared = overrides.shared

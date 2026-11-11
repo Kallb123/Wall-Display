@@ -25,6 +25,7 @@ describe('reading preferences from the config', () => {
       month_return_minutes: 15,
       week_hours: { from: 7, to: 21 },
       day_parts: { afternoon: 12, evening: 17 },
+      weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
       burn_in: true,
       night_text: 'none',
       orientation: 'auto',
@@ -77,6 +78,14 @@ describe('reading an update', () => {
     expect(parseDisplayUpdate({})).toEqual({ ok: true, set: {}, reset: [] })
   })
 
+  it('saves a weather_on_dates as all four keys, the ones left out being on', () => {
+    expect(parseDisplayUpdate({ set: { weather_on_dates: { agenda: false } } })).toEqual({
+      ok: true,
+      set: { weather_on_dates: { month: true, week: true, week_parts: true, agenda: false } },
+      reset: [],
+    })
+  })
+
   it('accepts null for the shared values the config can leave out', () => {
     expect(parseSharedUpdate({ set: { quiet_hours: null, night_below_lux: null, night_above_lux: null } })).toMatchObject({ ok: true })
   })
@@ -101,6 +110,9 @@ describe('reading an update', () => {
     ['a day_parts with afternoon at or after evening', { set: { day_parts: { afternoon: 17, evening: 17 } } }, { day_parts: expect.stringContaining('before') }],
     ['a day_parts out of range', { set: { day_parts: { afternoon: 0, evening: 17 } } }, { day_parts: expect.stringContaining('afternoon must be from 1 to 22') }],
     ['a day_parts with an extra key', { set: { day_parts: { afternoon: 12, evening: 17, x: 3 } } }, { day_parts: expect.stringContaining('"x"') }],
+    ['a weather_on_dates that is not an object', { set: { weather_on_dates: true } }, { weather_on_dates: expect.any(String) }],
+    ['a weather_on_dates with a value that is not true or false', { set: { weather_on_dates: { month: 'yes' } } }, { weather_on_dates: expect.stringContaining('true or false') }],
+    ['a weather_on_dates with an extra key', { set: { weather_on_dates: { month: true, day: true } } }, { weather_on_dates: expect.stringContaining('"day"') }],
     ['a key in both set and reset', { set: { theme: 'dark' }, reset: ['theme'] }, { theme: expect.stringContaining('both') }],
   ])('refuses %s', (_name, body, fields) => {
     expect(parseDisplayUpdate(body)).toEqual({ ok: false, fields })
@@ -210,7 +222,7 @@ describe('merging overrides into the config', () => {
     const before = JSON.stringify(config)
 
     const merged = mergeOverrides(config, {
-      displays: { hallway: { theme: 'dark', week_hours: { from: 6, to: 22 }, day_parts: { afternoon: 11, evening: 18 }, burn_in: false } },
+      displays: { hallway: { theme: 'dark', week_hours: { from: 6, to: 22 }, day_parts: { afternoon: 11, evening: 18 }, weather_on_dates: { month: false, week: true, week_parts: true, agenda: false }, burn_in: false } },
       shared: { photo_interval_seconds: 20, off_after_minutes: 3 },
     })
 
@@ -222,6 +234,8 @@ describe('merging overrides into the config', () => {
     expect(Object.isFrozen(merged.policies.auto_presence)).toBe(true)
     expect(merged.displays[0]).toMatchObject({ id: 'hallway', theme: 'dark', burn_in: false, week_hours: { from: 6, to: 22 }, day_parts: { afternoon: 11, evening: 18 }, week_start: 'monday' })
     expect(Object.isFrozen((merged.displays[0] as { day_parts: object }).day_parts)).toBe(true)
+    expect(merged.displays[0]).toMatchObject({ weather_on_dates: { month: false, week: true, week_parts: true, agenda: false } })
+    expect(Object.isFrozen((merged.displays[0] as { weather_on_dates: object }).weather_on_dates)).toBe(true)
     expect(merged.displays[1]).toBe(config.displays[1])
     expect(merged.photos).toMatchObject({ interval_seconds: 20 })
     expect(merged.policies.auto_presence.off_after_minutes).toBe(3)

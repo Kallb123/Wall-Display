@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { currentMonth, DEFAULT_DAY_PARTS, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
+import { currentMonth, DEFAULT_DAY_PARTS, DEFAULT_WEATHER_ON_DATES, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
 import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
 import { DEFAULT_PANE_OPTIONS, layoutSummary, paneOptions } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
@@ -250,6 +250,8 @@ const viewProps = computed<ViewProps | null>(() => {
     weekHours: display.week_hours ?? DEFAULT_WEEK_HOURS,
     // Settings cached before day_parts existed lack it.
     dayParts: display.day_parts ?? DEFAULT_DAY_PARTS,
+    // Settings cached before weather_on_dates existed lack it.
+    weatherOnDates: display.weather_on_dates ?? DEFAULT_WEATHER_ON_DATES,
     weekOf: weekDate,
     weather: weather.value,
     specialDays: activeSpecialDays.value ? { tiles: activeSpecialDays.value.tiles, takeover: takeover.value } : NO_SPECIAL_DAYS,

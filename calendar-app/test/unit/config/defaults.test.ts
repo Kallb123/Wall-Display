@@ -66,6 +66,7 @@ describe('defaults', () => {
       orientation: 'auto',
       week_hours: { from: 7, to: 21 },
       day_parts: { afternoon: 12, evening: 17 },
+      weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
       schedules: [],
     })
   })
@@ -188,6 +189,14 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.displays[0]!.day_parts).toEqual({ afternoon: 11, evening: 18 })
+  })
+
+  it('keeps weather_on_dates as set on a display, with the views it leaves out on', async () => {
+    const raw = minimalConfig()
+    raw.displays[0].weather_on_dates = { week_parts: false, agenda: false }
+    const { config } = await load({ config: raw })
+
+    expect(config.displays[0]!.weather_on_dates).toEqual({ month: true, week: true, week_parts: false, agenda: false })
   })
 
   it('keeps a year of events either side of this month unless told otherwise', async () => {

@@ -102,13 +102,13 @@ describe('the settings store', () => {
 
   it('keeps what it saved when a new store is made on the same database', () => {
     const { store, open, config } = setup()
-    store.updateDisplay('kitchen', { set: { week_start: 'sunday', week_hours: { from: 8, to: 20 }, day_parts: { afternoon: 11, evening: 18 } } })
+    store.updateDisplay('kitchen', { set: { week_start: 'sunday', week_hours: { from: 8, to: 20 }, day_parts: { afternoon: 11, evening: 18 }, weather_on_dates: { month: true, week: false, week_parts: true, agenda: true } } })
     store.updateShared({ set: { min_step: 12, quiet_hours: { from: '21:00', to: '07:00' } } })
 
     const again = open()
 
     expect(again.status()).toEqual(store.status())
-    expect(again.config().displays[1]).toMatchObject({ week_start: 'sunday', week_hours: { from: 8, to: 20 }, day_parts: { afternoon: 11, evening: 18 } })
+    expect(again.config().displays[1]).toMatchObject({ week_start: 'sunday', week_hours: { from: 8, to: 20 }, day_parts: { afternoon: 11, evening: 18 }, weather_on_dates: { month: true, week: false, week_parts: true, agenda: true } })
     expect(again.config().policies.auto_brightness.min_step).toBe(12)
     expect(again.yamlConfig()).toBe(config)
   })

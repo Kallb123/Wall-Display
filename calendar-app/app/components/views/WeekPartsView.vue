@@ -4,12 +4,14 @@ import { eventLabel } from '~/utils/eventLabel'
 import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
+import { showsWeatherOnDates } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import { useWrapFit } from '~/composables/useWrapFit'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import type { ItemPeople } from '../../../shared/month-layout'
+import { todayIn } from '../../../shared/dates'
 import { specialDayArtUrl } from '../../../shared/special-days'
-import { weatherOn } from '../../../shared/weather'
+import { forecastOn } from '../../../shared/weather'
 import { MAX_BADGE_INITIALS } from '../../../shared/week-layout'
 import { LANDSCAPE_CELL_ITEMS, PORTRAIT_CELL_ITEMS, weekPartsLayout } from '../../../shared/week-parts-layout'
 import type { WeekPartsRow } from '../../../shared/week-parts-layout'
@@ -93,9 +95,15 @@ const title = computed(() => {
   return match ? { range: match[1]!, year: match[2]! } : { range: layout.value.title, year: '' }
 })
 
+/** Whether the forecasts are drawn at all: the pane's option, or else the display's preference for this view. Off, the head is as it is with no weather. */
+const showsWeather = computed(() => showsWeatherOnDates(props, 'week_parts'))
+/** Today, `YYYY-MM-DD`: a day before it shows no forecast. */
+const today = computed(() => todayIn(props.now, props.timezone))
+
 /** Each day's forecast: an icon and `14° / 8°`, either of which can be missing; null when the forecast has neither (or there is none). */
 const forecasts = computed(() => layout.value.rows.map((row) => {
-  const forecast = weatherOn(props.weather, row.date)
+  if (!showsWeather.value) return null
+  const forecast = forecastOn(props.weather, row.date, today.value)
   if (!forecast) return null
   const text = formatHighLow(forecast)
   const icon = weatherIcon(forecast.condition)

@@ -1,4 +1,4 @@
-import type { DayParts, NightText, Orientation, Theme, WeekHours } from '../../shared/display'
+import type { DayParts, NightText, Orientation, Theme, WeatherOnDates, WeekHours } from '../../shared/display'
 import type { NightAction, PreferencesUpdate, QuietHours } from '../../shared/settings'
 import { requestFailure } from './remote'
 
@@ -13,6 +13,10 @@ export const WEEK_START_LABELS = { monday: 'Monday', sunday: 'Sunday' } as const
 export const NIGHT_TEXT_LABELS: Record<NightText, string> = { none: 'None', first_event: 'First event', next_alarm: 'Next alarm' }
 export const ORIENTATION_LABELS: Record<Orientation, string> = { auto: 'Auto', landscape: 'Landscape', portrait: 'Portrait' }
 export const NIGHT_ACTION_LABELS: Record<NightAction, string> = { none: 'Nothing', night_view: 'Night view', screen_off: 'Screen off' }
+
+/** The views with a weather-on-dates switch, in the order the form lists them, and what each is called there. */
+export const WEATHER_ON_DATES_KEYS = ['month', 'week', 'week_parts', 'agenda'] as const
+export const WEATHER_ON_DATES_LABELS: Record<(typeof WEATHER_ON_DATES_KEYS)[number], string> = { month: 'Month', week: 'Week', week_parts: 'Day parts', agenda: 'Agenda' }
 
 /** `07:00`, for a whole hour of the day (24 is the end of it). */
 export function hourLabel(hour: number): string {
@@ -40,6 +44,14 @@ export function preferenceText(key: string, value: unknown): string {
     case 'day_parts': {
       const { afternoon, evening } = value as DayParts
       return `afternoon from ${hourLabel(afternoon)}, evening from ${hourLabel(evening)}`
+    }
+    case 'weather_on_dates': {
+      const on = WEATHER_ON_DATES_KEYS.filter(key => (value as WeatherOnDates)[key])
+      if (on.length === WEATHER_ON_DATES_KEYS.length) return 'All views'
+      if (on.length === 0) return 'None'
+      const names = on.map(key => WEATHER_ON_DATES_LABELS[key].toLowerCase())
+      const text = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+      return text.charAt(0).toUpperCase() + text.slice(1)
     }
     case 'quiet_hours': {
       const { from, to } = value as QuietHours

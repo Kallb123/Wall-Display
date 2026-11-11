@@ -4,12 +4,13 @@ import { eventLabel } from '~/utils/eventLabel'
 import { eventFill } from '~/utils/eventFill'
 import { paletteAccent, personFill, tileTint } from '~/utils/themes'
 import { formatHighLow, weatherIcon } from '~/utils/weather'
-import { showsWeatherOnDates } from '../../utils/views'
+import { showsLocations, showsWeatherOnDates } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import { useWrapFit } from '~/composables/useWrapFit'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { todayIn } from '../../../shared/dates'
+import { eventLocation } from '../../../shared/location'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import { forecastOn } from '../../../shared/weather'
 import { MAX_BADGE_INITIALS } from '../../../shared/week-layout'
@@ -64,7 +65,18 @@ import type { WeekPartsRow } from '../../../shared/week-parts-layout'
 // switches wrapping on from the top down while everything still fits. The head's
 // items are not a bounded box (they sit in a flex column that nothing clips), so
 // they stay one line.
-const props = defineProps<ViewProps>()
+//
+// An event's location (`eventLocation`, the first part of an address) is a second,
+// quieter line under a cell line's title, and only where there is room: it is
+// left out of the markup when locations are off (`showsLocations`, the display's
+// preference or the pane's `show_locations`) or the event has none worth showing,
+// and otherwise hidden unless `useWrapFit` set `data-location="on"` on the line,
+// which it does when the cell still holds everything after every title has its
+// room. It works with title wrapping on or off, and it is the first thing to go:
+// it never costs a line, a title's wrap, or a "+N more". The badge and time stay
+// level with the title's first line. The head's items have none.
+// An optional boolean prop left out is false in Vue; `showLocations` left out means on (`showsLocations`), so it defaults to undefined.
+const props = withDefaults(defineProps<ViewProps>(), { showLocations: undefined })
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
 /** Whether the cell lines show their people's initials: always, unless they are coloured and the pane asks for none. */
@@ -73,6 +85,9 @@ const showHeader = computed(() => options.value.show_title || !!props.specialDay
 
 const root = ref<HTMLElement | null>(null)
 useWrapFit(root, () => options.value.wrap_titles)
+
+/** Whether locations are drawn at all: the pane's option, or else the display's preference. */
+const locationsOn = computed(() => showsLocations(props))
 
 const portrait = computed(() => props.stage.orientation === 'portrait')
 
@@ -261,7 +276,15 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
               >{{ badge.initial }}</span>
             </span>
             <span class="time">{{ item.time }}</span>
-            <span class="name">{{ eventLabel(item.event) }}</span>
+            <span class="words">
+              <span class="name">{{ eventLabel(item.event) }}</span>
+              <span
+                v-if="locationsOn && eventLocation(item.event.location)"
+                class="location"
+                data-location-line
+                data-testid="event-location"
+              >{{ eventLocation(item.event.location) }}</span>
+            </span>
           </div>
           <div v-if="cell.more" class="line-more" data-testid="more">
             +{{ cell.more }} more
@@ -599,18 +622,54 @@ const fillOf = (colour: string | null): string => colour ? personFill(colour) : 
   opacity: 0.75;
 }
 
+/* The title and, under it, the location. Where there is no location this is the title alone, as it was. */
+.words {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.words .name {
+  flex: none;
+}
+
+/* A second, quieter line, only where the fit found room for it (data-location is set by useWrapFit). */
+.location {
+  display: none;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 26px;
+  opacity: 0.7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-location='on'] .location {
+  display: block;
+}
+
+.line.filled .location {
+  color: inherit;
+}
+
 /* Wrapping where the fit allowed it (data-wrap is set by useWrapFit): up to three lines, the badge and time staying on the first. */
-.line[data-wrap='on'] {
+.line[data-wrap='on'],
+.line[data-location='on'] {
   align-items: flex-start;
 }
 
-.line[data-wrap='on'] .badges {
+.line[data-wrap='on'] .badges,
+.line[data-location='on'] .badges {
   align-self: flex-start;
   margin-top: 4px;
 }
 
 /* A filled line of several lines is a rounded box, not a stadium. */
-.line.filled[data-wrap='on'] {
+.line.filled[data-wrap='on'],
+.line.filled[data-location='on'] {
   border-radius: 16px;
 }
 

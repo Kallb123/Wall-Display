@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import WeekView from '~/components/views/WeekView.vue'
 import { fixtureEvents } from '../helpers/fixtureEvents'
@@ -408,5 +408,53 @@ describe('WeekView calendar icons', () => {
     const names = wrapper.findAll('.name').map(name => name.text())
     expect(names).toContain('🍽️ Dinner')
     expect(names).toContain('Dentist')
+  })
+})
+
+describe('WeekView locations', () => {
+  const place = (id: number, location: string | null, start = '2026-10-28T14:00:00Z', end = '2026-10-28T16:00:00Z') => event(id, { location, start, end })
+  const locations = (wrapper: Wrapper) => wrapper.findAll('[data-testid="event-location"]')
+
+  it('draws the first part of a location under the title of a long block, and shows it once the fit has run', async () => {
+    const wrapper = await mountSuspended(WeekView, { props: props({ events: [place(1, 'Leisure Centre, 12 High Street, Town')] }) })
+
+    expect(locations(wrapper).map((line: { text: () => string }) => line.text())).toEqual(['Leisure Centre'])
+    const block = wrapper.find('[data-kind="block"]')
+    expect(block.find('.name + [data-testid="event-location"]').exists()).toBe(true)
+    // Nothing measures in happy-dom, so every location has room.
+    await vi.waitFor(() => expect(block.find('[data-wrap-item]').attributes('data-location')).toBe('on'))
+  })
+
+  it('draws the location when showLocations is left out', async () => {
+    const wrapper = await mountSuspended(WeekView, { props: props({ events: [place(1, 'Leisure Centre')] }) })
+
+    expect(wrapper.props('showLocations')).toBeUndefined()
+    expect(locations(wrapper)).toHaveLength(1)
+  })
+
+  it('draws none for no location or a link, and none when locations are off', async () => {
+    const none = await mountSuspended(WeekView, { props: props({ events: [place(1, null), place(2, 'https://meet.example.com/abc')] }) })
+    expect(locations(none)).toHaveLength(0)
+
+    const off = await mountSuspended(WeekView, { props: props({ showLocations: false, events: [place(1, 'Leisure Centre')] }) })
+    expect(locations(off)).toHaveLength(0)
+
+    const pane = await mountSuspended(WeekView, { props: props({ paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: false }, events: [place(1, 'Leisure Centre')] }) })
+    expect(locations(pane)).toHaveLength(0)
+
+    // A pane's own option wins over the display's.
+    const paneOn = await mountSuspended(WeekView, { props: props({ showLocations: false, paneOptions: { ...DEFAULT_PANE_OPTIONS, show_locations: true }, events: [place(1, 'Leisure Centre')] }) })
+    expect(locations(paneOn)).toHaveLength(1)
+  })
+
+  it('draws none in a one-line block, an all-day bar or an overflow chip', async () => {
+    const wrapper = await mountSuspended(WeekView, { props: props({ events: [
+      place(1, 'Studio', '2026-10-28T14:00:00Z', '2026-10-28T14:30:00Z'),
+      event(2, { location: 'Hall', all_day: true, start: '2026-10-28T00:00:00Z', end: '2026-10-29T00:00:00Z', start_date: '2026-10-28', end_date: '2026-10-29' }),
+    ] }) })
+
+    expect(wrapper.find('[data-kind="block"]').classes()).toContain('one-line')
+    expect(wrapper.find('[data-kind="bar"]').exists()).toBe(true)
+    expect(locations(wrapper)).toHaveLength(0)
   })
 })

@@ -16,7 +16,7 @@ export default defineNitroPlugin((nitroApp) => {
   const config = useConfig()
 
   try {
-    const { reresolved, removed } = syncCalendarRows(useDb(), config.calendars, config.people, config.groups)
+    const { reresolved, removed } = syncCalendarRows(useDb(), config.calendars, config.people, config.groups, config.timezone)
     for (const { calendarId, checked, changed } of reresolved) {
       console.info(`[sync] ${calendarId}: people or rules changed, so ${changed} of ${checked} stored events were re-resolved`)
     }

@@ -45,7 +45,7 @@ export async function syncIcsCalendar({ db, calendar, people, groups = [], timeZ
   if (calendar.source.type !== 'ics') throw new Error(`calendar "${calendar.id}" is not an ICS calendar`)
   const { url } = calendar.source
 
-  ensureCalendarRow(db, calendar, people, groups)
+  ensureCalendarRow(db, calendar, people, groups, timeZone)
   const window = syncWindow(now, timeZone, sync.months_back, sync.months_ahead)
   // What the stored events were expanded for. A feed that hasn't changed still
   // has to be read again when the window moves (a new month), or the zone or
@@ -67,7 +67,7 @@ export async function syncIcsCalendar({ db, calendar, people, groups = [], timeZ
     }
 
     const { events, warnings } = expandIcs(response.body, window, { timeZone })
-    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people, groups))
+    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people, groups, timeZone))
     // Only now, with the events safely stored, remember the validators.
     recordSyncStatus(db, calendar.id, {
       lastAttemptAt: attemptedAt,

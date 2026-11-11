@@ -11,6 +11,6 @@ export default defineEventHandler(async (event): Promise<EventsResponse> => {
   return {
     from: from.toISOString(),
     to: to.toISOString(),
-    events: listEvents(useDb(), { from, to, calendars: config.calendars, people: config.people }),
+    events: listEvents(useDb(), { from, to, calendars: config.calendars, people: config.people, timeZone: config.timezone }),
   }
 })

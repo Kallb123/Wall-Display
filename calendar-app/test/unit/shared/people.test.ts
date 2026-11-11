@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../../server/config/load'
 import { expandIcs } from '../../../server/sources/ics/expand'
 import { syncWindow } from '../../../server/sources/time'
-import { createPeopleResolver, DETECTION_VERSION, htmlToText, resolvePeople } from '../../../shared/people'
-import type { DetectableEvent, DetectionCalendar, DetectionGroup } from '../../../shared/people'
+import { createIconResolver, createPeopleResolver, DETECTION_VERSION, htmlToText, resolvePeople, rulesUseTime } from '../../../shared/people'
+import type { DetectableEvent, DetectionCalendar, DetectionGroup, DetectionRule } from '../../../shared/people'
 
 // The family from config.dev.yaml: Mum/Sarah/Mummy, Dad/Tom/Daddy, Isla, Theo,
 // Poppy/Pops, and Household/Family/All (id "home"), with its keyword rules.
@@ -316,6 +316,109 @@ describe('keyword rules', () => {
 
   it('does not change the title when a rule decides', () => {
     expect(resolve('Ballet', null, { rules: FAMILY.rules, strip_names: true }).displayTitle).toBe('Ballet')
+  })
+})
+
+describe('rules on the time an event starts', () => {
+  const ZONE = 'Europe/London'
+  // Wednesday 1 July 2026, in British Summer Time (an hour ahead of UTC), so a
+  // time read in UTC by mistake would be an hour out.
+  const timedAt = (time: string, title = 'Pasta bake', description: string | null = null): DetectableEvent =>
+    ({ title, description, startAt: new Date(new Date(`2026-07-01T${time}:00+01:00`).getTime()), allDay: false })
+  const allDay = (date = '2026-07-01', title = 'Pasta bake'): DetectableEvent =>
+    ({ title, description: null, startAt: new Date(`${date}T00:00:00+01:00`), allDay: true })
+  const meals: DetectionRule[] = [
+    { from: '11:00', to: '14:00', days: ['mon', 'tue', 'wed', 'thu', 'fri'], people: ['isla', 'theo'] },
+    { from: '17:00', to: '20:00', people: ['home'] },
+  ]
+  const ids = (event: DetectableEvent, rules: DetectionRule[] = meals, overrides: Partial<DetectionCalendar> = {}) =>
+    createPeopleResolver(calendar({ person: 'mum', rules, ...overrides }), PEOPLE, [], ZONE)(event).personIds
+
+  it('tells lunch from dinner on a calendar whose titles are only the dishes', () => {
+    expect(ids(timedAt('12:00'))).toEqual(['isla', 'theo'])
+    expect(ids(timedAt('18:30'))).toEqual(['home'])
+    expect(createPeopleResolver(calendar({ rules: meals }), PEOPLE, [], ZONE)(timedAt('12:00')).matchedBy).toBe('rule')
+  })
+
+  it('reads the start on the wall\'s clock, from at or after from and before to', () => {
+    expect(ids(timedAt('11:00'))).toEqual(['isla', 'theo'])
+    expect(ids(timedAt('13:59'))).toEqual(['isla', 'theo'])
+    expect(ids(timedAt('14:00'))).toEqual(['mum'])
+    expect(ids(timedAt('10:59'))).toEqual(['mum'])
+    // 11:30 UTC is 12:30 in London in July; 10:30 UTC is 11:30.
+    expect(ids({ title: 'Soup', description: null, startAt: new Date('2026-07-01T10:30:00Z'), allDay: false })).toEqual(['isla', 'theo'])
+    expect(ids({ title: 'Soup', description: null, startAt: new Date('2026-07-01T09:30:00Z'), allDay: false })).toEqual(['mum'])
+  })
+
+  it('matches only on the days listed, by the day the event starts', () => {
+    // 4 July 2026 is a Saturday.
+    expect(ids({ ...timedAt('12:00'), startAt: new Date('2026-07-04T12:00:00+01:00') })).toEqual(['mum'])
+    expect(ids(timedAt('12:00'), [{ days: ['sat', 'sun'], people: ['dad'] }])).toEqual(['mum'])
+    expect(ids({ ...timedAt('12:00'), startAt: new Date('2026-07-04T12:00:00+01:00') }, [{ days: ['sat', 'sun'], people: ['dad'] }])).toEqual(['dad'])
+  })
+
+  it('runs past midnight when from is after to', () => {
+    const late: DetectionRule[] = [{ from: '22:00', to: '02:00', people: ['dad'] }]
+
+    expect(ids(timedAt('23:30'), late)).toEqual(['dad'])
+    expect(ids(timedAt('01:00'), late)).toEqual(['dad'])
+    expect(ids(timedAt('02:00'), late)).toEqual(['mum'])
+    expect(ids(timedAt('21:59'), late)).toEqual(['mum'])
+  })
+
+  it('never matches an all-day event with a time, but can with days alone', () => {
+    expect(ids(allDay(), [{ from: '00:00', to: '23:59', people: ['dad'] }])).toEqual(['mum'])
+    expect(ids(allDay(), [{ days: ['wed'], people: ['dad'] }])).toEqual(['dad'])
+    expect(ids(allDay('2026-07-02'), [{ days: ['wed'], people: ['dad'] }])).toEqual(['mum'])
+  })
+
+  it('needs both the text and the time when a rule has both', () => {
+    const rules: DetectionRule[] = [{ match: 'swimming', from: '06:00', to: '09:00', people: ['dad'] }, { match: 'swimming', people: ['theo'] }]
+
+    expect(ids(timedAt('07:00', 'Swimming'), rules)).toEqual(['dad', 'theo'])
+    expect(ids(timedAt('16:00', 'Swimming'), rules)).toEqual(['theo'])
+    expect(ids(timedAt('07:00', 'Pasta bake'), rules)).toEqual(['mum'])
+  })
+
+  it('puts the people of text rules first, in the order found, then those of rules on the time alone', () => {
+    const rules: DetectionRule[] = [{ from: '11:00', to: '14:00', people: ['poppy'] }, { match: 'ballet', people: ['isla'] }]
+
+    expect(ids(timedAt('12:00', 'Ballet'), rules)).toEqual(['isla', 'poppy'])
+    // A rule on the time alone needs no text to read.
+    expect(ids(timedAt('12:00', 'Ballet'), rules, { detect_in: ['description'] })).toEqual(['poppy'])
+  })
+
+  it('comes after names, as other rules do', () => {
+    expect(ids(timedAt('12:00', 'Dad: Pasta bake'))).toEqual(['dad'])
+  })
+
+  it('does not match an event with no start', () => {
+    expect(ids({ title: 'Pasta bake', description: null })).toEqual(['mum'])
+  })
+
+  it('needs the time zone only when a rule reads the time', () => {
+    expect(() => createPeopleResolver(calendar({ rules: meals }), PEOPLE)).toThrow('needs the time zone')
+    expect(() => createPeopleResolver(calendar({ rules: [{ match: 'ballet', people: ['isla'] }] }), PEOPLE)).not.toThrow()
+    expect(rulesUseTime(meals)).toBe(true)
+    expect(rulesUseTime([{ days: ['mon'], people: ['dad'] }])).toBe(true)
+    expect(rulesUseTime(FAMILY.rules)).toBe(false)
+  })
+
+  it('gives icons by the time too, and the first rule that matches wins', () => {
+    const rules: DetectionRule[] = [
+      { from: '11:00', to: '14:00', days: ['mon', 'tue', 'wed', 'thu', 'fri'], people: [], icon: '🏫' },
+      { match: 'pizza', people: [], icon: '🍕' },
+      { from: '17:00', to: '20:00', people: [], icon: '🏠' },
+    ]
+    const icon = createIconResolver({ detect_in: ['title', 'description'], rules, icon: '🍽️' }, ZONE)
+
+    expect(icon(timedAt('12:00'))).toBe('🏫')
+    expect(icon(timedAt('12:00', 'Pizza'))).toBe('🏫')
+    expect(icon(timedAt('18:00', 'Pizza'))).toBe('🍕')
+    expect(icon(timedAt('18:00'))).toBe('🏠')
+    expect(icon(timedAt('09:00'))).toBe('🍽️')
+    expect(icon(allDay())).toBe('🍽️')
+    expect(() => createIconResolver({ detect_in: ['title'], rules })).toThrow('needs the time zone')
   })
 })
 

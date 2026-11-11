@@ -44,14 +44,14 @@ export async function syncHomeAssistantCalendar({ db, calendar, homeassistant, p
   if (calendar.source.type !== 'homeassistant') throw new Error(`calendar "${calendar.id}" is not a Home Assistant calendar`)
   const { entity_id: entityId } = calendar.source
 
-  ensureCalendarRow(db, calendar, people, groups)
+  ensureCalendarRow(db, calendar, people, groups, timeZone)
   const window = syncWindow(now, timeZone, sync.months_back, sync.months_ahead)
   const attemptedAt = now
 
   try {
     const raw = await fetchHaCalendar(homeassistant, entityId, window, { fetch: fetchFn })
     const { events, warnings } = mapHaEvents(raw, window, { timeZone })
-    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people, groups))
+    const result = replaceCalendarEvents(db, calendar.id, events, createPeopleResolver(calendar, people, groups, timeZone))
     // No validators to remember: the next poll fetches the window again.
     recordSyncStatus(db, calendar.id, {
       lastAttemptAt: attemptedAt,

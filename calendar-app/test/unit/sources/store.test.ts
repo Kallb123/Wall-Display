@@ -119,6 +119,19 @@ describe('configHash', () => {
     expect(withGroups()).toBe(hash())
   })
 
+  it('changes with a rule\'s time and days, and with the time zone only when a rule reads the time', () => {
+    const lunch = { from: '11:00', to: '14:00', people: ['isla'] }
+    const zoned = (rules: CalendarConfig['rules'], timeZone?: string) => configHash(calendarConfig({ rules }), PEOPLE, [], timeZone)
+
+    expect(zoned([lunch], 'Europe/London')).not.toBe(zoned([{ ...lunch, to: '13:00' }], 'Europe/London'))
+    expect(zoned([lunch], 'Europe/London')).not.toBe(zoned([{ ...lunch, days: ['mon'] }], 'Europe/London'))
+    expect(zoned([lunch], 'Europe/London')).not.toBe(zoned([lunch], 'Europe/Paris'))
+    // A config with no times hashes as it did before rules could have them.
+    const ballet = [{ match: 'ballet', people: ['isla'] }]
+    expect(zoned(ballet, 'Europe/London')).toBe(zoned(ballet, 'Europe/Paris'))
+    expect(zoned(ballet, 'Europe/London')).toBe(hash({ rules: ballet }))
+  })
+
   it('does not change with colours or initials, which are not who an event is for', () => {
     const base = hash()
 
@@ -359,6 +372,19 @@ describe('reresolveStoredEvents', () => {
 
     expect(rowsOf(db)).toEqual(family0)
     expect(rowsOf(db, 'work')).not.toEqual(work)
+  })
+
+  it('reads the stored start times for rules on the time', () => {
+    const db = setup()
+    replace(db, [
+      // 12:00 and 18:00 in London (GMT in November).
+      event({ uid: 'lunch', title: 'Pasta bake', startAt: new Date('2026-11-11T12:00:00Z'), endAt: new Date('2026-11-11T12:30:00Z') }),
+      event({ uid: 'dinner', title: 'Pasta bake', startAt: new Date('2026-11-11T18:00:00Z'), endAt: new Date('2026-11-11T19:00:00Z') }),
+    ])
+    const rules = [{ from: '11:00', to: '14:00', people: ['isla', 'theo'] }]
+
+    expect(reresolveStoredEvents(db, family({ rules }), PEOPLE, [], 'Europe/London')).toEqual({ checked: 2, changed: 1 })
+    expect(rowsOf(db).map(row => row.personIds)).toEqual([['isla', 'theo'], ['home']])
   })
 
   it('does nothing to a calendar with no events', () => {

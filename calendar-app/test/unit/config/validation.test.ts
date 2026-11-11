@@ -186,6 +186,44 @@ describe('validation errors name the field', () => {
     expect(message).toContain('calendars[0].rules[0].icon: must be a single emoji')
   })
 
+  it('accepts a rule on the time an event starts, with or without match', async () => {
+    const raw = minimalConfig()
+    raw.calendars[0].rules = [
+      { from: '11:00', to: '14:00', days: 'weekdays', icon: '🏫' },
+      { match: 'pizza', from: '17:00', to: '20:00', people: ['mum'] },
+      { days: ['sun', 'sat'], icon: '🥞' },
+    ]
+    const { config } = await load({ config: raw })
+
+    expect(config.calendars[0]!.rules).toEqual([
+      { from: '11:00', to: '14:00', days: ['mon', 'tue', 'wed', 'thu', 'fri'], people: [], icon: '🏫' },
+      { match: 'pizza', from: '17:00', to: '20:00', people: ['mum'] },
+      { days: ['sat', 'sun'], people: [], icon: '🥞' },
+    ])
+  })
+
+  it('rejects a rule with nothing to match on', async () => {
+    const message = await messageFor((c) => { c.calendars[0].rules = [{ icon: '🏊' }] })
+
+    expect(message).toContain('calendars[0].rules[0]: must set match, a time (from and to), days, or a mix of them')
+  })
+
+  it('rejects a rule with from but not to, or to but not from', async () => {
+    expect(await messageFor((c) => { c.calendars[0].rules = [{ from: '11:00', icon: '🏫' }] }))
+      .toContain('calendars[0].rules[0].to: is missing: a rule with from needs to as well')
+    expect(await messageFor((c) => { c.calendars[0].rules = [{ to: '14:00', icon: '🏫' }] }))
+      .toContain('calendars[0].rules[0].from: is missing: a rule with to needs from as well')
+  })
+
+  it('rejects a rule whose from and to are the same, or not times', async () => {
+    expect(await messageFor((c) => { c.calendars[0].rules = [{ from: '11:00', to: '11:00', icon: '🏫' }] }))
+      .toContain('calendars[0].rules[0].to: from and to must differ')
+    expect(await messageFor((c) => { c.calendars[0].rules = [{ from: '11', to: '14:00', icon: '🏫' }] }))
+      .toContain('calendars[0].rules[0].from: must be a 24-hour time')
+    expect(await messageFor((c) => { c.calendars[0].rules = [{ days: ['someday'], icon: '🏫' }] }))
+      .toContain('calendars[0].rules[0].days')
+  })
+
   it('homeassistant source without a homeassistant block', async () => {
     const message = await messageFor((c) => {
       c.calendars.push({ id: 'bins', person: 'mum', source: { type: 'homeassistant', entity_id: 'calendar.bins' } })

@@ -6,6 +6,8 @@
 // What this is not: it does not fetch, store or re-resolve anything. The store
 // calls it on every write, whichever source the event came from.
 
+import { dayOfWeek, wallClockIn } from './dates'
+
 /**
  * Bump this when the algorithm changes in a way that can change a result, so
  * the next boot re-resolves the stored events (it is part of the calendar's
@@ -29,12 +31,21 @@ export interface DetectionGroup {
 }
 
 export interface DetectionRule {
-  /** A regular expression, matched case-insensitively. */
-  match: string
+  /** A regular expression, matched case-insensitively. Left out, any text matches, so the rule goes by the event's time alone. */
+  match?: string | undefined
   /** Empty for a rule that only sets an icon. */
   people: readonly string[]
   /** One emoji, drawn before the title of an event the rule matches. */
   icon?: string | undefined
+  /**
+   * `HH:MM`, with `to`: the rule matches only timed events that start at or
+   * after `from` and before `to`, on the wall's clock. `from` after `to` runs
+   * past midnight. All-day events never match a rule with a time.
+   */
+  from?: string | undefined
+  to?: string | undefined
+  /** The days (`mon` to `sun`) an event must start on. Left out, any day. */
+  days?: readonly string[] | undefined
 }
 
 export interface DetectionCalendar {
@@ -49,6 +60,9 @@ export interface DetectionCalendar {
 export interface DetectableEvent {
   title: string
   description: string | null
+  /** When it starts. Only rules with a time or days read it; an event without it never matches them. */
+  startAt?: Date | undefined
+  allDay?: boolean | undefined
 }
 
 export interface ResolvedPeople {
@@ -214,6 +228,66 @@ function compileNames(people: readonly DetectionPerson[], groups: readonly Detec
   }
 }
 
+const WEEKDAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+/** `HH:MM` as minutes since midnight. */
+function minutesOf(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number)
+  return hours! * 60 + minutes!
+}
+
+// The last start read, so the rules of one event read its clock once.
+let lastClock: { at: number, timeZone: string, clock: { date: string, minutes: number } } | null = null
+
+function clockOf(startAt: Date, timeZone: string): { date: string, minutes: number } {
+  const at = startAt.getTime()
+  if (lastClock?.at !== at || lastClock.timeZone !== timeZone) lastClock = { at, timeZone, clock: wallClockIn(startAt, timeZone) }
+  return lastClock.clock
+}
+
+/** Whether any rule looks at when an event starts, and so needs the time zone. */
+export function rulesUseTime(rules: readonly DetectionRule[]): boolean {
+  return rules.some(rule => rule.from !== undefined || rule.to !== undefined || rule.days !== undefined)
+}
+
+/**
+ * A rule made ready to test: its pattern (null when it has none, so any text
+ * matches) and a test of the event's start, which is always true for a rule
+ * with no time and no days.
+ */
+interface CompiledRule {
+  pattern: RegExp | null
+  startsInTime: (event: DetectableEvent) => boolean
+}
+
+function compileRule(rule: DetectionRule, timeZone: string | undefined): CompiledRule {
+  const pattern = rule.match === undefined ? null : new RegExp(rule.match, 'i')
+  const window = rule.from !== undefined && rule.to !== undefined ? { from: minutesOf(rule.from), to: minutesOf(rule.to) } : null
+  const days = rule.days ? new Set(rule.days) : null
+  if (!window && !days) return { pattern, startsInTime: () => true }
+  if (timeZone === undefined) throw new Error('a rule with a time or days needs the time zone to read event times in')
+
+  return {
+    pattern,
+    startsInTime(event) {
+      if (!event.startAt) return false
+      if (window && event.allDay) return false
+      const { date, minutes } = clockOf(event.startAt, timeZone)
+      if (days && !days.has(WEEKDAY_NAMES[dayOfWeek(date)]!)) return false
+      if (!window) return true
+      return window.from < window.to
+        ? minutes >= window.from && minutes < window.to
+        : minutes >= window.from || minutes < window.to
+    },
+  }
+}
+
+/** Whether a rule matches an event: its start fits the rule's time, and some text matches its pattern (if it has one). */
+function ruleMatches(rule: CompiledRule, event: DetectableEvent, texts: readonly string[]): boolean {
+  if (!rule.startsInTime(event)) return false
+  return rule.pattern === null || texts.some(text => rule.pattern!.test(text))
+}
+
 /**
  * Builds the function that resolves an event's people for one calendar. Group
  * names expand to their members, wherever a person's name would be found and in
@@ -222,11 +296,15 @@ function compileNames(people: readonly DetectionPerson[], groups: readonly Detec
  *
  * Rule patterns are compiled with the `i` flag only, as the config check does:
  * `u` would reject patterns the config accepts, such as `\-` or `\_`.
+ *
+ * `timeZone` is the wall's, for rules with a time or days. It is needed only
+ * when a rule has one, and the resolver throws without it then.
  */
 export function createPeopleResolver(
   calendar: DetectionCalendar,
   people: readonly DetectionPerson[],
   groups: readonly DetectionGroup[] = [],
+  timeZone?: string,
 ): (event: DetectableEvent) => ResolvedPeople {
   const names = calendar.detect_people === false ? null : compileNames(people, groups)
   const anywhere = calendar.detect_people === 'anywhere'
@@ -235,7 +313,7 @@ export function createPeopleResolver(
   const membersOf = new Map(groups.map(group => [group.id, group.people]))
   // A rule may list group ids as well as person ids.
   const rules = calendar.rules.map(rule => ({
-    pattern: new RegExp(rule.match, 'i'),
+    ...compileRule(rule, timeZone),
     people: rule.people.flatMap(id => membersOf.get(id) ?? [id]),
   }))
 
@@ -254,8 +332,12 @@ export function createPeopleResolver(
       return { personIds: unique(named), displayTitle: displayTitleOf(event.title, calendar, titlePrefix, titleFor), matchedBy: 'name' }
     }
 
-    // Step 2: keyword rules, for each text in turn.
-    const ruled = texts.flatMap(text => rules.flatMap(rule => rule.pattern.test(text) ? rule.people : []))
+    // Step 2: keyword rules, for each text in turn, and then the rules that go by the time alone.
+    const inTime = rules.filter(rule => rule.startsInTime(event))
+    const ruled = [
+      ...texts.flatMap(text => inTime.flatMap(rule => rule.pattern?.test(text) ? rule.people : [])),
+      ...inTime.flatMap(rule => rule.pattern === null ? rule.people : []),
+    ]
     if (ruled.length > 0) {
       return { personIds: unique(ruled), displayTitle: event.title, matchedBy: 'rule' }
     }
@@ -269,22 +351,24 @@ export function createPeopleResolver(
  * Builds the function that picks an event's icon for one calendar: the icon of
  * the first rule that has one and matches, else the calendar's own, else null.
  * A rule is tested against the same texts as for people (the title and each
- * description line, as `detect_in` says), but whoever the event is for: a name
- * in the title does not stop "swimming" getting its icon.
+ * description line, as `detect_in` says) and the same start time, but whoever
+ * the event is for: a name in the title does not stop "swimming" getting its icon.
+ * `timeZone` is needed when a rule with an icon has a time or days.
  */
 export function createIconResolver(
   calendar: Pick<DetectionCalendar, 'detect_in' | 'rules'> & { icon?: string | undefined },
+  timeZone?: string,
 ): (event: DetectableEvent) => string | null {
   const inTitle = calendar.detect_in.includes('title')
   const inDescription = calendar.detect_in.includes('description')
-  const rules = calendar.rules.flatMap(rule => rule.icon ? [{ pattern: new RegExp(rule.match, 'i'), icon: rule.icon }] : [])
+  const rules = calendar.rules.flatMap(rule => rule.icon ? [{ ...compileRule(rule, timeZone), icon: rule.icon }] : [])
   const fallback = calendar.icon ?? null
   if (rules.length === 0) return () => fallback
 
   return (event) => {
     const lines = inDescription && event.description ? descriptionLines(event.description) : []
     const texts = inTitle ? [event.title, ...lines] : lines
-    return rules.find(rule => texts.some(text => rule.pattern.test(text)))?.icon ?? fallback
+    return rules.find(rule => ruleMatches(rule, event, texts))?.icon ?? fallback
   }
 }
 
@@ -294,8 +378,9 @@ export function resolvePeople(
   calendar: DetectionCalendar,
   people: readonly DetectionPerson[],
   groups: readonly DetectionGroup[] = [],
+  timeZone?: string,
 ): ResolvedPeople {
-  return createPeopleResolver(calendar, people, groups)(event)
+  return createPeopleResolver(calendar, people, groups, timeZone)(event)
 }
 
 function unique(ids: string[]): string[] {

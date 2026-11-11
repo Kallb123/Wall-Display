@@ -267,6 +267,20 @@ describe('listEvents', () => {
     expect(icons({ rules, detect_in: ['title'] })).toEqual(['🏊', null, '🏅', null, '🏊'])
   })
 
+  it('gives an event the icon of a rule on the time it starts, in the wall\'s time zone', () => {
+    const { db } = setup([timed('Pasta bake', '12:00', 30), timed('Fish pie', '18:00', 30)])
+    const rules = [
+      { from: '11:00', to: '14:00', people: [], icon: '🏫' },
+      { from: '17:00', to: '20:00', people: [], icon: '🏠' },
+    ]
+    const icons = (timeZone: string) =>
+      list(db, at('00:00'), at('23:00'), { calendars: [calendarConfig({ rules })], timeZone }).map(e => e.icon)
+
+    expect(icons('Europe/London')).toEqual(['🏫', '🏠'])
+    // Five and a half hours ahead: 17:30 and 23:30.
+    expect(icons('Asia/Kolkata')).toEqual(['🏠', null])
+  })
+
   it('leaves out a person who is no longer in the config, and keeps the event', () => {
     const { db } = setup([event({ title: 'Theo: Swimming', description: 'Who: Theo, Isla' })])
 

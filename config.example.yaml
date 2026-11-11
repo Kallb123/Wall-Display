@@ -54,6 +54,14 @@ calendars:
       # A rule can set an icon as well as people, or instead of them. The first
       # rule with an icon that matches wins, ahead of the calendar's own icon.
       # - { match: "swimming", icon: "🏊" }
+      # A rule can also match on when an event starts: from and to ("HH:MM", in
+      # the timezone above; the event starts at or after from and before to, and
+      # from after to runs past midnight) and days (every_day, weekdays, weekends
+      # or a list such as [mon, wed]). With match as well, both must fit; without
+      # it, any title does. All-day events never match a rule with from and to.
+      # For a meal calendar whose titles are just the dishes:
+      # - { from: "11:00", to: "14:00", days: weekdays, people: [kids], icon: "🏫" }
+      # - { from: "17:00", to: "20:00", people: [home], icon: "🏠" }
     source:
       type: ics
       url: !secret family_ics_url

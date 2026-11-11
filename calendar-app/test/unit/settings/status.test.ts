@@ -24,7 +24,7 @@ describe('calendarStatuses', () => {
     return { db, calendars, family, work }
   }
   const statuses = (args: ReturnType<typeof setup>, canSync: (calendar: { id: string }) => boolean = () => true) =>
-    calendarStatuses({ db: args.db, config: { calendars: args.calendars, people: PEOPLE, groups: [] }, now: NOW, canSync })
+    calendarStatuses({ db: args.db, config: { calendars: args.calendars, people: PEOPLE, groups: [], timezone: 'Europe/London' }, now: NOW, canSync })
 
   it('shows a calendar that has not been tried yet with nulls and a count of 0', () => {
     const [family] = statuses(setup())

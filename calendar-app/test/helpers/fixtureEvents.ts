@@ -34,7 +34,7 @@ export function fixtureEvents({ configFile = 'config.dev.yaml', today = FIXTURE_
 
   let id = 1
   return config.calendars.flatMap((calendar) => {
-    const resolveEvent = createPeopleResolver(calendar, config.people, config.groups)
+    const resolveEvent = createPeopleResolver(calendar, config.people, config.groups, config.timezone)
     const { events } = expandIcs(readFileSync(join(APP_DIR, 'test/fixtures/ics', `${calendar.id}.ics`), 'utf8'), window, { timeZone: config.timezone })
     return events.map((event): CalendarEvent => {
       const resolved = resolveEvent(event)

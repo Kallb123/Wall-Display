@@ -31,6 +31,9 @@ calendars:
       - { match: "ballet|brownies", people: [isla] }
       - { match: "swimming|football", people: [theo] }
       - { match: "rhyme time|playgroup|nursery", people: [poppy] }
+      - { match: "swimming", icon: "🏊" }
+      - { match: "football", icon: "⚽" }
+      - { match: "ballet", icon: "🩰" }
     source: { type: ics, url: "file:./test/fixtures/ics/family.ics" }
 
   # A personal calendar: everything on it is Dad's.

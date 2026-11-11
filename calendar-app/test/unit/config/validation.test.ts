@@ -163,6 +163,29 @@ describe('validation errors name the field', () => {
     expect(message).toContain('calendars[0].icon: must be a single emoji')
   })
 
+  it('accepts a rule with an icon, with or without people', async () => {
+    const raw = minimalConfig()
+    raw.calendars[0].rules = [{ match: 'swimming', icon: '🏊' }, { match: 'ballet', people: ['mum'], icon: '🩰' }]
+    const { config } = await load({ config: raw })
+
+    expect(config.calendars[0]!.rules).toEqual([
+      { match: 'swimming', people: [], icon: '🏊' },
+      { match: 'ballet', people: ['mum'], icon: '🩰' },
+    ])
+  })
+
+  it('rejects a rule with neither people nor an icon', async () => {
+    const message = await messageFor((c) => { c.calendars[0].rules = [{ match: 'swimming' }] })
+
+    expect(message).toContain('calendars[0].rules[0]: must set people, an icon, or both')
+  })
+
+  it('rejects a rule icon that is not a single emoji', async () => {
+    const message = await messageFor((c) => { c.calendars[0].rules = [{ match: 'swimming', icon: 'swim' }] })
+
+    expect(message).toContain('calendars[0].rules[0].icon: must be a single emoji')
+  })
+
   it('homeassistant source without a homeassistant block', async () => {
     const message = await messageFor((c) => {
       c.calendars.push({ id: 'bins', person: 'mum', source: { type: 'homeassistant', entity_id: 'calendar.bins' } })

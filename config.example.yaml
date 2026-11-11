@@ -51,6 +51,9 @@ calendars:
       - { match: "ballet|brownies", people: [isla] }
       - { match: "swimming|football", people: [theo] }
       - { match: "rhyme time|playgroup|nursery", people: [poppy] }
+      # A rule can set an icon as well as people, or instead of them. The first
+      # rule with an icon that matches wins, ahead of the calendar's own icon.
+      # - { match: "swimming", icon: "🏊" }
     source:
       type: ics
       url: !secret family_ics_url

@@ -1,4 +1,4 @@
-import type { DayParts, MonthKey, NextAlarm, NightText, View, WeekHours } from '../../shared/display'
+import type { DayParts, MonthKey, NextAlarm, NightText, View, WeatherOnDates, WeatherOnDatesView, WeekHours } from '../../shared/display'
 import type { CustomLayout, DayGrid, ResolvedPaneOptions, StarGrid } from '../../shared/layouts'
 import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { StarChart } from '../../shared/stars'
@@ -100,6 +100,8 @@ export interface ViewProps {
   dayParts: DayParts
   /** The current conditions and the daily forecast, or null for none (no weather set up, or not heard yet). A view draws no weather at all then. */
   weather: WeatherSnapshot | null
+  /** Which full-screen views draw the forecast next to their dates (the display's `weather_on_dates`). All of them when left out. A pane of a custom layout goes by its own `paneOptions.weather_on_dates` instead (`showsWeatherOnDates`). */
+  weatherOnDates?: WeatherOnDates
   /** The day a week starts on, for the month grid. */
   weekStart: 'monday' | 'sunday'
   /**
@@ -133,3 +135,13 @@ export interface ViewProps {
 
 /** For a view with nothing special on it: no decorated tiles and no takeover. */
 export const NO_SPECIAL_DAYS: ViewProps['specialDays'] = Object.freeze({ tiles: [], takeover: null })
+
+/**
+ * Whether a view draws the forecast next to its dates. A pane of a custom
+ * layout goes by its pane option; a full-screen view (and the week of the week
+ * and photo view, as `week`) by the display's preference for `view`; on when
+ * neither is given.
+ */
+export function showsWeatherOnDates(props: Pick<ViewProps, 'paneOptions' | 'weatherOnDates'>, view: WeatherOnDatesView): boolean {
+  return props.paneOptions?.weather_on_dates ?? props.weatherOnDates?.[view] ?? true
+}

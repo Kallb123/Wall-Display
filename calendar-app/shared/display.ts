@@ -260,6 +260,21 @@ export interface DayParts {
 /** The day parts when config does not say, and what the client uses for settings cached before `day_parts` existed. */
 export const DEFAULT_DAY_PARTS: DayParts = { afternoon: 12, evening: 17 }
 
+/** The views with a "weather next to each date" switch of their own (`weather_on_dates`). The week and photo view follows `week`. The day grid is only ever a pane of a custom layout, where the pane's option decides. */
+export const WEATHER_ON_DATES_VIEWS = ['month', 'week', 'week_parts', 'agenda'] as const
+export type WeatherOnDatesView = (typeof WEATHER_ON_DATES_VIEWS)[number]
+
+/**
+ * Whether each view draws the day's forecast next to its dates: the month's
+ * day cells, the week's column headings, the week by part of day's row heads
+ * and the agenda's day headings. Off leaves the dates plain. The rest of a
+ * view's weather (the month's side panel) is not touched by it.
+ */
+export type WeatherOnDates = Record<WeatherOnDatesView, boolean>
+
+/** Weather on dates when config does not say, and what the client uses for settings cached before `weather_on_dates` existed. */
+export const DEFAULT_WEATHER_ON_DATES: WeatherOnDates = { month: true, week: true, week_parts: true, agenda: true }
+
 /**
  * A display's settings: what `GET /api/displays` returns, and what the page
  * needs that the state does not hold. They come from config, with any changes
@@ -284,6 +299,8 @@ export const displaySettingsSchema = z.object({
   week_hours: z.object({ from: z.number().int().min(0).max(23), to: z.number().int().min(1).max(24) }),
   /** Where the week by part of day view splits a day (PR 5.16). The client takes settings cached before it existed as `DEFAULT_DAY_PARTS`. */
   day_parts: z.object({ afternoon: z.number().int().min(1).max(22), evening: z.number().int().min(2).max(23) }),
+  /** Which views draw the forecast next to their dates. The client takes settings cached before it existed as `DEFAULT_WEATHER_ON_DATES`. */
+  weather_on_dates: z.object({ month: z.boolean(), week: z.boolean(), week_parts: z.boolean(), agenda: z.boolean() }),
   /**
    * The photo sources the server has set up, in the order a display falls back
    * to them (Immich, Google, folder). Empty with no `photos` block. The remote

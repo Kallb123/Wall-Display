@@ -96,10 +96,12 @@ export interface LayoutArrangement {
  * only means something with `fill_events`: it is whether the coloured events
  * still show their people's initials. The photo frame's are its overlays: the
  * time, the date and the weather, each of which can be left off (the weather
- * sits beside the time, in the time's corner). Not every option
+ * sits beside the time, in the time's corner). `weather_on_dates` is whether a
+ * calendar pane draws the day's forecast next to its dates, which for a
+ * full-screen view is the display's preference of the same name. Not every option
  * means something to every component (`PANE_OPTIONS`).
  */
-export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather'] as const
+export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'weather_on_dates'] as const
 export type PaneOptionKey = (typeof PANE_OPTION_KEYS)[number]
 
 /**
@@ -132,17 +134,18 @@ export const DEFAULT_PANE_OPTIONS: ResolvedPaneOptions = {
   show_time: true,
   show_date: false,
   show_weather: true,
+  weather_on_dates: true,
   time_corner: 'auto',
   date_corner: 'auto',
 }
 
 /** Which on-or-off options apply to which component. The editor offers these and the schema refuses any other. */
 export const PANE_OPTIONS: Record<LayoutComponent, readonly PaneOptionKey[]> = {
-  month: ['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles'],
-  week: ['show_title', 'show_hours'],
-  week_parts: ['show_title', 'fill_events', 'show_initials', 'wrap_titles'],
-  agenda: ['fill_events', 'show_initials', 'wrap_titles'],
-  days: ['fill_events', 'show_initials', 'wrap_titles'],
+  month: ['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates'],
+  week: ['show_title', 'show_hours', 'weather_on_dates'],
+  week_parts: ['show_title', 'fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates'],
+  agenda: ['fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates'],
+  days: ['fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates'],
   stars: ['show_title'],
   photo: ['show_time', 'show_date', 'show_weather'],
 }
@@ -242,6 +245,7 @@ const paneOptionsSchema = z.strictObject({
   show_time: optionFlag,
   show_date: optionFlag,
   show_weather: optionFlag,
+  weather_on_dates: optionFlag,
   time_corner: cornerOption,
   date_corner: cornerOption,
 })

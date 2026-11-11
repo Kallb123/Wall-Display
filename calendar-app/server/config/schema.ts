@@ -93,19 +93,53 @@ const group = z.strictObject({
   people: z.array(text).min(1, 'must list at least one person id'),
 })
 
+/** The days a schedule rule's window, or a calendar rule's event, can start on, Monday first. A rule's `days` is normalised to these. */
+export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+export type Weekday = (typeof WEEKDAYS)[number]
+
+const DAY_SETS: Record<'every_day' | 'weekdays' | 'weekends', Weekday[]> = {
+  every_day: [...WEEKDAYS],
+  weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+  weekends: ['sat', 'sun'],
+}
+
+// `every_day`, `weekdays`, `weekends`, or a list of day names. Always comes out as a list in week order with no repeats.
+const days = z.union([
+  z.enum(['every_day', 'weekdays', 'weekends']).transform(value => DAY_SETS[value]),
+  z.array(z.enum(WEEKDAYS, { error: 'must be mon, tue, wed, thu, fri, sat or sun' })).min(1, 'must list at least one day'),
+], { error: 'must be every_day, weekdays, weekends, or a list of days such as [mon, wed, fri]' })
+  .transform(list => WEEKDAYS.filter(day => list.includes(day)))
+
 const emoji = z.string().check((ctx) => {
   if (!isSingleEmoji(ctx.value)) {
     ctx.issues.push({ code: 'custom', message: 'must be a single emoji like "🍽️" (quote it)', input: ctx.value, continue: true })
   }
 })
 
-// A rule gives matching events people, an icon, or both.
+// A rule gives matching events people, an icon, or both. It matches on the
+// event's text (`match`), on when it starts (`from` and `to`, `days`), or on
+// both, so a meal calendar can tell lunch from dinner when the titles are
+// only the dishes. `from` and `to` are wall-clock times in the config's time
+// zone: a timed event matches if it starts at or after `from` and before `to`
+// (`from` after `to` runs past midnight). All-day events have no start time,
+// so a rule with `from` and `to` never matches them. `days` is the day the
+// event starts, and left out means any day.
 const rule = z.strictObject({
-  match: rulePattern,
+  match: rulePattern.optional(),
   people: z.array(text).min(1, 'must list at least one person or group id (or leave people out of a rule that only sets an icon)').default([]),
   icon: emoji.optional(),
-}).refine(value => value.people.length > 0 || value.icon !== undefined, {
-  message: 'must set people, an icon, or both',
+  from: time.optional(),
+  to: time.optional(),
+  days: days.optional(),
+}).superRefine((value, ctx) => {
+  const issue = (message: string, path: string[] = []) => ctx.addIssue({ code: 'custom', message, path })
+  if (value.people.length === 0 && value.icon === undefined) issue('must set people, an icon, or both')
+  if (value.from !== undefined && value.to === undefined) issue('is missing: a rule with from needs to as well', ['to'])
+  if (value.to !== undefined && value.from === undefined) issue('is missing: a rule with to needs from as well', ['from'])
+  if (value.from !== undefined && value.from === value.to) issue('from and to must differ (leave both out to match at any time)', ['to'])
+  if (value.match === undefined && value.from === undefined && value.to === undefined && value.days === undefined) {
+    issue('must set match, a time (from and to), days, or a mix of them')
+  }
 })
 
 const icsSource = (baseDir: string) => z.strictObject({
@@ -131,23 +165,6 @@ const calendar = (baseDir: string) => z.strictObject({
   rules: z.array(rule).default([]),
   source: z.discriminatedUnion('type', [icsSource(baseDir), homeassistantSource], { error: 'type must be "ics" or "homeassistant"' }),
 })
-
-/** The days a schedule rule's window can start on, Monday first. A rule's `days` is normalised to these. */
-export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
-export type Weekday = (typeof WEEKDAYS)[number]
-
-const DAY_SETS: Record<'every_day' | 'weekdays' | 'weekends', Weekday[]> = {
-  every_day: [...WEEKDAYS],
-  weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
-  weekends: ['sat', 'sun'],
-}
-
-// `every_day`, `weekdays`, `weekends`, or a list of day names. Always comes out as a list in week order with no repeats.
-const days = z.union([
-  z.enum(['every_day', 'weekdays', 'weekends']).transform(value => DAY_SETS[value]),
-  z.array(z.enum(WEEKDAYS, { error: 'must be mon, tue, wed, thu, fri, sat or sun' })).min(1, 'must list at least one day'),
-], { error: 'must be every_day, weekdays, weekends, or a list of days such as [mon, wed, fri]' })
-  .transform(list => WEEKDAYS.filter(day => list.includes(day)))
 
 // One window of a built-in schedule (PR 5.4): the wall shows `view` from `from` until `to`, in the config's time zone,
 // on the days listed (the custom view needs the `layout` it shows). A window with `from` after `to` runs past midnight, and `days` names the day it starts.

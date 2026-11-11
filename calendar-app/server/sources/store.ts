@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm'
-import { createPeopleResolver, DETECTION_VERSION } from '../../shared/people'
+import { createPeopleResolver, DETECTION_VERSION, rulesUseTime } from '../../shared/people'
 import type { ResolvedPeople } from '../../shared/people'
 import type { CalendarConfig, Group, Person } from '../config/schema'
 import type { Db } from '../db/client'
@@ -29,13 +29,13 @@ const DELETE_CHUNK = 500
  * something to point at. Updates the row when the config changed, and never
  * deletes it (that would take the events with it).
  */
-export function ensureCalendarRow(db: Db, calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = []): void {
+export function ensureCalendarRow(db: Db, calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = [], timeZone?: string): void {
   const values = {
     id: calendar.id,
     name: calendar.name ?? calendar.id,
     personId: calendar.person,
     sourceType: calendar.source.type,
-    configHash: configHash(calendar, people, groups),
+    configHash: configHash(calendar, people, groups, timeZone),
   }
   db.insert(calendars).values(values).onConflictDoUpdate({
     target: calendars.id,
@@ -54,10 +54,12 @@ export function ensureCalendarRow(db: Db, calendar: CalendarConfig, people: read
  * A fingerprint of what decides who a calendar's events are for: the
  * calendar's detection settings and rules, the people's ids, names and aliases
  * (not their colours or initials, which change how an event looks and not who
- * it is for), the groups' ids, names, aliases and members, and the version of
- * the detection algorithm.
+ * it is for), the groups' ids, names, aliases and members, the version of
+ * the detection algorithm, and the time zone when a rule reads event times.
+ * A rule's time and days, and the time zone, are left out when no rule has
+ * them, so a config without them hashes as it did before they existed.
  */
-export function configHash(calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = []): string {
+export function configHash(calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = [], timeZone?: string): string {
   const parts = {
     detection: DETECTION_VERSION,
     people: people.map(person => ({ id: person.id, name: person.name, aliases: person.aliases })),
@@ -66,7 +68,9 @@ export function configHash(calendar: CalendarConfig, people: readonly Person[], 
     detect_people: calendar.detect_people,
     detect_in: calendar.detect_in,
     strip_names: calendar.strip_names,
-    rules: calendar.rules.map(rule => ({ match: rule.match, people: rule.people })),
+    // JSON leaves out the fields that are undefined.
+    rules: calendar.rules.map(rule => ({ match: rule.match, people: rule.people, from: rule.from, to: rule.to, days: rule.days })),
+    time_zone: rulesUseTime(calendar.rules) ? timeZone : undefined,
   }
   return createHash('sha256').update(JSON.stringify(parts)).digest('hex')
 }
@@ -179,15 +183,18 @@ export interface ReresolveResult {
  * people, groups or rules in the config have changed. The title and description are
  * stored, so no fetch is needed. Only rows whose answer differs are written, and
  * the calendar's hash is updated in the same transaction, so a crash half way
- * leaves it to be done again at the next boot.
+ * leaves it to be done again at the next boot. `timeZone` is the wall's, for
+ * rules with a time or days.
  */
-export function reresolveStoredEvents(db: Db, calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = []): ReresolveResult {
-  const resolve = createPeopleResolver(calendar, people, groups)
+export function reresolveStoredEvents(db: Db, calendar: CalendarConfig, people: readonly Person[], groups: readonly Group[] = [], timeZone?: string): ReresolveResult {
+  const resolve = createPeopleResolver(calendar, people, groups, timeZone)
   return db.transaction((tx) => {
     const stored = tx.select({
       id: events.id,
       title: events.title,
       description: events.description,
+      startAt: events.startAt,
+      allDay: events.allDay,
       displayTitle: events.displayTitle,
       personIds: events.personIds,
     }).from(events).where(eq(events.calendarId, calendar.id)).all()
@@ -199,7 +206,7 @@ export function reresolveStoredEvents(db: Db, calendar: CalendarConfig, people: 
       tx.update(events).set({ personIds, displayTitle }).where(and(eq(events.id, row.id), eq(events.calendarId, calendar.id))).run()
       changed++
     }
-    tx.update(calendars).set({ configHash: configHash(calendar, people, groups) }).where(eq(calendars.id, calendar.id)).run()
+    tx.update(calendars).set({ configHash: configHash(calendar, people, groups, timeZone) }).where(eq(calendars.id, calendar.id)).run()
     return { checked: stored.length, changed }
   })
 }
@@ -218,14 +225,14 @@ export interface CalendarRowsResult {
  * longer configured (their events and sync status go with them), so a removed
  * calendar stops showing on the wall.
  */
-export function syncCalendarRows(db: Db, configured: readonly CalendarConfig[], people: readonly Person[], groups: readonly Group[] = []): CalendarRowsResult {
+export function syncCalendarRows(db: Db, configured: readonly CalendarConfig[], people: readonly Person[], groups: readonly Group[] = [], timeZone?: string): CalendarRowsResult {
   const reresolved: CalendarRowsResult['reresolved'] = []
   for (const calendar of configured) {
     const row = db.select({ configHash: calendars.configHash }).from(calendars).where(eq(calendars.id, calendar.id)).get()
-    if (row && row.configHash !== configHash(calendar, people, groups)) {
-      reresolved.push({ calendarId: calendar.id, ...reresolveStoredEvents(db, calendar, people, groups) })
+    if (row && row.configHash !== configHash(calendar, people, groups, timeZone)) {
+      reresolved.push({ calendarId: calendar.id, ...reresolveStoredEvents(db, calendar, people, groups, timeZone) })
     }
-    ensureCalendarRow(db, calendar, people, groups)
+    ensureCalendarRow(db, calendar, people, groups, timeZone)
   }
 
   const keep = new Set(configured.map(calendar => calendar.id))

@@ -14,6 +14,8 @@ import { events } from '../db/schema'
 export interface FallbackOptions {
   /** Groups of people, for person detection. Default none. */
   groups?: readonly Group[]
+  /** The wall's time zone, for rules with a time or days. */
+  timeZone?: string
   /** How far before now to look, in days. Default 30. */
   daysBack?: number
   /** How far after now to look, in days. Default 30. */
@@ -37,7 +39,7 @@ export function recentFallbacks(
   calendar: CalendarConfig,
   people: readonly Person[],
   now: Date,
-  { groups = [], daysBack = 30, daysAhead = 30, limit = 20 }: FallbackOptions = {},
+  { groups = [], timeZone, daysBack = 30, daysAhead = 30, limit = 20 }: FallbackOptions = {},
 ): FallbackEvent[] {
   if (calendar.detect_people === false) return []
 
@@ -60,7 +62,7 @@ export function recentFallbacks(
     ),
   )).orderBy(asc(events.startAt), asc(events.id)).all()
 
-  const resolve = createPeopleResolver(calendar, people, groups)
+  const resolve = createPeopleResolver(calendar, people, groups, timeZone)
   const byUid = new Map<string, { nearest: (typeof rows)[number], occurrences: number }>()
   for (const row of rows) {
     // Anything that matched has other people, or the default one named; skip it without the regular expressions.

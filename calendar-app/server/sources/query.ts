@@ -87,6 +87,8 @@ export interface ListEventsArgs extends EventRange {
   /** The calendars in the config. Events of any other calendar are not listed. */
   calendars: readonly Pick<CalendarConfig, 'id' | 'icon' | 'detect_in' | 'rules'>[]
   people: readonly Person[]
+  /** The wall's time zone, for rules with a time or days. */
+  timeZone?: string
 }
 
 /**
@@ -95,7 +97,7 @@ export interface ListEventsArgs extends EventRange {
  * start, then all-day events first, then id. Each carries its people, in the
  * order they were found; a person no longer in the config is left out.
  */
-export function listEvents(db: Db, { from, to, calendars, people }: ListEventsArgs): CalendarEvent[] {
+export function listEvents(db: Db, { from, to, calendars, people, timeZone }: ListEventsArgs): CalendarEvent[] {
   if (calendars.length === 0) return []
 
   const rows = db.select().from(events).where(and(
@@ -106,7 +108,7 @@ export function listEvents(db: Db, { from, to, calendars, people }: ListEventsAr
     ),
   )).orderBy(asc(events.startAt), desc(events.allDay), asc(events.id)).all()
 
-  const iconOf = new Map(calendars.map(calendar => [calendar.id, createIconResolver(calendar)]))
+  const iconOf = new Map(calendars.map(calendar => [calendar.id, createIconResolver(calendar, timeZone)]))
   const known = new Map<string, EventPerson>(people.map(person => [person.id, { id: person.id, name: person.name, initial: person.initial, colour: person.colour }]))
   return rows.map(row => ({
     id: row.id,

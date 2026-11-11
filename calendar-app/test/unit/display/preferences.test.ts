@@ -21,6 +21,7 @@ const values: DisplayPreferences = {
   month_return_minutes: 5,
   week_hours: { from: 7, to: 21 },
   day_parts: { afternoon: 12, evening: 17 },
+  weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
   burn_in: true,
   night_text: 'none',
   orientation: 'auto',
@@ -47,6 +48,12 @@ describe('saveUpdate', () => {
     draft.day_parts.evening = 18
     expect(editedKeys(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual(['theme', 'week_hours', 'day_parts'])
     expect(saveUpdate(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual({ set: { theme: 'dark', week_hours: { from: 7, to: 22 }, day_parts: { afternoon: 12, evening: 18 } } })
+  })
+
+  it('sends the whole weather_on_dates when one view is switched', () => {
+    const draft = draftOf(values)
+    draft.weather_on_dates.week_parts = false
+    expect(saveUpdate(draft, values, DISPLAY_PREFERENCE_KEYS)).toEqual({ set: { weather_on_dates: { month: true, week: true, week_parts: false, agenda: true } } })
   })
 
   it('does not send a key that was edited and put back', () => {
@@ -102,6 +109,10 @@ describe('labels', () => {
     ['month_return_minutes', 5, '5 min'],
     ['week_hours', { from: 7, to: 21 }, '07:00 to 21:00'],
     ['day_parts', { afternoon: 12, evening: 17 }, 'afternoon from 12:00, evening from 17:00'],
+    ['weather_on_dates', { month: true, week: true, week_parts: true, agenda: true }, 'All views'],
+    ['weather_on_dates', { month: true, week: true, week_parts: false, agenda: true }, 'Month, week and agenda'],
+    ['weather_on_dates', { month: false, week: false, week_parts: true, agenda: false }, 'Day parts'],
+    ['weather_on_dates', { month: false, week: false, week_parts: false, agenda: false }, 'None'],
     ['quiet_hours', { from: '22:00', to: '07:00' }, '22:00 to 07:00'],
     ['quiet_hours', null, 'none'],
     ['night_above_lux', null, 'twice the dark level'],

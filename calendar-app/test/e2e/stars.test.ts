@@ -8,6 +8,7 @@ import { addDays, todayIn } from '../../shared/dates'
 import type { ServerMessage } from '../../shared/display'
 import { PIN_HEADER } from '../../shared/remote'
 import type { StarChart, StarSettingsEntry } from '../../shared/stars'
+import { builtApp } from '../helpers/builtApp'
 
 // The star chart API, on the dev config with `remote.pin` set: the writes need
 // the PIN, and the tests send it. The tests build on each other, in order.
@@ -21,7 +22,7 @@ describe('star chart', async () => {
   writeFileSync(configFile, `${dev}\nremote:\n  pin: "2468"\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

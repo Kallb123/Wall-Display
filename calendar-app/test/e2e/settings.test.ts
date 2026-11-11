@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
 import { PIN_HEADER } from '../../shared/remote'
 import type { CalendarStatus, ConnectionsStatus, DiscoveryResult, DisplayStatus } from '../../shared/settings'
+import { builtApp } from '../helpers/builtApp'
 
 const appDir = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -28,7 +29,7 @@ describe('the settings API, with nothing else set up', async () => {
   writeFileSync(configFile, devConfig())
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),
@@ -157,7 +158,7 @@ describe('the settings API, with Home Assistant and a broker that are not there,
   writeFileSync(configFile, `${devConfig()}\n${extra}\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

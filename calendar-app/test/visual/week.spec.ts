@@ -45,8 +45,9 @@ test('the week with the weather, light theme', async ({ page }) => {
   await page.goto('/display?id=hallway')
   await settle(page)
 
-  await expect(page.getByTestId('day-weather').first()).toBeVisible()
-  await expect(page.getByTestId('day-weather').nth(1)).toHaveText('14° / 8°')
+  // Wednesday to Sunday: the forecast still lists Tuesday, and a day that is over shows none.
+  await expect(page.getByTestId('day-weather')).toHaveCount(5)
+  await expect(page.getByTestId('day-weather').first()).toHaveText('14° / 8°')
   await expect(page).toHaveScreenshot('week-weather-light.png')
 })
 

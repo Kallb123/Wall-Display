@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
 import { photoResponseSchema } from '../../shared/photos'
 import type { PhotoInfo } from '../../shared/photos'
+import { builtApp } from '../helpers/builtApp'
 
 // The photo routes on the dev config, with `photos.local.path` pointing at the
 // fixture photos by an absolute path (the config is copied to a temporary folder,
@@ -25,7 +26,7 @@ describe('the photo routes', async () => {
   const photoDir = join(dir, 'data', 'photos')
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

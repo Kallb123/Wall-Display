@@ -8,6 +8,7 @@ import { formatTime } from '~/utils/format'
 import { eventFill } from '~/utils/eventFill'
 import { useWrapFit } from '~/composables/useWrapFit'
 import { formatCurrent, formatHighLow, weatherIcon } from '~/utils/weather'
+import { showsWeatherOnDates } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather'
@@ -23,7 +24,8 @@ import { currentWeather, weatherLabel, weatherOn } from '../../../shared/weather
 //
 // The weather (PR 2.7) is a line under each long date: today's has the current
 // conditions as well as the forecast, tomorrow's only the forecast. A day with
-// no weather has no line, so the card is as it was.
+// no weather has no line, so the card is as it was. So does a view with the
+// forecast on dates switched off (the display's preference, or the pane's option).
 //
 // Pane options (architecture §4.8), for a pane of a custom layout; without
 // them the view is as it always was. `fill_events` gives the timed rows the
@@ -69,6 +71,7 @@ const isEmpty = (day: AgendaDay) => day.allDay.length + day.timed.length === 0 &
 
 /** The line under a day's date: an icon, the words and the high / low, any of which can be missing. Null when there is nothing to say. */
 function weatherLine(day: AgendaDay, today: boolean) {
+  if (!showsWeatherOnDates(props, 'agenda')) return null
   const forecast = weatherOn(props.weather, day.date)
   const current = today ? currentWeather(props.weather, props.now) : null
   const condition = current?.condition ?? forecast?.condition ?? null

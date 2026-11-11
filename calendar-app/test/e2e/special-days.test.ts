@@ -8,6 +8,7 @@ import { todayIn } from '../../shared/dates'
 import type { DisplayState, ServerMessage } from '../../shared/display'
 import { PIN_HEADER } from '../../shared/remote'
 import type { SpecialDay, SpecialDaysResponse } from '../../shared/special-days'
+import { builtApp } from '../helpers/builtApp'
 
 // The special days API, the resolution it serves and the socket push, on the
 // dev config with `remote.pin` set: the writes need the PIN, and the tests send it.
@@ -20,7 +21,7 @@ describe('special days', async () => {
   writeFileSync(configFile, `${readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`)}\nremote:\n  pin: "2468"\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

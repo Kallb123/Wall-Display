@@ -106,6 +106,14 @@ describe.each(['portrait', 'landscape'] as const)('the panes on the %s stage', (
     expect(wrapper.findAll('[data-testid="day-tile"]')).toHaveLength(7)
   })
 
+  it('draw the week\'s forecast, unless the display\'s week preference is off', async () => {
+    const on = await open(device)
+    expect(on.find('[data-testid="week-photo-week-pane"] [data-testid="day-weather"]').exists()).toBe(true)
+
+    const off = await open(device, { weatherOnDates: { month: true, week: false, week_parts: true, agenda: true } })
+    expect(off.find('[data-testid="week-photo-week-pane"] [data-testid="day-weather"]').exists()).toBe(false)
+  })
+
   it('follow the corner the page gives the pill, within the photo pane', async () => {
     const wrapper = await open(device, { photoCorner: 'bottom-right' })
 

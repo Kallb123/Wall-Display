@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { DisplaySettings, DisplayState, ServerMessage } from '../../shared/display'
 import type { RemoteInfo } from '../../shared/remote'
+import { builtApp } from '../helpers/builtApp'
 
 describe('display state, commands and the WebSocket', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -17,7 +18,7 @@ describe('display state, commands and the WebSocket', async () => {
   writeFileSync(configFile, readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`))
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),
@@ -74,7 +75,7 @@ describe('display state, commands and the WebSocket', async () => {
 
     expect(displays).toEqual([
       // The dev config has a local photo folder (not there from this temporary config, but set up), and no other source.
-      { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', orientation: 'auto', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, photo_sources: ['local'] },
+      { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, night_text: 'none', orientation: 'auto', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, photo_sources: ['local'] },
     ])
   })
 

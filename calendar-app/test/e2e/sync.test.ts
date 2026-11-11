@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup } from '@nuxt/test-utils/e2e'
 import type { EventsResponse } from '../../shared/types/events'
+import { builtApp } from '../helpers/builtApp'
 
 describe('syncing and reading events', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -47,7 +48,7 @@ describe('syncing and reading events', async () => {
   writeFileSync(configFile, `${devConfig}\n${haBlock}\nsync:\n  months_back: 60\n  months_ahead: 60\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

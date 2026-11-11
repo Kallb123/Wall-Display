@@ -19,6 +19,8 @@ export default defineConfig({
           name: 'e2e',
           include: ['test/e2e/**/*.{test,spec}.ts'],
           environment: 'node',
+          // One build for all of them, made before the first (test/helpers/builtApp.ts).
+          globalSetup: ['test/e2e/globalSetup.ts'],
           testTimeout: 120_000,
           hookTimeout: 120_000,
         },

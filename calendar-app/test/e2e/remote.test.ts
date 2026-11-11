@@ -7,6 +7,7 @@ import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
 import type { DisplayState } from '../../shared/display'
 import { PIN_HEADER } from '../../shared/remote'
 import type { RemoteInfo } from '../../shared/remote'
+import { builtApp } from '../helpers/builtApp'
 
 // The same server as control.test.ts, with `remote.pin` set. Every request here
 // comes from one address, so the wrong PINs are kept well under the lockout
@@ -20,7 +21,7 @@ describe('the remote PIN', async () => {
   writeFileSync(configFile, `${readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`)}\nremote:\n  pin: "2468"\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

@@ -8,6 +8,7 @@ import { todayIn } from '../../shared/dates'
 import type { ServerMessage } from '../../shared/display'
 import { PIN_HEADER } from '../../shared/remote'
 import type { SpecialDay, SpecialDayScene, SpecialDaysResponse } from '../../shared/special-days'
+import { builtApp } from '../helpers/builtApp'
 
 // The scenes API, the copying routes and the checks that tie days to scenes,
 // on the dev config with `remote.pin` set: the writes need the PIN, and the
@@ -21,7 +22,7 @@ describe('special day scenes', async () => {
   writeFileSync(configFile, `${readFileSync(join(appDir, 'config.dev.yaml'), 'utf8').replaceAll('file:./', `file:${appDir}/`)}\nremote:\n  pin: "2468"\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

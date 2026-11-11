@@ -8,6 +8,8 @@ import {
   NIGHT_TEXT_LABELS,
   ORIENTATION_LABELS,
   THEME_LABELS,
+  WEATHER_ON_DATES_KEYS,
+  WEATHER_ON_DATES_LABELS,
   WEEK_START_LABELS,
   draftOf,
   editedKeys,
@@ -22,7 +24,7 @@ import '~/assets/special-days-form.css'
 
 // One display's preferences (PR 5.6): theme, month style, orientation
 // (PR 5.10), week start, how long a pinned month stays, the hours the week
-// view draws, where the week by part of day view splits a day (PR 5.16), burn-in shifting and the night view's text. The form edits a draft; Save sends only the keys
+// view draws, where the week by part of day view splits a day (PR 5.16), which views show the forecast next to their dates, burn-in shifting and the night view's text. The form edits a draft; Save sends only the keys
 // that were edited and Reset (beside a key with a saved change) drops that
 // change. The page does the sending, and tells the form what the server
 // refused in `errors`.
@@ -225,6 +227,25 @@ function setMinutes(event: Event) {
             </select>
             <AppIcon :icon="ChevronDown" :size="20" />
           </span>
+        </div>
+      </SettingsPreferenceField>
+
+      <SettingsPreferenceField
+        :scope="entry.id"
+        name="weather_on_dates"
+        label="Weather on dates"
+        label-id="weather-on-dates-label"
+        :changed="changed('weather_on_dates')"
+        :config-text="configText('weather_on_dates')"
+        hint="Shows each day's forecast next to its date."
+        :error="errors.weather_on_dates"
+        @reset="reset('weather_on_dates')"
+      >
+        <div class="sd-pills" role="group" aria-labelledby="weather-on-dates-label" :aria-describedby="describedby('weather_on_dates', true)">
+          <label v-for="key in WEATHER_ON_DATES_KEYS" :key="key" class="sd-pill">
+            <input v-model="draft.weather_on_dates[key]" type="checkbox" :data-testid="`weather_on_dates-${key}`">
+            <span class="face">{{ WEATHER_ON_DATES_LABELS[key] }}</span>
+          </label>
         </div>
       </SettingsPreferenceField>
 

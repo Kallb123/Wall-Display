@@ -208,6 +208,18 @@ export const displayFields = {
     afternoon: z.number().int('must be a whole number').min(1, 'must be from 1 to 22').max(22, 'must be from 1 to 22'),
     evening: z.number().int('must be a whole number').min(2, 'must be from 2 to 23').max(23, 'must be from 2 to 23'),
   }).refine(parts => parts.afternoon < parts.evening, { message: 'day_parts.afternoon must be before day_parts.evening' }),
+  /**
+   * Which views draw the day's forecast next to their dates: the month's day
+   * cells, the week's column headings, the week by part of day's row heads and
+   * the agenda's day headings. Each key is optional and on when left out, so a
+   * config can switch off just one view.
+   */
+  weather_on_dates: z.strictObject({
+    month: z.boolean({ error: 'must be true or false' }).default(true),
+    week: z.boolean({ error: 'must be true or false' }).default(true),
+    week_parts: z.boolean({ error: 'must be true or false' }).default(true),
+    agenda: z.boolean({ error: 'must be true or false' }).default(true),
+  }),
 }
 
 const display = z.strictObject({
@@ -222,6 +234,7 @@ const display = z.strictObject({
   orientation: displayFields.orientation.default('auto'),
   week_hours: displayFields.week_hours.default({ from: 7, to: 21 }),
   day_parts: displayFields.day_parts.default({ afternoon: 12, evening: 17 }),
+  weather_on_dates: displayFields.weather_on_dates.default({ month: true, week: true, week_parts: true, agenda: true }),
   /** Built-in schedules (PR 5.4): rules that change the view at set times. Each can be turned off from Home Assistant. */
   schedules: z.array(schedule).default([]),
 })

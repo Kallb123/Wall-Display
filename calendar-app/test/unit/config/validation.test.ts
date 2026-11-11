@@ -349,6 +349,18 @@ describe('validation errors name the field', () => {
     expect(message).toContain('displays[0].day_parts.night: unknown setting')
   })
 
+  it('weather_on_dates with a value that is not true or false', async () => {
+    const message = await messageFor((c) => { c.displays[0].weather_on_dates = { month: 'yes' } })
+
+    expect(message).toContain('displays[0].weather_on_dates.month: must be true or false')
+  })
+
+  it('weather_on_dates with an unknown key', async () => {
+    const message = await messageFor((c) => { c.displays[0].weather_on_dates = { day: true } })
+
+    expect(message).toContain('displays[0].weather_on_dates.day: unknown setting')
+  })
+
   it('night_text next_alarm without an alarm block', async () => {
     const message = await messageFor((c) => { c.displays[0].night_text = 'next_alarm' })
 

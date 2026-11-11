@@ -75,6 +75,24 @@ describe('AgendaView weather', () => {
   })
 })
 
+describe('AgendaView weather on dates', () => {
+  it('has no weather lines when the display\'s agenda preference is off, and keeps them when another view\'s is', async () => {
+    const off = await mountSuspended(AgendaView, { props: props({ weather, weatherOnDates: { month: true, week: true, week_parts: true, agenda: false } }) })
+    expect(off.find('[data-testid="agenda-weather"]').exists()).toBe(false)
+
+    const other = await mountSuspended(AgendaView, { props: props({ weather, weatherOnDates: { month: false, week: false, week_parts: false, agenda: true } }) })
+    expect(other.findAll('[data-testid="agenda-weather"]')).toHaveLength(2)
+  })
+
+  it('goes by the pane option in a pane of a layout, over the preference', async () => {
+    const off = await mountSuspended(AgendaView, { props: props({ weather, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: false } }) })
+    expect(off.find('[data-testid="agenda-weather"]').exists()).toBe(false)
+
+    const on = await mountSuspended(AgendaView, { props: props({ weather, weatherOnDates: { month: true, week: true, week_parts: true, agenda: false }, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: true } }) })
+    expect(on.findAll('[data-testid="agenda-weather"]')).toHaveLength(2)
+  })
+})
+
 describe('AgendaView special days', () => {
   const takeover: Takeover = { id: 'halloween', name: 'Halloween', date: '2026-10-28', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null }
 

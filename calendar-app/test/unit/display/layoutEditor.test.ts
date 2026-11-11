@@ -474,6 +474,14 @@ describe('pane options', () => {
     expect(paneOptionLabel('agenda', 'fill_events')).toBe('Colour whole events')
     expect(paneOptionLabel('agenda', 'wrap_titles')).toBe('Wrap long titles')
     expect(paneOptionLabel('agenda', 'show_initials')).toBe('Initials')
+    expect(paneOptionLabel('month', 'weather_on_dates')).toBe('Weather on dates')
+  })
+
+  it('stores weather_on_dates only when it is off, and only on the components that have it', () => {
+    const input = setPaneOption(newLayoutInput('X'), 'agenda', 'weather_on_dates', false)
+    expect(input.options).toEqual({ agenda: { weather_on_dates: false } })
+    expect(setPaneOption(input, 'agenda', 'weather_on_dates', true).options).toEqual({})
+    expect(setPaneOption(newLayoutInput('X'), 'photo', 'weather_on_dates', false)).toEqual(newLayoutInput('X'))
   })
 
   it('puts the initials out of reach until events are coloured', () => {

@@ -104,6 +104,19 @@ describe('DayGridView', () => {
     expect(tile(wrapper, '2026-10-29').find('[data-testid="day-weather"]').exists()).toBe(false)
   })
 
+  it('leaves the forecast out when the pane\'s option is off', async () => {
+    const wrapper = await open({ weather, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: false } })
+
+    expect(wrapper.find('[data-testid="day-weather"]').exists()).toBe(false)
+  })
+
+  it('shows no forecast on a day that is over, in a grid that starts at the week\'s beginning', async () => {
+    const wrapper = await open({ weather: { ...weather, daily: [{ date: '2026-10-27', condition: 'cloudy', high: 13, low: 7 }, ...weather.daily] }, dayGrid: grid({ start: 'week' }) })
+
+    expect(tile(wrapper, '2026-10-27').find('[data-testid="day-weather"]').exists()).toBe(false)
+    expect(tile(wrapper, '2026-10-28').find('[data-testid="day-weather"]').exists()).toBe(true)
+  })
+
   it('ends a full tile with "+N more", the cards fitting the tile', async () => {
     const many = Array.from({ length: 12 }, (_, index) => event(index + 1, { start: `2026-10-28T${String(8 + index).padStart(2, '0')}:00:00Z`, end: `2026-10-28T${String(8 + index).padStart(2, '0')}:30:00Z` }))
     const wrapper = await open({ events: many })

@@ -85,6 +85,15 @@ export function weatherOn(snapshot: WeatherSnapshot | null, date: string): Weath
   return day
 }
 
+/**
+ * The forecast to draw next to `date` when today is `today` (both `YYYY-MM-DD`
+ * in the display's time zone): `weatherOn`, but null for a day that is over. A
+ * forecast often still lists yesterday, and a date in the past shows none.
+ */
+export function forecastOn(snapshot: WeatherSnapshot | null, date: string, today: string): WeatherDay | null {
+  return date < today ? null : weatherOn(snapshot, date)
+}
+
 /** The current conditions, or null when there are none or they are older than `CURRENT_MAX_AGE_MS` at `now`. */
 export function currentWeather(snapshot: WeatherSnapshot | null, now: Date): WeatherCurrent | null {
   if (!snapshot) return null

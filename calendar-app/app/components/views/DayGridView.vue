@@ -16,7 +16,8 @@ import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import type { CalendarEvent } from '../../../shared/types/events'
 import type { ItemPeople } from '../../../shared/month-layout'
 import { specialDayArtUrl } from '../../../shared/special-days'
-import { weatherOn } from '../../../shared/weather'
+import { todayIn } from '../../../shared/dates'
+import { forecastOn } from '../../../shared/weather'
 import { MAX_BADGE_INITIALS } from '../../../shared/week-layout'
 
 // The day grid (architecture §4.8a): a layout component, drawn in a pane of a
@@ -80,9 +81,10 @@ const layout = computed(() => dayGridLayout({
   overflowItems: overflowItems.value,
 }))
 
-/** The weather icon and the day's high, or null when the forecast has neither. */
+/** The weather icon and the day's high, or null when the forecast has neither, the pane's option is off, or the day is over (the grid can start at the week's beginning). */
 function forecastOf(date: string) {
-  const forecast = weatherOn(props.weather, date)
+  if (!(props.paneOptions?.weather_on_dates ?? true)) return null
+  const forecast = forecastOn(props.weather, date, todayIn(props.now, props.timezone))
   if (!forecast) return null
   const text = formatHighLow({ high: forecast.high, low: null })
   const icon = weatherIcon(forecast.condition)

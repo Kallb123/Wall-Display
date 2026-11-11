@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup, url } from '@nuxt/test-utils/e2e'
 import type { DisplaySettings, ServerMessage } from '../../shared/display'
+import { builtApp } from '../helpers/builtApp'
 
 describe('the next alarm from Home Assistant', async () => {
   const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -43,7 +44,7 @@ describe('the next alarm from Home Assistant', async () => {
   writeFileSync(configFile, `${devConfig}\nhomeassistant:\n  url: http://127.0.0.1:${haPort}\n  token: ${token}\n\nalarm:\n  entity_id: sensor.phone_next_alarm\n`)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

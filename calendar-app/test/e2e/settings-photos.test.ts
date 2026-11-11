@@ -9,6 +9,7 @@ import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
 import type { DisplaySettings } from '../../shared/display'
 import { PIN_HEADER } from '../../shared/remote'
 import type { PhotosSettingsStatus } from '../../shared/settings'
+import { builtApp } from '../helpers/builtApp'
 
 const appDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '')
 
@@ -63,7 +64,7 @@ photos:
 `)
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),
@@ -143,7 +144,7 @@ describe('the settings Photos routes, with no photos block', async () => {
   writeFileSync(configFile, configWithout())
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: configFile,
       WALLCAL_DATA_DIR: join(dir, 'data'),

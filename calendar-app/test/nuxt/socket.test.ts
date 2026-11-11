@@ -270,6 +270,7 @@ describe('useDisplaySocket settings', () => {
     night_text: 'first_event',
     week_hours: { from: 6, to: 22 },
     day_parts: { afternoon: 11, evening: 18 },
+    weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
     photo_sources: ['local'],
   }
 

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, setup } from '@nuxt/test-utils/e2e'
+import { builtApp } from '../helpers/builtApp'
 
 describe('GET /api/health', async () => {
   // A production build reads /config/config.yaml and /data by default, so point
@@ -12,7 +13,7 @@ describe('GET /api/health', async () => {
   afterAll(() => rmSync(dataDir, { recursive: true, force: true }))
 
   await setup({
-    browser: false,
+    ...builtApp,
     env: {
       WALLCAL_CONFIG_FILE: fileURLToPath(new URL('../../config.dev.yaml', import.meta.url)),
       WALLCAL_DATA_DIR: dataDir,

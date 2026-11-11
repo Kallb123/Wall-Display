@@ -196,11 +196,31 @@ describe('WeekView', () => {
       expect(wrapper.find('[data-testid="day-weather"]').exists()).toBe(false)
     })
 
-    it('puts each day\'s forecast in its heading, and leaves out a day the forecast does not cover', async () => {
+    it('puts each day\'s forecast in its heading, and leaves out a day the forecast does not cover or that is over', async () => {
       const wrapper = await mountSuspended(WeekView, { props: props({ weather }) })
 
-      expect(wrapper.findAll('[data-testid="day-weather"]').map(day => day.text())).toEqual(['13° / 7°', '14° / 8°', '13°'])
-      expect(wrapper.find('[data-testid="day-weather"] svg').classes()).toContain('lucide-cloud-icon')
+      // The forecast still lists yesterday; a day that is over shows nothing.
+      expect(wrapper.findAll('[data-testid="day-weather"]').map(day => day.text())).toEqual(['14° / 8°', '13°'])
+      expect(wrapper.find('[data-testid="day-weather"] svg').classes()).toContain('lucide-cloud-rain-icon')
+    })
+
+    it('draws none, and a heading as short as with no weather, when the display\'s week preference is off', async () => {
+      const plain = await mountSuspended(WeekView, { props: props() })
+      const off = await mountSuspended(WeekView, { props: props({ weather, weatherOnDates: { month: true, week: false, week_parts: false, agenda: false } }) })
+
+      expect(off.find('[data-testid="day-weather"]').exists()).toBe(false)
+      expect(off.html()).toBe(plain.html())
+
+      const other = await mountSuspended(WeekView, { props: props({ weather, weatherOnDates: { month: false, week: true, week_parts: false, agenda: false } }) })
+      expect(other.findAll('[data-testid="day-weather"]')).toHaveLength(2)
+    })
+
+    it('goes by the pane option in a pane of a layout', async () => {
+      const off = await mountSuspended(WeekView, { props: props({ weather, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: false } }) })
+      expect(off.find('[data-testid="day-weather"]').exists()).toBe(false)
+
+      const on = await mountSuspended(WeekView, { props: props({ weather, weatherOnDates: { month: true, week: false, week_parts: false, agenda: false }, paneOptions: { ...DEFAULT_PANE_OPTIONS, weather_on_dates: true } }) })
+      expect(on.findAll('[data-testid="day-weather"]')).toHaveLength(2)
     })
   })
 

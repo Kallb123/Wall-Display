@@ -255,11 +255,21 @@ test('the drift pauses in place when the wall is dimmed for the night', async ({
   await expect.poll(() => top.evaluate(image => image.getAnimations().length)).toBe(1)
 
   await server.send({ view: 'photo', brightness: 30 })
-  await expect.poll(() => top.evaluate(image => image.getAnimations()[0]?.playState)).toBe('paused')
-  const held = await top.evaluate(image => getComputedStyle(image).transform)
+  // A pause is pending until the browser's next frame, and the photo still creeps until then, so wait for it to have taken.
+  const drift = () => top.evaluate((image) => {
+    const animation = image.getAnimations()[0]
+    return animation ? { state: animation.playState, pending: animation.pending, at: animation.currentTime } : null
+  })
+  await expect.poll(async () => {
+    const now = await drift()
+    return now?.state === 'paused' && !now.pending
+  }).toBe(true)
+  const held = await drift()
+  const heldTransform = await top.evaluate(image => getComputedStyle(image).transform)
   await page.waitForTimeout(500)
-  expect(await top.evaluate(image => getComputedStyle(image).transform)).toBe(held)
-  expect(held).not.toBe('none')
+  expect(await drift()).toEqual(held)
+  expect(await top.evaluate(image => getComputedStyle(image).transform)).toBe(heldTransform)
+  expect(heldTransform).not.toBe('none')
 })
 
 test('with prefers-reduced-motion there is no drift even with motion on', async ({ page, request }) => {

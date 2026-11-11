@@ -129,6 +129,7 @@ const hallwayPreferences: DisplayPreferences = {
   show_locations: true,
   burn_in: true,
   motion: 'off',
+  takeover_art: 'behind',
   night_text: 'none',
   orientation: 'auto',
 }

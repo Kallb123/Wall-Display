@@ -235,6 +235,35 @@ const running = (action: string) => props.busy === action
           />
         </div>
 
+        <div class="art-pair">
+          <SpecialDaysArtDrop
+            label="Backdrop"
+            art-slot="backdrop"
+            :art="saved?.backdrop_art ?? null"
+            aspect="wide"
+            :progress="uploads.backdrop?.progress ?? null"
+            :error="uploads.backdrop?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the scene first to add art' : 'Optional: a sky or ground that always stays behind the calendar, even on a wall that puts the art over it'"
+            :clearable="saved?.backdrop_art != null"
+            @file="emit('upload', 'backdrop', $event)"
+            @clear="emit('clear-art', ['backdrop'])"
+          />
+          <SpecialDaysArtDrop
+            label="Portrait backdrop"
+            art-slot="backdrop-portrait"
+            :art="saved?.backdrop_art_portrait ?? null"
+            aspect="tall"
+            :progress="uploads['backdrop-portrait']?.progress ?? null"
+            :error="uploads['backdrop-portrait']?.error ?? null"
+            :disabled="saved === null"
+            :hint="saved === null ? 'Save the scene first to add art' : 'The backdrop for a portrait wall'"
+            :clearable="saved?.backdrop_art_portrait != null"
+            @file="emit('upload', 'backdrop-portrait', $event)"
+            @clear="emit('clear-art', ['backdrop-portrait'])"
+          />
+        </div>
+
         <div class="sd-field">
           <label for="scene-greeting" class="sd-label">Greeting</label>
           <input

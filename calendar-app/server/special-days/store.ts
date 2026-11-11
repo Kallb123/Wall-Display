@@ -64,14 +64,14 @@ export function updateSpecialDay(db: Db, id: string, input: SpecialDayInput, now
 }
 
 /**
- * Deletes a special day and returns the art files it held (tile, full, extra
- * and the portrait pair, without duplicates), so the caller can remove those nothing else
+ * Deletes a special day and returns the art files it held (tile, full, backdrop,
+ * extra and the portrait cuts, without duplicates), so the caller can remove those nothing else
  * refers to. Null if there was no such day.
  */
 export function deleteSpecialDay(db: Db, id: string): string[] | null {
   const row = db.delete(specialDays).where(eq(specialDays.id, id)).returning().get()
   if (!row) return null
-  return [...new Set([row.tileArt, row.fullArt, row.fullArtPortrait, row.extraArt, row.extraArtPortrait].filter((name): name is string => name !== null))]
+  return [...new Set([row.tileArt, row.fullArt, row.fullArtPortrait, row.backdropArt, row.backdropArtPortrait, row.extraArt, row.extraArtPortrait].filter((name): name is string => name !== null))]
 }
 
 /**
@@ -82,7 +82,7 @@ export function deleteSpecialDay(db: Db, id: string): string[] | null {
  * such day.
  */
 export function setSpecialDayArt(db: Db, id: string, slot: ArtSlot, name: string | null, now: Date): { day: SpecialDay, previous: string | null } | null {
-  const column = { 'tile': 'tileArt', 'full': 'fullArt', 'full-portrait': 'fullArtPortrait', 'extra': 'extraArt', 'extra-portrait': 'extraArtPortrait' } as const satisfies Record<ArtSlot, string>
+  const column = { 'tile': 'tileArt', 'full': 'fullArt', 'full-portrait': 'fullArtPortrait', 'backdrop': 'backdropArt', 'backdrop-portrait': 'backdropArtPortrait', 'extra': 'extraArt', 'extra-portrait': 'extraArtPortrait' } as const satisfies Record<ArtSlot, string>
   return db.transaction((tx) => {
     const before = tx.select().from(specialDays).where(eq(specialDays.id, id)).get()
     if (!before) return null
@@ -110,8 +110,8 @@ export function duplicateSpecialDay(db: Db, id: string, now: Date): SpecialDay |
 /**
  * Makes a new scene from the look the day really has (its own values over its
  * scene's), and moves the day onto it with its own look cleared. `who`,
- * `since_year` and the extra art (both) stay on the day. The portrait full art goes
- * with the full art, as `effectiveLook` takes them. The scene is named `name`, or
+ * `since_year` and the extra art (both) stay on the day. The portrait full art
+ * and the backdrops go with the full art, as `effectiveLook` takes them. The scene is named `name`, or
  * after the day. The day's `updated_at` is left alone: the wall looks exactly
  * as it did, so which day wins a shared date must not move. Null if there is
  * no such day.
@@ -134,6 +134,8 @@ export function saveDayAsScene(db: Db, id: string, name: string | undefined, now
       takeover: look.takeover,
       fullArt: look.full_art,
       fullArtPortrait: look.full_art_portrait,
+      backdropArt: look.backdrop_art,
+      backdropArtPortrait: look.backdrop_art_portrait,
       greeting: look.greeting,
       palette: look.palette,
       createdAt: now,
@@ -142,7 +144,7 @@ export function saveDayAsScene(db: Db, id: string, name: string | undefined, now
 
     // updatedAt is set to itself: left out, the column's on-update default would stamp it.
     const day = tx.update(specialDays)
-      .set({ sceneId: scene.id, lead: null, leadDays: null, tileArt: null, takeover: null, fullArt: null, fullArtPortrait: null, greeting: null, palette: null, updatedAt: row.updatedAt })
+      .set({ sceneId: scene.id, lead: null, leadDays: null, tileArt: null, takeover: null, fullArt: null, fullArtPortrait: null, backdropArt: null, backdropArtPortrait: null, greeting: null, palette: null, updatedAt: row.updatedAt })
       .where(eq(specialDays.id, id))
       .returning()
       .get()

@@ -31,7 +31,7 @@ const broken = asStorage({
   },
 })
 
-const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [] }
+const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [] }
 const weather: WeatherSnapshot = {
   current: { condition: 'rainy', temperature: 12 },
   daily: [{ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 }],
@@ -44,7 +44,7 @@ const specialDays: SpecialDaysResolution = {
   to: '2026-11-14',
   tiles: [{ date: '2026-10-31', days: [{ id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }] }],
   current: { id: 'halloween', name: 'Halloween' },
-  takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null },
+  takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: null },
   tomorrow_art: ['bonfire.webp'],
 }
 const layout: CustomLayout = {

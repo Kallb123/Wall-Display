@@ -10,10 +10,11 @@ import { upperFirst } from './specialDayEditor'
 
 /**
  * Where an upload goes: a tile (days and scenes), full-screen art (both), the
- * extra layer (days only), or the portrait cut of either art (1440×2560, for a
- * portrait wall; the portrait extra layer is a day's only).
+ * backdrop that stays behind the view (both), the extra layer (days only), or
+ * the portrait cut of any of the last three (1440×2560, for a portrait wall;
+ * the portrait extra layer is a day's only).
  */
-export type ArtSlot = 'tile' | 'full' | 'extra' | 'full-portrait' | 'extra-portrait'
+export type ArtSlot = 'tile' | 'full' | 'extra' | 'full-portrait' | 'extra-portrait' | 'backdrop' | 'backdrop-portrait'
 
 /** How each slot is named in messages. */
 export const ART_SLOT_LABELS: Record<ArtSlot, string> = {
@@ -22,12 +23,14 @@ export const ART_SLOT_LABELS: Record<ArtSlot, string> = {
   extra: 'Extra layer',
   'full-portrait': 'Portrait art',
   'extra-portrait': 'Portrait extra layer',
+  'backdrop': 'Backdrop',
+  'backdrop-portrait': 'Portrait backdrop',
 }
 
 const MB = 1024 * 1024
 
 // The same as ART_LIMITS in server/special-days/art-errors.ts, which the app can't import. A test holds them together.
-const LIMITS: Record<ArtSlot, number> = { 'tile': 2 * MB, 'full': 20 * MB, 'extra': 20 * MB, 'full-portrait': 20 * MB, 'extra-portrait': 20 * MB }
+const LIMITS: Record<ArtSlot, number> = { 'tile': 2 * MB, 'full': 20 * MB, 'extra': 20 * MB, 'full-portrait': 20 * MB, 'extra-portrait': 20 * MB, 'backdrop': 20 * MB, 'backdrop-portrait': 20 * MB }
 
 /** What the tile and the extra layers take: files that keep their transparency and stay sharp at any size. */
 const GRAPHIC_TYPES: ReadonlySet<string> = new Set(['image/png', 'image/webp', 'image/svg+xml'])
@@ -68,7 +71,7 @@ const megabytes = (bytes: number): string => (Math.ceil(bytes / MB * 10) / 10).t
 export function artFileProblem(slot: ArtSlot, file: Pick<File, 'name' | 'type' | 'size'>): string | null {
   const label = ART_SLOT_LABELS[slot]
   const type = typeOf(file)
-  const anyImage = slot === 'full' || slot === 'full-portrait'
+  const anyImage = slot === 'full' || slot === 'full-portrait' || slot === 'backdrop' || slot === 'backdrop-portrait'
   if (anyImage ? !type.startsWith('image/') : !GRAPHIC_TYPES.has(type)) {
     return anyImage ? `${label} must be an image` : `${label} must be a PNG, WebP or SVG`
   }

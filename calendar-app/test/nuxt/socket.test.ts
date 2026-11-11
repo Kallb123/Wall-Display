@@ -94,7 +94,7 @@ const specialDays: SpecialDaysResolution = {
   to: '2026-11-14',
   tiles: [{ date: '2026-10-31', days: [{ id: 'halloween', name: 'Halloween', palette: 'night', tile_art: 'pumpkin.svg' }] }],
   current: { id: 'halloween', name: 'Halloween' },
-  takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, extra_art_portrait: null },
+  takeover: { id: 'halloween', name: 'Halloween', date: '2026-10-31', greeting: 'Happy Halloween', palette: 'night', full_art: 'wall.webp', extra_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: null },
   tomorrow_art: [],
 }
 
@@ -267,6 +267,7 @@ describe('useDisplaySocket settings', () => {
     timezone: 'Europe/London',
     burn_in: false,
     motion: 'off',
+    takeover_art: 'behind',
     orientation: 'auto',
     night_text: 'first_event',
     week_hours: { from: 6, to: 22 },

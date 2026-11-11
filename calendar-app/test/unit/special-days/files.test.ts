@@ -328,7 +328,7 @@ describe('portrait art files', () => {
     setSpecialDayArt(db, 'christmas', 'full-portrait', tall, NOW)
     setSpecialDayArt(db, 'christmas', 'extra-portrait', extraTall, NOW)
     const copy = duplicateSpecialDay(db, 'christmas', NOW)!
-    expect(copy).toMatchObject({ full_art_portrait: tall, extra_art_portrait: extraTall })
+    expect(copy).toMatchObject({ full_art_portrait: tall, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: extraTall })
 
     expect(removeUnreferencedArt(db, dir, deleteSpecialDay(db, 'christmas')!)).toEqual([])
     expect(filesIn(dir)).toEqual([tall, extraTall].sort())
@@ -380,7 +380,7 @@ describe('setSpecialDayArt', () => {
     setSpecialDayArt(db, 'christmas', 'extra', 'extra', NOW)
     setSpecialDayArt(db, 'christmas', 'extra-portrait', 'extra-tall', NOW)
 
-    expect(getSpecialDay(db, 'christmas')).toMatchObject({ tile_art: 'tile', full_art: 'full', full_art_portrait: 'full-tall', extra_art: 'extra', extra_art_portrait: 'extra-tall' })
+    expect(getSpecialDay(db, 'christmas')).toMatchObject({ tile_art: 'tile', full_art: 'full', full_art_portrait: 'full-tall', backdrop_art: null, backdrop_art_portrait: null, extra_art: 'extra', extra_art_portrait: 'extra-tall' })
   })
 
   it('clears a slot with null, and still bumps updated_at', () => {

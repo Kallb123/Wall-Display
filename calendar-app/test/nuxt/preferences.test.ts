@@ -24,6 +24,7 @@ const displayValues: DisplayPreferences = {
   show_locations: true,
   burn_in: true,
   motion: 'off',
+  takeover_art: 'behind',
   night_text: 'none',
   orientation: 'auto',
 }
@@ -183,6 +184,18 @@ describe('the display preferences', () => {
     await flushPromises()
 
     expect(puts()).toEqual([{ method: 'PUT', url: '/api/settings/preferences/displays/hallway', body: { set: { show_locations: false } }, pin: null }])
+  })
+
+  it('saves where the takeover art goes when it is switched to over in portrait', async () => {
+    const wrapper = await open()
+    const card = hallway(wrapper)
+    expect((card.find('[data-testid="takeover_art-behind"]').element as HTMLInputElement).checked).toBe(true)
+
+    await card.find('[data-testid="takeover_art-over_in_portrait"]').setValue(true)
+    await card.find('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(puts()).toEqual([{ method: 'PUT', url: '/api/settings/preferences/displays/hallway', body: { set: { takeover_art: 'over_in_portrait' } }, pin: null }])
   })
 
   it('marks a key with a saved change, Changed with a Reset, on that card only', async () => {

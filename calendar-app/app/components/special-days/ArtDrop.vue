@@ -41,7 +41,7 @@ const input = useTemplateRef<HTMLInputElement>('input')
 const over = ref(false)
 
 /** Only the formats the server takes for the slot (the full-screen art is converted there, so any image goes). */
-const accept = computed(() => props.artSlot === 'full' || props.artSlot === 'full-portrait' ? 'image/*' : 'image/png,image/webp,image/svg+xml')
+const accept = computed(() => ['full', 'full-portrait', 'backdrop', 'backdrop-portrait'].includes(props.artSlot) ? 'image/*' : 'image/png,image/webp,image/svg+xml')
 const uploading = computed(() => props.progress !== null)
 const inert = computed(() => props.disabled || uploading.value)
 const percent = computed(() => Math.round((props.progress ?? 0) * 100))

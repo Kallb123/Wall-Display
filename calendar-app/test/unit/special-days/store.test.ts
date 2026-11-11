@@ -54,6 +54,8 @@ describe('createSpecialDay and getSpecialDay', () => {
       takeover: true,
       full_art: null,
       full_art_portrait: null,
+      backdrop_art: null,
+      backdrop_art_portrait: null,
       greeting: 'Merry Christmas',
       palette: 'warm',
       extra_art: null,
@@ -222,7 +224,7 @@ describe('duplicateSpecialDay', () => {
       name: 'Copy of Isla\'s birthday',
       updated_at: '2026-10-29T08:30:00.000Z',
     })
-    expect(copy).toMatchObject({ scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: 'days', lead_days: 10, takeover: null, palette: 'night', tile_art: 'tile.webp', full_art: 'full.webp', full_art_portrait: 'full-tall.webp', extra_art: 'seven.webp', extra_art_portrait: 'seven-tall.webp' })
+    expect(copy).toMatchObject({ scene_id: 'birthday', who: 'Isla', since_year: 2019, lead: 'days', lead_days: 10, takeover: null, palette: 'night', tile_art: 'tile.webp', full_art: 'full.webp', full_art_portrait: 'full-tall.webp', backdrop_art: null, backdrop_art_portrait: null, extra_art: 'seven.webp', extra_art_portrait: 'seven-tall.webp' })
     expect(db.select().from(specialDays).all().find(row => row.id === copy.id)!.createdAt).toEqual(LATER)
     expect(listSpecialDays(db)).toHaveLength(2)
   })

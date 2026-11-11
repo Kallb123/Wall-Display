@@ -1,5 +1,5 @@
-import { LOOK_FIELDS, SPECIAL_DAY_PALETTES, effectiveLook, fillGreeting, specialDayInputSchema, specialDaySceneInputSchema, unfillablePlaceholders } from '../../shared/special-days'
-import type { GreetingPlaceholder, SpecialDay, SpecialDayLead, SpecialDayLook, SpecialDayPalette, SpecialDayRepeat, SpecialDayScene } from '../../shared/special-days'
+import { LOOK_FIELDS, SPECIAL_DAY_PALETTES, effectiveLook, fillGreeting, hasOwnPicture, specialDayInputSchema, specialDaySceneInputSchema, unfillablePlaceholders } from '../../shared/special-days'
+import type { GreetingPlaceholder, PictureField, SpecialDay, SpecialDayLead, SpecialDayLook, SpecialDayPalette, SpecialDayRepeat, SpecialDayScene } from '../../shared/special-days'
 import { requestFailure } from './remote'
 import { SERVER_UNREACHABLE } from './settings'
 
@@ -252,7 +252,7 @@ export function sceneIsDirty(draft: SceneDraft, saved: SpecialDayScene | null): 
 
 // Scene or own
 
-/** The parts of a look the editor marks. `lead` is `lead` and `lead_days` together; the art is `tile_art` and `full_art`, which stands for the portrait art too (a day's extra layers are always its own). */
+/** The parts of a look the editor marks. `lead` is `lead` and `lead_days` together; the art is `tile_art` and `full_art`, which stands for the portrait art and the backdrops too (a day's extra layers are always its own). */
 export type MarkedField = 'lead' | 'tile_art' | 'takeover' | 'full_art' | 'greeting' | 'palette'
 
 /**
@@ -260,8 +260,8 @@ export type MarkedField = 'lead' | 'tile_art' | 'takeover' | 'full_art' | 'greet
  * follows the scene, `own` ("Changed", with Reset) when the day sets it, or null
  * when the day has no scene, so there is nothing to mark. The art isn't in the
  * draft, so for `tile_art` and `full_art` it is the saved day that says: own
- * when the day has art of its own. The full-screen art and its portrait cut go
- * together (as in `effectiveLook`), so a day with either has both of its own.
+ * when the day has art of its own. The full-screen art, its portrait cut and the
+ * backdrops go together (as in `effectiveLook`), so a day with any has all of its own.
  */
 export function fieldOrigin(draft: DayDraft, saved: SpecialDay | null, field: MarkedField): 'scene' | 'own' | null {
   if (draft.scene_id === null) return null
@@ -271,8 +271,8 @@ export function fieldOrigin(draft: DayDraft, saved: SpecialDay | null, field: Ma
   return own ? 'own' : 'scene'
 }
 
-/** Whether the day has full-screen art of its own, in either shape. */
-const ownsFullArt = (day: Pick<SpecialDay, 'full_art' | 'full_art_portrait'> | null): boolean => day !== null && (day.full_art !== null || day.full_art_portrait !== null)
+/** Whether the day has a full-screen picture of its own: either cut of the full art or of the backdrop. */
+const ownsFullArt = (day: Pick<SpecialDay, PictureField> | null): boolean => day !== null && hasOwnPicture(day)
 
 /** The draft with a part of the look back to the scene's: null, and for `lead` the lead days cleared with it. The art is cleared with a `DELETE`, not here. */
 export function resetField(draft: DayDraft, field: Exclude<MarkedField, 'tile_art' | 'full_art'>): DayDraft {
@@ -310,6 +310,8 @@ export function draftLook(draft: DayDraft, saved: SpecialDay | null, scene: Spec
     takeover: draft.takeover,
     full_art: saved?.full_art ?? null,
     full_art_portrait: saved?.full_art_portrait ?? null,
+    backdrop_art: saved?.backdrop_art ?? null,
+    backdrop_art_portrait: saved?.backdrop_art_portrait ?? null,
     greeting: textOrNull(draft.greeting),
     palette: draft.palette,
   }, scene)

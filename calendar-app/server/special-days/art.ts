@@ -29,7 +29,7 @@ type Box = typeof FULL | typeof PORTRAIT
 
 /** The box a full-screen or extra slot is cropped to. */
 function boxOf(slot: ArtSlot): Box {
-  return slot === 'full-portrait' || slot === 'extra-portrait' ? PORTRAIT : FULL
+  return slot === 'full-portrait' || slot === 'backdrop-portrait' || slot === 'extra-portrait' ? PORTRAIT : FULL
 }
 
 /** The box a tile is fitted inside. */
@@ -42,6 +42,8 @@ const SLOT_LABEL: Record<ArtSlot, string> = {
   'tile': 'Tile art',
   'full': 'Full-screen art',
   'full-portrait': 'Portrait full-screen art',
+  'backdrop': 'Backdrop',
+  'backdrop-portrait': 'Portrait backdrop',
   'extra': 'Extra art',
   'extra-portrait': 'Portrait extra art',
 }
@@ -266,8 +268,10 @@ async function fullSource(input: Buffer, type: string, box: Box): Promise<Pipeli
  *   cropped to fill 2560×1440 and saved as WebP.
  * - `extra`: PNG, WebP or SVG that has transparency, cropped like `full` so
  *   the two line up, and saved as WebP with the transparency kept.
- * - `full-portrait` and `extra-portrait`: the same rules, cropped to fill
- *   1440×2560 for a portrait stage.
+ * - `backdrop`: the same rules as `full`. It is the layer that stays behind
+ *   the view, so it may well be opaque.
+ * - `full-portrait`, `backdrop-portrait` and `extra-portrait`: the same rules,
+ *   cropped to fill 1440×2560 for a portrait stage.
  *
  * Only the first frame of an animated image is used.
  */
@@ -290,7 +294,7 @@ export async function processArt(slot: ArtSlot, input: Buffer): Promise<Processe
 
   const box = boxOf(slot)
 
-  if (slot === 'full' || slot === 'full-portrait') {
+  if (slot === 'full' || slot === 'full-portrait' || slot === 'backdrop' || slot === 'backdrop-portrait') {
     if (!type || !FULL_FORMATS.has(type)) throw new ArtError(415, `${label} must be an image, such as JPEG, PNG, WebP or SVG`)
     const source = await fullSource(input, type, box)
     const data = await encode(slot, source

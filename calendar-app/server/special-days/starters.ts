@@ -14,8 +14,16 @@ import type { SceneArt } from './scenes'
 // hand: it can be edited, copied or deleted without touching the bundled
 // original. Imports art.ts, and so jsdom and sharp: the route loads this lazily.
 
-/** The art a starter has, one file per scene slot. */
+/** The art every starter has, one file per slot. */
 export const STARTER_ART_SLOTS = ['tile', 'full', 'full-portrait'] as const satisfies readonly SceneArtSlot[]
+
+/** The backdrop pair, which a starter with `backdrop` also has. */
+export const STARTER_BACKDROP_SLOTS = ['backdrop', 'backdrop-portrait'] as const satisfies readonly SceneArtSlot[]
+
+/** The slots this starter has art for. */
+export function starterArtSlots(starter: StarterScene): SceneArtSlot[] {
+  return starter.backdrop ? [...STARTER_ART_SLOTS, ...STARTER_BACKDROP_SLOTS] : [...STARTER_ART_SLOTS]
+}
 
 /** Where a starter's art is in the server assets (`assets:server`): `starter-scenes/<id>/<slot>.svg`. */
 export function starterArtPath(id: string, slot: SceneArtSlot): string {
@@ -35,7 +43,7 @@ export type StarterArtReader = (path: string) => Promise<Buffer>
  * would have used are removed again unless something else uses them.
  */
 export async function addStarterScene(db: Db, dir: string, starter: StarterScene, read: StarterArtReader, now: Date): Promise<SpecialDayScene> {
-  const processed = await Promise.all(STARTER_ART_SLOTS.map(async slot => [slot, await processArt(slot, await read(starterArtPath(starter.id, slot)))] as const))
+  const processed = await Promise.all(starterArtSlots(starter).map(async slot => [slot, await processArt(slot, await read(starterArtPath(starter.id, slot)))] as const))
 
   const art: SceneArt = {}
   for (const [slot, { data, ext }] of processed) art[slot] = writeArtFile(dir, data, ext)

@@ -67,7 +67,8 @@ describe('starter scenes', async () => {
     expect(response.status).toBe(201)
     first = await response.json() as SpecialDayScene
     expect(first).toMatchObject({ id: 'christmas', name: 'Christmas', palette: 'frost', takeover: true, lead: 'month', greeting: 'Merry Christmas!' })
-    expect(stored()).toEqual([first.tile_art, first.full_art, first.full_art_portrait].sort())
+    // Christmas has a backdrop, the night sky, in both shapes.
+    expect(stored()).toEqual([first.tile_art, first.full_art, first.full_art_portrait, first.backdrop_art, first.backdrop_art_portrait].sort())
 
     const full = await fetch(specialDayArtUrl(first.full_art!))
     expect(full.status).toBe(200)
@@ -75,20 +76,22 @@ describe('starter scenes', async () => {
     expect([meta.format, meta.width, meta.height]).toEqual(['webp', 2560, 1440])
     const portrait = await sharp(Buffer.from(await (await fetch(specialDayArtUrl(first.full_art_portrait!))).arrayBuffer())).metadata()
     expect([portrait.width, portrait.height]).toEqual([1440, 2560])
+    const sky = await sharp(Buffer.from(await (await fetch(specialDayArtUrl(first.backdrop_art_portrait!))).arrayBuffer())).metadata()
+    expect([sky.width, sky.height]).toEqual([1440, 2560])
   })
 
   it('makes a second copy when the same starter is added again, sharing the files', async () => {
     const response = await add('christmas')
     expect(response.status).toBe(201)
     const second = await response.json() as SpecialDayScene
-    expect(second).toMatchObject({ id: 'christmas-2', name: 'Christmas', tile_art: first.tile_art, full_art: first.full_art, full_art_portrait: first.full_art_portrait })
-    expect(stored()).toHaveLength(3)
+    expect(second).toMatchObject({ id: 'christmas-2', name: 'Christmas', tile_art: first.tile_art, full_art: first.full_art, full_art_portrait: first.full_art_portrait, backdrop_art: first.backdrop_art, backdrop_art_portrait: first.backdrop_art_portrait })
+    expect(stored()).toHaveLength(5)
     expect((await $fetch<SpecialDayScene[]>('/api/special-day-scenes')).map(scene => scene.id)).toEqual(['christmas', 'christmas-2'])
   })
 
   it('leaves an ordinary scene: deleting one copy keeps the files the other uses, deleting both removes them', async () => {
     expect((await fetch('/api/special-day-scenes/christmas-2', { method: 'DELETE', headers: right })).status).toBe(204)
-    expect(stored()).toHaveLength(3)
+    expect(stored()).toHaveLength(5)
     expect((await fetch('/api/special-day-scenes/christmas', { method: 'DELETE', headers: right })).status).toBe(204)
     expect(stored()).toEqual([])
   })

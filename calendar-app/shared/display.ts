@@ -59,6 +59,19 @@ export type Motion = (typeof MOTIONS)[number]
 export const DEFAULT_MOTION: Motion = 'off'
 
 /**
+ * Where a special day's takeover art is drawn, set per display: `behind` the
+ * view (the default), so it shows only in the margins and gaps; `over` it, so
+ * the whole picture shows and its transparent parts let the calendar through;
+ * or `over_in_portrait`, over on the portrait stage and behind on the landscape
+ * one. The portrait layouts fill the stage, so art behind them hardly shows.
+ */
+export const TAKEOVER_ART_PLACES = ['behind', 'over_in_portrait', 'over'] as const
+export type TakeoverArtPlace = (typeof TAKEOVER_ART_PLACES)[number]
+
+/** Where takeover art goes when config does not say, and what the client uses for settings cached before `takeover_art` existed. */
+export const DEFAULT_TAKEOVER_ART: TakeoverArtPlace = 'behind'
+
+/**
  * What the night view shows under its clock (PR 5.2), set per display in
  * config: nothing, the first timed event still to come in the next 24 hours,
  * or the next alarm from a Home Assistant entity (the top-level `alarm` block).
@@ -353,6 +366,8 @@ export const displaySettingsSchema = z.object({
   burn_in: z.boolean(),
   /** Whether the wall has slow ambient motion (the photo frame's pan and zoom). The client takes settings cached before it existed as `off`. */
   motion: z.enum(MOTIONS),
+  /** Whether a takeover's art is drawn behind the view or over it. The client takes settings cached before it existed as `behind`. */
+  takeover_art: z.enum(TAKEOVER_ART_PLACES),
   /** What the night view shows under its clock. */
   night_text: z.enum(NIGHT_TEXTS),
   /** Which way up the wall is laid out (PR 5.10). The client takes settings cached before it existed as `auto`. */

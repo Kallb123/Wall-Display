@@ -63,6 +63,7 @@ describe('defaults', () => {
       week_start: 'monday',
       burn_in: true,
       motion: 'off',
+      takeover_art: 'behind',
       night_text: 'none',
       orientation: 'auto',
       week_hours: { from: 7, to: 21 },
@@ -175,6 +176,14 @@ describe('defaults', () => {
     const { config } = await load({ config: raw })
 
     expect(config.displays[0]!.motion).toBe('subtle')
+  })
+
+  it('keeps takeover_art as set on a display', async () => {
+    const raw = minimalConfig()
+    raw.displays[0].takeover_art = 'over_in_portrait'
+    const { config } = await load({ config: raw })
+
+    expect(config.displays[0]!.takeover_art).toBe('over_in_portrait')
   })
 
   it('keeps orientation as set on a display', async () => {

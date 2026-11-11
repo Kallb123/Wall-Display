@@ -46,6 +46,8 @@ const scene = (changes: Partial<SpecialDayScene> = {}): SpecialDayScene => ({
   takeover: true,
   full_art: 'birthday-full.webp',
   full_art_portrait: null,
+  backdrop_art: null,
+  backdrop_art_portrait: null,
   greeting: 'Happy {nth} birthday, {who}!',
   palette: 'frost',
   updated_at: '2026-10-01T09:00:00.000Z',
@@ -68,6 +70,8 @@ const day = (changes: Partial<SpecialDay> = {}): SpecialDay => ({
   takeover: null,
   full_art: null,
   full_art_portrait: null,
+  backdrop_art: null,
+  backdrop_art_portrait: null,
   greeting: null,
   palette: null,
   extra_art: null,
@@ -116,14 +120,14 @@ describe('drafts', () => {
       day({ lead: 'month', takeover: false, palette: 'sage' }),
     ]
     for (const original of stored) {
-      const { id: _id, tile_art: _tile, full_art: _full, full_art_portrait: _portrait, extra_art: _extra, extra_art_portrait: _extraPortrait, updated_at: _updated, ...fields } = original
+      const { id: _id, tile_art: _tile, full_art: _full, full_art_portrait: _portrait, backdrop_art: _backdrop, backdrop_art_portrait: _backdropPortrait, extra_art: _extra, extra_art_portrait: _extraPortrait, updated_at: _updated, ...fields } = original
       expect(dayBody(dayDraftFrom(original))).toEqual(fields)
     }
   })
 
   it('makes the body a scene was stored from', () => {
     for (const original of [scene(), scene({ lead: 'days', lead_days: 3, greeting: null, takeover: false, palette: 'sage' })]) {
-      const { id: _id, tile_art: _tile, full_art: _full, full_art_portrait: _portrait, updated_at: _updated, ...fields } = original
+      const { id: _id, tile_art: _tile, full_art: _full, full_art_portrait: _portrait, backdrop_art: _backdrop, backdrop_art_portrait: _backdropPortrait, updated_at: _updated, ...fields } = original
       expect(sceneBody(sceneDraftFrom(original))).toEqual(fields)
     }
   })
@@ -442,7 +446,7 @@ describe('withScene', () => {
 
 describe('draftLook', () => {
   it('uses the defaults for a day with nothing set and no scene', () => {
-    expect(draftLook(newDayDraft(TODAY), null, null)).toEqual({ lead: 'day', lead_days: null, tile_art: null, takeover: false, full_art: null, full_art_portrait: null, greeting: null, palette: 'warm' })
+    expect(draftLook(newDayDraft(TODAY), null, null)).toEqual({ lead: 'day', lead_days: null, tile_art: null, takeover: false, full_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, greeting: null, palette: 'warm' })
   })
 
   it('takes the draft\'s own values over the scene\'s, and the scene\'s for the rest', () => {
@@ -454,6 +458,8 @@ describe('draftLook', () => {
       takeover: true,
       full_art: 'birthday-full.webp',
       full_art_portrait: null,
+      backdrop_art: null,
+      backdrop_art_portrait: null,
       greeting: 'Happy {nth} birthday, {who}!',
       palette: 'night',
     })

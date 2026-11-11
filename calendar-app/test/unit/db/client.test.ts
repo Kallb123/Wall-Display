@@ -107,8 +107,8 @@ describe('runMigrations', () => {
 
     const rows = handle.sqlite.prepare('select * from special_days order by id').all()
     expect(rows).toEqual([
-      { ...yearly, scene_id: null, who: null, since_year: null, extra_art: null, full_art_portrait: null, extra_art_portrait: null },
-      { ...once, scene_id: null, who: null, since_year: null, extra_art: null, full_art_portrait: null, extra_art_portrait: null },
+      { ...yearly, scene_id: null, who: null, since_year: null, extra_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: null },
+      { ...once, scene_id: null, who: null, since_year: null, extra_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null, extra_art_portrait: null },
     ])
   })
 
@@ -151,8 +151,8 @@ describe('runMigrations', () => {
     insert.run({ id: 'bare', cache_file: file, cache_bytes: null, fetched_at: null, last_shown_at: null })
     insert.run({ id: 'listed', cache_file: null, cache_bytes: null, fetched_at: null, last_shown_at: null })
 
-    // 0006, then 0007, 0008, 0009 and 0010 after it.
-    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(5)
+    // 0006, then 0007 to 0011 after it.
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(6)
 
     expect(handle.sqlite.prepare('select * from photo_renditions order by asset_id').all()).toEqual([
       { asset_id: 'bare', rendition: 'landscape', cache_file: file, cache_bytes: 0, fetched_at: 1000, last_shown_at: null },
@@ -180,11 +180,34 @@ describe('runMigrations', () => {
     handle.sqlite.prepare(`insert into special_day_scenes (id, name, lead, takeover, full_art, palette, created_at, updated_at) values ('spooky', 'Spooky', 'day', 1, 'scene-full.webp', 'ember', 0, 0)`).run()
     handle.sqlite.prepare(`insert into special_days (id, name, month, day, repeat, scene_id, full_art, extra_art, created_at, updated_at) values ('halloween', 'Halloween', 10, 31, 'yearly', 'spooky', 'day-full.webp', 'day-extra.webp', 0, 0)`).run()
 
-    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(4)
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(5)
 
     expect(handle.sqlite.prepare('select full_art, full_art_portrait from special_day_scenes').all()).toEqual([{ full_art: 'scene-full.webp', full_art_portrait: null }])
     expect(handle.sqlite.prepare('select full_art, full_art_portrait, extra_art, extra_art_portrait from special_days').all()).toEqual([
       { full_art: 'day-full.webp', full_art_portrait: null, extra_art: 'day-extra.webp', extra_art_portrait: null },
+    ])
+  })
+
+  it('adds the backdrop columns (0011) empty, keeping the art already stored', async () => {
+    const before = join(await tempDir(), 'migrations')
+    cpSync(MIGRATIONS_DIR, before, { recursive: true })
+    const journalFile = join(before, 'meta', '_journal.json')
+    const journal = JSON.parse(readFileSync(journalFile, 'utf8')) as { entries: { tag: string }[] }
+    journal.entries = journal.entries.filter(entry => entry.tag < '0011')
+    writeFileSync(journalFile, JSON.stringify(journal))
+
+    const handle = track(openDatabase(':memory:'))
+    runMigrations(handle, before)
+    handle.sqlite.prepare(`insert into special_day_scenes (id, name, lead, takeover, full_art, full_art_portrait, palette, created_at, updated_at) values ('spooky', 'Spooky', 'day', 1, 'scene-full.webp', 'scene-tall.webp', 'ember', 0, 0)`).run()
+    handle.sqlite.prepare(`insert into special_days (id, name, month, day, repeat, scene_id, full_art, created_at, updated_at) values ('halloween', 'Halloween', 10, 31, 'yearly', 'spooky', 'day-full.webp', 0, 0)`).run()
+
+    expect(runMigrations(handle, MIGRATIONS_DIR).applied).toBe(1)
+
+    expect(handle.sqlite.prepare('select full_art, full_art_portrait, backdrop_art, backdrop_art_portrait from special_day_scenes').all()).toEqual([
+      { full_art: 'scene-full.webp', full_art_portrait: 'scene-tall.webp', backdrop_art: null, backdrop_art_portrait: null },
+    ])
+    expect(handle.sqlite.prepare('select full_art, backdrop_art, backdrop_art_portrait from special_days').all()).toEqual([
+      { full_art: 'day-full.webp', backdrop_art: null, backdrop_art_portrait: null },
     ])
   })
 

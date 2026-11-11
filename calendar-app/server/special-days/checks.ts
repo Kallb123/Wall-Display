@@ -42,7 +42,7 @@ export function checkDayInput(db: Db, input: SpecialDayInput, id?: string): void
  */
 export function checkSceneInput(db: Db, id: string, input: SpecialDaySceneInput): void {
   // As the scene will be: the art is not in the input and doesn't matter here.
-  const proposed = { ...input, tile_art: null, full_art: null, full_art_portrait: null }
+  const proposed = { ...input, tile_art: null, full_art: null, full_art_portrait: null, backdrop_art: null, backdrop_art_portrait: null }
   const failures = listSpecialDays(db).filter(day => day.scene_id === id).flatMap((day) => {
     const missing = unfillablePlaceholders(day, effectiveLook(day, proposed))
     return missing.length > 0 ? [{ day, missing }] : []

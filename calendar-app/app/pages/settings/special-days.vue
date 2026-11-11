@@ -22,7 +22,7 @@ type Kind = 'day' | 'scene'
 interface Selection { kind: Kind, id: string | null }
 type Uploads = Partial<Record<ArtSlot, { progress: number | null, error: string | null }>>
 
-const SLOTS: readonly ArtSlot[] = ['tile', 'full', 'extra', 'full-portrait', 'extra-portrait']
+const SLOTS: readonly ArtSlot[] = ['tile', 'full', 'extra', 'full-portrait', 'extra-portrait', 'backdrop', 'backdrop-portrait']
 
 const route = useRoute()
 const router = useRouter()

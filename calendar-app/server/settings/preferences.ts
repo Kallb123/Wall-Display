@@ -39,6 +39,7 @@ export function readDisplayPreferences(display: DisplayConfig): DisplayPreferenc
     day_parts: { afternoon: display.day_parts.afternoon, evening: display.day_parts.evening },
     weather_on_dates: { month: display.weather_on_dates.month, week: display.weather_on_dates.week, week_parts: display.weather_on_dates.week_parts, agenda: display.weather_on_dates.agenda },
     burn_in: display.burn_in,
+    motion: display.motion,
     night_text: display.night_text,
     orientation: display.orientation,
   }
@@ -70,6 +71,7 @@ const displaySchemas: Record<DisplayPreferenceKey, z.ZodType> = {
   day_parts: displayFields.day_parts,
   weather_on_dates: displayFields.weather_on_dates,
   burn_in: displayFields.burn_in,
+  motion: displayFields.motion,
   night_text: displayFields.night_text,
   orientation: displayFields.orientation,
 }

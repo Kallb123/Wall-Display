@@ -23,6 +23,7 @@ const values: DisplayPreferences = {
   day_parts: { afternoon: 12, evening: 17 },
   weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
   burn_in: true,
+  motion: 'off',
   night_text: 'none',
   orientation: 'auto',
 }
@@ -106,6 +107,8 @@ describe('labels', () => {
     ['theme', 'dark', 'Dark'],
     ['orientation', 'portrait', 'Portrait'],
     ['burn_in', true, 'on'],
+    ['motion', 'off', 'Off'],
+    ['motion', 'subtle', 'Subtle'],
     ['month_return_minutes', 5, '5 min'],
     ['week_hours', { from: 7, to: 21 }, '07:00 to 21:00'],
     ['day_parts', { afternoon: 12, evening: 17 }, 'afternoon from 12:00, evening from 17:00'],

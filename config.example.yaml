@@ -92,7 +92,7 @@ weather:
 
 # One entry per screen. Open /display?id=hallway on it.
 # theme, month_style, month_return_minutes, week_start, week_hours, day_parts,
-# weather_on_dates, burn_in, night_text and orientation can also be changed on the /settings Displays tab
+# weather_on_dates, burn_in, motion, night_text and orientation can also be changed on the /settings Displays tab
 # while the app runs. A change made there is stored in the database on top of
 # this file and wins over it until you press Reset there; this file is never written.
 displays:
@@ -103,6 +103,7 @@ displays:
     month_return_minutes: 15 # a month or week picked on the remote reverts to the current one after this long (1-1440)
     week_start: monday # monday | sunday
     burn_in: true # default true; slowly shift the content and move the photo frame's clock between corners, against burn-in
+    # motion: off # default off | subtle; slow ambient motion (the photo frame pans and zooms very slightly)
     night_text: first_event # none (default) | first_event | next_alarm; the line under the night view's clock. next_alarm needs the alarm block above
     orientation: auto # auto (default) | landscape | portrait; auto lays out portrait when the screen is taller than it is wide. ?orientation= on the display URL overrides it for one device
     week_hours: { from: 7, to: 21 } # the hours the week view draws in full (whole hours, from 0-23 to 1-24); earlier and later hours are folded into a thin band

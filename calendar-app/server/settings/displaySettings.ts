@@ -24,6 +24,7 @@ export function displaySettings(config: Pick<AppConfig, 'timezone' | 'displays'>
     week_start: display.week_start,
     timezone: config.timezone,
     burn_in: display.burn_in,
+    motion: display.motion,
     night_text: display.night_text,
     orientation: display.orientation,
     week_hours: { from: display.week_hours.from, to: display.week_hours.to },

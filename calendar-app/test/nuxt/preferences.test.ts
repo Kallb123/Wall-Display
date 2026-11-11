@@ -22,6 +22,7 @@ const displayValues: DisplayPreferences = {
   day_parts: { afternoon: 12, evening: 17 },
   weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
   burn_in: true,
+  motion: 'off',
   night_text: 'none',
   orientation: 'auto',
 }
@@ -152,9 +153,22 @@ describe('the display preferences', () => {
       expect((card.find(`[data-testid="weather_on_dates-${view}"]`).element as HTMLInputElement).checked).toBe(true)
     }
     expect(card.find('[data-testid="burn_in"]').attributes('aria-checked')).toBe('true')
+    expect((card.find('[data-testid="motion-off"]').element as HTMLInputElement).checked).toBe(true)
+    expect((card.find('[data-testid="motion-subtle"]').element as HTMLInputElement).checked).toBe(false)
     expect(card.find('[data-testid="mark-changed"]').exists()).toBe(false)
     expect(card.find('[data-testid="save"]').attributes('disabled')).toBeDefined()
     expect(card.find('[data-testid="unsaved"]').exists()).toBe(false)
+  })
+
+  it('saves motion when it is switched to subtle', async () => {
+    const wrapper = await open()
+    const card = hallway(wrapper)
+
+    await card.find('[data-testid="motion-subtle"]').setValue(true)
+    await card.find('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(puts()).toEqual([{ method: 'PUT', url: '/api/settings/preferences/displays/hallway', body: { set: { motion: 'subtle' } }, pin: null }])
   })
 
   it('marks a key with a saved change, Changed with a Reset, on that card only', async () => {

@@ -59,8 +59,8 @@ describe('the preferences API', async () => {
       {
         id: 'hallway',
         name: 'Hallway',
-        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, burn_in: true, night_text: 'none', orientation: 'auto' },
-        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, burn_in: true, night_text: 'none', orientation: 'auto' },
+        values: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, burn_in: true, motion: 'off', night_text: 'none', orientation: 'auto' },
+        config: { theme: 'light', month_style: 'soft', week_start: 'monday', month_return_minutes: 15, week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, burn_in: true, motion: 'off', night_text: 'none', orientation: 'auto' },
         changed: [],
       },
     ])

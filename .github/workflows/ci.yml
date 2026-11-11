@@ -42,8 +42,12 @@ jobs:
           fi
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      # Built before the tests: the e2e tests all start this one build
+      # (calendar-app/test/e2e/globalSetup.ts), where each used to make its own.
       - run: pnpm build
+      - run: pnpm test
+        env:
+          WALLCAL_E2E_PREBUILT: '1'
 
   display:
     runs-on: ubuntu-latest

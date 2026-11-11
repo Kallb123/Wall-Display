@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ImageIcon, Plus } from 'lucide-vue-next'
+import { ImageIcon, Plus, Sparkles } from 'lucide-vue-next'
 import { specialDayArtUrl } from '../../../shared/special-days'
 import type { SpecialDay, SpecialDayScene } from '../../../shared/special-days'
 import { dateChip, daySummary, daysUsing, lacksPortraitArt, usedByLabel } from '~/utils/specialDayEditor'
@@ -7,7 +7,8 @@ import { dateChip, daySummary, daysUsing, lacksPortraitArt, usedByLabel } from '
 // The left-hand column of the special days page: a switch between the days and
 // the scenes, the list for the one chosen, and a button to add to it. Choosing
 // a row, adding and switching are asked of the page, which decides whether
-// unsaved changes allow it. The row being edited carries a dot while it has
+// unsaved changes allow it. The scenes also offer the starter scenes, which
+// the page shows in a picker. The row being edited carries a dot while it has
 // changes that are not saved. A day that takes over with full-screen art but
 // has no portrait cut of it says so, as a portrait wall shows none of it.
 
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   'update:mode': [mode: 'days' | 'scenes']
   'select': [kind: 'day' | 'scene', id: string]
   'add': [kind: 'day' | 'scene']
+  'add-starter': []
 }>()
 
 const kind = computed(() => props.mode === 'days' ? 'day' : 'scene')
@@ -51,6 +53,10 @@ const adding = computed(() => props.selected !== null && props.selected.id === n
     <SettingsPillButton :data-testid="mode === 'days' ? 'add-day' : 'add-scene'" @click="emit('add', kind)">
       <AppIcon :icon="Plus" :size="20" />
       {{ mode === 'days' ? 'Add a day' : 'Add a scene' }}
+    </SettingsPillButton>
+    <SettingsPillButton v-if="mode === 'scenes'" data-testid="add-starter-scene" @click="emit('add-starter')">
+      <AppIcon :icon="Sparkles" :size="20" />
+      Add a starter scene
     </SettingsPillButton>
 
     <ul v-if="mode === 'days'" class="rows">

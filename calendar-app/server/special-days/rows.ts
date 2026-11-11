@@ -6,8 +6,12 @@ import type { SpecialDayRow, SpecialDaySceneRow } from '../db/schema'
 // format (camelCase to snake_case) and making ids. The two stores need each
 // other's mappers, so they live here rather than in either.
 
-/** Ids that would shadow a route, so no special day or scene gets one: `/api/special-days/resolved` is not a day. */
-const RESERVED_IDS = ['resolved']
+/**
+ * Ids that would shadow a route, so no special day or scene gets one:
+ * `/api/special-days/resolved` is not a day, and `/api/special-day-scenes/starters/…`
+ * adds a starter scene rather than acting on a scene called "starters".
+ */
+const RESERVED_IDS = ['resolved', 'starters']
 
 const MAX_SLUG_LENGTH = 40
 

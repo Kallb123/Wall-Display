@@ -295,5 +295,6 @@ describe('slugFor', () => {
   it('never answers with a name a route uses', () => {
     expect(slugFor('resolved', none)).toBe('resolved-2')
     expect(slugFor('Resolved', new Set(['resolved-2']))).toBe('resolved-3')
+    expect(slugFor('Starters', none, 'scene')).toBe('starters-2')
   })
 })

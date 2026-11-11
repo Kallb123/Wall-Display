@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <!-- A Christmas tree. Square and transparent, for the corner of a calendar tile. -->
+  <g>
+    <rect x="53.8" y="101.4" width="12.5" height="14.6" rx="3.1" fill="#6b4a35"/>
+    <path d="M60 51.5 Q67.2 55.5 107.8 95.5 Q113.8 103.5 97.8 103.5 L22.2 103.5 Q6.2 103.5 12.2 95.5 Q52.8 55.5 60 51.5 Z" fill="#2f6b5a"/>
+    <path d="M60 51.5 Q64.8 53.5 80.1 71.3 Q70.5 67.1 60 70.2 Q49.5 67.1 39.9 71.3 Q55.2 53.5 60 51.5 Z" fill="#eef6fe"/>
+    <path d="M60 37 Q65.8 41 98.5 70.6 Q104.5 78.6 88.5 78.6 L31.5 78.6 Q15.5 78.6 21.5 70.6 Q54.2 41 60 37 Z" fill="#3d8a6e"/>
+    <path d="M60 37 Q63.8 39 76.2 52.8 Q68.5 49.4 60 51.9 Q51.5 49.4 43.8 52.8 Q56.2 39 60 37 Z" fill="#eef6fe"/>
+    <path d="M60 12 Q64.2 16 88.1 47.7 Q94.1 55.7 78.1 55.7 L41.9 55.7 Q25.9 55.7 31.9 47.7 Q55.8 16 60 12 Z" fill="#4f9f7f"/>
+    <path d="M60 12 Q62.8 14 71.8 28.6 Q66.2 25.1 60 27.7 Q53.8 25.1 48.2 28.6 Q57.2 14 60 12 Z" fill="#eef6fe"/>
+    <circle cx="44" cy="80" r="5" fill="#e8786b"/><circle cx="74" cy="72" r="5" fill="#f6c544"/><circle cx="62" cy="54" r="4.5" fill="#92bce8"/><circle cx="80" cy="92" r="4.5" fill="#92bce8"/><circle cx="50" cy="96" r="4.5" fill="#f6c544"/>
+    <polygon points="60,3 63.1,9.7 70.5,10.6 65,15.6 66.5,22.9 60,19.3 53.5,22.9 55,15.6 49.5,10.6 56.9,9.7" fill="#f6c544" stroke="#f6c544" stroke-width="2" stroke-linejoin="round"/>
+  </g>
+</svg>

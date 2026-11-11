@@ -205,3 +205,84 @@ test('with burn-in off the pill stays top left', async ({ page, request }) => {
 
   await expect(page.getByTestId('photo-pill')).toHaveAttribute('data-corner', 'top-left')
 })
+
+// The slow pan and zoom (issue 75). No screenshots: it is about movement. The
+// real displays have `motion` off, so the page is given the display list with
+// the kitchen's turned to `subtle`, which keeps every picture above as it is.
+async function subtleKitchen(page: Page) {
+  await page.route('**/api/displays', async (route) => {
+    const response = await route.fetch()
+    const displays = (await response.json()) as { id: string }[]
+    await route.fulfill({ response, json: displays.map(display => display.id === 'kitchen' ? { ...display, motion: 'subtle' } : display) })
+  })
+}
+
+test('with motion subtle the photo drifts: a running transform animation, and nothing else animated', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  await subtleKitchen(page)
+  await playServer(page, { view: 'photo' }, events, weather)
+  await page.goto('/display?id=kitchen')
+  await photoShown(page)
+  const top = page.locator('[data-testid^="photo-layer-"].top')
+
+  await expect.poll(() => top.evaluate(image => getComputedStyle(image).animationName)).not.toBe('none')
+  const animations = await top.evaluate(image => image.getAnimations().filter(animation => animation instanceof CSSAnimation).map(animation => ({
+    state: animation.playState,
+    properties: [...new Set((animation.effect as KeyframeEffect).getKeyframes().flatMap(frame => Object.keys(frame)))].filter(key => !['offset', 'easing', 'composite', 'computedOffset'].includes(key)),
+  })))
+  expect(animations).toEqual([{ state: 'running', properties: ['transform'] }])
+
+  // It really moves, and slowly: the matrix changes between two looks a few seconds apart, by well under a percent of the scale a second.
+  const scaleNow = () => top.evaluate(image => new DOMMatrix(getComputedStyle(image).transform).a)
+  const before = await scaleNow()
+  await page.waitForTimeout(2500)
+  const after = await scaleNow()
+  expect(after).toBeGreaterThan(before)
+  expect((after - before) / 2.5).toBeLessThan(0.005)
+  // The pill is not in it.
+  expect(await page.getByTestId('photo-pill').evaluate(pill => getComputedStyle(pill).transform)).toBe('none')
+})
+
+test('the drift pauses in place when the wall is dimmed for the night', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  await subtleKitchen(page)
+  const server = await playServer(page, { view: 'photo' }, events, weather)
+  await page.goto('/display?id=kitchen')
+  await photoShown(page)
+  const top = page.locator('[data-testid^="photo-layer-"].top')
+  await expect.poll(() => top.evaluate(image => image.getAnimations().length)).toBe(1)
+
+  await server.send({ view: 'photo', brightness: 30 })
+  await expect.poll(() => top.evaluate(image => image.getAnimations()[0]?.playState)).toBe('paused')
+  const held = await top.evaluate(image => getComputedStyle(image).transform)
+  await page.waitForTimeout(500)
+  expect(await top.evaluate(image => getComputedStyle(image).transform)).toBe(held)
+  expect(held).not.toBe('none')
+})
+
+test('with prefers-reduced-motion there is no drift even with motion on', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  await subtleKitchen(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await playServer(page, { view: 'photo' }, events, weather)
+  await page.goto('/display?id=kitchen')
+  await photoShown(page)
+  const top = page.locator('[data-testid^="photo-layer-"].top')
+
+  expect(await top.evaluate(image => getComputedStyle(image).animationName)).toBe('none')
+  expect(await top.evaluate(image => image.getAnimations().filter(animation => animation instanceof CSSAnimation).length)).toBe(0)
+})
+
+test('with motion off, the default, the photo has no animation and no transform', async ({ page, request }) => {
+  const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+  await answerPhotos(page, () => ({ photo }))
+  await playServer(page, { view: 'photo' }, events, weather)
+  await page.goto('/display?id=kitchen')
+  await photoShown(page)
+  const top = page.locator('[data-testid^="photo-layer-"].top')
+
+  expect(await top.evaluate(image => [getComputedStyle(image).animationName, getComputedStyle(image).transform, image.getAttribute('style')])).toEqual(['none', 'none', null])
+})

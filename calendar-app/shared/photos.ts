@@ -21,8 +21,16 @@ export const photoInfoSchema = z.strictObject({
 })
 export type PhotoInfo = z.infer<typeof photoInfoSchema>
 
-/** What `GET /api/photos/next` answers: null when there is nothing to show. */
-export const photoResponseSchema = z.strictObject({ photo: photoInfoSchema.nullable() })
+/**
+ * What `GET /api/photos/next` answers: null when there is nothing to show. The
+ * `interval_seconds` is how long the server leaves a photo on show, as set now
+ * (the settings page can change it), so the frame can pace its slow drift to
+ * it. Optional, so an answer from before it was added still parses.
+ */
+export const photoResponseSchema = z.strictObject({
+  photo: photoInfoSchema.nullable(),
+  interval_seconds: z.number().positive().optional(),
+})
 export type PhotoResponse = z.infer<typeof photoResponseSchema>
 
 /** Where a rendered photo (a `<sha256>.webp` name) is served from. */

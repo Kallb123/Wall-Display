@@ -125,6 +125,8 @@ export interface ViewProps {
   photoCorner?: Corner
   /** The photo frame only: whether the overlay banner is showing at the bottom centre, so an overlay set to a bottom corner takes the top one on its side. Not showing when left out. */
   overlayShowing?: boolean
+  /** The photo frame only: whether its slow pan and zoom runs now (the display's `motion`, and the screen is on and not dimmed). Still when left out. */
+  motion?: boolean
   /** The night view only: what it says under the clock. `none` when left out. */
   nightText?: NightText
   /** The night view only: the next alarm the server knows of, or null for none. Not heard yet is the same as none. */

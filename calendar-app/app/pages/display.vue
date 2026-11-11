@@ -22,6 +22,7 @@ import { burnInOffset, pillCorner } from '~/utils/burnIn'
 import { browserStorage, loadCache, loadLastDisplayId, saveCache, saveLastDisplayId } from '~/utils/displayCache'
 import { dayGridRanges, displayEventRanges, todayIn } from '~/utils/eventRanges'
 import { layoutPanes, photoPillAtTopRight } from '~/utils/layouts'
+import { motionRuns } from '~/utils/motion'
 import { isOverlayShowing } from '~/utils/overlay'
 import { photoPills } from '~/utils/photoOverlay'
 import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
@@ -207,6 +208,8 @@ const shift = computed(() => burnIn.value ? burnInOffset(now.value) : { x: 0, y:
 /** The banner is at the bottom centre and the pill must keep out of its way. */
 const overlayShowing = computed(() => isOverlayShowing(state.value.overlay, now.value))
 const photoCorner = computed(() => burnIn.value ? pillCorner(now.value, { overlay: overlayShowing.value }) : 'top-left')
+// Ambient motion runs only when the display asks for it (settings cached before it existed count as off) and the wall is lit: the screen on and not dimmed for the night. The night view is a different view, so the photo frame is not even mounted there, but the rule stays in one place for any motion added later.
+const motion = computed(() => motionRuns({ motion: settings.value?.motion, screen: state.value.screen, view: state.value.view, brightness: state.value.brightness }))
 /** The corners the photo frame's pills are in: the walking corner on the photo frame and the week and photo view, and wherever the layout puts the time and the date in a custom layout. */
 const photoPillCorners = computed(() => {
   const options = state.value.view === 'custom' ? paneOptions(currentLayout.value, 'photo') : DEFAULT_PANE_OPTIONS
@@ -260,6 +263,7 @@ const viewProps = computed<ViewProps | null>(() => {
     socketOpens: socket.opens.value,
     photoCorner: photoCorner.value,
     overlayShowing: overlayShowing.value,
+    motion: motion.value,
     nightText: display.night_text,
     alarm: alarm.value,
     burnIn: burnIn.value,

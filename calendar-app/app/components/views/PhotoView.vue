@@ -6,6 +6,7 @@ import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, formatTemperature, weatherLabel } from '../../../shared/weather'
 import { formatLongDate, formatTime } from '~/utils/format'
 import { eventLabel } from '~/utils/eventLabel'
+import { driftSeconds, photoDrift } from '~/utils/motion'
 import { nextEvent } from '~/utils/nextEvent'
 import { photoPills } from '~/utils/photoOverlay'
 import { weatherIcon } from '~/utils/weather'
@@ -39,6 +40,22 @@ import type { ViewProps } from '../../utils/views'
 // corners (`photoCorner`, PR 5.3) so no corner is lit for ever. It takes a top
 // corner while the overlay banner, at the bottom centre, is showing, so the two
 // never meet.
+//
+// With `motion` on (the display's setting, while the screen is on and not dimmed
+// for the night, `motionRuns`) each photo drifts slowly while it is on show: a
+// few percent of scale and about one percent of pan, over the whole interval
+// (`driftSeconds`, from the interval the server answers with), zooming in on
+// one photo and out on the next and leaning a different way each time. It is a
+// CSS animation of `transform` alone, so the browser does it off the main
+// thread and there is no layout work per frame. The photo beneath a crossfade
+// keeps its own drift until the fade is over, so nothing snaps back to rest. When
+// `motion` goes off while a photo is on show (the screen went off or was dimmed)
+// the animation is paused where it is, and carries on when it comes back. A
+// photo that was shown with motion off has no drift, so the drift of one that is
+// on show when motion turns on begins then, from rest, and runs the length of an
+// interval as ever. Only the layers move: the pill is a sibling and never does,
+// so nothing moves under the text, and with `prefers-reduced-motion` there is
+// no drift at all. Burn-in shifting moves the stage as a whole, so the two add.
 //
 // As a pane of the week and photo view (`pane`, PR 5.14, mock 4k) it fills the
 // box it is given, which is a part of the stage, and the pill is the compact
@@ -80,6 +97,48 @@ let retry: ReturnType<typeof setTimeout> | undefined
 let fadeTimer: ReturnType<typeof setTimeout> | undefined
 /** The decoded image of the photo on show, held so the browser keeps it decoded. */
 const held = new Set<HTMLImageElement>()
+
+/**
+ * How a layer's photo drifts, or null for still. `name` picks one of two
+ * identical sets of keyframes: a layer given a new photo is given the other,
+ * and a changed animation name restarts the animation from its beginning.
+ */
+interface LayerDrift {
+  from: string
+  to: string
+  seconds: number
+  name: 'a' | 'b'
+}
+const drifts = ref<[LayerDrift | null, LayerDrift | null]>([null, null])
+/** The keyframes each layer used last, to give it the other next. */
+const lastName: ['a' | 'b', 'a' | 'b'] = ['b', 'b']
+/** The photos given a drift so far: it picks the drift (`photoDrift`), so successive photos differ. */
+let drifted = 0
+/** The server's photo interval, as of its latest answer. Not known until the first. */
+let intervalSeconds: number | undefined
+
+function setDrift(layer: 0 | 1, drift: LayerDrift | null) {
+  drifts.value = layer === 0 ? [drift, drifts.value[1]] : [drifts.value[0], drift]
+}
+
+/** Gives `layer` a drift for the photo now on it. */
+function startDrift(layer: 0 | 1) {
+  const name = lastName[layer] === 'a' ? 'b' : 'a'
+  lastName[layer] = name
+  setDrift(layer, { ...photoDrift(drifted++), seconds: driftSeconds(intervalSeconds), name })
+}
+
+/** The style of a layer's drift: its two ends and its length for the keyframes, and paused while motion is off. Nothing at all for a layer with no drift, so a wall with motion off is drawn exactly as before. */
+function driftStyle(layer: 0 | 1) {
+  const drift = drifts.value[layer]
+  if (!drift) return undefined
+  return {
+    '--drift-from': drift.from,
+    '--drift-to': drift.to,
+    '--drift-seconds': `${drift.seconds}s`,
+    ...(props.motion ? {} : { animationPlayState: 'paused' }),
+  }
+}
 
 /** The size of the box to ask for: whole pixels, at least 1 and at most 99999, which the server accepts. */
 function boxOf() {
@@ -124,12 +183,14 @@ async function show(photo: PhotoInfo, id: number) {
   top.value = target
   held.clear()
   held.add(image)
+  if (props.motion) startDrift(target)
   // The first photo has nothing beneath it to protect, so a skip straight after it need not wait.
   if (previous === null) return
   fading = new Promise<void>((resolve) => {
     fadeTimer = setTimeout(() => {
       under.value = null
-      // Out of sight now, so let go of its picture.
+      // Out of sight now, so let go of its picture, and with it its drift.
+      setDrift(previous, null)
       layers.value = previous === 0 ? [null, layers.value[1]] : [layers.value[0], null]
       resolve()
     }, FADE_MS)
@@ -156,6 +217,7 @@ async function fetchNext() {
     try {
       const answer = photoResponseSchema.parse(await $fetch('/api/photos/next', { query: { display, orientation, ...box }, timeout: REQUEST_TIMEOUT_MS }))
       photo = answer.photo
+      intervalSeconds = answer.interval_seconds
     } catch {
       // Offline or busy: what is on show stays.
     }
@@ -201,6 +263,11 @@ watch(() => props.socketOpens, () => {
   if (top.value === null && inflight === 0) void fetchNext()
 })
 
+// Motion coming on with a photo on show that has no drift (it was shown while the screen was off or dimmed, or before the settings arrived): it begins now, from rest.
+watch(() => props.motion, (on) => {
+  if (on && top.value !== null && drifts.value[top.value] === null) startDrift(top.value)
+})
+
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
 
 const time = computed(() => formatTime(props.now, props.timezone))
@@ -229,7 +296,8 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
       v-for="(url, index) in layers"
       :key="index"
       class="layer"
-      :class="{ top: top === index, under: under === index }"
+      :class="[{ top: top === index, under: under === index }, drifts[index] && `drift-${drifts[index].name}`]"
+      :style="driftStyle(index as 0 | 1)"
       :src="url ?? undefined"
       alt=""
       draggable="false"
@@ -295,6 +363,46 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
   object-fit: cover;
   opacity: 0;
   transition: opacity 1.5s ease-in-out;
+}
+
+/* The slow drift (see the header). Linear over a long time reads as a steady creep, where an ease would be a pause at each end that the eye catches. `both` holds the end if a photo outstays its interval. The two names are the same keyframes, so a layer given a new photo can restart by changing name. The compositor is told about the transform only while there is one to do. */
+.layer.drift-a {
+  animation: photo-drift-a var(--drift-seconds) linear both;
+  will-change: transform;
+}
+
+.layer.drift-b {
+  animation: photo-drift-b var(--drift-seconds) linear both;
+  will-change: transform;
+}
+
+@keyframes photo-drift-a {
+  from {
+    transform: var(--drift-from);
+  }
+
+  to {
+    transform: var(--drift-to);
+  }
+}
+
+@keyframes photo-drift-b {
+  from {
+    transform: var(--drift-from);
+  }
+
+  to {
+    transform: var(--drift-to);
+  }
+}
+
+/* No drift at all for someone who has asked their device for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .layer.drift-a,
+  .layer.drift-b {
+    animation: none;
+    will-change: auto;
+  }
 }
 
 /* The new photo fades in over the old one, which stays solid until the fade is over. */

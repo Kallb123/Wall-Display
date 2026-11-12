@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { bleeds, edgeBleed, paneClipPath } from '../../utils/bleed'
 import { weekPhotoPanes } from '../../utils/views'
 import type { ViewProps } from '../../utils/views'
 import PhotoView from './PhotoView.vue'
@@ -18,20 +19,41 @@ import WeekView from './WeekView.vue'
 // stage; `overflow: hidden` clips the photo to them. It is tinted with the
 // tile colour until the first photo has loaded. A takeover's palette is the
 // stage's and so reaches the week; the photo covers its own pane.
+//
+// While burn-in shifting is on, the photo is drawn past the three sides it has
+// on the stage's edge (`edgeBleed`, utils/bleed.ts), so the strip the shift
+// uncovers there is photo and not the ground. The pane is then clipped to an
+// outline that takes in the bleed (`paneClipPath`) instead of by `overflow`,
+// with its rounded corners where they were, and the view does not clip to the stage.
 const props = defineProps<ViewProps>()
 
 const panes = computed(() => weekPhotoPanes(props.stage))
 const portrait = computed(() => props.stage.orientation === 'portrait')
+
+/** How far the photo is drawn past the stage's edge on each side: it is at the top left of the stage. */
+const bleed = computed(() => edgeBleed({ x: 0, y: 0, ...panes.value.photo }, props.stage, props.burnIn ?? false))
+
+const photoStyle = computed(() => ({
+  width: `${panes.value.photo.width}px`,
+  height: `${panes.value.photo.height}px`,
+  ...(bleeds(bleed.value) && {
+    clipPath: paneClipPath(panes.value.photo.width, panes.value.photo.height, portrait.value
+      ? { topLeft: false, topRight: false, bottomRight: true, bottomLeft: true }
+      : { topLeft: false, topRight: true, bottomRight: true, bottomLeft: false }, bleed.value),
+    '--bleed': `${Math.max(bleed.value.top, bleed.value.right, bleed.value.bottom, bleed.value.left)}px`,
+  }),
+}))
 </script>
 
 <template>
-  <section class="view" :class="portrait ? 'portrait' : 'landscape'" data-testid="week-photo-view">
+  <section class="view" :class="[portrait ? 'portrait' : 'landscape', { bleeding: bleeds(bleed) }]" data-testid="week-photo-view">
     <div
       class="photo-pane"
-      :style="{ width: `${panes.photo.width}px`, height: `${panes.photo.height}px` }"
+      :class="{ bleeding: bleeds(bleed) }"
+      :style="photoStyle"
       data-testid="week-photo-photo-pane"
     >
-      <PhotoView v-bind="props" :stage="panes.photo" pane />
+      <PhotoView v-bind="props" :stage="panes.photo" pane :bleed="bleeds(bleed) ? bleed : undefined" />
     </div>
     <div class="week-pane" data-testid="week-photo-week-pane">
       <WeekView v-bind="props" :stage="panes.week" pane />
@@ -69,6 +91,18 @@ const portrait = computed(() => props.stage.orientation === 'portrait')
 
 .landscape .photo-pane {
   border-radius: 0 64px 64px 0;
+}
+
+/* Clipped by its outline (`paneClipPath`), which takes in the bleed, in place of the rounded corners above; the shadow is the tile colour under it until the first photo has loaded. */
+.photo-pane.bleeding {
+  overflow: visible;
+  border-radius: 0;
+  box-shadow: 0 0 0 var(--bleed) var(--tile);
+}
+
+/* The photo draws past the stage's edge, and the stage clips it. */
+.view.bleeding {
+  overflow: visible;
 }
 
 .week-pane {

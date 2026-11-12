@@ -3,6 +3,8 @@ import type { Component } from 'vue'
 import type { View } from '../../../shared/display'
 import { paneOptions } from '../../../shared/layouts'
 import type { LayoutComponent } from '../../../shared/layouts'
+import { bleeds, edgeBleed, NO_BLEED, PANE_RADIUS, paneClipPath } from '../../utils/bleed'
+import type { Bleed } from '../../utils/bleed'
 import { layoutPanes, paneFit } from '../../utils/layouts'
 import type { PaneBox } from '../../utils/layouts'
 import type { ViewProps } from '../../utils/views'
@@ -28,6 +30,12 @@ import WeekView from './WeekView.vue'
 // rounded inner corners of the week and photo view, and the tile colour until
 // the first photo has loaded. A takeover's palette is the stage's and reaches
 // every calendar pane; the photo covers its own.
+//
+// While burn-in shifting is on, a photo pane on the stage's edge draws its photo
+// past the edge (`edgeBleed`, utils/bleed.ts), so the strip the shift uncovers
+// beside it is photo and not the ground. The pane is then clipped to an outline
+// (`paneClipPath`) rather than by its own box, which takes in the bleed and keeps
+// the rounded corners where they are, and the view does not clip to the stage.
 const props = defineProps<ViewProps>()
 
 const components: Record<LayoutComponent, Component> = {
@@ -50,9 +58,13 @@ const panes = computed(() => {
   if (!arrangement.value) return []
   return layoutPanes(arrangement.value, props.stage).map((box) => {
     const options = paneOptions(props.layout, box.component)
-    return { box, options, fit: paneFit(box.component, box, box.grid, options, box.starGrid) }
+    const bleed = box.component === 'photo' ? edgeBleed(box, props.stage, props.burnIn ?? false) : NO_BLEED
+    return { box, options, bleed, fit: paneFit(box.component, box, box.grid, options, box.starGrid) }
   })
 })
+
+/** Whether any pane draws past the stage's edge, when the view must not clip to it. */
+const anyBleed = computed(() => panes.value.some(({ bleed }) => bleeds(bleed)))
 
 /** A layout of one pane fills the stage, so its view is the full view and not a pane of one. */
 const single = computed(() => panes.value.length === 1)
@@ -60,23 +72,25 @@ const single = computed(() => panes.value.length === 1)
 /** The view a pane tells its component it is: its own, or `custom` for a component that is not a view (the day grid and the star chart). */
 const viewOf = (component: LayoutComponent): View => (component === 'days' || component === 'stars' ? 'custom' : component)
 
-const boxStyle = (box: PaneBox) => ({
+const boxStyle = (box: PaneBox, bleed: Bleed) => ({
   left: `${box.x}px`,
   top: `${box.y}px`,
   width: `${box.width}px`,
   height: `${box.height}px`,
-  ...(box.component === 'photo' && { borderRadius: [box.rounded.topLeft, box.rounded.topRight, box.rounded.bottomRight, box.rounded.bottomLeft].map(round => round ? '64px' : '0').join(' ') }),
+  ...(box.component === 'photo' && (bleeds(bleed)
+    ? { clipPath: paneClipPath(box.width, box.height, box.rounded, bleed), '--bleed': `${Math.max(bleed.top, bleed.right, bleed.bottom, bleed.left)}px` }
+    : { borderRadius: [box.rounded.topLeft, box.rounded.topRight, box.rounded.bottomRight, box.rounded.bottomLeft].map(round => round ? `${PANE_RADIUS}px` : '0').join(' ') })),
 })
 </script>
 
 <template>
-  <section v-if="panes.length" class="view" data-testid="custom-layout-view">
+  <section v-if="panes.length" class="view" :class="{ bleeding: anyBleed }" data-testid="custom-layout-view">
     <div
-      v-for="{ box, fit, options } in panes"
+      v-for="{ box, fit, options, bleed } in panes"
       :key="box.component"
       class="pane"
-      :class="{ photo: box.component === 'photo' }"
-      :style="boxStyle(box)"
+      :class="{ photo: box.component === 'photo', bleeding: bleeds(bleed) }"
+      :style="boxStyle(box, bleed)"
       :data-testid="`layout-pane-${box.component}`"
     >
       <div
@@ -84,7 +98,7 @@ const boxStyle = (box: PaneBox) => ({
         :style="{ width: `${fit.stage.width}px`, height: `${fit.stage.height}px`, transform: fit.scale === 1 ? undefined : `scale(${fit.scale})` }"
         :data-scale="fit.scale"
       >
-        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" :star-grid="box.starGrid" :pane-options="options" />
+        <component :is="components[box.component]" v-bind="props" :view="viewOf(box.component)" :stage="fit.stage" :pane="!single" :day-grid="box.grid" :star-grid="box.starGrid" :pane-options="options" :bleed="bleeds(bleed) ? bleed : undefined" />
       </div>
     </div>
   </section>
@@ -109,6 +123,17 @@ const boxStyle = (box: PaneBox) => ({
 
 .pane.photo {
   background: var(--tile);
+}
+
+/* Clipped by its outline (`paneClipPath`), which takes in the bleed; the shadow is the tile colour under it until the first photo has loaded. */
+.pane.bleeding {
+  overflow: visible;
+  box-shadow: 0 0 0 var(--bleed) var(--tile);
+}
+
+/* A pane draws past the stage's edge, and the stage clips it. */
+.view.bleeding {
+  overflow: visible;
 }
 
 /* The view is laid out at this size, which is the pane's or, for a pane that is too small, the view's minimum; the transform shrinks it to the pane. */

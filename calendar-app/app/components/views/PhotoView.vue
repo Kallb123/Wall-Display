@@ -4,6 +4,7 @@ import { coversBox, photoResponseSchema } from '../../../shared/photos'
 import type { PhotoInfo } from '../../../shared/photos'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, formatTemperature, weatherLabel } from '../../../shared/weather'
+import { bleeds } from '~/utils/bleed'
 import { formatLongDate, formatTime } from '~/utils/format'
 import { eventLabel } from '~/utils/eventLabel'
 import { driftSeconds, photoDrift } from '~/utils/motion'
@@ -73,6 +74,13 @@ import type { ViewProps } from '../../utils/views'
 // one does. The next event, on a full-screen frame, rides under the clock. The
 // full-screen frame and the week and photo view use the defaults: the time and
 // the weather in the walking corner, and no date.
+//
+// A pane on the stage's edge is given a `bleed` while burn-in shifting is on:
+// the photo is drawn that far past the sides on the edge, so the strip the
+// shift uncovers there is photo and not the theme's ground (utils/bleed.ts).
+// Only the photo reaches out: the pills and the empty message keep to the box,
+// and the box is still what the photo is asked for at. The view no longer clips
+// to its box then; the pane it is in clips to the box and the bleed.
 const props = defineProps<ViewProps>()
 
 /** The length of the crossfade. */
@@ -270,6 +278,18 @@ watch(() => props.motion, (on) => {
 
 const options = computed(() => props.paneOptions ?? DEFAULT_PANE_OPTIONS)
 
+/** The bleed as the layers' offsets, or nothing at all for a frame that keeps to its box. */
+const bleedStyle = computed(() => {
+  const bleed = props.bleed
+  if (!bleeds(bleed)) return undefined
+  return {
+    '--photo-bleed-top': `${bleed.top}px`,
+    '--photo-bleed-right': `${bleed.right}px`,
+    '--photo-bleed-bottom': `${bleed.bottom}px`,
+    '--photo-bleed-left': `${bleed.left}px`,
+  }
+})
+
 const time = computed(() => formatTime(props.now, props.timezone))
 const date = computed(() => formatLongDate(props.now, props.timezone))
 
@@ -291,7 +311,7 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
 </script>
 
 <template>
-  <section class="view" :class="{ pane }" data-testid="photo-view">
+  <section class="view" :class="{ pane, bleeding: !!bleedStyle }" :style="bleedStyle" data-testid="photo-view">
     <img
       v-for="(url, index) in layers"
       :key="index"
@@ -354,12 +374,18 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
   container-type: size;
 }
 
-/* Every layer fills the box. A photo of another shape was made the box's shape by the server, so `cover` crops nothing worth having; one close to its shape comes plain and `cover` crops it a little, centrally. */
+/* Drawn past the box on the sides it bleeds over, and clipped by the pane it is in. */
+.view.bleeding {
+  overflow: visible;
+}
+
+/* Every layer fills the box, and the bleed if there is one. A photo of another shape was made the box's shape by the server, so `cover` crops nothing worth having; one close to its shape comes plain and `cover` crops it a little, centrally. */
 .layer {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  top: calc(-1 * var(--photo-bleed-top, 0px));
+  left: calc(-1 * var(--photo-bleed-left, 0px));
+  width: calc(100% + var(--photo-bleed-left, 0px) + var(--photo-bleed-right, 0px));
+  height: calc(100% + var(--photo-bleed-top, 0px) + var(--photo-bleed-bottom, 0px));
   object-fit: cover;
   opacity: 0;
   transition: opacity 1.5s ease-in-out;

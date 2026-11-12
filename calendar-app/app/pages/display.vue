@@ -25,7 +25,7 @@ import { layoutPanes, photoPillAtTopRight } from '~/utils/layouts'
 import { motionRuns } from '~/utils/motion'
 import { isOverlayShowing } from '~/utils/overlay'
 import { photoPills } from '~/utils/photoOverlay'
-import { deviceOrientation, orientationQuery, stageScale } from '~/utils/stage'
+import { deviceOrientation, orientationQuery, stageFit } from '~/utils/stage'
 import { activePreview, isEvening, takeoverArt, takeoverArtOver, takeoverInForce } from '~/utils/specialDays'
 import { themeStyle, themeTokens } from '~/utils/themes'
 import { NO_SPECIAL_DAYS, stageFor } from '~/utils/views'
@@ -128,7 +128,7 @@ const device = computed(() => deviceOrientation(orientation.value, viewport.valu
 const stage = computed(() => stageFor(state.value.view, device.value))
 /** The layout the custom view shows, or null for none: not chosen, deleted, or not heard of yet. */
 const currentLayout = computed(() => layouts.value.find(layout => layout.id === state.value.layout) ?? null)
-const scale = computed(() => stageScale(viewport.value.width, viewport.value.height, stage.value.orientation))
+const fit = computed(() => stageFit(viewport.value.width, viewport.value.height, stage.value.orientation))
 
 // Installable (PR 5.8): the manifest names this display, so "Install" or "Add to
 // Home Screen" opens it, fullscreen where the platform allows. iOS ignores the
@@ -367,7 +367,7 @@ const stageStyle = computed(() => ({
   ...themeStyle(tokens.value),
   width: `${stage.value.width}px`,
   height: `${stage.value.height}px`,
-  transform: `translate(-50%, -50%) scale(${scale.value})`,
+  transform: `translate(${fit.value.x}px, ${fit.value.y}px) scale(${fit.value.scaleX}, ${fit.value.scaleY})`,
 }))
 
 // 100 is full brightness and 0 is as dark as the overlay can make it; "off" is black.
@@ -471,11 +471,12 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
   cursor: none;
 }
 
-/* Laid out at the stage's own size (2560×1440, or 1440×2560 for portrait) and centred, then scaled to fit the window. */
+/* Laid out at the stage's own size (2560×1440, or 1440×2560 for portrait), then scaled to fit the window and put in the middle of it, on whole pixels (`stageFit`). */
 .stage {
   position: absolute;
-  top: 50%;
-  left: 50%;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
   overflow: hidden;
   background: var(--bg);
   color: var(--text);

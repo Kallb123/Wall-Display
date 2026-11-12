@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deviceOrientation, orientationQuery, STAGE_HEIGHT, STAGE_WIDTH, stageScale, stageSize } from '../../../app/utils/stage'
+import { deviceOrientation, orientationQuery, STAGE_HEIGHT, STAGE_WIDTH, stageFit, stageScale, stageSize } from '../../../app/utils/stage'
 
 describe('stageScale', () => {
   it('is 1 at the stage size', () => {
@@ -18,6 +18,37 @@ describe('stageScale', () => {
 
   it('scales up on a 4K panel', () => {
     expect(stageScale(3840, 2160)).toBe(1.5)
+  })
+})
+
+describe('stageFit', () => {
+  it('fills a window of the stage\'s shape', () => {
+    expect(stageFit(2560, 1440)).toEqual({ scaleX: 1, scaleY: 1, x: 0, y: 0 })
+    expect(stageFit(1280, 720)).toEqual({ scaleX: 0.5, scaleY: 0.5, x: 0, y: 0 })
+    expect(stageFit(720, 1280, 'portrait')).toEqual({ scaleX: 0.5, scaleY: 0.5, x: 0, y: 0 })
+  })
+
+  it('fills a window that is nearly the stage\'s shape, where the bars would be a pixel or two', () => {
+    // 1366×768: the fitted stage is a third of a pixel short on each side.
+    expect(stageFit(1366, 768)).toEqual({ scaleX: 1366 / 2560, scaleY: 768 / 1440, x: 0, y: 0 })
+    // 1360×768: it is 765 px tall, a pixel and a half short above and below.
+    expect(stageFit(1360, 768)).toEqual({ scaleX: 1360 / 2560, scaleY: 768 / 1440, x: 0, y: 0 })
+    expect(stageFit(768, 1366, 'portrait')).toEqual({ scaleX: 768 / 1440, scaleY: 1366 / 2560, x: 0, y: 0 })
+  })
+
+  it('letterboxes any other window, centred, with the stage and its bars on whole pixels', () => {
+    // 16:10: 40 px above and below.
+    expect(stageFit(1280, 800)).toEqual({ scaleX: 0.5, scaleY: 0.5, x: 0, y: 40 })
+    // 1000 × 0.5625 is 562.5 px tall: drawn 563, with 218 above and 219 below.
+    expect(stageFit(1000, 1000)).toEqual({ scaleX: 1000 / 2560, scaleY: 563 / 1440, x: 0, y: 219 })
+    // The portrait stage in a landscape window: 607.5 px wide, drawn 608.
+    expect(stageFit(1920, 1080, 'portrait')).toEqual({ scaleX: 608 / 1440, scaleY: 1080 / 2560, x: 656, y: 0 })
+  })
+
+  it('never stretches by more than the tolerance', () => {
+    // 2% spare is letterboxed, 1% is filled.
+    expect(stageFit(2560, 1470).y).toBe(15)
+    expect(stageFit(2560, 1454)).toEqual({ scaleX: 1, scaleY: 1454 / 1440, x: 0, y: 0 })
   })
 })
 

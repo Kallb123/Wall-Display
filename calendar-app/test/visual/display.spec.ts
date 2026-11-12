@@ -85,9 +85,18 @@ test('scales the stage to fit the window and centres it', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 1000 })
   await expect.poll(async () => (await box()).width).toBeCloseTo(1000, 1)
   const square = await box()
-  expect(square.height).toBeCloseTo(562.5, 1)
+  // 562.5 px tall, drawn on whole pixels: 563, with the bars rounded too.
+  expect(square.height).toBeCloseTo(563, 1)
   expect(square.x).toBeCloseTo(0, 1)
-  expect(square.y).toBeCloseTo(218.75, 1)
+  expect(square.y).toBeCloseTo(219, 1)
+
+  // Nearly the stage's shape: filled, where bars of a pixel and a half would be.
+  await page.setViewportSize({ width: 1360, height: 768 })
+  await expect.poll(async () => (await box()).width).toBeCloseTo(1360, 1)
+  const nearly = await box()
+  expect(nearly.x).toBeCloseTo(0, 1)
+  expect(nearly.y).toBeCloseTo(0, 1)
+  expect(nearly.height).toBeCloseTo(768, 1)
 })
 
 test('with no id it shows the first display', async ({ page }) => {

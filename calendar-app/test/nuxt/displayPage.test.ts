@@ -873,7 +873,7 @@ describe('orientation', () => {
 
     expect(stageSize(wall)).toEqual([1440, 2560])
     expect(wall.stage().attributes('data-orientation')).toBe('portrait')
-    expect(wall.stage().attributes('style')).toContain('scale(0.5)')
+    expect(wall.stage().attributes('style')).toContain('scale(0.5, 0.5)')
     expect(nightStage(wall)).toEqual({ width: 1440, height: 2560, orientation: 'portrait' })
   })
 
@@ -914,7 +914,7 @@ describe('orientation', () => {
 
     expect(stageSize(wall)).toEqual([2560, 1440])
     expect(wall.stage().attributes('data-orientation')).toBe('landscape')
-    expect(wall.stage().attributes('style')).toContain(`scale(${720 / 2560})`)
+    expect(wall.stage().attributes('style')).toContain(`scale(${720 / 2560}, ${720 / 2560})`)
   })
 
   it('follows the view from the portrait stage to the landscape one and back', async () => {
@@ -951,7 +951,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night(), query: '&orientation=portrait' })
 
     expect(stageSize(wall)).toEqual([1440, 2560])
-    expect(wall.stage().attributes('style')).toContain(`scale(${1080 / 2560})`)
+    expect(wall.stage().attributes('style')).toContain(`translate(656px, 0px) scale(${608 / 1440}, ${1080 / 2560})`)
   })
 
   it('takes the display\'s setting, and a change to it at once', async () => {

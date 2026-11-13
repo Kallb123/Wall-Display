@@ -1,9 +1,10 @@
-# This folder is copied to a Raspberry Pi and run in place (`./hw-probe`), so nothing here needs installing. The file
-# only names the project and holds the lint and test settings.
+# This folder is copied to a Raspberry Pi and run in place (`./hw-probe`), so nothing here needs installing from pip.
+# The sensor probes reuse the Pi agent's code (`pi-agent/src` in the repo) and the Pi's apt packages. The file only
+# names the project and holds the lint and test settings.
 [project]
 name = "wallcal-hw-probe"
 version = "0.1.0"
-description = "Hardware probes for the Wall Display: run on a real Raspberry Pi and monitor, standard library only."
+description = "Hardware probes for the Wall Display: run on a real Raspberry Pi and monitor. The screen and render probes use the standard library only; the sensor probes reuse the Pi agent's code and the Pi's apt packages."
 # Raspberry Pi OS Bookworm's system Python is 3.11.
 requires-python = ">=3.11"
 dependencies = []
@@ -20,4 +21,5 @@ known-first-party = ["hw_probe"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+# The sensor probes import the agent's code, which is in the repo next door.
+pythonpath = [".", "../../pi-agent/src"]

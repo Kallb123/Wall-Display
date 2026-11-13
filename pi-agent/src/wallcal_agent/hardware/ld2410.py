@@ -22,11 +22,19 @@ each distance gate between the detection distance and the tail:
     nn nn  nn     moving target: distance in cm (two bytes), energy 0 to 100
     nn nn  nn     stationary target: distance in cm, energy
     nn nn         detection distance in cm
-    ...           engineering data, type 01 only
+    ...           engineering data, type 01 only (below)
     55 00         tail and check (the check byte is always 00)
 
-The sensor also answers the commands it is sent, in frames with their own header (FD FC FB FA). Nothing here sends
-commands, so those are skipped.
+The engineering data starts with the last moving gate N and the last stationary gate M, then holds N+1 moving
+energies and M+1 stationary energies, one byte each (0 to 100), gate 0 first. Some models add a few more bytes after
+those (a light level, the OUT pin); they are ignored. A gate is a slice of distance in front of the sensor, 0.75 m
+deep at the factory resolution (`GATE_METRES`).
+
+The sensor also answers the commands it is sent, in frames with their own header (FD FC FB FA): the command word with
+0x0100 added, a status (0 is success) and then whatever the command returns. The agent sends no commands, so it never
+looks at those and `feed` skips them. `hw-probe mmwave --uart` does send a few (to switch engineering mode on, so the
+gate energies arrive, and to read the sensor's settings), so the parser can return the replies too (`feed_frames`),
+and `command_frame` builds what it sends. Changing the sensor's settings is left to the maker's app.
 """
 
 import logging
@@ -48,6 +56,21 @@ ACK_FOOTER = bytes.fromhex("04030201")
 _HEADERS = (REPORT_HEADER, ACK_HEADER)
 _FOOTERS = {REPORT_HEADER: REPORT_FOOTER, ACK_HEADER: ACK_FOOTER}
 _HEADER_AT = re.compile(re.escape(REPORT_HEADER) + b"|" + re.escape(ACK_HEADER))
+
+# Commands the probe may send. The value of "enable configuration" is always 0001; the rest take none.
+CMD_ENABLE_CONFIG = 0x00FF
+CMD_END_CONFIG = 0x00FE
+CMD_READ_PARAMETERS = 0x0061
+CMD_ENGINEERING_ON = 0x0062
+CMD_ENGINEERING_OFF = 0x0063
+CMD_READ_FIRMWARE = 0x00A0
+# A reply carries its command word with this bit added.
+ACK_BIT = 0x0100
+# The least a reply's data can be: the command word and the status.
+MIN_ACK_BYTES = 4
+
+# How deep one distance gate is, in metres, at the sensor's factory distance resolution.
+GATE_METRES = 0.75
 
 TYPE_ENGINEERING = 0x01
 TYPE_BASIC = 0x02
@@ -86,13 +109,48 @@ class Ld2410Report:
     stationary_distance: int
     stationary_energy: int
     detection_distance: int
-    # Whether it was an engineering report. Its extra per-gate numbers are not kept: nothing here needs them.
+    # Whether it was an engineering report.
     engineering: bool = False
+    # The energy (0 to 100) of each distance gate, gate 0 first, from an engineering report. Empty for a basic report,
+    # and for an engineering one whose gate counts don't fit inside it. The agent doesn't use them; the probe does.
+    moving_gates: tuple[int, ...] = ()
+    stationary_gates: tuple[int, ...] = ()
 
     @property
     def present(self) -> bool:
         """Whether the sensor sees someone, moving or still."""
         return self.target != 0
+
+
+@dataclass(frozen=True)
+class Ld2410Ack:
+    """The sensor's reply to a command."""
+
+    # The command it answers, as sent (without the 0x0100 bit a reply carries).
+    command: int
+    # 0 is success.
+    status: int
+    # What the command returns, after the status: the firmware version, the settings, and so on.
+    data: bytes
+
+    @property
+    def ok(self) -> bool:
+        return self.status == 0
+
+
+@dataclass(frozen=True)
+class Ld2410Parameters:
+    """The sensor's settings, as read with `CMD_READ_PARAMETERS`."""
+
+    # The farthest gate the sensor knows, and the farthest it uses for moving and for still targets.
+    max_gate: int
+    max_moving_gate: int
+    max_stationary_gate: int
+    # Per gate, 0 to `max_gate`: the energy (0 to 100) a gate must reach to count as someone.
+    moving_sensitivity: tuple[int, ...]
+    stationary_sensitivity: tuple[int, ...]
+    # How long the sensor keeps saying someone is there after the last sign of them.
+    no_one_seconds: int
 
 
 class Ld2410Parser:
@@ -107,9 +165,14 @@ class Ld2410Parser:
         self._buffer = bytearray()
 
     def feed(self, data: bytes) -> list[Ld2410Report]:
-        """Takes the next bytes, and returns the reports they complete, in order. Each is returned once."""
+        """Takes the next bytes, and returns the reports they complete, in order. Each is returned once. Replies to
+        commands are skipped (see `feed_frames`)."""
+        return [frame for frame in self.feed_frames(data) if isinstance(frame, Ld2410Report)]
+
+    def feed_frames(self, data: bytes) -> list[Ld2410Report | Ld2410Ack]:
+        """Like `feed`, but also returns the replies to commands, all in the order they arrived."""
         self._buffer += data
-        reports: list[Ld2410Report] = []
+        reports: list[Ld2410Report | Ld2410Ack] = []
         buffer = self._buffer
         while True:
             found = _HEADER_AT.search(buffer)
@@ -142,6 +205,10 @@ class Ld2410Parser:
                 report = _parse_report(data_bytes)
                 if report is not None:
                     reports.append(report)
+            else:
+                ack = _parse_ack(data_bytes)
+                if ack is not None:
+                    reports.append(ack)
         return reports
 
 
@@ -164,6 +231,8 @@ def _parse_report(data: bytes) -> Ld2410Report | None:
     target = data[2]
     if target > 3:
         return None
+    engineering = data[0] == TYPE_ENGINEERING
+    moving_gates, stationary_gates = _parse_gates(data) if engineering else ((), ())
     return Ld2410Report(
         target=target,
         moving_distance=data[3] | data[4] << 8,
@@ -171,8 +240,74 @@ def _parse_report(data: bytes) -> Ld2410Report | None:
         stationary_distance=data[6] | data[7] << 8,
         stationary_energy=data[8],
         detection_distance=data[9] | data[10] << 8,
-        engineering=data[0] == TYPE_ENGINEERING,
+        engineering=engineering,
+        moving_gates=moving_gates,
+        stationary_gates=stationary_gates,
     )
+
+
+def _parse_gates(data: bytes) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """The per-gate energies in an engineering report's data, or two empty tuples when they don't fit. Whatever
+    follows them (the retained bytes some models add) is left alone."""
+    start = MIN_REPORT_BYTES - len(REPORT_TAIL)
+    body = data[: len(data) - len(REPORT_TAIL)]
+    if len(body) < start + 2:
+        return (), ()
+    moving_count = body[start] + 1
+    stationary_count = body[start + 1] + 1
+    first = start + 2
+    if first + moving_count + stationary_count > len(body):
+        return (), ()
+    moving = tuple(body[first : first + moving_count])
+    stationary = tuple(body[first + moving_count : first + moving_count + stationary_count])
+    return moving, stationary
+
+
+def _parse_ack(data: bytes) -> Ld2410Ack | None:
+    """The reply in one frame's data, or None when it is too short to be one."""
+    if len(data) < MIN_ACK_BYTES:
+        return None
+    word = data[0] | data[1] << 8
+    return Ld2410Ack(command=word & ~ACK_BIT, status=data[2] | data[3] << 8, data=bytes(data[4:]))
+
+
+def command_frame(command: int, value: bytes = b"") -> bytes:
+    """The bytes to send for a command: header, length, command word, its value, footer."""
+    length = 2 + len(value)
+    return ACK_HEADER + length.to_bytes(2, "little") + command.to_bytes(2, "little") + value + ACK_FOOTER
+
+
+def parse_parameters(ack: Ld2410Ack) -> Ld2410Parameters | None:
+    """The settings in the reply to `CMD_READ_PARAMETERS`, or None if it failed or is too short to hold them."""
+    data = ack.data
+    if not ack.ok or len(data) < 4 or data[0] != REPORT_HEAD:
+        return None
+    max_gate = data[1]
+    count = max_gate + 1
+    if len(data) < 4 + 2 * count + 2:
+        return None
+    moving = tuple(data[4 : 4 + count])
+    stationary = tuple(data[4 + count : 4 + 2 * count])
+    end = 4 + 2 * count
+    return Ld2410Parameters(
+        max_gate=max_gate,
+        max_moving_gate=data[2],
+        max_stationary_gate=data[3],
+        moving_sensitivity=moving,
+        stationary_sensitivity=stationary,
+        no_one_seconds=data[end] | data[end + 1] << 8,
+    )
+
+
+def parse_firmware(ack: Ld2410Ack) -> str | None:
+    """The version in the reply to `CMD_READ_FIRMWARE`, written the way ESPHome does (V2.44.24062416), or None if it
+    failed or is too short."""
+    data = ack.data
+    if not ack.ok or len(data) < 8:
+        return None
+    major_lo, major_hi = data[2], data[3]
+    b0, b1, b2, b3 = data[4:8]
+    return f"V{major_hi}.{major_lo:02X}.{b3:02X}{b2:02X}{b1:02X}{b0:02X}"
 
 
 def _default_port(device: str, baud: int, timeout: float) -> Any:

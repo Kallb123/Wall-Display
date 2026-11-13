@@ -182,12 +182,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The probe runs on the Pi's system Python, which is 3.11 on Bookworm, and needs nothing installed.
+      # The probe runs on the Pi's system Python, which is 3.11 on Bookworm, and needs nothing from pip there (the
+      # sensor probes use the agent's code from the repo and the Pi's apt packages).
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - run: pip install pytest ruff==0.17.3
+      # pyyaml is for a test that checks the probes' default timings match the agent's config defaults, and gpiozero
+      # is for its mock pin factory, which the button and mmWave tests use in place of a real GPIO.
+      - run: pip install pytest ruff==0.17.3 pyyaml gpiozero
       - run: ruff check .
       - run: ruff format --check .
       # One test opens the benchmark page in headless Chrome, which the GitHub-hosted Ubuntu runners have.

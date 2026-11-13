@@ -83,3 +83,32 @@ def test_no_prompter_does_nothing():
     assert prompter.wait_enter("x", 1) is None
     assert prompter.pause("x") is None
     assert TerminalPrompter(io.StringIO(), io.StringIO()).interactive is True
+
+
+def test_poll_enter_consumes_a_line_and_says_so():
+    prompter, out = make("\nnext\n")
+    assert prompter.poll_enter(0.5) is True
+    assert prompter.yes_no("ok?") is None  # "next" was left, and is not y or n, so asking runs on to the end
+    assert out.getvalue().count("Please answer") == 1
+
+
+def test_poll_enter_is_false_when_nothing_arrives_in_time():
+    prompter, out = make("\n", readable=False)
+    assert prompter.poll_enter(0.5) is False
+    assert out.getvalue() == ""
+
+
+def test_poll_enter_is_true_when_input_has_ended():
+    prompter, _ = make("")
+    assert prompter.poll_enter(0.5) is True
+
+
+def test_poll_enter_waits_for_the_timeout_it_was_given():
+    seen = []
+    prompter = TerminalPrompter(io.StringIO("\n"), io.StringIO(), wait_readable=lambda t: seen.append(t) or True)
+    prompter.poll_enter(1.5)
+    assert seen == [1.5]
+
+
+def test_the_no_prompter_never_sees_enter():
+    assert NoPrompter().poll_enter(5) is False

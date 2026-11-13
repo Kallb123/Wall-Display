@@ -11,10 +11,20 @@ import pytest
 
 from wallcal_agent.hardware import PresenceError
 from wallcal_agent.hardware.ld2410 import (
+    CMD_ENABLE_CONFIG,
+    CMD_END_CONFIG,
+    CMD_ENGINEERING_ON,
+    CMD_READ_FIRMWARE,
+    CMD_READ_PARAMETERS,
+    GATE_METRES,
     MAX_FRAME_DATA,
+    Ld2410Ack,
     Ld2410Parser,
     Ld2410Report,
     Ld2410Uart,
+    command_frame,
+    parse_firmware,
+    parse_parameters,
 )
 
 HEADER = bytes.fromhex("F4F3F2F1")
@@ -112,16 +122,22 @@ def test_energies_are_one_byte() -> None:
 def test_an_engineering_report_gives_the_same_numbers_and_is_marked() -> None:
     (report,) = Ld2410Parser().feed(engineering(target=2, still=75, still_energy=33, detect=75))
 
-    assert report == Ld2410Report(2, 0, 0, 75, 33, 75, engineering=True)
+    # The default extra bytes are not a real gate layout, so only the numbers before them are checked here.
+    assert (report.target, report.stationary_distance, report.stationary_energy, report.detection_distance) == (
+        2,
+        75,
+        33,
+        75,
+    )
+    assert report.engineering is True
     assert report.present is True
 
 
 def test_an_engineering_report_of_a_different_length_is_fine() -> None:
     # Firmware versions add bytes after the gate numbers. The length field says how many, and the tail is the end.
     for extra in (b"", bytes(18), bytes(22), bytes(100)):
-        assert Ld2410Parser().feed(engineering(extra=extra, target=1)) == [
-            Ld2410Report(1, 0, 0, 0, 0, 0, engineering=True)
-        ]
+        (report,) = Ld2410Parser().feed(engineering(extra=extra, target=1))
+        assert (report.target, report.engineering) == (1, True)
 
 
 def test_the_extra_bytes_of_a_basic_report_are_allowed_too() -> None:
@@ -874,3 +890,165 @@ def test_the_silence_clock_starts_again_when_the_port_is_reopened(caplog: pytest
         uart.close()
 
     assert not [r for r in caplog.records if "No frames" in r.getMessage()]
+
+
+# Gate energies, replies and commands
+
+# An engineering frame from a real sensor, written out by hand: 35 bytes of data, nine gates each way.
+REAL_ENGINEERING = bytes.fromhex(
+    "F4F3F2F1"
+    "2300"  # 35 bytes of data
+    "01AA"  # engineering report
+    "03"  # moving and stationary
+    "1E00 32"  # moving: 30 cm, energy 50
+    "3C00 28"  # stationary: 60 cm, energy 40
+    "3A00"  # detection distance 58 cm
+    "08 08"  # last moving gate 8, last stationary gate 8
+    "32 28 0A 05 00 00 01 02 03"  # moving energies, gate 0 first
+    "00 1E 28 14 0A 05 00 00 04"  # stationary energies
+    "3C 01"  # two retained bytes some models add
+    "5500"  # tail and check
+    "F8F7F6F5"
+)
+MOVING = (50, 40, 10, 5, 0, 0, 1, 2, 3)
+STATIONARY = (0, 30, 40, 20, 10, 5, 0, 0, 4)
+
+
+def ack_frame(command: int, status: int = 0, data: bytes = b"") -> bytes:
+    return frame_of(u16(command | 0x0100) + u16(status) + data, ACK_HEADER, ACK_FOOTER)
+
+
+def test_a_real_engineering_frame_gives_the_gate_energies() -> None:
+    (report,) = Ld2410Parser().feed(REAL_ENGINEERING)
+
+    assert report.engineering is True
+    assert report.moving_gates == MOVING
+    assert report.stationary_gates == STATIONARY
+    assert (report.moving_energy, report.stationary_energy) == (50, 40)
+
+
+def test_gate_energies_come_from_the_helper_too() -> None:
+    gates = bytes((2, 1)) + bytes((10, 20, 30)) + bytes((40, 50)) + bytes((9, 9))
+
+    (report,) = Ld2410Parser().feed(engineering(extra=gates, target=1))
+
+    assert report.moving_gates == (10, 20, 30)
+    assert report.stationary_gates == (40, 50)
+
+
+def test_a_basic_report_has_no_gate_energies() -> None:
+    (report,) = Ld2410Parser().feed(basic(target=1))
+
+    assert (report.moving_gates, report.stationary_gates) == ((), ())
+
+
+def test_gate_counts_that_do_not_fit_keep_the_report_without_gates() -> None:
+    too_many = bytes((8, 8)) + bytes(5)
+
+    (report,) = Ld2410Parser().feed(engineering(extra=too_many, target=2))
+
+    assert report.present is True
+    assert (report.moving_gates, report.stationary_gates) == ((), ())
+
+
+def test_gate_energies_are_not_part_of_what_the_agent_reads() -> None:
+    # `Ld2410Uart` only passes `present` on, so a frame with gates is the same to it as one without.
+    assert Ld2410Parser().feed(REAL_ENGINEERING)[0].present is True
+
+
+def test_a_reply_is_returned_by_feed_frames_and_skipped_by_feed() -> None:
+    stream = ack_frame(CMD_ENGINEERING_ON) + basic(target=1)
+
+    assert Ld2410Parser().feed(stream) == [Ld2410Report(1, 0, 0, 0, 0, 0)]
+    frames = Ld2410Parser().feed_frames(stream)
+    assert frames == [Ld2410Ack(CMD_ENGINEERING_ON, 0, b""), Ld2410Report(1, 0, 0, 0, 0, 0)]
+    assert isinstance(frames[0], Ld2410Ack)
+    assert frames[0].ok is True
+
+
+def test_a_failed_reply_is_not_ok() -> None:
+    (ack,) = Ld2410Parser().feed_frames(ack_frame(CMD_ENABLE_CONFIG, status=1, data=b"\x07"))
+
+    assert (ack.command, ack.status, ack.data) == (CMD_ENABLE_CONFIG, 1, b"\x07")
+    assert ack.ok is False
+
+
+def test_a_reply_too_short_to_hold_a_status_is_skipped() -> None:
+    stream = frame_of(b"\xff\x01\x00", ACK_HEADER, ACK_FOOTER) + basic(target=1)
+
+    frames = Ld2410Parser().feed_frames(stream)
+
+    assert frames == [Ld2410Report(1, 0, 0, 0, 0, 0)]
+
+
+def test_the_command_frame_for_enable_config_written_out() -> None:
+    assert command_frame(CMD_ENABLE_CONFIG, b"\x01\x00") == bytes.fromhex("FDFCFBFA 0400 FF00 0100 04030201")
+
+
+def test_a_command_with_no_value_has_a_length_of_two() -> None:
+    assert command_frame(CMD_END_CONFIG) == bytes.fromhex("FDFCFBFA 0200 FE00 04030201")
+    assert command_frame(CMD_READ_PARAMETERS)[4:6] == b"\x02\x00"
+    assert command_frame(CMD_READ_FIRMWARE)[6:8] == b"\xa0\x00"
+
+
+def parameters_data(max_gate: int = 8) -> bytes:
+    count = max_gate + 1
+    moving = bytes(range(10, 10 + count))
+    still = bytes(range(50, 50 + count))
+    return bytes((0xAA, max_gate, 6, 7)) + moving + still + u16(5)
+
+
+def test_parse_parameters_reads_the_settings() -> None:
+    (ack,) = Ld2410Parser().feed_frames(ack_frame(CMD_READ_PARAMETERS, data=parameters_data()))
+
+    parameters = parse_parameters(ack)
+
+    assert parameters is not None
+    assert (parameters.max_gate, parameters.max_moving_gate, parameters.max_stationary_gate) == (8, 6, 7)
+    assert parameters.moving_sensitivity == tuple(range(10, 19))
+    assert parameters.stationary_sensitivity == tuple(range(50, 59))
+    assert parameters.no_one_seconds == 5
+
+
+def test_parse_parameters_is_none_when_short_failed_or_not_parameters() -> None:
+    good = parameters_data()
+
+    assert parse_parameters(Ld2410Ack(CMD_READ_PARAMETERS, 0, good[:-1])) is None
+    assert parse_parameters(Ld2410Ack(CMD_READ_PARAMETERS, 1, good)) is None
+    assert parse_parameters(Ld2410Ack(CMD_READ_PARAMETERS, 0, b"\x00" + good[1:])) is None
+    assert parse_parameters(Ld2410Ack(CMD_READ_PARAMETERS, 0, b"")) is None
+
+
+def test_parse_firmware_writes_the_version_the_way_esphome_does() -> None:
+    data = bytes((0x00, 0x01, 0x02, 0x01, 0x10, 0x24, 0x06, 0x24))
+
+    assert parse_firmware(Ld2410Ack(CMD_READ_FIRMWARE, 0, data)) == "V1.02.24062410"
+
+
+def test_parse_firmware_is_none_when_short_or_failed() -> None:
+    data = bytes((0x00, 0x01, 0x02, 0x01, 0x10, 0x24, 0x06, 0x24))
+
+    assert parse_firmware(Ld2410Ack(CMD_READ_FIRMWARE, 0, data[:7])) is None
+    assert parse_firmware(Ld2410Ack(CMD_READ_FIRMWARE, 2, data)) is None
+
+
+def test_a_gate_is_three_quarters_of_a_metre() -> None:
+    assert GATE_METRES == 0.75
+
+
+def test_mixed_frames_come_out_the_same_however_the_stream_is_split() -> None:
+    stream = (
+        ack_frame(CMD_ENABLE_CONFIG, data=b"\x01\x00\x40\x00")
+        + REAL_ENGINEERING
+        + ack_frame(CMD_READ_PARAMETERS, data=parameters_data())
+        + basic(target=0)
+    )
+    expected = Ld2410Parser().feed_frames(stream)
+    assert len(expected) == 4
+
+    for cut in range(1, len(stream)):
+        parser = Ld2410Parser()
+        assert parser.feed_frames(stream[:cut]) + parser.feed_frames(stream[cut:]) == expected
+
+    parser = Ld2410Parser()
+    assert [frame for byte in stream for frame in parser.feed_frames(bytes((byte,)))] == expected

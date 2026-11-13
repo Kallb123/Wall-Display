@@ -5,9 +5,12 @@ Each has a real implementation for the Pi and a fake one for tests and for `--fa
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from ..config import Config
+# Only for the annotation below. Imported at run time it would pull in the config loader, and so PyYAML, into every
+# module under here, which the `hw-probe` sensor probes (they run on the Pi's apt packages alone) must not need.
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 class ScreenError(Exception):
@@ -110,7 +113,7 @@ class Hardware:
     light: LightSensor | None = None
 
 
-def build_hardware(fake: bool, config: Config) -> Hardware:
+def build_hardware(fake: bool, config: "Config") -> Hardware:
     """The fake hardware for `--fake-hardware`, otherwise the real thing, with the screen back end the config picks.
 
     The sensors are only built when their `sensors` switch is on, so a Pi without one never touches the GPIO, the

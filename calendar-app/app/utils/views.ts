@@ -4,6 +4,7 @@ import type { SpecialDaysResolution, Takeover } from '../../shared/special-days'
 import type { StarChart } from '../../shared/stars'
 import type { CalendarEvent } from '../../shared/types/events'
 import type { WeatherSnapshot } from '../../shared/weather'
+import type { Bleed } from './bleed'
 import type { Corner } from './burnIn'
 import { stageSize } from './stage'
 import type { StageOrientation } from './stage'
@@ -133,8 +134,10 @@ export interface ViewProps {
   nightText?: NightText
   /** The night view only: the next alarm the server knows of, or null for none. Not heard yet is the same as none. */
   alarm?: NextAlarm
-  /** The night view only: whether the clock drifts about the screen (the display's `burn_in`). Centred when left out. */
+  /** Whether burn-in shifting is on (the display's `burn_in`): the night view's clock drifts about the screen, and a photo pane on the stage's edge draws past it (`bleed`). Off when left out. */
   burnIn?: boolean
+  /** The photo frame only, as a pane: how far past each side of its box to draw the photo, so the burn-in shift never uncovers the ground beside it (utils/bleed.ts). None when left out. */
+  bleed?: Bleed
 }
 
 /** For a view with nothing special on it: no decorated tiles and no takeover. */

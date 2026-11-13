@@ -220,7 +220,7 @@ For a panel hung in portrait, add `--rotate 90` (or `270`) so the Pi turns its o
 
 ## Hardware probes
 
-[`tools/hw-probe`](tools/hw-probe) is a small tool you copy to the Pi to answer the hardware questions before relying on the answers: whether the monitor can be switched off and on over HDMI-CEC or by turning the HDMI output off, whether DDC/CI brightness works, and how smoothly Chromium draws the month grid and photo crossfades at 2560×1440 with the kiosk's flags. It needs nothing but the Pi's own Python and a few apt packages, and each probe adds its findings to a markdown report, committed as `docs/hardware-findings.md`. [`tools/hw-probe/README.md`](tools/hw-probe/README.md) covers it.
+[`tools/hw-probe`](tools/hw-probe) is a small tool you copy to the Pi to answer the hardware questions before relying on the answers: whether the monitor can be switched off and on over HDMI-CEC or by turning the HDMI output off, whether DDC/CI brightness works, how smoothly Chromium draws the month grid and photo crossfades at 2560×1440 with the kiosk's flags, and how to tune the button's press timings, the mmWave sensor's range and placement, and the light sensor's thresholds (the sensor probes run the Pi agent's own sensor code). It needs nothing but the Pi's own Python and a few apt packages, and each probe adds its findings to a markdown report, committed as `docs/hardware-findings.md`. [`tools/hw-probe/README.md`](tools/hw-probe/README.md) covers it.
 
 ## Pi agent
 

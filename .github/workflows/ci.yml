@@ -173,3 +173,22 @@ jobs:
       - run: pytest
       # shellcheck is preinstalled on the GitHub-hosted Ubuntu runners.
       - run: shellcheck install.sh
+
+  hw-probe:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/hw-probe
+    steps:
+      - uses: actions/checkout@v4
+
+      # The probe runs on the Pi's system Python, which is 3.11 on Bookworm, and needs nothing installed.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install pytest ruff==0.17.3
+      - run: ruff check .
+      - run: ruff format --check .
+      # One test opens the benchmark page in headless Chrome, which the GitHub-hosted Ubuntu runners have.
+      - run: pytest

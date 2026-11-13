@@ -216,6 +216,10 @@ For a panel hung in portrait, add `--rotate 90` (or `270`) so the Pi turns its o
 
 [`kiosk/README.md`](kiosk/README.md) covers reflashing the Pi, the setup options, extra Chromium flags, logs and troubleshooting.
 
+## Hardware probes
+
+[`tools/hw-probe`](tools/hw-probe) is a small tool you copy to the Pi to answer the hardware questions before relying on the answers: whether the monitor can be switched off and on over HDMI-CEC or by turning the HDMI output off, whether DDC/CI brightness works, and how smoothly Chromium draws the month grid and photo crossfades at 2560×1440 with the kiosk's flags. It needs nothing but the Pi's own Python and a few apt packages, and each probe adds its findings to a markdown report, committed as `docs/hardware-findings.md`. [`tools/hw-probe/README.md`](tools/hw-probe/README.md) covers it.
+
 ## Pi agent
 
 A small Python service on the Pi that reports to the same MQTT broker as the app. It publishes `pi/availability` (with a last will) and creates a "Wall Calendar Pi" device in Home Assistant with CPU temperature and uptime sensors and a panel power sensor. It follows the display's screen state (`pi/screen/set`) by turning the panel on or off with one of three back ends, chosen in its config: `black` (the default: the wall page goes black and the panel stays on), `cec` (HDMI-CEC standby with `cec-client`) or `output` (the Pi's HDMI output off with `wlopm` or `wlr-randr`, so the monitor goes to standby). The button (GPIO17: single, double and long press) is published on `pi/button`, and as an event entity in Home Assistant. The mmWave presence sensor (an LD2410: its OUT pin on GPIO27 by default, or its UART frames) is published retained on `pi/presence`, and as an occupancy sensor in Home Assistant. The light sensor (a VEML7700 or BH1750 on I²C, which needs I²C switched on in `raspi-config`) is published on `pi/illuminance`, and as an illuminance sensor in Home Assistant. [`pi-agent/install.sh`](pi-agent/install.sh) installs it as a systemd service:

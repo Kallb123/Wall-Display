@@ -73,13 +73,16 @@ class ScriptedPrompter:
         yes_no: Sequence[Any] = (),
         enter: Sequence[Any] = (),
         interactive: bool = True,
+        enter_polls: Sequence[Any] = (),
     ) -> None:
         self.interactive = interactive
         self._yes_no = deque(yes_no)
         self._enter = deque(enter)
+        self._enter_polls = deque(enter_polls)
         self.questions: list[str] = []
         self.waits: list[tuple[str, float]] = []
         self.pauses: list[str] = []
+        self.poll_timeouts: list[float] = []
 
     @staticmethod
     def _next(queue: deque[Any], what: str) -> Any:
@@ -104,6 +107,13 @@ class ScriptedPrompter:
 
     def pause(self, message: str) -> None:
         self.pauses.append(message)
+
+    def poll_enter(self, timeout: float) -> bool:
+        """The next queued answer (True means Enter was pressed); False when none is left or nobody is there."""
+        self.poll_timeouts.append(timeout)
+        if not self.interactive or not self._enter_polls:
+            return False
+        return bool(self._next(self._enter_polls, "poll_enter"))
 
 
 class FakeClock:

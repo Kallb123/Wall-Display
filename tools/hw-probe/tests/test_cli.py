@@ -56,8 +56,15 @@ def run_cli(argv, probe=None, tmp_path=None):
     return code, out.getvalue(), probe
 
 
-def test_registry_names_the_two_probes():
-    assert cli.PROBES == {"screen": "hw_probe.screen", "render": "hw_probe.render"}
+def test_registry_names_the_probes():
+    assert cli.PROBES == {
+        "screen": "hw_probe.screen",
+        "render": "hw_probe.render",
+        "button": "hw_probe.button",
+        "mmwave": "hw_probe.mmwave",
+        "light": "hw_probe.light",
+    }
+    assert set(cli.HELP_SUMMARIES) == set(cli.PROBES)
 
 
 def test_real_registry_modules_have_the_interface():

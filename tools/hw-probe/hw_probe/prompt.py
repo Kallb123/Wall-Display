@@ -26,6 +26,12 @@ class Prompter(Protocol):
         """Waits for Enter. Does nothing when not interactive."""
         ...
 
+    def poll_enter(self, timeout: float) -> bool:
+        """Waits up to `timeout` seconds for a line, and consumes it. True if one came, or if input has ended (so a
+        live watch stops rather than waiting for ever); False on timeout or when no one is there. Prints nothing:
+        the probe has already said "press Enter to stop"."""
+        ...
+
 
 class NoPrompter:
     """For runs with no one watching: nothing is asked, and every question has no answer."""
@@ -40,6 +46,9 @@ class NoPrompter:
 
     def pause(self, message: str) -> None:
         return None
+
+    def poll_enter(self, timeout: float) -> bool:
+        return False
 
 
 class TerminalPrompter:
@@ -93,3 +102,9 @@ class TerminalPrompter:
     def pause(self, message: str) -> None:
         self._print(f"  {message} Press Enter to continue. ")
         self._stdin.readline()
+
+    def poll_enter(self, timeout: float) -> bool:
+        if not self._wait_readable(timeout):
+            return False
+        self._stdin.readline()
+        return True

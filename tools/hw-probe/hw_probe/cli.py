@@ -21,6 +21,9 @@ from .system import system_facts
 PROBES: dict[str, str] = {
     "screen": "hw_probe.screen",
     "render": "hw_probe.render",
+    "button": "hw_probe.button",
+    "mmwave": "hw_probe.mmwave",
+    "light": "hw_probe.light",
 }
 
 DEFAULT_REPORT = "hardware-findings.md"
@@ -28,6 +31,9 @@ DEFAULT_REPORT = "hardware-findings.md"
 HELP_SUMMARIES = {
     "screen": "check that the monitor can be switched off and on (CEC, HDMI output, DDC/CI)",
     "render": "measure how smoothly Chromium draws the calendar and photo pages",
+    "button": "tune the button's single, double and long press timings",
+    "mmwave": "watch the mmWave presence sensor (OUT pin and, optionally, its gate energies over UART)",
+    "light": "log the light sensor's lux readings to choose thresholds",
 }
 
 

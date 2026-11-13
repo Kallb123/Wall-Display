@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, gte, lt, or } from 'drizzle-orm'
+import { isHiddenEvent } from '../../shared/hidden'
 import { createPeopleResolver } from '../../shared/people'
 import type { FallbackEvent } from '../../shared/settings'
 import type { CalendarConfig, Group, Person } from '../config/schema'
@@ -32,7 +33,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * start order. When there are more than `limit`, the ones nearest to now are
  * kept, and each shows its occurrence nearest to now. Always empty when the
  * calendar has detection off: everything on it is the default person's by
- * choice, so nothing "fell through".
+ * choice, so nothing "fell through". Hidden events are skipped: they were left
+ * off the wall on purpose, so they are no prompt to add a name.
  */
 export function recentFallbacks(
   db: Db,
@@ -65,6 +67,7 @@ export function recentFallbacks(
   const resolve = createPeopleResolver(calendar, people, groups, timeZone)
   const byUid = new Map<string, { nearest: (typeof rows)[number], occurrences: number }>()
   for (const row of rows) {
+    if (isHiddenEvent(row.description)) continue
     // Anything that matched has other people, or the default one named; skip it without the regular expressions.
     if (row.personIds.length !== 1 || row.personIds[0] !== calendar.person) continue
     if (resolve(row).matchedBy !== 'default') continue

@@ -86,6 +86,15 @@ describe('recentFallbacks', () => {
     expect(titles(fallbacks(db, calendar))).toEqual(['Assembly'])
   })
 
+  it('leaves out an event hidden by a line of "hide" in its description', () => {
+    const { db, calendar } = setup([
+      event('Private', 1, { description: 'Note<br>Hide' }),
+      event('Dentist', 2, { description: 'Hide this' }),
+    ])
+
+    expect(titles(fallbacks(db, calendar))).toEqual(['Dentist'])
+  })
+
   it('keeps an all-day event\'s date', () => {
     const { db, calendar } = setup([event('Inset day', 3, { allDay: true, startDate: '2026-10-31', endDate: '2026-11-01', startAt: new Date('2026-10-31T00:00:00Z'), endAt: new Date('2026-11-01T00:00:00Z') })])
 

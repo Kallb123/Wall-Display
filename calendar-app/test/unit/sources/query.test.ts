@@ -290,6 +290,20 @@ describe('listEvents', () => {
     expect(found[0]!.people.map(person => person.id)).toEqual(['isla'])
   })
 
+  it('leaves out an event whose description has a line of "hide", and lists its siblings', () => {
+    const { db } = setup([
+      event({ uid: 'plain', title: 'Plain', description: 'Bring a coat', startAt: at('09:00'), endAt: at('10:00') }),
+      event({ uid: 'hidden', title: 'Hidden', description: 'Who: Theo\r\n  HIDE  ', startAt: at('10:00'), endAt: at('11:00') }),
+      event({ uid: 'html', title: 'Hidden html', description: '<p>hide</p>', startAt: at('11:00'), endAt: at('12:00') }),
+      event({ uid: 'near', title: 'Near miss', description: 'hide this', startAt: at('12:00'), endAt: at('13:00') }),
+      event({ uid: 'title', title: 'hide', startAt: at('13:00'), endAt: at('14:00') }),
+    ])
+
+    expect(titles(list(db, at('00:00'), at('23:00')))).toEqual(['Plain', 'Near miss', 'hide'])
+    // Only the description counts, even when the calendar detects in the title alone.
+    expect(titles(list(db, at('00:00'), at('23:00'), { calendars: [calendarConfig({ detect_in: ['title'] })] }))).toEqual(['Plain', 'Near miss', 'hide'])
+  })
+
   it('lists only the calendars that are in the config', () => {
     const { db } = setup([timed('family-event', '10:00', 30)])
     ensureCalendarRow(db, calendarConfig({ id: 'removed', person: 'dad' }), PEOPLE)

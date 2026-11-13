@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, gte, inArray, lt, or } from 'drizzle-orm'
 import { z } from 'zod'
 import { startsWithEmoji } from '../../shared/emoji'
+import { isHiddenEvent } from '../../shared/hidden'
 import { createIconResolver } from '../../shared/people'
 import type { CalendarEvent, EventPerson } from '../../shared/types/events'
 import type { CalendarConfig, Person } from '../config/schema'
@@ -95,7 +96,8 @@ export interface ListEventsArgs extends EventRange {
  * The events that overlap `[from, to)`: those that start before `to` and end
  * after `from`, and a zero-length event that starts in the range. Ordered by
  * start, then all-day events first, then id. Each carries its people, in the
- * order they were found; a person no longer in the config is left out.
+ * order they were found; a person no longer in the config is left out. An event
+ * whose description has a line that is just "hide" is left out.
  */
 export function listEvents(db: Db, { from, to, calendars, people, timeZone }: ListEventsArgs): CalendarEvent[] {
   if (calendars.length === 0) return []
@@ -110,7 +112,7 @@ export function listEvents(db: Db, { from, to, calendars, people, timeZone }: Li
 
   const iconOf = new Map(calendars.map(calendar => [calendar.id, createIconResolver(calendar, timeZone)]))
   const known = new Map<string, EventPerson>(people.map(person => [person.id, { id: person.id, name: person.name, initial: person.initial, colour: person.colour }]))
-  return rows.map(row => ({
+  return rows.filter(row => !isHiddenEvent(row.description)).map(row => ({
     id: row.id,
     calendar_id: row.calendarId,
     title: row.title,

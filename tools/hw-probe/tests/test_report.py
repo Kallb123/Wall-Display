@@ -94,3 +94,9 @@ def test_append_to_a_file_with_no_final_newline(tmp_path):
     path.write_text("# Mine")
     append_to_report(path, Section("Screen probe"), WHEN)
     assert path.read_text().startswith("# Mine\n\n## Screen probe")
+
+
+def test_heading_skips_an_unknown_model():
+    section = Section("Render probe", facts=[("Host", "wallcal-pi"), ("Model", "unknown")])
+    heading = to_markdown(section, datetime(2026, 11, 13, 14, 2)).splitlines()[0]
+    assert heading == "## Render probe: wallcal-pi, 2026-11-13 14:02"

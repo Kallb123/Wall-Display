@@ -106,7 +106,10 @@ def _markdown_table(headers: list[str], rows: list[list[str]]) -> list[str]:
 
 def to_markdown(section: Section, when: datetime) -> str:
     """The section as markdown, ending with a newline. The model (else the host) goes in the heading."""
-    which = section.fact_value("Model") or section.fact_value("Host")
+    which = next(
+        (value for value in (section.fact_value("Model"), section.fact_value("Host")) if value and value != "unknown"),
+        None,
+    )
     stamp = when.strftime("%Y-%m-%d %H:%M")
     heading = f"## {section.title}: {which}, {stamp}" if which else f"## {section.title}, {stamp}"
     blocks: list[list[str]] = [[heading]]

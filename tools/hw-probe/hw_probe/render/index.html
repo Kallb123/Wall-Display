@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wall display render probe</title>
+    <link rel="stylesheet" href="bench.css">
+  </head>
+  <body>
+    <!-- A fixed 2560x1440 stage, scaled to the window by bench.js, as the display page does. -->
+    <div id="stage">
+      <section id="month-scene" class="scene" hidden></section>
+
+      <section id="photo-scene" class="scene" hidden>
+        <img class="layer" id="layer-0" alt="" draggable="false">
+        <img class="layer" id="layer-1" alt="" draggable="false">
+        <div class="pill">
+          <div class="line">
+            <span class="clock" id="pill-clock">00:00</span>
+            <span class="weather">&#9729; 14&deg;</span>
+          </div>
+          <div class="next">
+            <span class="marker"></span>
+            <span class="when">15:30</span>
+            <span class="what">Swimming lesson</span>
+          </div>
+        </div>
+      </section>
+
+      <div id="message" class="message" hidden></div>
+      <div id="status" class="status">Starting</div>
+    </div>
+    <script type="module" src="bench.js"></script>
+  </body>
+</html>

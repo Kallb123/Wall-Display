@@ -1,7 +1,4 @@
 <script setup lang="ts">
-import type { Component } from 'vue'
-import { CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Images, LayoutGrid, ListTodo, Lock, MessageCircle, Moon, PanelTop, Pencil, Power, Rows3, Settings, SkipForward, Video, X } from 'lucide-vue-next'
-import { MONTH_RANGE, WEEK_RANGE, currentMonth, currentWeek, monthDiff, weekDiff } from '../../shared/display'
 import type { DisplaySettings, DisplayState, PhotoSource, View } from '../../shared/display'
 import { todayIn } from '../../shared/dates'
 import { layoutShowsPhotos, layoutSummary, viewShowsMonth, viewShowsPhotos, viewShowsWeek } from '../../shared/layouts'
@@ -12,8 +9,8 @@ import RemoteStars from '~/components/stars/RemoteStars.vue'
 import { UNREACHABLE } from '~/composables/useRemoteCommands'
 import { reconnectDelay } from '~/utils/backoff'
 import { isCameraShowing } from '~/utils/camera'
-import { DEFAULT_OVERLAY_DURATION, OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES, isOverlayShowing, overlayEndLabel, overlayIcon } from '~/utils/overlay'
-import { PHOTO_SOURCE_CHOICES, requestFailure, SKIPPED_MS, effectivePhotoSource, monthCommandFor, monthOptions, weekCommandFor, weekOptions } from '~/utils/remote'
+import { isOverlayShowing, overlayEndLabel } from '~/utils/overlay'
+import { requestFailure, effectivePhotoSource } from '~/utils/remote'
 import { THEMES, themeStyle } from '~/utils/themes'
 
 // The phone remote (architecture §7.5). Like the wall it never decides
@@ -22,6 +19,8 @@ import { THEMES, themeStyle } from '~/utils/themes'
 // shown at once; the socket confirms it, and keeps the page right when
 // something else (a button, Home Assistant, another phone) changes the wall.
 // It follows the phone's light or dark setting, not the display's theme.
+// The sections are the components in components/remote; this page holds the
+// state they show and sends what they ask for.
 
 const route = useRoute()
 const now = useNow(60_000)
@@ -34,8 +33,6 @@ const state = ref<DisplayState | null>(null)
 const unknown = ref(false)
 
 let retryTimer: ReturnType<typeof setTimeout> | undefined
-let refreshTimer: ReturnType<typeof setTimeout> | undefined
-let skippedTimer: ReturnType<typeof setTimeout> | undefined
 let attempt = 0
 
 async function loadSettings() {
@@ -59,11 +56,11 @@ watch(socket.state, (next) => {
   if (next) state.value = next
 })
 const connection = useConnectionState(socket.status)
-const CONNECTION_LABELS = { connected: 'Connected', reconnecting: 'Reconnecting', offline: 'Offline' } as const
 
 const commands = useRemoteCommands(displayId, (next) => {
   state.value = next
 })
+const send = commands.send
 
 onMounted(() => {
   void loadSettings()
@@ -73,16 +70,12 @@ onMounted(() => {
 })
 onScopeDispose(() => {
   clearTimeout(retryTimer)
-  clearTimeout(refreshTimer)
-  clearTimeout(skippedTimer)
 })
 
 const ready = computed(() => settings.value !== null && state.value !== null)
 const name = computed(() => settings.value?.name ?? '')
 const screenOn = computed(() => state.value?.screen !== 'off')
 const view = computed(() => state.value?.view)
-const pinnedMonth = computed(() => state.value?.month ?? null)
-const pinnedWeek = computed(() => state.value?.week ?? null)
 
 // The custom layouts (PR 5.17): the socket sends the library on connect and
 // whenever it changes; until it has, or if it never does, ask for it.
@@ -164,17 +157,8 @@ useHead({
   ],
 })
 
-// Four calendar views fill the 2x2 grid; Night gets a full-width tile beneath it, then the photo frame and the week and photo view share a row.
-const TILES: { view: View, label: string, icon: Component, wide?: boolean }[] = [
-  { view: 'agenda', label: 'Agenda', icon: ListTodo },
-  { view: 'month', label: 'Month', icon: CalendarDays },
-  { view: 'week', label: 'Week', icon: CalendarRange },
-  { view: 'week_parts', label: 'Day parts', icon: Rows3 },
-  { view: 'night', label: 'Night', icon: Moon, wide: true },
-]
-
 function setView(next: View) {
-  void commands.send({ type: 'set_view', view: next })
+  void send({ type: 'set_view', view: next })
 }
 
 // The layouts row: one tile for each custom layout. A layout with a photo pane
@@ -185,7 +169,7 @@ const layoutTiles = computed(() => layouts.value
   .filter(({ layout, active }) => active || photosConfigured.value || !layoutShowsPhotos(layoutSummary(layout))))
 
 function setLayout(id: string) {
-  void commands.send({ type: 'set_layout', layout: id })
+  void send({ type: 'set_layout', layout: id })
 }
 
 // The edit sheet: the layouts manager, on a sheet that fills the screen.
@@ -203,131 +187,30 @@ const photosConfigured = computed(() => photoSources.value.length > 0)
 const showPhotoTile = computed(() => photosConfigured.value || view.value === 'photo' || view.value === 'week_photo')
 /** The source the wall really uses: the server falls back when the chosen one isn't set up. */
 const photoSource = computed(() => effectivePhotoSource(state.value?.photo_source ?? 'immich', photoSources.value))
-const photoViewOn = computed(() => view.value === 'photo')
 // "Next photo" works wherever a photo pane is showing: the photo frame and the week and photo view.
 const photosShown = computed(() => view.value !== undefined && viewShowsPhotos(view.value, currentLayout.value))
 
 function setPhotoSource(source: PhotoSource) {
-  void commands.send({ type: 'set_photo_source', photo_source: source })
-}
-
-const skipped = ref(false)
-async function nextPhoto() {
-  const sent = await commands.send({ type: 'photo_next' })
-  if (!sent) return
-  // The wall changes by itself a moment later: say it was asked, then go back.
-  skipped.value = true
-  clearTimeout(skippedTimer)
-  skippedTimer = setTimeout(() => {
-    skipped.value = false
-  }, SKIPPED_MS)
+  void send({ type: 'set_photo_source', photo_source: source })
 }
 
 function toggleScreen() {
-  void commands.send({ type: 'set_screen', screen: screenOn.value ? 'off' : 'on' })
+  void send({ type: 'set_screen', screen: screenOn.value ? 'off' : 'on' })
 }
 
-const currentMonthKey = computed(() => settings.value ? currentMonth(now.value, settings.value.timezone) : null)
-const shownMonth = computed(() => pinnedMonth.value ?? currentMonthKey.value)
-const options = computed(() => currentMonthKey.value ? monthOptions(currentMonthKey.value) : [])
-const offset = computed(() => currentMonthKey.value && shownMonth.value ? monthDiff(currentMonthKey.value, shownMonth.value) : 0)
-
-function pickMonth(event: Event) {
-  if (!currentMonthKey.value) return
-  const target = (event.target as HTMLSelectElement).value
-  void commands.send({ type: 'set_month', month: monthCommandFor(target, currentMonthKey.value) })
-}
-
-const currentWeekKey = computed(() => settings.value ? currentWeek(now.value, settings.value.timezone, settings.value.week_start) : null)
-const shownWeek = computed(() => pinnedWeek.value ?? currentWeekKey.value)
-const weekChoices = computed(() => currentWeekKey.value ? weekOptions(currentWeekKey.value) : [])
-const weekOffset = computed(() => currentWeekKey.value && shownWeek.value ? weekDiff(currentWeekKey.value, shownWeek.value) : 0)
-
-function pickWeek(event: Event) {
-  if (!currentWeekKey.value) return
-  const target = (event.target as HTMLSelectElement).value
-  void commands.send({ type: 'set_week', week: weekCommandFor(target, currentWeekKey.value) })
-}
-
-// The slider shows what the finger is doing while it is down, not the state:
-// a state arriving mid-drag would otherwise snatch it back. The command is
-// sent when it is let go (`change`), not on every step (`input`).
-const draftBrightness = ref<number | null>(null)
-const brightness = computed(() => draftBrightness.value ?? state.value?.brightness ?? 100)
-
-async function sendBrightness(event: Event) {
-  const value = Number((event.target as HTMLInputElement).value)
-  draftBrightness.value = value
-  await commands.send({ type: 'set_brightness', brightness: value })
-  draftBrightness.value = null
-}
+// The month and week the wall is showing, and the lists to pick another from.
+const pickers = useRemotePickers(settings, state, now, send)
 
 // The message on the wall, if there is one. `now` ticks each minute, so one that
 // has run out goes from here too if the socket is slow to say so.
 const overlay = computed(() => state.value && isOverlayShowing(state.value.overlay, now.value) ? state.value.overlay : null)
 const overlayUntil = computed(() => overlay.value && settings.value ? overlayEndLabel(overlay.value, now.value, settings.value.timezone) : '')
 
-const draftText = ref('')
-/** The picked icon's name, or '' for none (the wall then shows its plain message icon). */
-const draftIcon = ref('')
-const draftDuration = ref(DEFAULT_OVERLAY_DURATION)
-const sendingOverlay = ref(false)
-const canShow = computed(() => draftText.value.trim() !== '' && !sendingOverlay.value)
-
-async function showOverlay() {
-  const text = draftText.value.trim()
-  if (!canShow.value) return
-  const ttl = OVERLAY_DURATIONS.find(duration => duration.key === draftDuration.value)?.ttl
-  sendingOverlay.value = true
-  const sent = await commands.send({
-    type: 'set_overlay',
-    overlay: { text, ...(draftIcon.value ? { icon: draftIcon.value } : {}), ...(ttl === undefined ? {} : { ttl }) },
-  })
-  sendingOverlay.value = false
-  // A refused one keeps its text, so it can be sent again.
-  if (sent) draftText.value = ''
-}
-
-function clearOverlay() {
-  void commands.send({ type: 'set_overlay', overlay: null })
-}
-
 // The camera on the wall, if there is one (the doorbell rang, say), so it can be taken down once the door is answered.
 const camera = computed(() => state.value && isCameraShowing(state.value.camera, now.value) ? state.value.camera : null)
 
 function closeCamera() {
-  void commands.send({ type: 'set_camera', camera: null })
-}
-
-const refresh = ref<'idle' | 'sending' | 'asked'>('idle')
-const REFRESH_LABELS = { idle: 'Refresh calendars', sending: 'Refreshing…', asked: 'Asked' } as const
-async function refreshCalendars() {
-  refresh.value = 'sending'
-  const sent = await commands.send({ type: 'refresh' })
-  clearTimeout(refreshTimer)
-  if (!sent) {
-    refresh.value = 'idle'
-    return
-  }
-  // The sync runs on the server and takes as long as it takes: say it was asked, then go back.
-  refresh.value = 'asked'
-  refreshTimer = setTimeout(() => {
-    refresh.value = 'idle'
-  }, 2500)
-}
-
-const pin = ref('')
-const pinInput = useTemplateRef<HTMLInputElement>('pin-input')
-
-watch(commands.pinNeeded, async (open) => {
-  if (!open) return
-  pin.value = ''
-  await nextTick()
-  pinInput.value?.focus()
-})
-
-function submitPin() {
-  void commands.submitPin(pin.value)
+  void send({ type: 'set_camera', camera: null })
 }
 </script>
 
@@ -341,110 +224,19 @@ function submitPin() {
     </p>
 
     <main v-else class="page">
-      <header class="header">
-        <h1 class="name" data-testid="display-name">
-          {{ name }}
-        </h1>
-        <p class="pill" :data-state="connection" data-testid="connection-pill">
-          <span class="dot" />
-          {{ CONNECTION_LABELS[connection] }}
-        </p>
-      </header>
+      <RemoteHeader :name="name" :connection="connection" />
 
-      <section class="card screen" aria-labelledby="screen-title">
-        <span class="power" :class="{ off: !screenOn }">
-          <AppIcon :icon="Power" :size="26" />
-        </span>
-        <div class="screen-text">
-          <h2 id="screen-title" class="screen-title">
-            Screen
-          </h2>
-          <p class="hint" data-testid="screen-state">
-            {{ screenOn ? 'On' : 'Off, panel in standby' }}
-          </p>
-        </div>
-        <button
-          type="button"
-          class="switch"
-          role="switch"
-          :aria-checked="screenOn"
-          aria-labelledby="screen-title"
-          data-testid="screen-toggle"
-          @click="toggleScreen"
-        >
-          <span class="track"><span class="knob" /></span>
-        </button>
-      </section>
+      <RemoteScreenCard :screen-on="screenOn" @toggle="toggleScreen" />
 
       <div class="controls" :class="{ dimmed: !screenOn }" data-testid="controls">
-        <section aria-labelledby="wall-title">
-          <h2 id="wall-title" class="label">
-            On the wall
-          </h2>
-          <div class="tiles">
-            <button
-              v-for="tile in TILES"
-              :key="tile.view"
-              type="button"
-              class="tile"
-              :class="{ active: view === tile.view, wide: tile.wide }"
-              :aria-pressed="view === tile.view"
-              :data-testid="`tile-${tile.view}`"
-              @click="setView(tile.view)"
-            >
-              <AppIcon :icon="tile.icon" :size="32" />
-              {{ tile.label }}
-            </button>
-            <!-- Night sits under the 2x2 grid, full width; the photo frame and week and photo tiles share the row below it. -->
-            <button
-              v-if="showPhotoTile"
-              type="button"
-              class="tile"
-              :class="{ active: photoViewOn }"
-              :aria-pressed="photoViewOn"
-              data-testid="tile-photo"
-              @click="setView('photo')"
-            >
-              <AppIcon :icon="Images" :size="32" />
-              Photo frame
-            </button>
-            <button
-              v-if="showPhotoTile"
-              type="button"
-              class="tile"
-              :class="{ active: view === 'week_photo' }"
-              :aria-pressed="view === 'week_photo'"
-              data-testid="tile-week_photo"
-              @click="setView('week_photo')"
-            >
-              <AppIcon :icon="PanelTop" :size="32" />
-              Week + photo
-            </button>
-          </div>
-
-          <h3 id="layouts-title" class="sublabel">
-            Layouts
-          </h3>
-          <div class="tiles" role="group" aria-labelledby="layouts-title" data-testid="layout-tiles">
-            <button
-              v-for="{ layout, active } in layoutTiles"
-              :key="layout.id"
-              type="button"
-              class="tile layout-tile"
-              :class="{ active }"
-              :aria-pressed="active"
-              :data-testid="`layout-tile-${layout.id}`"
-              @click="setLayout(layout.id)"
-            >
-              <AppIcon :icon="LayoutGrid" :size="26" />
-              <span class="layout-name">{{ layout.name }}</span>
-            </button>
-            <button type="button" class="button edit-layouts" data-testid="layouts-edit" @click="editingLayouts = true">
-              <AppIcon :icon="Pencil" :size="22" />
-              Edit layouts
-            </button>
-          </div>
-        </section>
+        <RemoteViewTiles
+          :view="view"
+          :show-photo-tile="showPhotoTile"
+          :layout-tiles="layoutTiles"
+          @set-view="setView"
+          @set-layout="setLayout"
+          @edit="editingLayouts = true"
+        />
 
         <section v-if="showStars && stars" aria-labelledby="stars-title" data-testid="stars">
           <h2 id="stars-title" class="label">
@@ -453,333 +245,69 @@ function submitPin() {
           <RemoteStars :chart="stars" :today="starsToday" :week-start="settings!.week_start" @adjust="adjustStars" />
         </section>
 
-        <section v-if="monthViewOn" aria-labelledby="month-title" data-testid="month-picker">
-          <h2 id="month-title" class="label">
-            Month shown
-          </h2>
-          <div class="card picker">
-            <div class="picker-row">
-              <button
-                type="button"
-                class="arrow"
-                aria-label="Previous month"
-                :disabled="offset <= -MONTH_RANGE"
-                data-testid="month-prev"
-                @click="commands.send({ type: 'set_month', month: 'prev' })"
-              >
-                <AppIcon :icon="ChevronLeft" :size="26" />
-              </button>
-              <span class="select">
-                <select
-                  :value="shownMonth"
-                  aria-label="Month"
-                  data-testid="month-select"
-                  @change="pickMonth"
-                >
-                  <option v-for="option in options" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <AppIcon class="caret" :icon="ChevronDown" :size="22" />
-              </span>
-              <button
-                type="button"
-                class="arrow"
-                aria-label="Next month"
-                :disabled="offset >= MONTH_RANGE"
-                data-testid="month-next"
-                @click="commands.send({ type: 'set_month', month: 'next' })"
-              >
-                <AppIcon :icon="ChevronRight" :size="26" />
-              </button>
-            </div>
-            <button
-              v-if="pinnedMonth"
-              type="button"
-              class="link"
-              data-testid="month-current"
-              @click="commands.send({ type: 'set_month', month: 'current' })"
-            >
-              Back to this month
-            </button>
-          </div>
-        </section>
+        <RemotePicker
+          v-if="monthViewOn"
+          kind="month"
+          :options="pickers.month.options.value"
+          :value="pickers.month.shown.value"
+          :at-start="pickers.month.atStart.value"
+          :at-end="pickers.month.atEnd.value"
+          :pinned="pickers.month.pinned.value"
+          @step="pickers.month.step"
+          @pick="pickers.month.pick"
+        />
 
-        <section v-if="weekViewOn" aria-labelledby="week-title" data-testid="week-picker">
-          <h2 id="week-title" class="label">
-            Week shown
-          </h2>
-          <div class="card picker">
-            <div class="picker-row">
-              <button
-                type="button"
-                class="arrow"
-                aria-label="Previous week"
-                :disabled="weekOffset <= -WEEK_RANGE"
-                data-testid="week-prev"
-                @click="commands.send({ type: 'set_week', week: 'prev' })"
-              >
-                <AppIcon :icon="ChevronLeft" :size="26" />
-              </button>
-              <span class="select">
-                <select
-                  :value="shownWeek"
-                  aria-label="Week"
-                  data-testid="week-select"
-                  @change="pickWeek"
-                >
-                  <option v-for="option in weekChoices" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <AppIcon class="caret" :icon="ChevronDown" :size="22" />
-              </span>
-              <button
-                type="button"
-                class="arrow"
-                aria-label="Next week"
-                :disabled="weekOffset >= WEEK_RANGE"
-                data-testid="week-next"
-                @click="commands.send({ type: 'set_week', week: 'next' })"
-              >
-                <AppIcon :icon="ChevronRight" :size="26" />
-              </button>
-            </div>
-            <button
-              v-if="pinnedWeek"
-              type="button"
-              class="link"
-              data-testid="week-current"
-              @click="commands.send({ type: 'set_week', week: 'current' })"
-            >
-              Back to this week
-            </button>
-          </div>
-        </section>
+        <RemotePicker
+          v-if="weekViewOn"
+          kind="week"
+          :options="pickers.week.options.value"
+          :value="pickers.week.shown.value"
+          :at-start="pickers.week.atStart.value"
+          :at-end="pickers.week.atEnd.value"
+          :pinned="pickers.week.pinned.value"
+          @step="pickers.week.step"
+          @pick="pickers.week.pick"
+        />
 
-        <section v-if="photosConfigured" aria-labelledby="photos-title" data-testid="photos-from">
-          <h2 id="photos-title" class="label">
-            Photos from
-          </h2>
-          <div class="card photos">
-            <div class="segments" role="group" aria-labelledby="photos-title">
-              <button
-                v-for="choice in PHOTO_SOURCE_CHOICES"
-                :key="choice.source"
-                type="button"
-                class="segment"
-                :class="{ active: photoSource === choice.source }"
-                :aria-pressed="photoSource === choice.source"
-                :disabled="!photoSources.includes(choice.source)"
-                :data-testid="`photo-source-${choice.source}`"
-                @click="setPhotoSource(choice.source)"
-              >
-                {{ choice.label }}
-                <span v-if="!photoSources.includes(choice.source)" class="not-set-up">Not set up</span>
-              </button>
-            </div>
-            <button
-              type="button"
-              class="button next-photo"
-              :disabled="!photosShown"
-              :aria-describedby="photosShown ? undefined : 'next-photo-reason'"
-              aria-live="polite"
-              data-testid="photo-next"
-              @click="nextPhoto"
-            >
-              <AppIcon :icon="SkipForward" :size="22" />
-              {{ skipped ? 'Skipped' : 'Next photo' }}
-            </button>
-            <p v-if="!photosShown" id="next-photo-reason" class="hint reason" data-testid="photo-next-reason">
-              Turn on the photo frame or the week and photo view to skip photos.
-            </p>
-          </div>
-        </section>
+        <RemotePhotoSources
+          v-if="photosConfigured"
+          :photo-source="photoSource"
+          :photo-sources="photoSources"
+          :photos-shown="photosShown"
+          :send="send"
+          @set-source="setPhotoSource"
+        />
 
-        <section v-if="camera" aria-labelledby="camera-title" data-testid="camera">
-          <h2 id="camera-title" class="label">
-            Camera
-          </h2>
-          <div class="card note">
-            <div class="current" data-testid="camera-current">
-              <span class="power live">
-                <AppIcon :icon="Video" :size="26" />
-              </span>
-              <div class="current-text">
-                <p class="current-message" data-testid="camera-current-name">
-                  {{ camera.name }}
-                </p>
-                <p class="hint">
-                  On the wall now
-                </p>
-              </div>
-              <button type="button" class="button small" data-testid="camera-close" @click="closeCamera">
-                Close
-              </button>
-            </div>
-          </div>
-        </section>
+        <RemoteCamera v-if="camera" :name="camera.name" @close="closeCamera" />
 
-        <section aria-labelledby="message-title" data-testid="message">
-          <h2 id="message-title" class="label">
-            Message
-          </h2>
-          <div class="card note">
-            <div v-if="overlay" class="current" data-testid="overlay-current">
-              <span class="power live">
-                <AppIcon :icon="overlayIcon(overlay.icon)" :size="26" />
-              </span>
-              <div class="current-text">
-                <p class="current-message" data-testid="overlay-current-text">
-                  {{ overlay.text }}
-                </p>
-                <p class="hint" data-testid="overlay-current-until">
-                  {{ overlayUntil }}
-                </p>
-              </div>
-              <button type="button" class="button small" data-testid="overlay-clear" @click="clearOverlay">
-                Clear
-              </button>
-            </div>
+        <RemoteMessage :overlay="overlay" :until="overlayUntil" :send="send" />
 
-            <form class="compose" :class="{ divided: overlay }" data-testid="overlay-form" @submit.prevent="showOverlay">
-              <label for="overlay-text" class="slider-label">{{ overlay ? 'Change the message' : 'Put a message on the wall' }}</label>
-              <input
-                id="overlay-text"
-                v-model="draftText"
-                class="text"
-                type="text"
-                maxlength="200"
-                placeholder="Bins out tonight"
-                autocomplete="off"
-                enterkeyhint="send"
-                data-testid="overlay-input"
-              >
-
-              <div class="icons" role="radiogroup" aria-label="Icon">
-                <label class="icon-choice">
-                  <input v-model="draftIcon" type="radio" name="overlay-icon" value="" aria-label="No icon" data-testid="overlay-icon-none">
-                  <span class="face"><AppIcon :icon="MessageCircle" :size="26" /></span>
-                </label>
-                <label v-for="choice in OVERLAY_ICON_CHOICES" :key="choice.name" class="icon-choice">
-                  <input v-model="draftIcon" type="radio" name="overlay-icon" :value="choice.name" :aria-label="choice.label" :data-testid="`overlay-icon-${choice.name}`">
-                  <span class="face"><AppIcon :icon="overlayIcon(choice.name)" :size="26" /></span>
-                </label>
-              </div>
-
-              <label for="overlay-duration" class="slider-label">Show for</label>
-              <span class="select">
-                <select id="overlay-duration" v-model="draftDuration" data-testid="overlay-duration">
-                  <option v-for="duration in OVERLAY_DURATIONS" :key="duration.key" :value="duration.key">
-                    {{ duration.label }}
-                  </option>
-                </select>
-                <AppIcon class="caret" :icon="ChevronDown" :size="22" />
-              </span>
-
-              <button type="submit" class="button primary" :disabled="!canShow" data-testid="overlay-submit">
-                Show on the wall
-              </button>
-            </form>
-          </div>
-        </section>
-
-        <section aria-labelledby="more-title">
-          <h2 id="more-title" class="label">
-            More
-          </h2>
-          <div class="card more">
-            <div class="slider-head">
-              <label for="brightness" class="slider-label">Brightness</label>
-              <output for="brightness" class="hint" data-testid="brightness-value">{{ brightness }}%</output>
-            </div>
-            <input
-              id="brightness"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              :value="brightness"
-              data-testid="brightness"
-              @input="draftBrightness = Number(($event.target as HTMLInputElement).value)"
-              @change="sendBrightness"
-            >
-            <button
-              type="button"
-              class="button"
-              :disabled="refresh === 'sending'"
-              data-testid="refresh"
-              @click="refreshCalendars"
-            >
-              {{ REFRESH_LABELS[refresh] }}
-            </button>
-            <NuxtLink to="/settings" class="button settings-link" data-testid="settings-link">
-              <AppIcon :icon="Settings" :size="22" />
-              Settings
-            </NuxtLink>
-          </div>
-        </section>
+        <RemoteMore :level="state?.brightness ?? 100" :send="send" />
       </div>
     </main>
 
-    <div v-if="editingLayouts" class="scrim editor-scrim" data-testid="layouts-sheet">
-      <div class="sheet layouts-sheet" role="dialog" aria-modal="true" aria-labelledby="layouts-sheet-title" @keydown.esc="editingLayouts = false">
-        <header class="sheet-head">
-          <h2 id="layouts-sheet-title" class="sheet-title">
-            Edit layouts
-          </h2>
-          <button type="button" class="dismiss" aria-label="Close" data-testid="layouts-close" @click="editingLayouts = false">
-            <AppIcon :icon="X" :size="22" />
-          </button>
-        </header>
-        <LayoutsManager compact :displays="layoutDisplays" :photos-configured="photosConfigured" :live="socket.layouts.value" @changed="fetchedLayouts = $event" />
-      </div>
-    </div>
+    <RemoteLayoutsSheet
+      v-if="editingLayouts"
+      :displays="layoutDisplays"
+      :photos-configured="photosConfigured"
+      :live="socket.layouts.value"
+      @changed="fetchedLayouts = $event"
+      @close="editingLayouts = false"
+    />
 
-    <div v-if="commands.error.value" class="toast" role="status" data-testid="error">
-      <span>{{ commands.error.value }}</span>
-      <button type="button" class="dismiss" aria-label="Dismiss" @click="commands.dismissError">
-        <AppIcon :icon="X" :size="22" />
-      </button>
-    </div>
+    <RemoteToast v-if="commands.error.value" :message="commands.error.value" @dismiss="commands.dismissError" />
 
-    <div v-if="commands.pinNeeded.value" class="scrim" data-testid="pin-sheet">
-      <form class="sheet" role="dialog" aria-modal="true" aria-labelledby="pin-title" @submit.prevent="submitPin">
-        <span class="power lock">
-          <AppIcon :icon="Lock" :size="26" />
-        </span>
-        <h2 id="pin-title" class="sheet-title">
-          Enter the PIN
-        </h2>
-        <p class="hint">
-          This remote is protected. Ask whoever set up the wall for the PIN.
-        </p>
-        <input
-          ref="pin-input"
-          v-model="pin"
-          class="pin"
-          type="text"
-          inputmode="numeric"
-          pattern="[0-9]*"
-          autocomplete="off"
-          minlength="4"
-          maxlength="12"
-          aria-label="PIN"
-          data-testid="pin-input"
-        >
-        <p v-if="commands.pinMessage.value" class="problem" role="alert" data-testid="pin-message">
-          {{ commands.pinMessage.value }}
-        </p>
-        <button type="submit" class="button primary" :disabled="commands.checkingPin.value" data-testid="pin-submit">
-          Unlock
-        </button>
-        <button type="button" class="link" @click="commands.cancelPin">
-          Not now
-        </button>
-      </form>
-    </div>
+    <RemotePinSheet
+      v-if="commands.pinNeeded.value"
+      :message="commands.pinMessage.value"
+      :checking="commands.checkingPin.value"
+      @submit="commands.submitPin"
+      @cancel="commands.cancelPin"
+    />
   </div>
 </template>
+
+<style scoped src="../assets/remote-base.css"></style>
 
 <style scoped>
 /* Phone-sized: the wall's radius tokens are made for 2560 px, so this page has its own. */
@@ -816,172 +344,6 @@ function submitPin() {
   text-align: center;
 }
 
-button,
-select,
-input {
-  font: inherit;
-  color: inherit;
-}
-
-button {
-  border: 0;
-  background: none;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-button:disabled {
-  cursor: default;
-}
-
-:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 3px;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 8px;
-}
-
-.name {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-family: var(--font-display);
-  font-size: 40px;
-  font-weight: 400;
-  line-height: 1.05;
-}
-
-.pill {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  margin: 0;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--accent2);
-}
-
-.pill[data-state='reconnecting'] .dot {
-  background: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.pill[data-state='offline'] .dot {
-  box-sizing: border-box;
-  border: 2px solid var(--muted);
-  background: none;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-.card {
-  border-radius: var(--card-radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-}
-
-.screen {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 16px 16px 18px;
-}
-
-.power {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--panel);
-  color: var(--panel-text);
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.power.off {
-  background: var(--line);
-  color: var(--muted);
-}
-
-.screen-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.screen-title {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 700;
-}
-
-.hint {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 500;
-}
-
-/* The button is the 44 px target; the track inside it is what is drawn. */
-.switch {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 68px;
-  height: 48px;
-}
-
-.track {
-  position: relative;
-  width: 56px;
-  height: 32px;
-  border-radius: 999px;
-  background: var(--line);
-  transition: background 0.2s ease;
-}
-
-.knob {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--muted);
-  transition: transform 0.2s ease, background 0.2s ease;
-}
-
-.switch[aria-checked='true'] .track {
-  background: var(--accent);
-}
-
-.switch[aria-checked='true'] .knob {
-  background: var(--on-accent);
-  transform: translateX(24px);
-}
-
 .controls {
   display: flex;
   flex-direction: column;
@@ -992,503 +354,6 @@ button:disabled {
 /* With the screen off the controls still work, they just look asleep. */
 .controls.dimmed {
   opacity: 0.5;
-}
-
-.label {
-  margin: 0 0 12px 4px;
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 400;
-}
-
-.tiles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.tile {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  min-height: 112px;
-  padding: 18px;
-  border-radius: var(--card-radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  font-size: 19px;
-  font-weight: 700;
-  text-align: left;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.tile.active {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.sublabel {
-  margin: 20px 0 12px 4px;
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 400;
-}
-
-/* A layout's tile is the wide tile's shape, two to a row, with a name that may be long. */
-.layout-tile {
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  min-height: 72px;
-  padding: 0 18px;
-  font-size: 17px;
-}
-
-.layout-tile > svg {
-  flex: none;
-}
-
-.layout-name {
-  display: -webkit-box;
-  min-width: 0;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-}
-
-.edit-layouts {
-  display: flex;
-  grid-column: 1 / -1;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.tile.wide {
-  grid-column: 1 / -1;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 16px;
-  min-height: 72px;
-  padding: 0 22px;
-}
-
-.photos {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 14px;
-}
-
-/* One pill cut into three, the picked source filled in the accent like an active tile. */
-.segments {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  padding: 4px;
-  border-radius: 999px;
-  background: var(--bg);
-}
-
-.segment {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 52px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.15;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.segment.active {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.segment:disabled {
-  color: var(--muted);
-}
-
-.not-set-up {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.next-photo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.reason {
-  margin: -6px 0 0;
-  font-size: 14px;
-  text-align: center;
-}
-
-.picker {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  padding: 14px;
-}
-
-.picker-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.arrow {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.arrow:disabled {
-  opacity: 0.35;
-}
-
-.select {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-
-select {
-  appearance: none;
-  box-sizing: border-box;
-  width: 100%;
-  height: 48px;
-  padding: 0 40px 0 20px;
-  border: 2px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg);
-  font-size: 17px;
-  font-weight: 700;
-  text-align: center;
-  text-align-last: center;
-}
-
-.caret {
-  position: absolute;
-  top: 13px;
-  right: 14px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.link {
-  min-height: 44px;
-  padding: 0 12px;
-  align-self: center;
-  color: var(--accent-ink);
-  font-size: 16px;
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
-.note {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 18px;
-}
-
-.current {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-/* The same round badge as the screen card's, in the accent: this is what is on the wall now. */
-.power.live {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.current-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.current-message {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.25;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.compose {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.compose.divided {
-  padding-top: 16px;
-  border-top: 2px solid var(--line);
-}
-
-.text {
-  box-sizing: border-box;
-  width: 100%;
-  height: 48px;
-  padding: 0 20px;
-  border: 2px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg);
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.text::placeholder {
-  color: var(--muted);
-  opacity: 0.8;
-}
-
-.icons {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  justify-items: center;
-  gap: 8px 0;
-  margin: 4px 0 8px;
-}
-
-/* A real radio, laid invisibly over its round face, so the arrow keys and the screen reader work as they should. */
-.icon-choice {
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  width: 48px;
-  height: 48px;
-}
-
-.icon-choice input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.face {
-  display: grid;
-  place-items: center;
-  border: 2px solid var(--line);
-  border-radius: 50%;
-  background: var(--bg);
-  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-}
-
-.icon-choice input:checked + .face {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.icon-choice input:focus-visible + .face {
-  outline: 3px solid var(--accent);
-  outline-offset: 3px;
-}
-
-.compose .select {
-  margin-bottom: 8px;
-}
-
-.button.small {
-  flex: none;
-  min-height: 44px;
-  padding: 0 18px;
-}
-
-.more {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 18px;
-}
-
-.slider-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-.slider-label {
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.slider-head .hint {
-  margin: 0;
-}
-
-input[type='range'] {
-  width: 100%;
-  height: 44px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-.button {
-  min-height: 48px;
-  padding: 0 20px;
-  border: 2px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-/* To the settings page: a link that looks like the button above it. */
-.settings-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--text);
-  text-decoration: none;
-}
-
-.button:disabled {
-  opacity: 0.6;
-}
-
-.button.primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.toast {
-  position: fixed;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(16px, env(safe-area-inset-bottom));
-  left: max(16px, env(safe-area-inset-left));
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  max-width: 448px;
-  margin: 0 auto;
-  padding: 4px 4px 4px 20px;
-  border-radius: 999px;
-  background: var(--text);
-  color: var(--bg);
-  box-shadow: var(--shadow-lift);
-  font-weight: 700;
-}
-
-.dismiss {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-}
-
-.scrim {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: color-mix(in oklch, var(--text) 45%, transparent);
-}
-
-.sheet {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 480px;
-  padding: 28px 24px max(24px, env(safe-area-inset-bottom));
-  border-radius: 28px 28px 0 0;
-  background: var(--surface);
-  box-shadow: var(--shadow-lift);
-}
-
-.sheet .lock {
-  align-self: flex-start;
-}
-
-.editor-scrim {
-  z-index: 5;
-}
-
-/* The edit sheet fills the screen, and scrolls inside itself. */
-.layouts-sheet {
-  height: 100dvh;
-  max-height: 100dvh;
-  overflow-y: auto;
-  border-radius: 0;
-  padding-top: max(20px, env(safe-area-inset-top));
-}
-
-.sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sheet-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 26px;
-  font-weight: 400;
-}
-
-.sheet .hint {
-  margin: -6px 0 4px;
-}
-
-.pin {
-  box-sizing: border-box;
-  width: 100%;
-  height: 56px;
-  border: 2px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg);
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  text-align: center;
-  /* A PIN is not shown on the screen as it is typed. */
-  -webkit-text-security: disc;
-}
-
-.problem {
-  margin: 0;
-  color: var(--accent-ink);
-  font-weight: 700;
-  text-align: center;
 }
 </style>
 

@@ -931,3 +931,91 @@ describe('today\'s forecast', () => {
     expect(noWeather.wrapper.findAll('[data-testid="photo-pill"]')).toHaveLength(0)
   })
 })
+
+describe('pills that join', () => {
+  // happy-dom does no layout, so the sizes are faked: each pill is as wide as `widths` says for its corner, and the pane 1920 wide.
+  let widths: Record<string, number>
+  let observed: Set<Element>
+
+  beforeEach(() => {
+    widths = {}
+    observed = new Set()
+    vi.stubGlobal('ResizeObserver', class {
+      observe(element: Element) { observed.add(element) }
+      unobserve(element: Element) { observed.delete(element) }
+      disconnect() { observed.clear() }
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('pill') ? widths[this.dataset.corner ?? ''] ?? 0 : 0
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('pill-body') ? (this.closest('.pill')!.getAttribute('data-corner')!.endsWith('left') ? 200 : 300) : 0
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('view') ? 1920 : 0
+    })
+  })
+
+  const layout = (pane = false): Partial<ViewProps> => ({
+    pane, weather: { ...weather, hourly: HOURS }, paneOptions: { ...DEFAULT_PANE_OPTIONS, show_forecast: true, time_corner: 'bottom-left', forecast_corner: 'bottom-right' },
+  })
+  const bridges = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.findAll('[data-testid="photo-pill-bridge"]')
+  const pills = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.findAll('[data-testid="photo-pill"]')
+
+  it('draws one bar behind two bottom pills that nearly meet, and clears the pills', async () => {
+    widths = { 'bottom-left': 900, 'bottom-right': 850 }
+    answers = [gives(A)]
+    const view = await open(layout())
+
+    expect(bridges(view)).toHaveLength(1)
+    expect(bridges(view)[0]!.attributes('data-edge')).toBe('bottom')
+    // Both are as tall as the taller one (300 px; happy-dom applies no padding).
+    expect(bridges(view)[0]!.attributes('style')).toContain('height: 300px')
+    expect(pills(view).map(pill => pill.attributes('data-joined'))).toEqual(['true', 'true'])
+    expect(pills(view).map(pill => pill.attributes('style'))).toEqual(['min-height: 300px;', 'min-height: 300px;'])
+  })
+
+  it('leaves pills with room between them as they are', async () => {
+    widths = { 'bottom-left': 600, 'bottom-right': 600 }
+    answers = [gives(A)]
+    const view = await open(layout())
+
+    expect(bridges(view)).toHaveLength(0)
+    expect(pills(view).map(pill => pill.attributes('data-joined'))).toEqual([undefined, undefined])
+  })
+
+  it('joins with the compact inset in a pane', async () => {
+    // 48 px in at each side of a 1920 px pane leaves 1824 px.
+    widths = { 'bottom-left': 800, 'bottom-right': 800 }
+    answers = [gives(A)]
+    const compact = await open(layout(true))
+    // 1920 - 96 - 1600 = 224: apart.
+    expect(bridges(compact)).toHaveLength(0)
+
+    widths = { 'bottom-left': 880, 'bottom-right': 880 }
+    answers = [gives(A)]
+    const joined = await open(layout(true))
+    // 1920 - 96 - 1760 = 64: joined.
+    expect(bridges(joined)).toHaveLength(1)
+    expect(bridges(joined)[0]!.classes()).toContain('compact')
+  })
+
+  it('watches the pane and the pills, and lets go of them when it goes', async () => {
+    widths = { 'bottom-left': 900, 'bottom-right': 850 }
+    answers = [gives(A)]
+    const view = await open(layout())
+
+    expect(observed.size).toBe(3)
+    view.wrapper.unmount()
+    expect(observed.size).toBe(0)
+  })
+
+  it('draws nothing joined when sizes cannot be observed', async () => {
+    vi.stubGlobal('ResizeObserver', undefined)
+    answers = [gives(A)]
+    const view = await open(layout())
+
+    expect(pills(view)).toHaveLength(2)
+    expect(bridges(view)).toHaveLength(0)
+  })
+})

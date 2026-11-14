@@ -9,8 +9,10 @@ import { formatLongDate, formatTime } from '~/utils/format'
 import { eventLabel } from '~/utils/eventLabel'
 import { driftSeconds, photoDrift } from '~/utils/motion'
 import { nextEvent } from '~/utils/nextEvent'
-import { photoPills } from '~/utils/photoOverlay'
+import { joinedEdges, photoPills } from '~/utils/photoOverlay'
+import type { PillEdge } from '~/utils/photoOverlay'
 import { weatherIcon } from '~/utils/weather'
+import type { Corner } from '~/utils/burnIn'
 import type { ViewProps } from '../../utils/views'
 
 // The photo frame (architecture §4.1, §5): one photo fullscreen at a time, and
@@ -87,6 +89,17 @@ import type { ViewProps } from '../../utils/views'
 // shows tomorrow's parts under a small "Tomorrow" heading. With no hourly
 // forecast there is nothing to show, and a pill that would hold only that is
 // left out, as one with only the weather and no weather is.
+//
+// Pills in the two corners of one edge (say the time and date bottom left and
+// the forecast bottom right) that sit close, or overlap, would leave only a
+// sliver of photo between them. The view measures each pill's layout size (not
+// its scaled one: the stage is `transform`ed) with a ResizeObserver, and when the
+// gap between the two is under `PILL_JOIN_GAP` (`joinedEdges`) draws one glass
+// bar from the left pill's outer edge to the right one's, as tall as the taller
+// of the two, and makes both pills clear and as tall as the bar, their content
+// centred, so they read as one pill. The pills stay where they are and keep
+// their burn-in walking: joining is only how it looks. The bar fades like a pill.
+// Without a ResizeObserver (tests) nothing is measured and nothing is joined.
 //
 // A pane on the stage's edge is given a `bleed` while burn-in shifting is on:
 // the photo is drawn that far past the sides on the edge, so the strip the
@@ -335,10 +348,87 @@ const upcoming = computed(() => props.pane || !options.value.show_time ? null : 
 const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top-left', props.overlayShowing ?? false)
   .map(pill => ({ ...pill, time: pill.time && (options.value.show_time || weatherNow.value !== null), forecast: pill.forecast && forecast.value !== null }))
   .filter(pill => pill.time || pill.date || pill.forecast))
+
+/** What a pill measures in layout pixels: its width, and the height its content wants (without any height given to join it to its neighbour). */
+interface PillSize {
+  width: number
+  height: number
+}
+
+const root = ref<HTMLElement | null>(null)
+/** The pane's width and each pill's size by corner, as last measured. */
+const paneWidth = ref(0)
+const sizes = ref<Partial<Record<Corner, PillSize>>>({})
+let observer: ResizeObserver | undefined
+
+/** The pills now in the DOM, not counting any that are fading out. */
+function pillElements(): HTMLElement[] {
+  return Array.from(root.value?.querySelectorAll<HTMLElement>('.pill[data-corner]') ?? []).filter(element => !element.classList.contains('pill-move-leave-active'))
+}
+
+/** Measures the pane and the pills. Layout sizes: the stage is scaled with a transform, so `getBoundingClientRect` would be wrong. */
+function measure() {
+  const section = root.value
+  if (!section) return
+  paneWidth.value = section.clientWidth
+  const next: Partial<Record<Corner, PillSize>> = {}
+  for (const element of pillElements()) {
+    const corner = element.dataset.corner as Corner
+    const body = element.firstElementChild as HTMLElement | null
+    const style = getComputedStyle(element)
+    const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0)
+    // The body's height is what the content wants; the pill's own may have been stretched to join its neighbour.
+    next[corner] = { width: element.offsetWidth, height: (body ? body.offsetHeight : element.offsetHeight) + (body ? padding : 0) }
+  }
+  const before = sizes.value
+  const same = paneWidth.value === lastPane && Object.keys(next).length === Object.keys(before).length
+    && (Object.keys(next) as Corner[]).every(corner => before[corner]?.width === next[corner]?.width && before[corner]?.height === next[corner]?.height)
+  lastPane = paneWidth.value
+  if (!same) sizes.value = next
+}
+let lastPane = -1
+
+/** Watches the pane and the pills that are there now, and measures. */
+function observe() {
+  if (typeof ResizeObserver === 'undefined') return
+  observer ??= new ResizeObserver(() => measure())
+  observer.disconnect()
+  if (root.value) observer.observe(root.value)
+  for (const element of pillElements()) observer.observe(element)
+  measure()
+}
+
+onMounted(() => void nextTick(observe))
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = undefined
+})
+// A pill that is new, gone or different holds other things, so measure again once the DOM has it.
+watch(pills, () => void nextTick(observe), { flush: 'post' })
+// The pills' padding and inset change with `pane`.
+watch(() => props.pane, () => void nextTick(observe), { flush: 'post' })
+
+/** How far in from the pane's edge the pills sit: as in the CSS for `.pill` and `.pill.compact`. */
+const inset = computed(() => props.pane ? 48 : 64)
+
+/** The edges drawn as one bar, each with the height of the taller pill. */
+const bridges = computed(() => {
+  const measured = pills.value.flatMap(pill => sizes.value[pill.corner] ? [{ corner: pill.corner, width: sizes.value[pill.corner]!.width }] : [])
+  if (paneWidth.value <= 0) return []
+  return joinedEdges(measured, paneWidth.value, inset.value).map((edge: PillEdge) => ({
+    edge,
+    height: Math.max(sizes.value[`${edge}-left`]?.height ?? 0, sizes.value[`${edge}-right`]?.height ?? 0),
+  }))
+})
+
+/** The height both pills of a joined edge are given, or undefined for a pill on its own. */
+function joinedHeight(corner: Corner): number | undefined {
+  return bridges.value.find(bridge => corner.startsWith(bridge.edge))?.height
+}
 </script>
 
 <template>
-  <section class="view" :class="{ pane, bleeding: !!bleedStyle }" :style="bleedStyle" data-testid="photo-view">
+  <section ref="root" class="view" :class="{ pane, bleeding: !!bleedStyle }" :style="bleedStyle" data-testid="photo-view">
     <img
       v-for="(url, index) in layers"
       :key="index"
@@ -358,16 +448,32 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
       </p>
     </div>
 
+    <!-- One glass bar behind the two pills of an edge that sit close; the pills themselves are clear then. -->
+    <TransitionGroup name="pill-move">
+      <div
+        v-for="bridge in bridges"
+        :key="bridge.edge"
+        class="bridge"
+        :class="[`edge-${bridge.edge}`, { compact: pane }]"
+        :style="{ height: `${bridge.height}px` }"
+        :data-edge="bridge.edge"
+        data-testid="photo-pill-bridge"
+      />
+    </TransitionGroup>
+
     <!-- Keyed by the corner and what is in it, so a move fades a pill out where it was and in where it goes. -->
     <TransitionGroup name="pill-move">
       <div
         v-for="pill in pills"
         :key="`${pill.corner}:${pill.time}:${pill.date}:${pill.forecast}`"
         class="pill"
-        :class="[`corner-${pill.corner}`, { compact: pane }]"
+        :class="[`corner-${pill.corner}`, { compact: pane, joined: joinedHeight(pill.corner) !== undefined }]"
+        :style="joinedHeight(pill.corner) === undefined ? undefined : { minHeight: `${joinedHeight(pill.corner)}px` }"
         :data-corner="pill.corner"
+        :data-joined="joinedHeight(pill.corner) !== undefined ? 'true' : undefined"
         data-testid="photo-pill"
       >
+        <div class="pill-body">
         <div v-if="pill.time" class="line">
           <span v-if="options.show_time" class="clock" data-testid="photo-clock">{{ time }}</span>
           <span v-if="weatherNow" class="weather" :title="weatherNow.label ?? undefined" data-testid="photo-weather">
@@ -401,6 +507,7 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
           <span class="marker" :style="{ background: upcoming.event.people[0]?.colour ?? 'rgba(255, 255, 255, 0.6)' }" />
           <span class="when" data-testid="photo-next-time">{{ upcoming.time }}</span>
           <span class="what" data-testid="photo-next-title">{{ eventLabel(upcoming.event) }}</span>
+        </div>
         </div>
       </div>
     </TransitionGroup>
@@ -519,7 +626,8 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
   z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  /* Centres the body when a joined pill is given the height of its taller neighbour. */
+  justify-content: center;
   box-sizing: border-box;
   /* The stage's width less a 64 px margin each side, which is 1312 px on the portrait stage. */
   max-width: min(1400px, calc(100% - 128px));
@@ -531,6 +639,59 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
   color: #fff;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* The pill's content: a column, whose height is what the pill wants before it is stretched to join its neighbour (measured in the script). */
+.pill-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* The glass of a pill, on its own: one bar behind the two pills of an edge that sit close. Same look as `.pill`, spanning from the left pill's outer edge to the right one's (inset on both sides), under the pills. */
+.bridge {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  left: 64px;
+  right: 64px;
+  border-radius: var(--radius-md);
+  background: rgba(20, 18, 16, 0.55);
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.bridge.edge-top {
+  top: 64px;
+}
+
+.bridge.edge-bottom {
+  bottom: 64px;
+}
+
+.bridge.compact {
+  left: 48px;
+  right: 48px;
+  border-radius: 32px;
+}
+
+.bridge.compact.edge-top {
+  top: 48px;
+}
+
+.bridge.compact.edge-bottom {
+  bottom: 48px;
+}
+
+/* The pills of a joined edge give their glass to the bar behind them, so the two read as one pill. */
+.pill.joined {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
 }
 
 /* Which corner the page has chosen for it (utils/burnIn.ts). */

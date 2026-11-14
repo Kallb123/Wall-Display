@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Check, Star } from 'lucide-vue-next'
 import {
-  STAR_GRID_GAP, STAR_GRID_PADDING, STAR_HEAD_HEIGHT, STAR_ICON_GAP, STAR_ICON_SIZE, STAR_PROGRESS_HEIGHT, STAR_SECTION_GAP, STAR_TILE_PADDING, STAR_TITLE_HEIGHT, STAR_WEEK_HEIGHT,
-  starHeaderHeight, starIconRow, starTileHeight, starTileWidth, starWeekFits, starsAsIcons,
+  STAR_GRID_GAP, STAR_GRID_PADDING, STAR_HEAD_HEIGHT, STAR_EXTRA_WIDTH, STAR_PROGRESS_GAP, STAR_PROGRESS_HEIGHT, STAR_SECTION_GAP, STAR_TILE_PADDING, STAR_TITLE_HEIGHT, STAR_WEEK_HEIGHT,
+  starHeaderHeight, starIconRow, starProgressArea, starTileHeight, starTileWidth, starWeekFits, starsAsIcons,
 } from '../../utils/starChart'
+import type { StarIconRow } from '../../utils/starChart'
 import type { ViewProps } from '../../utils/views'
 import { DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID } from '../../../shared/layouts'
 import { starChartLayout } from '../../../shared/star-chart-layout'
@@ -20,10 +21,13 @@ import type { StarCard } from '../../../shared/star-chart-layout'
 // "7" or "7 / 10" with a star, and a caption "today" or "this week"), then the
 // progress, then, when the card is tall enough, the week strip.
 //
-// The progress is a row of star icons for a goal of ten or fewer and for no goal
-// (the earned ones filled in the person's colour, the rest outlined; with no
-// goal only the earned ones, as many as fit), and a bar for a bigger goal.
-// Stars beyond what the row can show, or past the goal, are "+N". The week
+// The progress fills the card under the head (and above the week strip). It is
+// star icons for a goal of ten or fewer and for no goal (the earned ones filled
+// in the person's colour, the rest outlined; with no goal only the earned ones,
+// as many as fit), and a bar for a bigger goal. The icons scale to fill the
+// area: they wrap into the rows and columns that make them biggest, centred,
+// and with no goal are sized for ten so a new star does not resize them. Stars
+// beyond what the area can show, or past the goal, are "+N". The week
 // strip has the seven days of the week today is in (the display's week start):
 // the weekday's initial over the day's count, today picked out, the days to come
 // faint, and, for a person whose period is a day and who has a goal, a day that
@@ -58,10 +62,12 @@ const headerHeight = computed(() => starHeaderHeight(options.value.show_title))
 const tileWidth = computed(() => starTileWidth(props.stage.width, grid.value.columns))
 const tileHeight = computed(() => starTileHeight(props.stage.height, grid.value.rows, headerHeight.value))
 const showWeek = computed(() => starWeekFits(tileHeight.value))
+/** The box the progress area gives its icons. */
+const area = computed(() => starProgressArea(tileWidth.value, tileHeight.value, showWeek.value))
 
 /** The icons of a card's progress row, or null when it is a bar. */
-function iconsOf(card: StarCard): { icons: number, filled: number, extra: number } | null {
-  return starsAsIcons(card.goal) ? starIconRow(card.total, card.goal, tileWidth.value) : null
+function iconsOf(card: StarCard): StarIconRow | null {
+  return starsAsIcons(card.goal) ? starIconRow(card.total, card.goal, area.value) : null
 }
 
 /** The bar's fill, 0 to 100. */
@@ -77,7 +83,8 @@ const cssVars = computed(() => ({
   '--head-height': `${STAR_HEAD_HEIGHT}px`,
   '--section-gap': `${STAR_SECTION_GAP}px`,
   '--progress-height': `${STAR_PROGRESS_HEIGHT}px`,
-  '--icon-gap': `${STAR_ICON_GAP}px`,
+  '--progress-gap': `${STAR_PROGRESS_GAP}px`,
+  '--extra-width': `${STAR_EXTRA_WIDTH - STAR_PROGRESS_GAP}px`,
   '--week-height': `${STAR_WEEK_HEIGHT}px`,
   '--rows': grid.value.rows,
   '--columns': grid.value.columns,
@@ -117,12 +124,16 @@ const cssVars = computed(() => ({
 
         <div class="progress" data-testid="star-progress">
           <template v-if="iconsOf(card)">
-            <span class="icons" :style="{ '--icon-size': `${STAR_ICON_SIZE}px` }">
+            <span
+              class="icons"
+              :style="{ '--icon-gap': `${iconsOf(card)!.gap}px`, width: `${iconsOf(card)!.perRow * iconsOf(card)!.size + (iconsOf(card)!.perRow - 1) * iconsOf(card)!.gap}px` }"
+              data-testid="star-icons"
+            >
               <AppIcon
                 v-for="index in iconsOf(card)!.icons"
                 :key="index"
                 :icon="Star"
-                :size="STAR_ICON_SIZE"
+                :size="iconsOf(card)!.size"
                 class="star"
                 :class="index <= iconsOf(card)!.filled ? 'filled' : 'empty'"
                 data-testid="star-icon"
@@ -308,19 +319,24 @@ const cssVars = computed(() => ({
   text-transform: uppercase;
 }
 
+/* Fills what the card has left; the icons wrap into the grid the capacity worked out, at the size it worked out. */
 .progress {
   display: flex;
-  flex: none;
+  flex: 1;
   align-items: center;
-  gap: 14px;
-  height: var(--progress-height);
+  justify-content: center;
+  gap: var(--progress-gap);
   min-width: 0;
+  min-height: var(--progress-height);
 }
 
 .icons {
   display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
   gap: var(--icon-gap);
-  min-width: 0;
 }
 
 .star {
@@ -340,6 +356,7 @@ const cssVars = computed(() => ({
 
 .bar {
   flex: 1;
+  align-self: center;
   height: 24px;
   overflow: hidden;
   border-radius: 999px;
@@ -355,6 +372,8 @@ const cssVars = computed(() => ({
 
 .extra {
   flex: none;
+  width: var(--extra-width);
+  white-space: nowrap;
   color: var(--accent-ink);
   font-size: 34px;
   font-weight: 700;

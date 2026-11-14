@@ -340,7 +340,8 @@ export interface PhotoFeedOption {
  * the server turns it down if it is saved again.
  */
 export function photoFeedOptions(feeds: readonly PhotoFeedChoice[], current: string | null | undefined): PhotoFeedOption[] {
-  const options: PhotoFeedOption[] = [{ value: null, label: 'The display\'s choice' }]
+  // "Default" rather than "The display's choice", which a phone cuts short; the hint under the options says what it means.
+  const options: PhotoFeedOption[] = [{ value: null, label: 'Default' }]
   for (const feed of feeds) {
     const source = PHOTO_SOURCE_NAMES[feed.source]
     options.push({ value: feed.id, label: feed.name === source ? feed.name : `${feed.name} (${source})` })

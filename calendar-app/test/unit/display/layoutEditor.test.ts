@@ -282,7 +282,7 @@ describe('the photo feed', () => {
     ]
 
     expect(photoFeedOptions(feeds, null)).toEqual([
-      { value: null, label: 'The display\'s choice' },
+      { value: null, label: 'Default' },
       { value: 'immich', label: 'Immich' },
       { value: 'mountains', label: 'Mountains (Unsplash)' },
     ])

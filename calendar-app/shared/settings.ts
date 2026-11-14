@@ -108,7 +108,7 @@ export type ImmichMode = 'albums' | 'random' | 'memories'
 export interface PhotoFeedChoice {
   /** What a layout's or a rule's `photo_feed` holds. */
   id: string
-  /** The name to show: the feed's `name`, or the source's label. */
+  /** The name to show: a source's label ("Unsplash"), or a feed's `name`, or its id when it has none. */
   name: string
   source: PhotoSource
 }

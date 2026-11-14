@@ -419,7 +419,7 @@ describe('the layouts editor', () => {
 
     const wrapper = await mountManager({ photoFeeds: feeds })
     const select = wrapper.find('[data-testid="option-photo_feed"]')
-    expect(select.findAll('option').map(option => option.text())).toEqual(['The display\'s choice', 'Unsplash', 'Mountains (Unsplash)'])
+    expect(select.findAll('option').map(option => option.text())).toEqual(['Default', 'Unsplash', 'Mountains (Unsplash)'])
     expect((select.element as HTMLSelectElement).value).toBe('0')
 
     await select.setValue('2')
@@ -437,7 +437,7 @@ describe('the layouts editor', () => {
     const wrapper = await mountManager({ photoFeeds: [{ id: 'unsplash', name: 'Unsplash', source: 'unsplash' }] })
     const select = wrapper.find('[data-testid="option-photo_feed"]')
 
-    expect(select.findAll('option').map(option => option.text())).toEqual(['The display\'s choice', 'Unsplash', 'gone (not set up)'])
+    expect(select.findAll('option').map(option => option.text())).toEqual(['Default', 'Unsplash', 'gone (not set up)'])
     expect((select.element as HTMLSelectElement).value).toBe('2')
 
     // Taking the photo pane away drops the feed with it.

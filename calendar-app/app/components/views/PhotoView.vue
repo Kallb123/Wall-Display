@@ -91,7 +91,7 @@ import type { ViewProps } from '../../utils/views'
 // left out, as one with only the weather and no weather is.
 //
 // A photo from a source that asks for it to be credited (Unsplash's terms)
-// carries a `credit`, such as "Jane Doe on Unsplash". It is drawn as a short
+// carries a `credit`, such as "Photo by Jane Doe on Unsplash". It is drawn as a short
 // line of small, quiet type in the bottom right corner of the box, a few pixels
 // in from the edge: lower than a pill's inset, so a pill sitting in that corner
 // is never touched. It is plain text with a shadow rather than glass, so it

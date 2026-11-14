@@ -464,7 +464,7 @@ A mounted directory of images, for testing or for anything else (`photos.local.p
 
 ### 5.5 Unsplash
 
-Free photography from the Unsplash API (`photos.unsplash`), for a frame that needs no library of its own. The application's access key is sent as the `Client-ID` of an `Authorization` header to `api.unsplash.com` only, and no message holds it. The pool is one of a `query` search (`landscape` by default), `collections` or `topics`, narrowed by `orientation` and `content_filter`, `count` photos long (up to 300, read in pages of 30) and listed again every `refresh_hours` (12 by default), because a demo key may make only 50 requests an hour. Each photo keeps its credit ("Jane Doe on Unsplash") for the photo view to draw (§5.1). The settings page's Photos tab shows each feed and its state.
+Free photography from the Unsplash API (`photos.unsplash`), for a frame that needs no library of its own. The application's access key is sent as the `Client-ID` of an `Authorization` header to `api.unsplash.com` only, and no message holds it. The pool is one of a `query` search (`landscape` by default), `collections` or `topics`, narrowed by `orientation` and `content_filter`, `count` photos long (up to 300, read in pages of 30) and listed again every `refresh_hours` (12 by default), because a demo key may make only 50 requests an hour. Each photo keeps its credit ("Photo by Jane Doe on Unsplash") for the photo view to draw (§5.1). The settings page's Photos tab shows each feed and its state.
 
 ## 6. Special days
 

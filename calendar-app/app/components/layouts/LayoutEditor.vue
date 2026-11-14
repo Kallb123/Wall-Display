@@ -371,6 +371,8 @@ function confirmDelete() {
         <p class="sd-hint option-hint">
           These apply to the landscape and the portrait arrangement alike.<template v-if="cornerKeys.length > 0">
             Moving walks round the corners so none is lit for ever; two in the same corner share one pill.
+          </template><template v-if="selected === 'photo' && photoFeeds">
+            Default photos come from whatever the display is set to.
           </template>
         </p>
       </div>

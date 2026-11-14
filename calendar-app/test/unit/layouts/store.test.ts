@@ -273,7 +273,7 @@ describe('configuredFeedIds and photoFeedRefusal', () => {
 
   it('is empty with no photos block, and copes with a config that has no feeds', () => {
     expect(configuredFeedIds(undefined)).toEqual([])
-    expect(configuredFeedIds({ local: { path: '/p' } } as unknown as PhotosConfig)).toEqual(['local'])
+    expect(configuredFeedIds({ local: { path: '/p' }, feeds: [] } as unknown as PhotosConfig)).toEqual(['local'])
   })
 
   it('accepts a feed that is set up, and null or nothing', () => {

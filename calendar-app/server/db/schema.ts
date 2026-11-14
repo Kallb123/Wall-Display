@@ -276,6 +276,24 @@ export const customLayouts = sqliteTable('custom_layouts', {
 ])
 
 /**
+ * Photo pools made on the settings page's Photos tab: a name and several
+ * sources (Unsplash searches, collections and topics, Immich albums, config
+ * feeds). `id` is a slug of the name, and is what a layout's `photo_feed` holds,
+ * so it is kept when the pool is renamed. `sources` is JSON, validated by
+ * `shared/photoPools.ts` on the way in and out. Names are unique ignoring case,
+ * as for layouts.
+ */
+export const photoPools = sqliteTable('photo_pools', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  sources: text('sources').notNull(),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
+}, table => [
+  uniqueIndex('photo_pools_name_idx').on(sql`lower(${table.name})`),
+])
+
+/**
  * Who has a star chart (PR 5.20), and how. One row per person in the config
  * who has ever had their settings saved; no row means the chart is off. Rows
  * for people since removed from the config are kept and ignored, so adding
@@ -329,6 +347,8 @@ export type PreferenceOverrideRow = typeof preferenceOverrides.$inferSelect
 export type NewPreferenceOverrideRow = typeof preferenceOverrides.$inferInsert
 export type CustomLayoutRow = typeof customLayouts.$inferSelect
 export type NewCustomLayoutRow = typeof customLayouts.$inferInsert
+export type PhotoPoolRow = typeof photoPools.$inferSelect
+export type NewPhotoPoolRow = typeof photoPools.$inferInsert
 export type StarChartPersonRow = typeof starChartPeople.$inferSelect
 export type NewStarChartPersonRow = typeof starChartPeople.$inferInsert
 export type StarCountRow = typeof starCounts.$inferSelect

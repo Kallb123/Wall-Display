@@ -26,6 +26,18 @@ const FORECAST = {
   },
 }
 
+const HOURLY = {
+  changed_states: [],
+  service_response: {
+    [ENTITY]: {
+      forecast: [
+        { datetime: '2026-10-28T12:00:00+00:00', condition: 'rainy', temperature: 13, precipitation: 0.4, precipitation_probability: 60, wind_speed: 9 },
+        { datetime: '2026-10-28T13:00:00+00:00', condition: 'cloudy', temperature: 12 },
+      ],
+    },
+  },
+}
+
 const servers: Server[] = []
 
 afterEach(async () => {
@@ -67,10 +79,11 @@ function send(response: ServerResponse, body: unknown, status = 200): void {
   response.end(typeof body === 'string' ? body : JSON.stringify(body))
 }
 
-/** Answers the state and the forecast, with `state` and `forecast` in place of the usual bodies and `status` for either. */
-function answer({ state = STATE, forecast = FORECAST as unknown, stateStatus = 200, forecastStatus = 200 } = {}): Handler {
-  return (request, response) => {
+/** Answers the state and the two forecasts, with `state`, `forecast` and `hourly` in place of the usual bodies and a status for each. */
+function answer({ state = STATE, forecast = FORECAST as unknown, hourly = HOURLY as unknown, stateStatus = 200, forecastStatus = 200, hourlyStatus = 200 } = {}): Handler {
+  return (request, response, seen) => {
     if (request.method === 'GET') send(response, state, stateStatus)
+    else if (JSON.parse(seen.body).type === 'hourly') send(response, hourly, hourlyStatus)
     else send(response, forecast, forecastStatus)
   }
 }
@@ -104,13 +117,16 @@ async function failure(promise: Promise<unknown>, secrets: string[] = []): Promi
 }
 
 describe('fetchHaWeather requests', () => {
-  it('reads the state, then asks for the daily forecast, with the token both times', async () => {
+  it('reads the state, then asks for the daily and the hourly forecast, with the token each time', async () => {
     const { base, seen } = await serve()
 
     await fetchHaWeather({ url: base, token: TOKEN }, ENTITY)
 
-    expect(seen).toHaveLength(2)
-    const [state, forecast] = seen as [Seen, Seen]
+    expect(seen).toHaveLength(3)
+    const [state, forecast, hourly] = seen as [Seen, Seen, Seen]
+    expect(hourly.method).toBe('POST')
+    expect(hourly.url).toBe('/api/services/weather/get_forecasts?return_response')
+    expect(JSON.parse(hourly.body)).toEqual({ entity_id: ENTITY, type: 'hourly' })
     expect(state.method).toBe('GET')
     expect(state.url).toBe('/api/states/weather.home')
     expect(forecast.method).toBe('POST')
@@ -138,6 +154,7 @@ describe('fetchHaWeather requests', () => {
     const path = suffix.replace(/\/+$/, '')
     expect(seen.map(request => request.url)).toEqual([
       `${path}/api/states/weather.home`,
+      `${path}/api/services/weather/get_forecasts?return_response`,
       `${path}/api/services/weather/get_forecasts?return_response`,
     ])
   })
@@ -170,11 +187,35 @@ describe('fetchHaWeather response', () => {
         { datetime: '2026-10-28T11:00:00+00:00', condition: 'rainy', temperature: 14, templow: 8 },
         { datetime: '2026-10-29T11:00:00+00:00', condition: 'cloudy', temperature: 11, templow: 6 },
       ],
+      hourly: [
+        { datetime: '2026-10-28T12:00:00+00:00', condition: 'rainy', temperature: 13, precipitation: 0.4, precipitation_probability: 60 },
+        { datetime: '2026-10-28T13:00:00+00:00', condition: 'cloudy', temperature: 12, precipitation: null, precipitation_probability: null },
+      ],
     })
+  })
+
+  it('reads a 400 for the hourly forecast as none, not a failure', async () => {
+    const { base } = await serve(answer({ hourlyStatus: 400 }))
+
+    const weather = await fetchHaWeather({ url: base, token: TOKEN }, ENTITY)
+
+    expect(weather.hourly).toEqual([])
+    expect(weather.forecast).toHaveLength(2)
+  })
+
+  it('reads an entity missing from the hourly answer as none, and wrong-typed values as null', async () => {
+    const missing = await serve(answer({ hourly: { service_response: { 'weather.other': { forecast: [] } } } }))
+    const odd = await serve(answer({ hourly: { service_response: { [ENTITY]: { forecast: [{ datetime: '2026-10-28T12:00:00Z', precipitation: 'lots', precipitation_probability: 'high' }] } } } }))
+
+    expect((await fetchHaWeather({ url: missing.base, token: TOKEN }, ENTITY)).hourly).toEqual([])
+    expect((await fetchHaWeather({ url: odd.base, token: TOKEN }, ENTITY)).hourly).toEqual([
+      { datetime: '2026-10-28T12:00:00Z', condition: null, temperature: null, precipitation: null, precipitation_probability: null },
+    ])
   })
 
   it('reads what an integration leaves out as null', async () => {
     const { base } = await serve(answer({
+      hourlyStatus: 400,
       state: { ...STATE, state: 'unavailable', attributes: {} },
       forecast: { service_response: { [ENTITY]: { forecast: [{ datetime: '2026-10-28T11:00:00+00:00' }, { datetime: '2026-10-29', condition: null, temperature: null, templow: null }] } } },
     }))
@@ -186,11 +227,13 @@ describe('fetchHaWeather response', () => {
         { datetime: '2026-10-28T11:00:00+00:00', condition: null, temperature: null, templow: null },
         { datetime: '2026-10-29', condition: null, temperature: null, templow: null },
       ],
+      hourly: [],
     })
   })
 
   it('reads a value of the wrong type in a field it only shows as null, rather than failing the poll', async () => {
     const { base } = await serve(answer({
+      hourlyStatus: 400,
       state: { state: 'sunny', attributes: { temperature: 'warm', temperature_unit: 7 } },
       forecast: { service_response: { [ENTITY]: { forecast: [{ datetime: '2026-10-28', condition: 3, temperature: '14', templow: null }] } } },
     }))
@@ -199,16 +242,18 @@ describe('fetchHaWeather response', () => {
       state: 'sunny',
       attributes: { temperature: null, temperature_unit: null },
       forecast: [{ datetime: '2026-10-28', condition: null, temperature: null, templow: null }],
+      hourly: [],
     })
   })
 
   it('reads a state with no attributes, and an entity with no forecast list, as empty', async () => {
-    const { base } = await serve(answer({ state: { state: 'sunny' }, forecast: { service_response: { [ENTITY]: {} } } }))
+    const { base } = await serve(answer({ state: { state: 'sunny' }, forecast: { service_response: { [ENTITY]: {} } }, hourly: { service_response: { [ENTITY]: {} } } }))
 
     expect(await fetchHaWeather({ url: base, token: TOKEN }, ENTITY)).toEqual({
       state: 'sunny',
       attributes: { temperature: null, temperature_unit: null },
       forecast: [],
+      hourly: [],
     })
   })
 
@@ -237,12 +282,17 @@ describe('fetchHaWeather failures, none of which may say where it went or what i
     ['forecast', { forecastStatus: 404 }, 'Home Assistant has no weather forecast service (HTTP 404; it needs version 2023.12 or later)'],
     ['state', { stateStatus: 500 }, 'HTTP 500 Internal Server Error'],
     ['forecast', { forecastStatus: 502 }, 'HTTP 502 Bad Gateway'],
+    ['hourly', { hourlyStatus: 401 }, 'Home Assistant refused the access token (HTTP 401)'],
+    ['hourly', { hourlyStatus: 404 }, 'Home Assistant has no weather forecast service (HTTP 404; it needs version 2023.12 or later)'],
+    ['hourly', { hourlyStatus: 500 }, 'HTTP 500 Internal Server Error'],
     // A 400 on the state is not the forecast's problem, and a 404 is not an unknown entity on the forecast.
     ['state', { stateStatus: 400 }, 'HTTP 400 Bad Request'],
   ])('fails when the %s request gets %j', async (_request, statuses, message) => {
-    const { base } = await serve((request, response) => {
-      const status = request.method === 'GET' ? (statuses as { stateStatus?: number }).stateStatus ?? 200 : (statuses as { forecastStatus?: number }).forecastStatus ?? 200
-      if (status === 200) send(response, request.method === 'GET' ? STATE : FORECAST)
+    const { base } = await serve((request, response, seen) => {
+      const { stateStatus = 200, forecastStatus = 200, hourlyStatus = 200 } = statuses as { stateStatus?: number, forecastStatus?: number, hourlyStatus?: number }
+      const hourly = request.method === 'POST' && JSON.parse(seen.body).type === 'hourly'
+      const status = request.method === 'GET' ? stateStatus : hourly ? hourlyStatus : forecastStatus
+      if (status === 200) send(response, request.method === 'GET' ? STATE : hourly ? HOURLY : FORECAST)
       else {
         response.writeHead(status)
         response.end(`{"message":"${TOKEN}"}`)
@@ -369,6 +419,21 @@ describe('fetchHaWeather when the body is not what Home Assistant sends', () => 
 
     expect(error.kind).toBe('parse')
     expect(error.message).toBe('the response is not JSON')
+  })
+
+  it('fails on an HTML page for the hourly forecast', async () => {
+    const { base } = await serve(answer({ hourly: '<html></html>' }))
+
+    const error = await failure(fetchHaWeather({ url: base, token: TOKEN }, ENTITY))
+
+    expect(error.kind).toBe('parse')
+    expect(error.message).toBe('the response is not JSON')
+  })
+
+  it('fails on an hourly forecast that is not a list', async () => {
+    const { base } = await serve(answer({ hourly: { service_response: { [ENTITY]: { forecast: 'rainy' } } } }))
+
+    expect((await failure(fetchHaWeather({ url: base, token: TOKEN }, ENTITY))).message).toBe('the response is not a weather forecast')
   })
 
   it('fails on an HTML page for the forecast', async () => {

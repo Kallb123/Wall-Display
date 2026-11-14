@@ -22,6 +22,7 @@ const NOW = new Date('2026-10-28T09:41:00Z')
 const weather: WeatherSnapshot = {
   current: { condition: 'rainy', temperature: 12.4 },
   daily: [{ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 }],
+  hourly: [],
   temperature_unit: '°C',
   updated_at: NOW.toISOString(),
 }

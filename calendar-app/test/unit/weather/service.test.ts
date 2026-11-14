@@ -16,6 +16,7 @@ function snapshot(overrides: Partial<WeatherSnapshot> = {}): WeatherSnapshot {
   return {
     current: { condition: 'rainy', temperature: 12 },
     daily: [{ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 }],
+    hourly: [],
     temperature_unit: '°C',
     updated_at: new Date().toISOString(),
     ...overrides,
@@ -318,7 +319,7 @@ describe('logging', () => {
 
     await vi.advanceTimersByTimeAsync(5 * INTERVAL)
 
-    expect(log.info.mock.calls).toEqual([['[weather] rainy, and a forecast for 1 day']])
+    expect(log.info.mock.calls).toEqual([['[weather] rainy, and a forecast for 1 day and 0 hours']])
   })
 })
 

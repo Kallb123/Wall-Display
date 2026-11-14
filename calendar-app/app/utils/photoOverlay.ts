@@ -3,10 +3,10 @@ import { dodgeOverlay } from './burnIn'
 import type { Corner } from './burnIn'
 
 // Where the photo frame's overlays go (PR 5.21): the time (with the weather
-// beside it, and on the full-screen frame the next event below it) and the date,
-// each in a corner of the pane that the layout chose, or in the corner the page
+// beside it, and on the full-screen frame the next event below it), the date and
+// today's forecast, each in a corner of the pane that the layout chose, or in the corner the page
 // walks round against burn-in (`auto`). Overlays in the same corner share one
-// pill, the time's line first. A chosen bottom corner gives way to the overlay
+// pill, the time's line first, then the date, then the forecast. A chosen bottom corner gives way to the overlay
 // banner, at the bottom centre, as the walking one does, by taking the top
 // corner on the same side. Pure: no Nuxt or Vue imports.
 
@@ -17,6 +17,8 @@ export interface PhotoPill {
   time: boolean
   /** The date's line. */
   date: boolean
+  /** Today's forecast by part of the day. */
+  forecast: boolean
 }
 
 const ORDER: readonly Corner[] = ['top-left', 'top-right', 'bottom-right', 'bottom-left']
@@ -30,14 +32,15 @@ export function overlayCorner(corner: OverlayCorner, walking: Corner, overlay: b
  * The pills the photo frame draws with `options`, at most one per corner, in
  * clockwise order from the top left. None when every overlay is off.
  */
-export function photoPills(options: Pick<ResolvedPaneOptions, 'show_time' | 'show_date' | 'show_weather' | 'time_corner' | 'date_corner'>, walking: Corner, overlay: boolean): PhotoPill[] {
+export function photoPills(options: Pick<ResolvedPaneOptions, 'show_time' | 'show_date' | 'show_weather' | 'show_forecast' | 'time_corner' | 'date_corner' | 'forecast_corner'>, walking: Corner, overlay: boolean): PhotoPill[] {
   const pills = new Map<Corner, PhotoPill>()
-  const place = (corner: Corner, part: 'time' | 'date') => {
-    const pill = pills.get(corner) ?? { corner, time: false, date: false }
+  const place = (corner: Corner, part: 'time' | 'date' | 'forecast') => {
+    const pill = pills.get(corner) ?? { corner, time: false, date: false, forecast: false }
     pill[part] = true
     pills.set(corner, pill)
   }
   if (options.show_time || options.show_weather) place(overlayCorner(options.time_corner, walking, overlay), 'time')
   if (options.show_date) place(overlayCorner(options.date_corner, walking, overlay), 'date')
+  if (options.show_forecast) place(overlayCorner(options.forecast_corner, walking, overlay), 'forecast')
   return ORDER.flatMap(corner => pills.get(corner) ?? [])
 }

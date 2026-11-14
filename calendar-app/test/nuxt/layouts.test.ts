@@ -361,7 +361,7 @@ describe('the layouts editor', () => {
     const pressed = (key: string) => wrapper.find(`[data-testid="option-${key}"]`).attributes('aria-pressed')
 
     // The kitchen shows a photo and a week, and the photo is selected to begin with: its options are its overlays.
-    expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_time', 'option-show_date', 'option-show_weather'])
+    expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_time', 'option-show_date', 'option-show_weather', 'option-show_forecast'])
 
     expect(pressed('rounded_corners')).toBe('true')
 

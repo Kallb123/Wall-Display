@@ -85,7 +85,10 @@ homeassistant:
 # The weather on the wall: the current conditions under today's date in the
 # month view, and a forecast for each of the days beside it, and in the agenda.
 # Leave this out and no weather is shown. It reads one Home Assistant weather
-# entity through the homeassistant block above, so that is needed too.
+# entity through the homeassistant block above, so that is needed too. The
+# entity's hourly forecast is asked for as well, and is optional: it feeds the
+# photo frame's "Today's forecast" (morning, noon, afternoon, evening), which is
+# left out when the entity has none.
 weather:
   entity_id: weather.home # a weather entity; it must be able to give a daily forecast
   poll_seconds: 600 # default 600; at least 60

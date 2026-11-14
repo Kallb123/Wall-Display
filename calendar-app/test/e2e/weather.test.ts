@@ -22,6 +22,10 @@ describe('weather from Home Assistant', async () => {
   const token = 'ha-e2e-token-0123456789abcdef'
   let condition = 'rainy'
   let fail = false
+  // Whether the integration has an hourly forecast: when not, Home Assistant answers the call with a 400.
+  let hourlyAvailable = true
+  // Today's date in UTC, for hours that have to be in the window of the next 48.
+  const hourStart = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000)
   const seen: { method: string | undefined, url: string | undefined, headers: IncomingHttpHeaders, body: string }[] = []
   const homeAssistant = createServer((request, response) => {
     const chunks: Buffer[] = []
@@ -36,9 +40,28 @@ describe('weather from Home Assistant', async () => {
         response.writeHead(500).end()
         return
       }
+      if (!hourlyAvailable && request.method === 'POST' && JSON.parse(Buffer.concat(chunks).toString() || '{}').type === 'hourly') {
+        response.writeHead(400).end('{"message":"Weather entity does not support hourly forecast"}')
+        return
+      }
       response.writeHead(200, { 'Content-Type': 'application/json' })
       if (request.method === 'GET' && request.url === '/api/states/weather.home') {
         response.end(JSON.stringify({ entity_id: 'weather.home', state: condition, attributes: { temperature: 12.4, temperature_unit: '°C', humidity: 90 }, last_updated: '2026-10-28T11:00:00+00:00' }))
+      } else if (request.method === 'POST' && request.url === '/api/services/weather/get_forecasts?return_response' && JSON.parse(Buffer.concat(chunks).toString()).type === 'hourly') {
+        response.end(JSON.stringify({
+          changed_states: [],
+          service_response: {
+            'weather.home': {
+              forecast: [0, 1].map(index => ({
+                datetime: new Date(hourStart.getTime() + (index + 1) * 3_600_000).toISOString(),
+                condition: index === 0 ? 'rainy' : 'cloudy',
+                temperature: 12 + index,
+                precipitation: 0.5,
+                precipitation_probability: 40,
+              })),
+            },
+          },
+        }))
       } else if (request.method === 'POST' && request.url === '/api/services/weather/get_forecasts?return_response') {
         // Home Assistant's daily forecasts are at midnight local time, written in UTC: the 29th in London starts at 00:00 UTC.
         response.end(JSON.stringify({
@@ -128,6 +151,13 @@ describe('weather from Home Assistant', async () => {
         // A condition the wall has no word for is read as none, and the day is kept.
         { date: '2026-10-31', condition: null, high: 10, low: 5 },
       ],
+      hourly: [0, 1].map(index => ({
+        time: new Date(hourStart.getTime() + (index + 1) * 3_600_000).toISOString(),
+        condition: index === 0 ? 'rainy' : 'cloudy',
+        temperature: 12 + index,
+        precipitation: 0.5,
+        precipitation_probability: 40,
+      })),
       temperature_unit: '°C',
       updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/),
     })
@@ -137,11 +167,15 @@ describe('weather from Home Assistant', async () => {
     expect(text).not.toContain('127.0.0.1')
   })
 
-  it('asked Home Assistant for the state and the daily forecast with the token', async () => {
+  it('asked Home Assistant for the state and the daily and hourly forecasts with the token', async () => {
     await weatherOnceFetched()
 
     const state = seen.find(request => request.method === 'GET')!
-    const forecast = seen.find(request => request.method === 'POST')!
+    const forecast = seen.find(request => request.method === 'POST' && JSON.parse(request.body).type === 'daily')!
+    const hourly = seen.find(request => request.method === 'POST' && JSON.parse(request.body).type === 'hourly')!
+    expect(hourly.url).toBe('/api/services/weather/get_forecasts?return_response')
+    expect(JSON.parse(hourly.body)).toEqual({ entity_id: 'weather.home', type: 'hourly' })
+    expect(hourly.headers.authorization).toBe(`Bearer ${token}`)
     expect(state.url).toBe('/api/states/weather.home')
     expect(forecast.url).toBe('/api/services/weather/get_forecasts?return_response')
     expect(JSON.parse(forecast.body)).toEqual({ entity_id: 'weather.home', type: 'daily' })
@@ -196,5 +230,26 @@ describe('weather from Home Assistant', async () => {
     expect(after).toEqual(before)
     expect(JSON.stringify(after)).not.toContain(token)
     fail = false
+  })
+
+  it('keeps the current conditions and the daily forecast when the integration has no hourly forecast', async () => {
+    await weatherOnceFetched()
+
+    hourlyAvailable = false
+    condition = 'fog'
+    await $fetch('/api/refresh', { method: 'POST' })
+
+    const deadline = Date.now() + 15_000
+    for (;;) {
+      const { weather } = await $fetch<WeatherResponse>('/api/weather')
+      if (weather?.current.condition === 'fog') {
+        expect(weather.hourly).toEqual([])
+        expect(weather.daily).toHaveLength(3)
+        break
+      }
+      if (Date.now() > deadline) throw new Error('the weather did not change')
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+    hourlyAvailable = true
   })
 })

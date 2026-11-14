@@ -30,7 +30,7 @@ const text = (wrapper: Awaited<ReturnType<typeof open>>) => wrapper.find('[data-
 
 describe('the night view', () => {
   it('is the clock in the display\'s zone and nothing else by default', async () => {
-    const wrapper = await open({ weather: { current: { condition: 'sunny', temperature: 9 }, daily: [], temperature_unit: '°C', updated_at: NOW.toISOString() }, events: [event()] })
+    const wrapper = await open({ weather: { current: { condition: 'sunny', temperature: 9 }, daily: [], hourly: [], temperature_unit: '°C', updated_at: NOW.toISOString() }, events: [event()] })
 
     expect(wrapper.find('[data-testid="night-clock"]').text()).toBe('22:30')
     expect(text(wrapper).exists()).toBe(false)

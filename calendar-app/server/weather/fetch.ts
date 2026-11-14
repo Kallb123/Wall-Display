@@ -4,7 +4,7 @@ import { discard, networkErrorMessage, readBody } from '../sources/http'
 import { WeatherError } from './errors'
 import type { HaWeather } from './types'
 
-// Fetches one weather entity's state and daily forecast from Home Assistant's
+// Fetches one weather entity's state and daily and hourly forecasts from Home Assistant's
 // REST API and checks their shape. Home Assistant no longer puts the forecast
 // in the entity's attributes: it is a service call that returns a response.
 // Error messages never include the URL or the token (see WeatherError), and
@@ -13,7 +13,7 @@ import type { HaWeather } from './types'
 export interface FetchHaWeatherOptions {
   /** For tests. Default: the global `fetch`. */
   fetch?: typeof fetch
-  /** For each of the two requests. Default 30 000. */
+  /** For each of the three requests. Default 30 000. */
   timeoutMs?: number
   /** The largest response accepted, in bytes. Default 1 MiB. */
   maxBytes?: number
@@ -46,17 +46,29 @@ const forecastResponse = z.object({
   service_response: z.record(z.string(), z.object({ forecast: z.array(forecastEntry).default([]) })),
 })
 
+const hourlyEntry = z.object({
+  datetime: z.string(),
+  condition: optionalText,
+  temperature: optionalNumber,
+  precipitation: optionalNumber,
+  precipitation_probability: optionalNumber,
+})
+const hourlyResponse = z.object({
+  service_response: z.record(z.string(), z.object({ forecast: z.array(hourlyEntry).default([]) })),
+})
+
 /** Asks Home Assistant for a weather entity's current conditions and its daily forecast. */
 export async function fetchHaWeather(homeassistant: Pick<HomeAssistantConfig, 'url' | 'token'>, entityId: string, options: FetchHaWeatherOptions = {}): Promise<HaWeather> {
   const send = (request: Call) => exchange(homeassistant, request, options)
+  const sendRequired = async (request: Call) => (await send(request)) as string
 
-  const stateBody = await send({
+  const stateBody = await sendRequired({
     path: `/api/states/${encodeURIComponent(entityId)}`,
     notFound: `Home Assistant has no entity "${entityId}" (HTTP 404)`,
   })
   const state = parse(stateBody, entityState, 'the response is not a weather entity')
 
-  const forecastBody = await send({
+  const forecastBody = await sendRequired({
     path: '/api/services/weather/get_forecasts',
     // Home Assistant tests for the key, not a value, so no `=` is sent.
     search: '?return_response',
@@ -68,7 +80,21 @@ export async function fetchHaWeather(homeassistant: Pick<HomeAssistantConfig, 'u
   const forecast = answer.service_response[entityId]
   if (!forecast) throw new WeatherError('parse', 'the response has no forecast for the entity')
 
-  return { state: state.state, attributes: state.attributes, forecast: forecast.forecast }
+  // The hourly forecast is optional: an integration that has none answers
+  // with a 400, which is not an error but an empty list. Anything else is
+  // treated as it is for the daily forecast.
+  const hourlyBody = await send({
+    path: '/api/services/weather/get_forecasts',
+    search: '?return_response',
+    body: { entity_id: entityId, type: 'hourly' },
+    badRequestIsEmpty: true,
+    notFound: 'Home Assistant has no weather forecast service (HTTP 404; it needs version 2023.12 or later)',
+  })
+  const hourly = hourlyBody === null
+    ? []
+    : parse(hourlyBody, hourlyResponse, 'the response is not a weather forecast').service_response[entityId]?.forecast ?? []
+
+  return { state: state.state, attributes: state.attributes, forecast: forecast.forecast, hourly }
 }
 
 interface Call {
@@ -80,10 +106,12 @@ interface Call {
   /** What a 400 and a 404 mean for this request, when something more helpful than the status can be said. */
   badRequest?: string
   notFound?: string
+  /** A 400 means there is nothing to give, not a failure: the answer is null. */
+  badRequestIsEmpty?: boolean
 }
 
-/** One request to Home Assistant, and the body of its answer. Throws a WeatherError for anything else. */
-async function exchange(homeassistant: Pick<HomeAssistantConfig, 'url' | 'token'>, request: Call, options: FetchHaWeatherOptions): Promise<string> {
+/** One request to Home Assistant, and the body of its answer (null for a 400 when that is allowed to mean none). Throws a WeatherError for anything else. */
+async function exchange(homeassistant: Pick<HomeAssistantConfig, 'url' | 'token'>, request: Call, options: FetchHaWeatherOptions): Promise<string | null> {
   const fetchFn = options.fetch ?? fetch
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES
@@ -108,6 +136,7 @@ async function exchange(homeassistant: Pick<HomeAssistantConfig, 'url' | 'token'
     if (response.status === 401 || response.status === 403) {
       throw new WeatherError('fetch', `Home Assistant refused the access token (HTTP ${response.status})`)
     }
+    if (response.status === 400 && request.badRequestIsEmpty) return null
     if (response.status === 400 && request.badRequest) throw new WeatherError('fetch', request.badRequest)
     if (response.status === 404 && request.notFound) throw new WeatherError('fetch', request.notFound)
     throw new WeatherError('fetch', `HTTP ${response.status} ${response.statusText}`.trim())

@@ -102,15 +102,18 @@ export type ImmichMode = 'albums' | 'random' | 'memories'
 
 /**
  * A photo feed that can be chosen for a layout or a schedule: a source's own
- * (the id is the source's name) or one of the config's `photos.feeds`. Listed in
- * `PhotosSettingsStatus.feeds`.
+ * (the id is the source's name), one of the config's `photos.feeds`, or a pool
+ * made on the Photos tab (`pool: true`). Listed in `PhotosSettingsStatus.feeds`.
  */
 export interface PhotoFeedChoice {
   /** What a layout's or a rule's `photo_feed` holds. */
   id: string
-  /** The name to show: a source's label ("Unsplash"), or a feed's `name`, or its id when it has none. */
+  /** The name to show: a source's label ("Unsplash"), or a feed's or pool's `name`, or its id when it has none. */
   name: string
-  source: PhotoSource
+  /** The kind of source the feed uses. Null for a pool, which may mix several. */
+  source: PhotoSource | null
+  /** True for a pool made on the Photos tab (stored in the app, not in the config). Left out for a config feed. */
+  pool?: boolean
 }
 
 /** One photo feed that is set up and running (a source's own, or one of `photos.feeds`), as the Photos tab shows it. */

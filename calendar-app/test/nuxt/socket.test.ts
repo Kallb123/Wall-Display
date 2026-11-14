@@ -421,3 +421,66 @@ describe('useDisplaySocket stars', () => {
     scope.stop()
   })
 })
+
+describe('useDisplaySocket timers', () => {
+  const pasta = { id: 'timer.pasta', label: 'Pasta', status: 'running', ends_at: '2026-10-28T09:46:00.000Z', remaining_seconds: null, duration_seconds: 600 }
+
+  beforeEach(() => {
+    FakeSocket.all = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('has not heard any until the server sends them', () => {
+    const { socket, scope } = open()
+
+    expect(socket.timers.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it('keeps the timers sent for its own display, and an empty list as none', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'timers.updated', display_id: 'hallway', timers: [pasta] })
+    expect(socket.timers.value).toEqual([pasta])
+
+    fake.push({ type: 'timers.updated', display_id: 'hallway', timers: [] })
+    expect(socket.timers.value).toEqual([])
+    scope.stop()
+  })
+
+  it('ignores the timers of another display', () => {
+    const { socket, scope, fake } = open()
+
+    fake.push({ type: 'timers.updated', display_id: 'kitchen', timers: [pasta] })
+
+    expect(socket.timers.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it('drops a payload that is the wrong shape, and keeps the last good list', () => {
+    const { socket, scope, fake } = open()
+    fake.push({ type: 'timers.updated', display_id: 'hallway', timers: [pasta] })
+
+    fake.push({ type: 'timers.updated', display_id: 'hallway', timers: [{ ...pasta, status: 'exploding' }] })
+    fake.push({ type: 'timers.updated', display_id: 'hallway', timers: 'soon' })
+    fake.push({ type: 'timers.updated', display_id: 'hallway' })
+
+    expect(socket.timers.value).toEqual([pasta])
+    scope.stop()
+  })
+
+  it('keeps its timers when the socket drops, as the wall counts them down itself', () => {
+    const { socket, scope, fake } = open()
+    fake.push({ type: 'timers.updated', display_id: 'hallway', timers: [pasta] })
+
+    fake.onclose?.()
+
+    expect(socket.status.value).toBe('closed')
+    expect(socket.timers.value).toEqual([pasta])
+    scope.stop()
+  })
+})

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, LayoutGrid, Plus, WifiOff } from 'lucide-vue-next'
 import type { CustomLayout, CustomLayoutInput } from '../../../shared/layouts'
+import type { PhotoFeedChoice } from '../../../shared/settings'
 import { componentsOf } from '~/utils/layoutEditor'
 import LayoutEditor from './LayoutEditor.vue'
 import LayoutPreview from './LayoutPreview.vue'
@@ -23,9 +24,11 @@ const props = withDefaults(defineProps<{
   displays?: readonly { id: string, name: string, layout: string | null }[]
   /** A photo source is set up, so the photo pane can be added to a layout. */
   photosConfigured?: boolean
+  /** The photo feeds that are set up, for a layout's "Photos from". Null where they are not known, which leaves that choice out. */
+  photoFeeds?: readonly PhotoFeedChoice[] | null
   /** The list from the socket, when there is one. */
   live?: readonly CustomLayout[] | null
-}>(), { compact: false, displays: () => [], photosConfigured: true, live: null })
+}>(), { compact: false, displays: () => [], photosConfigured: true, photoFeeds: null, live: null })
 
 const emit = defineEmits<{
   /** The list changed, after a load or a write. */
@@ -285,6 +288,7 @@ const showEditor = computed(() => selected.value !== null && (selected.value ===
           :busy="busy"
           :server-error="serverError"
           :displays="displays"
+          :photo-feeds="photoFeeds"
           @dirty="dirty = $event"
           @save="save"
           @delete="remove"

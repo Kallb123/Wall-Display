@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, Copy, Minus, Monitor, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { DAY_GRID_STARTS, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, OVERLAY_CORNERS, PANE_CORNERS, PANE_OPTIONS, paneOptions } from '../../../shared/layouts'
+import type { PhotoFeedChoice } from '../../../shared/settings'
 import type { CustomLayout, CustomLayoutInput, DayGridStart, LayoutComponent, OverlayCorner, PaneCornerKey, PaneOptionKey } from '../../../shared/layouts'
 import LayoutPreview from './LayoutPreview.vue'
-import { COMPONENT_LABELS, OVERLAY_CORNER_LABELS, PANE_CORNER_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneCornerDisabled, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, toggleComponent } from '~/utils/layoutEditor'
+import { COMPONENT_LABELS, OVERLAY_CORNER_LABELS, PANE_CORNER_LABELS, componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneCornerDisabled, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, photoFeedOptions, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, setPhotoFeed, toggleComponent } from '~/utils/layoutEditor'
 import type { MoveDirection, Orientation, PaneAt } from '~/utils/layoutEditor'
 import '~/assets/special-days-form.css'
 
@@ -26,7 +27,9 @@ const props = withDefaults(defineProps<{
   serverError?: string | null
   /** The displays the layout can be put on. */
   displays?: readonly { id: string, name: string }[]
-}>(), { busy: null, serverError: null, displays: () => [] })
+  /** The photo feeds that are set up, for the photo pane's "Photos from". Null while they are not known (or where the page cannot ask), which leaves the choice out. */
+  photoFeeds?: readonly PhotoFeedChoice[] | null
+}>(), { busy: null, serverError: null, displays: () => [], photoFeeds: null })
 
 const emit = defineEmits<{
   dirty: [dirty: boolean]
@@ -76,6 +79,13 @@ const toggleOption = (key: PaneOptionKey) => {
 const cornerKeys = computed(() => PANE_CORNERS[selected.value])
 const pickCorner = (key: PaneCornerKey, value: string) => {
   draft.value = setPaneCorner(draft.value, selected.value, key, value as OverlayCorner)
+}
+
+/** Where the photo pane gets its photos: the feeds on offer, and which is chosen. A feed is picked by its place in the list, because null (the display's choice) is not a value an option can hold. */
+const feedOptions = computed(() => photoFeedOptions(props.photoFeeds ?? [], draft.value.photo_feed))
+const feedIndex = computed(() => Math.max(0, feedOptions.value.findIndex(option => option.value === (draft.value.photo_feed ?? null))))
+const pickFeed = (index: string) => {
+  draft.value = setPhotoFeed(draft.value, feedOptions.value[Number(index)]?.value ?? null)
 }
 
 const errors = computed(() => editorErrors(draft.value))
@@ -329,6 +339,17 @@ function confirmDelete() {
           </button>
         </div>
         <div v-if="cornerKeys.length > 0" class="corners">
+          <label v-if="selected === 'photo' && photoFeeds" class="group corner" data-testid="photo-feed">
+            <span class="group-label">Photos from</span>
+            <span class="sd-select">
+              <select :value="feedIndex" class="sd-input" data-testid="option-photo_feed" @change="pickFeed(($event.target as HTMLSelectElement).value)">
+                <option v-for="(option, index) in feedOptions" :key="option.value ?? ''" :value="index">
+                  {{ option.label }}
+                </option>
+              </select>
+              <AppIcon :icon="ChevronDown" :size="22" />
+            </span>
+          </label>
           <label v-for="key in cornerKeys" :key="key" class="group corner" :data-testid="`corner-${key}`">
             <span class="group-label">{{ PANE_CORNER_LABELS[key] }}</span>
             <span class="sd-select">

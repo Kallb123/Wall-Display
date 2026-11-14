@@ -339,6 +339,7 @@ describe('useDisplaySocket layouts', () => {
     landscape: { rows: [{ size: 1, panes: [{ component: 'photo', size: 2 }, { component: 'week', size: 3 }] }] },
     portrait: { rows: [{ size: 2, panes: [{ component: 'photo', size: 1 }] }, { size: 3, panes: [{ component: 'week', size: 1 }] }] },
     options: {},
+    photo_feed: null,
     created_at: '2026-10-28T12:00:00.000Z',
     updated_at: '2026-10-28T12:00:00.000Z',
   }

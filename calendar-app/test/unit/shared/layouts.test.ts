@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, layoutShowsStars, LAYOUT_COMPONENTS, PANE_CORNERS, PANE_OPTIONS, PANE_OPTION_KEYS, customLayoutInputSchema, customLayoutSchema, layoutComponents, layoutHas, layoutIdSchema, layoutShowsCalendar,
-  layoutDayGrids, layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, paneOptions, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
+  layoutDayGrids, layoutPhotoFeed, layoutShowsMonth, layoutShowsPhotos, layoutShowsWeek, layoutSummary, paneOptions, transposeArrangement, viewShowsMonth, viewShowsPhotos, viewShowsWeek,
 } from '../../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput, LayoutArrangement, LayoutComponent, LayoutRow } from '../../../shared/layouts'
 
@@ -15,7 +15,7 @@ const photoWeek: CustomLayoutInput = {
 }
 
 function stored(input: CustomLayoutInput = photoWeek): CustomLayout {
-  return { id: 'photo-and-week', ...input, created_at: '2026-10-28T12:00:00.000Z', updated_at: '2026-10-28T12:00:00.000Z' }
+  return { id: 'photo-and-week', ...input, photo_feed: null, created_at: '2026-10-28T12:00:00.000Z', updated_at: '2026-10-28T12:00:00.000Z' }
 }
 
 /** The first problem the schema finds, as `path: message`. */
@@ -150,9 +150,39 @@ describe('layout questions', () => {
   })
 })
 
+describe('a layout\'s photo feed', () => {
+  it('is optional in what is sent and null once parsed', () => {
+    expect(customLayoutInputSchema.parse(photoWeek).photo_feed).toBeNull()
+    expect(customLayoutInputSchema.parse({ ...photoWeek, photo_feed: null }).photo_feed).toBeNull()
+    expect(customLayoutInputSchema.parse({ ...photoWeek, photo_feed: 'mountains' }).photo_feed).toBe('mountains')
+  })
+
+  it('must look like a feed id', () => {
+    expect(problem({ ...photoWeek, photo_feed: 'Not A Feed' })).toMatch(/^photo_feed: /)
+    expect(problem({ ...photoWeek, photo_feed: '' })).toMatch(/^photo_feed: /)
+  })
+
+  it('is read from a stored layout, and a stored layout without one has none', () => {
+    expect(customLayoutSchema.parse({ ...stored(), photo_feed: 'unsplash' }).photo_feed).toBe('unsplash')
+    const { photo_feed: _none, ...older } = stored()
+    expect(customLayoutSchema.parse(older).photo_feed).toBeNull()
+  })
+
+  it('is on the summary', () => {
+    expect(layoutSummary({ ...stored(), photo_feed: 'unsplash' }).photo_feed).toBe('unsplash')
+  })
+
+  it('is kept only by a layout with a photo pane', () => {
+    expect(layoutPhotoFeed({ ...photoWeek, photo_feed: 'unsplash' })).toBe('unsplash')
+    expect(layoutPhotoFeed(photoWeek)).toBeNull()
+    const noPhoto = { ...photoWeek, landscape: { rows: [row(1, ['week', 1])] }, portrait: { rows: [row(1, ['week', 1])] }, photo_feed: 'unsplash' }
+    expect(layoutPhotoFeed(noPhoto)).toBeNull()
+  })
+})
+
 describe('layoutSummary', () => {
   it('keeps the id and name and the components of both arrangements', () => {
-    expect(layoutSummary(stored())).toEqual({ id: 'photo-and-week', name: 'Photo and week', components: ['week', 'photo'] })
+    expect(layoutSummary(stored())).toEqual({ id: 'photo-and-week', name: 'Photo and week', components: ['week', 'photo'], photo_feed: null })
   })
 })
 

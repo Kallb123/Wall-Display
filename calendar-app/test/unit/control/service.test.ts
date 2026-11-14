@@ -614,8 +614,8 @@ describe('updateDisplay', () => {
 })
 
 describe('custom layouts', () => {
-  const kitchen: LayoutSummary = { id: 'kitchen', name: 'Kitchen', components: ['week', 'agenda'] }
-  const board: LayoutSummary = { id: 'board', name: 'Board', components: ['month', 'photo'] }
+  const kitchen: LayoutSummary = { id: 'kitchen', name: 'Kitchen', components: ['week', 'agenda'], photo_feed: null }
+  const board: LayoutSummary = { id: 'board', name: 'Board', components: ['month', 'photo'], photo_feed: null }
 
   function withLayouts(layouts: LayoutSummary[]) {
     const { handle, bus, stateUpdates, log } = setup()
@@ -666,6 +666,40 @@ describe('custom layouts', () => {
     expect(control.getState('kitchen')).toMatchObject({ view: 'custom', layout: 'board' })
     expect(stateUpdates).toHaveBeenCalledTimes(1)
     expect(stateUpdates.mock.calls[0]![0]).toMatchObject({ displayId: 'hallway', state: { view: 'month' } })
+  })
+
+  it('moves the photo on when the layout on the wall is edited to another photo feed, and not otherwise', () => {
+    const { handle, bus, stateUpdates } = setup()
+    const moved = vi.fn()
+    bus.on('photo.next', moved)
+    const control = createDisplayControl({ db: handle.db, displays: DISPLAYS, timeZone: 'Europe/London', bus, layouts: [board], refresh: () => Promise.resolve([]) })
+    controls.push(control)
+    control.applyCommand('hallway', { type: 'set_layout', layout: 'board' })
+    stateUpdates.mockClear()
+    moved.mockClear()
+
+    control.setLayouts([{ ...board, name: 'Renamed' }])
+    expect(moved).not.toHaveBeenCalled()
+
+    control.setLayouts([{ ...board, photo_feed: 'mountains' }])
+    expect(moved).toHaveBeenCalledExactlyOnceWith({ displayId: 'hallway' })
+  })
+
+  it('moves the photo on when a schedule window with a feed starts on a photo view', () => {
+    const { handle, bus } = setup()
+    const moved = vi.fn()
+    bus.on('photo.next', moved)
+    const control = createDisplayControl({ db: handle.db, displays: DISPLAYS, timeZone: 'Europe/London', bus, refresh: () => Promise.resolve([]) })
+    controls.push(control)
+    control.applyCommand('hallway', { type: 'set_view', view: 'photo' })
+    moved.mockClear()
+
+    control.applyCommand('hallway', { type: 'schedule_start', schedule: 'daytime-photos', rule: 0, view: 'photo', photo_feed: 'mountains' })
+    expect(moved).toHaveBeenCalledExactlyOnceWith({ displayId: 'hallway' })
+
+    moved.mockClear()
+    control.applyCommand('hallway', { type: 'schedule_end', schedule: 'daytime-photos', rule: 0 })
+    expect(moved).toHaveBeenCalledExactlyOnceWith({ displayId: 'hallway' })
   })
 
   it('announces nothing when the layouts change but no display is affected', () => {

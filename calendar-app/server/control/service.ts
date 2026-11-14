@@ -5,6 +5,7 @@ import type { Db } from '../db/client'
 import type { EventBus } from '../events/bus'
 import { defaultDisplayState, expireState, nextExpiry, reduceCommand } from './commands'
 import type { ControlCommand, ControlContext } from './commands'
+import { photoFeedChanged } from './photoFeed'
 import { loadDisplayState, saveDisplayState } from './store'
 
 // Holds each display's state: applies commands, stores the result, tells the
@@ -117,6 +118,8 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
     saveDisplayState(db, displayId, next)
     states.set(displayId, next)
     bus.emit('state.updated', { displayId, state: next })
+    // The wall stays on a photo view but now wants other photos (a schedule window with a feed began or ended): move on now, not when the interval ends. The rotation restarts its timer on this.
+    if (before && photoFeedChanged(before, layouts, next, layouts)) bus.emit('photo.next', { displayId })
     schedule(displayId)
   }
 
@@ -200,7 +203,13 @@ export function createDisplayControl(options: DisplayControlOptions): DisplayCon
       schedule(displayId)
     },
     setLayouts(next) {
+      const previous = layouts
       layouts = next
+      // A layout on the wall that was edited to another photo feed: its photo is of the old feed, so move on.
+      for (const { id } of options.displays) {
+        const state = states.get(id)
+        if (state && photoFeedChanged(state, previous, state, next)) bus.emit('photo.next', { displayId: id })
+      }
       for (const { id } of options.displays) {
         try {
           settle(id)

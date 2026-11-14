@@ -47,20 +47,7 @@ export const PHOTO_SOURCE_NAMES: Record<PhotoSource, string> = {
   unsplash: 'Unsplash',
 }
 
-/** The longest photo feed id. */
-export const MAX_PHOTO_FEED_ID = 40
-
-/**
- * A reference to a photo feed: a source's own (`immich`, `local`, `unsplash`)
- * or the id of one of the config's `photos.feeds`. Lower case letters, digits,
- * `-` and `_`, starting with a letter or digit. Whether it names a feed that is
- * set up is checked against the config, not here.
- */
-export const photoFeedIdSchema = z.string()
-  .trim()
-  .min(1, 'must not be empty')
-  .max(MAX_PHOTO_FEED_ID, `must be at most ${MAX_PHOTO_FEED_ID} characters`)
-  .regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lower case letters, digits, - and _ (like "mountains")')
+export { MAX_PHOTO_FEED_ID, photoFeedIdSchema } from './display'
 
 /** Where a rendered photo (a `<sha256>.webp` name) is served from. */
 export function photoUrl(name: string): string {

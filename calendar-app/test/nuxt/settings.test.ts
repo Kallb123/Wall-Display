@@ -120,6 +120,7 @@ async function server(url: string, options: Options = {}) {
     if (url === '/api/settings/displays') return structuredClone(displays)
     if (url === '/api/settings/connections') return structuredClone(status)
     if (url === '/api/settings/photos') return structuredClone(photos)
+    if (url === '/api/photo-pools') return { configured: true, unsplash_available: false, immich_available: true, feeds: structuredClone(photos.configured ? photos.feeds : []), pools: [] }
     if (url === '/api/special-days' || url === '/api/special-day-scenes') return []
     if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' }]
     throw refusal(404, `Not found: ${url}`)

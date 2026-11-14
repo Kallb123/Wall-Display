@@ -288,6 +288,19 @@ describe('the photo feed', () => {
     ])
   })
 
+  it('labels a pool as such, after the config feeds, in the order given', () => {
+    const feeds = [
+      { id: 'immich', name: 'Immich', source: 'immich' as const },
+      { id: 'cats', name: 'Cats', source: null, pool: true },
+    ]
+
+    expect(photoFeedOptions(feeds, 'cats')).toEqual([
+      { value: null, label: 'Default' },
+      { value: 'immich', label: 'Immich' },
+      { value: 'cats', label: 'Cats (pool)' },
+    ])
+  })
+
   it('keeps a saved feed that is not in the list on offer, as not set up', () => {
     expect(photoFeedOptions([], 'gone').at(-1)).toEqual({ value: 'gone', label: 'gone (not set up)' })
     expect(photoFeedOptions([], null)).toHaveLength(1)

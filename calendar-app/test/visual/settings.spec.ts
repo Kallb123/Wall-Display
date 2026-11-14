@@ -172,12 +172,34 @@ const preferences: PreferencesStatus = {
 }
 
 /** Plays the settings API, with the clock frozen before the page loads. */
+/** One pool, mixing a search that can't run (no Unsplash block) with a local feed that is working. */
+const photoPools = {
+  configured: true,
+  unsplash_available: false,
+  immich_available: true,
+  feeds: photos.configured ? photos.feeds : [],
+  pools: [{
+    id: 'mountains',
+    name: 'Mountains and the family',
+    sources: [{ kind: 'unsplash_search', query: 'mountain lake', orientation: 'landscape' }, { kind: 'immich_album', album_id: '0b6a1c2e-9d4f-4c1a-8e55-2f7a3b9d0c11' }, { kind: 'feed', feed: 'local' }],
+    created_at: '2026-10-01T10:00:00.000Z',
+    updated_at: '2026-10-01T10:00:00.000Z',
+    status: [
+      { photos: 0, cached: 0, last_success_at: null, last_error: null, problem: 'the config has no photos.unsplash block' },
+      { photos: 214, cached: 60, last_success_at: minutesAgo(7), last_error: null, problem: null },
+      { photos: 0, cached: 36, last_success_at: minutesAgo(190), last_error: 'The photo folder is not there', problem: null },
+    ],
+    used_by: ['Kitchen'],
+  }],
+}
+
 async function playSettings(page: Page, status: ConnectionsStatus = connections, pinRequired = false, photosStatus: PhotosSettingsStatus = photos) {
   await page.clock.setFixedTime(NOW)
   await page.route('**/api/settings/calendars', route => route.fulfill({ json: calendars }))
   await page.route('**/api/settings/displays', route => route.fulfill({ json: displays }))
   await page.route('**/api/settings/connections', route => route.fulfill({ json: status }))
   await page.route('**/api/settings/photos', route => route.fulfill({ json: photosStatus }))
+  await page.route('**/api/photo-pools', route => route.fulfill({ json: photoPools }))
   await page.route('**/api/settings/preferences', route => route.fulfill({ json: preferences }))
   await page.route('**/api/remote', route => route.fulfill({ json: { pin_required: pinRequired } }))
 }

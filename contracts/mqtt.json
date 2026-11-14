@@ -266,14 +266,16 @@
           "enum": [
             "immich",
             "google",
-            "local"
+            "local",
+            "unsplash"
           ]
         }
       },
       "examples": [
         "immich",
         "google",
-        "local"
+        "local",
+        "unsplash"
       ],
       "invalid_examples": [
         "Immich",
@@ -292,7 +294,8 @@
           "enum": [
             "immich",
             "google",
-            "local"
+            "local",
+            "unsplash"
           ]
         }
       },

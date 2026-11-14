@@ -12,9 +12,6 @@ import { STAR_PERIODS } from '../../shared/stars'
 export const SOURCE_TYPES = ['ics', 'homeassistant'] as const
 export type SourceType = (typeof SOURCE_TYPES)[number]
 
-export const PHOTO_PROVIDERS = ['immich', 'google', 'local'] as const
-export type PhotoProvider = (typeof PHOTO_PROVIDERS)[number]
-
 export const PHOTO_ORIENTATIONS = ['landscape', 'portrait'] as const
 export type PhotoOrientation = (typeof PHOTO_ORIENTATIONS)[number]
 
@@ -109,14 +106,17 @@ export const displayState = sqliteTable('display_state', {
 
 /** Photos known to the photo frame, and whether they are in the local cache. */
 export const photoAssets = sqliteTable('photo_assets', {
-  /** `<provider>:<provider_asset_id>`. */
+  /** `<feed>:<provider_asset_id>`. */
   id: text('id').primaryKey(),
-  provider: text('provider', { enum: PHOTO_PROVIDERS }).notNull(),
+  /** The photo feed it is in: a source's own (`immich`, `local`, `unsplash`) or one of `photos.feeds`. */
+  provider: text('provider').notNull(),
   providerAssetId: text('provider_asset_id').notNull(),
   width: integer('width').notNull(),
   height: integer('height').notNull(),
   orientation: text('orientation', { enum: PHOTO_ORIENTATIONS }).notNull(),
   takenAt: timestamp('taken_at'),
+  /** Who to credit for it on the frame ("Photo by … on Unsplash"), when its source asks for that. */
+  credit: text('credit'),
   /** When this photo was last on any display, in any rendition. */
   lastShownAt: timestamp('last_shown_at'),
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
@@ -152,7 +152,8 @@ export const photoRenditions = sqliteTable('photo_renditions', {
  */
 export const photoPlaylists = sqliteTable('photo_playlists', {
   displayId: text('display_id').notNull(),
-  provider: text('provider', { enum: PHOTO_PROVIDERS }).notNull(),
+  /** The photo feed, as in `photo_assets.provider`. */
+  provider: text('provider').notNull(),
   /** Asset ids (`photo_assets.id`), as a JSON array. */
   order: text('order', { mode: 'json' }).$type<string[]>().notNull().default([]),
   position: integer('position').notNull().default(0),
@@ -266,6 +267,8 @@ export const customLayouts = sqliteTable('custom_layouts', {
   landscape: text('landscape').notNull(),
   portrait: text('portrait').notNull(),
   options: text('options').notNull().default('{}'),
+  /** The photo feed the layout's photo pane shows, or null for the display's own choice. */
+  photoFeed: text('photo_feed'),
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
   updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
 }, table => [

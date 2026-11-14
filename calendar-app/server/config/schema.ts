@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { isSingleEmoji } from '../../shared/emoji'
 import { CAMERA_KINDS, commandSchema, layoutIdSchema, MOTIONS, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, TAKEOVER_ART_PLACES, VIEWS } from '../../shared/display'
 import type { CameraKind } from '../../shared/display'
+import { photoFeedIdSchema } from '../../shared/photos'
+import { isSourceName, photoFeedIdsOf, resolveImmich } from '../photos/feeds'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -173,6 +175,8 @@ const scheduleRule = z.strictObject({
   view: z.enum(VIEWS, { error: `must be one of ${VIEWS.join(', ')}` }),
   /** The id of the custom layout (PR 5.17) when `view` is custom. The layouts live in the database, so whether it exists is checked when the window starts. */
   layout: layoutIdSchema.optional(),
+  /** The photo feed shown while the window is in charge (a source such as unsplash, or a `photos.feeds` id). Left out, the display's own. */
+  photo_feed: photoFeedIdSchema.optional(),
   from: time,
   to: time,
   days: days.default([...WEEKDAYS]),
@@ -507,6 +511,19 @@ const immichRandom = z.strictObject({
   path: ['taken_after'],
 })
 
+// The same filters for a feed, none of them required: what is left out is the block's.
+function immichRandomFeed() {
+  return z.strictObject({
+    count: z.number().int().min(1).max(1000).optional(),
+    person_ids: z.array(uuid).optional(),
+    taken_after: isoDate('start').optional(),
+    taken_before: isoDate('end').optional(),
+  }).refine(value => value.taken_after === undefined || value.taken_before === undefined || value.taken_after < value.taken_before, {
+    message: 'taken_after must be earlier than taken_before',
+    path: ['taken_after'],
+  })
+}
+
 const immich = z.strictObject({
   url: httpUrl.check((ctx) => {
     if (!isHttpUrl(ctx.value)) return
@@ -524,6 +541,83 @@ const immich = z.strictObject({
     ctx.addIssue({ code: 'custom', message: 'mode "albums" needs at least one album id in album_ids', path: ['album_ids'] })
   }
 }).transform(value => ({ ...value, mode: value.mode ?? (value.album_ids.length > 0 ? 'albums' as const : 'random' as const) }))
+
+// Unsplash. The access key goes in the `Authorization: Client-ID` header of
+// requests to api.unsplash.com and nowhere else. The pool is one of three
+// things (a search `query`, some `collections`, or some `topics`), and at most
+// one may be given: left out altogether, it is a search for "landscape". An
+// id is quoted text, but a number is accepted for a collection, as in
+// `collections: [317099]`, and turned into text. The ids end up in a request
+// path, so they are limited to the characters a collection id or a topic slug has.
+const unsplashId = z.union([z.string(), z.number().int().nonnegative()])
+  .transform(String)
+  .pipe(z.string().trim().regex(/^[A-Za-z0-9_-]{1,64}$/, 'must be a collection id like "317099" or a topic slug like "nature"'))
+
+// Everything about the pool that a feed may also say. All of it is optional
+// here: the top-level block gives the defaults, and a feed's own settings are laid
+// over the block's (see `resolveUnsplash`).
+const unsplashPool = {
+  query: text.optional(),
+  collections: z.array(unsplashId).min(1, 'must list at least one collection id').optional(),
+  topics: z.array(unsplashId).min(1, 'must list at least one topic').optional(),
+  orientation: z.enum(['landscape', 'portrait', 'squarish']).optional(),
+  content_filter: z.enum(['low', 'high']).optional(),
+  count: z.number().int().min(1).max(300).optional(),
+  // `random` brings new photos at every refresh; `fixed` pages through the same
+  // search, collections or topics, which gives the same photos until they
+  // change on Unsplash (see server/photos/unsplash.ts).
+  pick: z.enum(['random', 'fixed']).optional(),
+  // How often the pool is listed again. The photo service wakes every 10
+  // minutes, so a refresh is never sooner than that: less than 10 would mean
+  // nothing, and is refused. At most a week.
+  refresh_minutes: z.number().int().min(10).max(10080).optional(),
+}
+
+type UnsplashChoice = { query?: string | undefined, collections?: string[] | undefined, topics?: string[] | undefined }
+
+/** At most one of `query`, `collections` and `topics`. */
+function oneUnsplashChoice(value: UnsplashChoice, ctx: z.RefinementCtx): void {
+  const named = (['query', 'collections', 'topics'] as const).filter(key => value[key] !== undefined)
+  if (named.length > 1) ctx.addIssue({ code: 'custom', message: `${named.join(' and ')} can't be used together: choose one of query, collections or topics`, path: [named[1]!] })
+}
+
+const unsplash = z.strictObject({
+  access_key: text,
+  ...unsplashPool,
+  content_filter: unsplashPool.content_filter.default('high'),
+  // The pool is listed in pages (or random picks) of 30, and a demo key may make 50 requests an hour.
+  count: unsplashPool.count.default(60),
+  pick: unsplashPool.pick.default('random'),
+  refresh_minutes: unsplashPool.refresh_minutes.default(60),
+}).superRefine(oneUnsplashChoice).transform(value => (
+  value.query === undefined && value.collections === undefined && value.topics === undefined ? { ...value, query: 'landscape' } : value
+))
+
+const unsplashFeed = z.strictObject(unsplashPool).superRefine(oneUnsplashChoice)
+
+// A feed that uses Immich: the address and key come from `photos.immich`, and
+// what is set here is laid over its `mode`, `album_ids` and `random`.
+const immichFeed = z.strictObject({
+  mode: z.enum(['albums', 'random', 'memories']).optional(),
+  album_ids: z.array(text).optional(),
+  random: immichRandomFeed().optional(),
+})
+
+// `photos.feeds`: named pools of photos, each from one source. A layout or a
+// schedule rule shows one by its id. A feed's id may not be the name of a
+// source (`immich`, `google`, `local`, `unsplash`), because the sources set up
+// at the top level are feeds under those names already.
+const photoFeed = (baseDir: string) => z.strictObject({
+  id: photoFeedIdSchema,
+  /** What the pickers and the settings page call it. Left out, the id. */
+  name: text.optional(),
+  unsplash: unsplashFeed.optional(),
+  immich: immichFeed.optional(),
+  local: z.strictObject({ path: text.transform(value => folderPath(value, baseDir)) }).optional(),
+}).superRefine((feed, ctx) => {
+  const given = (['unsplash', 'immich', 'local'] as const).filter(source => feed[source] !== undefined)
+  if (given.length !== 1) ctx.addIssue({ code: 'custom', message: 'needs exactly one of unsplash, immich or local to say where its photos come from', path: [given[1] ?? 'id'] })
+})
 
 // `local.path` is a folder: absolute, or relative to the config file's folder
 // like a `file:` URL for an ICS source. A folder that doesn't exist is not a
@@ -543,6 +637,24 @@ const photos = (baseDir: string) => z.strictObject({
   local: z.strictObject({
     path: text.transform(value => folderPath(value, baseDir)),
   }).optional(),
+  unsplash: unsplash.optional(),
+  feeds: z.array(photoFeed(baseDir)).default([]),
+}).superRefine((value, ctx) => {
+  const seen = new Set<string>()
+  value.feeds.forEach((feed, index) => {
+    const at = (field: string, message: string): void => ctx.addIssue({ code: 'custom', message, path: ['feeds', index, field] })
+    if (isSourceName(feed.id)) at('id', `"${feed.id}" is the name of a photo source, so a feed can't have it as its id`)
+    else if (seen.has(feed.id)) at('id', `duplicate id "${feed.id}" (feed ids must be unique)`)
+    seen.add(feed.id)
+    // The key, address and credentials are kept once, in the source's own block.
+    if (feed.unsplash && !value.unsplash) at('unsplash', 'needs the photos.unsplash block for the access key (put access_key there)')
+    if (feed.immich) {
+      if (!value.immich) at('immich', 'needs the photos.immich block for the address and API key (put url and api_key there)')
+      else if (resolveImmich(value.immich, feed.immich).mode === 'albums' && resolveImmich(value.immich, feed.immich).album_ids.length === 0) {
+        at('immich', 'mode "albums" needs at least one album id in album_ids')
+      }
+    }
+  })
 })
 
 // `file:` URLs for ICS sources. `file:///abs/path.ics` is a normal URL. Anything
@@ -622,9 +734,9 @@ type RawConfig = {
   people: { id: string, name: string, aliases: string[] }[]
   groups: { id: string, name: string, aliases: string[], people: string[] }[]
   calendars: { id: string, person: string, rules: { people: string[] }[], source: { type: string } }[]
-  displays: { id: string, night_text: string, schedules: { id: string, rules: { view: string, layout?: string | undefined }[] }[] }[]
+  displays: { id: string, night_text: string, schedules: { id: string, rules: { view: string, layout?: string | undefined, photo_feed?: string | undefined }[] }[] }[]
   homeassistant?: unknown
-  photos?: unknown
+  photos?: { immich?: unknown, local?: unknown, unsplash?: unknown, feeds: { id: string }[] } | undefined
   weather?: unknown
   alarm?: unknown
   cameras: { id: string }[]
@@ -744,6 +856,15 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
           const why = rule.view === 'photo' ? 'the photo frame would have nothing to show' : "the week and photo view's photo pane would have nothing to show"
           issue(['displays', index, 'schedules', scheduleIndex, 'rules', ruleIndex, 'view'], `is ${rule.view}, but there is no "photos" block (${why})`)
         }
+        // A window can only show a feed that is set up (a source's own block, or an entry of photos.feeds).
+        if (rule.photo_feed !== undefined) {
+          const feeds = config.photos ? photoFeedIdsOf(config.photos) : []
+          if (!feeds.includes(rule.photo_feed)) {
+            ruleIssue('photo_feed', feeds.length > 0
+              ? `unknown photo feed "${rule.photo_feed}" (must be one of ${feeds.join(', ')})`
+              : `unknown photo feed "${rule.photo_feed}" (there is no "photos" block with a source or feeds)`)
+          }
+        }
       })
     })
   })
@@ -767,6 +888,8 @@ export type WeatherConfig = NonNullable<AppConfig['weather']>
 export type AlarmConfig = NonNullable<AppConfig['alarm']>
 export type PhotosConfig = NonNullable<AppConfig['photos']>
 export type ImmichConfig = NonNullable<PhotosConfig['immich']>
+export type UnsplashConfig = NonNullable<PhotosConfig['unsplash']>
+export type PhotoFeedConfig = PhotosConfig['feeds'][number]
 export type HomeAssistantConfig = NonNullable<AppConfig['homeassistant']>
 export type CameraConfig = AppConfig['cameras'][number]
 export type TriggerConfig = AppConfig['triggers'][number]

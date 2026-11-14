@@ -13,10 +13,26 @@ export interface PhotoListing {
   width?: number
   height?: number
   takenAt?: Date | null
+  /** Who to credit when the photo is shown ("Photo by Jane Doe on Unsplash"). Undefined leaves what is stored; null clears it. */
+  credit?: string | null
 }
 
 export interface PhotoProvider {
-  readonly id: PhotoSource
+  /**
+   * The feed this provider is: the source's own name (`immich`) for a top-level
+   * source, or the id of a `photos.feeds` entry. Asset ids and playlists go by it.
+   */
+  readonly id: string
+  /** The kind of source it is, for the order of fallback and for what a photo says about itself. */
+  readonly source: PhotoSource
+  /** The feed's name for the settings page. The service falls back to the source's own name. */
+  readonly name?: string
+  /**
+   * How long the service leaves between two listings of this provider, when it
+   * wants them further apart than the service's own tick (Unsplash's rate limit
+   * is small). Unset: listed at every tick.
+   */
+  readonly refreshIntervalMs?: number
   /** The current pool. Throws a `PhotoProviderError` if it can't be reached. */
   list: () => Promise<PhotoListing[]>
   /** The image bytes to render. Throws a `PhotoProviderError` if they can't be had. */
@@ -29,7 +45,7 @@ export interface PhotoProvider {
  * (an API key may be in one), never a token.
  */
 export class PhotoProviderError extends Error {
-  constructor(readonly provider: PhotoSource, message: string) {
+  constructor(readonly provider: string, message: string) {
     super(message)
     this.name = 'PhotoProviderError'
   }

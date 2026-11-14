@@ -65,6 +65,7 @@ export const PHOTO_SOURCE_CHOICES: { source: PhotoSource, label: string }[] = [
   { source: 'immich', label: 'Immich' },
   { source: 'google', label: 'Google' },
   { source: 'local', label: 'Folder' },
+  { source: 'unsplash', label: 'Unsplash' },
 ]
 
 /**

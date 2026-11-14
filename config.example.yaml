@@ -166,7 +166,10 @@ displays:
     # in `timezone`, which must differ) and days. days is every_day (default),
     # weekdays, weekends or a list such as [mon, wed, fri]. from later than to
     # wraps past midnight, and days is then the day the window starts. A rule
-    # that needs the photo frame (view: photo) needs the photos block below.
+    # that needs the photo frame (view: photo) needs the photos block below, and
+    # may add photo_feed to show one feed of it while the window is in charge (a
+    # source such as unsplash, or the id of an entry of photos.feeds); without
+    # one the display's own photo source is shown.
     # view: custom shows one of the custom layouts built on the settings page
     # (Layouts tab) and needs the layout's id, which that page shows.
     # The rules act only at their start and end: at the end the wall goes back to
@@ -181,7 +184,7 @@ displays:
       - id: daytime-photos
         name: Daytime photos
         rules:
-          - { view: photo, from: "10:00", to: "16:00", days: weekdays }
+          - { view: photo, from: "10:00", to: "16:00", days: weekdays, photo_feed: mountains } # photo_feed: one of the photos.feeds below, or a source such as unsplash
       # A custom layout, by its id. A layout that does not exist (or has been
       # deleted) is skipped when the window starts, with a warning in the log.
       # - id: evenings
@@ -318,3 +321,42 @@ photos:
     # holding this file. In Docker, mount it, e.g. ./photos:/photos:ro. A folder
     # that is not there is a warning in the log, not an error.
     path: /photos
+  unsplash: # photos from Unsplash (unsplash.com). Each photo is shown with "Photo by <name> on Unsplash"
+    # Create an application at unsplash.com/oauth/applications and use its Access Key
+    # (not the Secret Key). It is sent as `Authorization: Client-ID <key>` to
+    # api.unsplash.com and to nothing else. A demo application may make 50 requests
+    # an hour. Listing costs one request per 30 photos: with `pick: random` and
+    # count 60, refreshed every 60 minutes, that is 2 requests an hour for each
+    # feed. On top of that Unsplash asks to be told when a photo is shown (one
+    # request per new photo); those are skipped while fewer than 10 requests are
+    # left in the hour, so the listings keep their budget.
+    access_key: !secret unsplash_access_key
+    # What makes the pool: one of query (a search), collections (ids, from a
+    # collection's address on unsplash.com) or topics (slugs, like "nature"). Left
+    # out, it is a search for "landscape".
+    query: landscape
+    # collections: ["317099"]
+    # topics: ["nature"]
+    # orientation: landscape # landscape, portrait or squarish; left out, any
+    # random: each refresh asks Unsplash for new random photos (of the query,
+    # collections or topics), so the pool changes every time; the photos shown
+    # lately stay in it. fixed: each refresh reads the same search, collections or
+    # topics page by page, which gives the same photos until they change on Unsplash.
+    pick: random
+    content_filter: high # low or high; only a search (query) takes it, collections and topics ignore it
+    count: 60 # how many photos make the pool (1 to 300), in pages of 30; collections and topics each give their share, dealt out in turn
+    refresh_minutes: 60 # how often the pool is listed again, 10 to 10080 (a week). The photo service wakes every 10 minutes, so less than 10 would mean nothing
+  # Named pools of photos, each from one source. A layout (Layouts tab) or a
+  # schedule rule (photo_feed) shows one by its id. An unsplash feed uses the
+  # access key above and an immich feed the address and key of the immich block
+  # (what a feed leaves out is what that block says); a local feed has a folder
+  # of its own. Give each exactly one of unsplash, immich or local. An id is
+  # lower case letters, digits, - and _, and is not the name of a source.
+  feeds:
+    - id: mountains
+      name: Mountains # shown on the settings page and in the layout editor; default: the id
+      unsplash: { query: "mountain lake", orientation: landscape }
+    # - id: holidays
+    #   immich: { mode: albums, album_ids: ["0b6a1c52-7a3e-4a47-9c1d-1d8d4a8f1a01"] }
+    # - id: garden
+    #   local: { path: ./photos/garden }

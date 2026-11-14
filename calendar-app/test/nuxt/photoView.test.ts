@@ -477,6 +477,58 @@ describe('answers that are late, empty or wrong', () => {
   })
 })
 
+describe('the photo\'s credit', () => {
+  const credit = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.find('[data-testid="photo-credit"]')
+  const credited = (name: string, text: string) => photo(name, { credit: text })
+
+  it('is shown as a quiet line once the photo is on show, and not at all for a photo with none', async () => {
+    answers = [gives(credited('a', 'Jane Doe on Unsplash')), gives(photo('b', { credit: null }))]
+    const view = await open()
+
+    expect(credit(view).text()).toBe('Jane Doe on Unsplash')
+    expect(credit(view).classes()).not.toContain('compact')
+
+    await view.update({ photoNext: 1 })
+    await fade()
+    expect(credit(view).exists()).toBe(false)
+  })
+
+  it('changes with the photo', async () => {
+    answers = [gives(credited('a', 'Jane Doe on Unsplash')), gives(credited('b', 'Sam Roe on Unsplash'))]
+    const view = await open()
+
+    await view.update({ photoNext: 1 })
+    await fade()
+
+    expect(credit(view).text()).toBe('Sam Roe on Unsplash')
+  })
+
+  it('is left out for a photo with no credit field at all, so such a frame is drawn as ever', async () => {
+    answers = [gives(A)]
+    const view = await open()
+
+    expect(credit(view).exists()).toBe(false)
+  })
+
+  it('is left out with nothing on show, and while the overlay banner is showing', async () => {
+    answers = [gives(null)]
+    expect(credit(await open()).exists()).toBe(false)
+
+    answers = [gives(credited('a', 'Jane Doe on Unsplash'))]
+    const view = await open({ overlayShowing: true })
+    expect(credit(view).exists()).toBe(false)
+    await view.update({ overlayShowing: false })
+    expect(credit(view).exists()).toBe(true)
+  })
+
+  it('is smaller in a pane of a custom layout', async () => {
+    answers = [gives(credited('a', 'Jane Doe on Unsplash'))]
+    const view = await open({ pane: true })
+
+    expect(credit(view).classes()).toContain('compact')
+  })
+})
+
 describe('with nothing to show', () => {
   it('says so calmly and still has the pill', async () => {
     answers = [gives(null)]

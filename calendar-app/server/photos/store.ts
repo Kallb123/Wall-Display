@@ -1,5 +1,4 @@
 import { and, eq } from 'drizzle-orm'
-import type { PhotoSource } from '../../shared/display'
 import type { PhotoRendition } from '../../shared/photos'
 import type { Db } from '../db/client'
 import { photoAssets, photoPlaylists, photoRenditions } from '../db/schema'
@@ -13,7 +12,7 @@ import type { PhotoListing } from './types'
 // the service can use them without anything else happening in between.
 
 /** The id of a photo in `photo_assets`. */
-export function assetId(provider: PhotoSource, providerAssetId: string): string {
+export function assetId(provider: string, providerAssetId: string): string {
   return `${provider}:${providerAssetId}`
 }
 
@@ -34,7 +33,7 @@ const orientationOf = (width: number, height: number): PhotoOrientation => heigh
  * added, changed ones updated, and photos no longer listed removed. A listing that doesn't know a photo's size leaves what is stored; a new photo
  * has size 0 until it is first rendered.
  */
-export function syncListing(db: Db, provider: PhotoSource, listing: readonly PhotoListing[], now: Date): SyncResult {
+export function syncListing(db: Db, provider: string, listing: readonly PhotoListing[], now: Date): SyncResult {
   return db.transaction((tx) => {
     const stored = new Map(tx.select().from(photoAssets).where(eq(photoAssets.provider, provider)).all().map(row => [row.id, row]))
     const listed = new Set<string>()
@@ -55,6 +54,7 @@ export function syncListing(db: Db, provider: PhotoSource, listing: readonly Pho
           height: sized ? item.height! : 0,
           orientation: sized ? orientationOf(item.width!, item.height!) : 'landscape',
           takenAt: item.takenAt ?? null,
+          credit: item.credit ?? null,
           createdAt: now,
         })
         continue
@@ -64,6 +64,7 @@ export function syncListing(db: Db, provider: PhotoSource, listing: readonly Pho
         Object.assign(changes, { width: item.width, height: item.height, orientation: orientationOf(item.width!, item.height!) })
       }
       if (item.takenAt !== undefined && (item.takenAt?.getTime() ?? null) !== (row.takenAt?.getTime() ?? null)) changes.takenAt = item.takenAt
+      if (item.credit !== undefined && item.credit !== row.credit) changes.credit = item.credit
       if (Object.keys(changes).length > 0) tx.update(photoAssets).set(changes).where(eq(photoAssets.id, id)).run()
     }
     for (let i = 0; i < inserts.length; i += BATCH) tx.insert(photoAssets).values(inserts.slice(i, i + BATCH)).run()
@@ -83,7 +84,7 @@ export function syncListing(db: Db, provider: PhotoSource, listing: readonly Pho
 }
 
 /** Every photo in a provider's stored pool. */
-export function listPool(db: Db, provider: PhotoSource): PhotoAssetRow[] {
+export function listPool(db: Db, provider: string): PhotoAssetRow[] {
   return db.select().from(photoAssets).where(eq(photoAssets.provider, provider)).all()
 }
 
@@ -136,14 +137,14 @@ export function markShown(db: Db, id: string, rendition: PhotoRendition, now: Da
   db.update(photoRenditions).set({ lastShownAt: now }).where(and(eq(photoRenditions.assetId, id), eq(photoRenditions.rendition, rendition))).run()
 }
 
-export function loadPlaylist(db: Db, displayId: string, provider: PhotoSource): Playlist {
+export function loadPlaylist(db: Db, displayId: string, provider: string): Playlist {
   const row = db.select().from(photoPlaylists).where(and(eq(photoPlaylists.displayId, displayId), eq(photoPlaylists.provider, provider))).get()
   if (!row || !Array.isArray(row.order)) return { order: [], position: 0 }
   const order = row.order.filter((id): id is string => typeof id === 'string')
   return { order, position: Math.max(0, Math.min(row.position, order.length)) }
 }
 
-export function savePlaylist(db: Db, displayId: string, provider: PhotoSource, playlist: Playlist, now: Date): void {
+export function savePlaylist(db: Db, displayId: string, provider: string, playlist: Playlist, now: Date): void {
   db.insert(photoPlaylists)
     .values({ displayId, provider, order: playlist.order, position: playlist.position, updatedAt: now })
     .onConflictDoUpdate({ target: [photoPlaylists.displayId, photoPlaylists.provider], set: { order: playlist.order, position: playlist.position, updatedAt: now } })

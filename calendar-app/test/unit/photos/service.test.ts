@@ -72,8 +72,28 @@ describe('next', () => {
       orientation: 'landscape',
       taken_at: null,
       provider: 'local',
+      credit: null,
     })
     expect(photo!.url).toMatch(/^\/photos\/[0-9a-f]{64}\.webp$/)
+  })
+
+  it('keeps a feed of the same source apart by its id, and reports the source on the photo', async () => {
+    const db = migratedMemoryDb().db
+    const dir = join(await tempDir(), 'photos')
+    const mountains = fakeProvider('mountains', ['m1', 'm2'], { source: 'unsplash', name: 'Mountains' })
+    const lakes = fakeProvider('lakes', ['l1'], { source: 'unsplash' })
+    const service = createPhotoService({
+      db, dir, providers: [mountains.provider, lakes.provider], maxBytes: 1_000_000, matchOrientation: false, render: fakeRender(), random: seeded(7), log: quietLog(),
+    })
+    await service.refresh()
+
+    const photo = await service.next('hallway', ['lakes'])
+    expect(photo).toMatchObject({ id: 'lakes:l1', provider: 'unsplash' })
+    // A reference that names nothing set up falls through to the next, then to the first source's provider.
+    expect((await service.next('hallway', ['nothing', 'mountains']))!.id).toMatch(/^mountains:m/)
+    expect((await service.next('hallway', 'nothing'))!.id).toMatch(/^mountains:m/)
+    expect(service.configured()).toEqual(['unsplash'])
+    expect(service.status().providers.map(({ id, name }) => [id, name])).toEqual([['mountains', 'Mountains'], ['lakes', 'Unsplash']])
   })
 
   it('shows every photo once before any repeats, and then starts again', async () => {
@@ -750,6 +770,64 @@ describe('refreshing', () => {
     service.stop()
   })
 
+  describe('a provider with an interval of its own', () => {
+    const HOUR = 60 * 60 * 1000
+    const slow = (fake: FakeProvider) => { (fake.provider as { refreshIntervalMs?: number }).refreshIntervalMs = HOUR }
+
+    it('is listed at start, then skipped by the ticks until its interval has passed', async () => {
+      vi.useFakeTimers()
+      const { service, providers } = await setup({ local: ['a'], unsplash: ['x'] })
+      slow(providers.unsplash!)
+
+      service.start()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(providers.unsplash!.listCalls).toBe(1)
+
+      // Five ticks at 10 minutes: the other provider keeps going, this one waits.
+      await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS * 5)
+      expect(providers.local!.listCalls).toBe(6)
+      expect(providers.unsplash!.listCalls).toBe(1)
+
+      // The sixth tick is exactly an hour on: due.
+      await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS)
+      expect(providers.unsplash!.listCalls).toBe(2)
+      service.stop()
+    })
+
+    it('is tried again at the next tick after a failure, not after its whole interval', async () => {
+      vi.useFakeTimers()
+      const { service, providers } = await setup({ unsplash: ['x'] })
+      slow(providers.unsplash!)
+      providers.unsplash!.listFails = true
+
+      service.start()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(providers.unsplash!.listCalls).toBe(1)
+      await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS)
+      expect(providers.unsplash!.listCalls).toBe(2)
+
+      providers.unsplash!.listFails = false
+      await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS)
+      expect(providers.unsplash!.listCalls).toBe(3)
+      await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS)
+      expect(providers.unsplash!.listCalls).toBe(3)
+      service.stop()
+    })
+
+    it('is listed again by a forced refresh, and by nothing else in between', async () => {
+      vi.useFakeTimers()
+      const { service, providers } = await setup({ unsplash: ['x'] })
+      slow(providers.unsplash!)
+
+      await service.refresh()
+      await service.refresh()
+      expect(providers.unsplash!.listCalls).toBe(1)
+
+      await service.refresh({ force: true })
+      expect(providers.unsplash!.listCalls).toBe(2)
+    })
+  })
+
   it('shares one listing between callers that ask at once', async () => {
     const { service, providers } = await setup({ local: ['a'] })
 
@@ -791,14 +869,14 @@ describe('refreshing', () => {
 
   it('reports each provider\'s state', async () => {
     const context = await setup({ local: ['a', 'b'] }, { now: () => new Date('2026-10-28T12:00:00Z') })
-    expect(context.service.status()).toEqual({ providers: [{ id: 'local', photos: 0, cached: 0, last_success_at: null, last_error: null }], cache_bytes: 0 })
+    expect(context.service.status()).toEqual({ providers: [{ id: 'local', source: 'local', name: 'Local folder', photos: 0, cached: 0, last_success_at: null, last_error: null }], cache_bytes: 0 })
 
     await context.service.refresh()
     await context.service.next('hallway', 'local')
     await context.service.idle()
 
     expect(context.service.status()).toEqual({
-      providers: [{ id: 'local', photos: 2, cached: 2, last_success_at: '2026-10-28T12:00:00.000Z', last_error: null }],
+      providers: [{ id: 'local', source: 'local', name: 'Local folder', photos: 2, cached: 2, last_success_at: '2026-10-28T12:00:00.000Z', last_error: null }],
       cache_bytes: 200,
     })
   })

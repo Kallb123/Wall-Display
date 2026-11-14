@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ImmichConfig } from '../config/schema'
 import { discard, errorCode } from '../sources/http'
+import { readBytes } from './http'
 import { PhotoProviderError } from './types'
 import type { PhotoListing, PhotoProvider } from './types'
 
@@ -12,6 +13,10 @@ import type { PhotoListing, PhotoProvider } from './types'
 // caught, because those can quote the address and Node's can carry the whole URL.
 
 export interface ImmichProviderOptions {
+  /** The feed id this provider is. Default: `immich`, the source's own. */
+  id?: string
+  /** The feed's name for the settings page. */
+  name?: string
   /** For tests. Default: the global `fetch`. */
   fetch?: typeof fetch
   /** For each request, the body included. Default 30 000. */
@@ -114,6 +119,7 @@ function unique(items: readonly PhotoListing[]): PhotoListing[] {
 }
 
 export function createImmichProvider(settings: Settings, options: ImmichProviderOptions = {}): PhotoProvider {
+  const feedId = options.id ?? 'immich'
   const fetchFn = options.fetch ?? fetch
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const now = options.now ?? (() => new Date())
@@ -125,7 +131,7 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
     try {
       url = new URL(settings.url)
     } catch {
-      throw new PhotoProviderError('immich', 'The Immich address is not valid')
+      throw new PhotoProviderError(feedId, 'The Immich address is not valid')
     }
     url.pathname = `${url.pathname.replace(/\/+$/, '')}/api${path}`
     url.search = search
@@ -157,7 +163,7 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
       throw refused(response.status, notFound)
     }
     try {
-      return { bytes: await readBytes(response, maxBytes), type: response.headers.get('content-type') ?? '' }
+      return { bytes: await readBytes(response, maxBytes, feedId, 'Immich'), type: response.headers.get('content-type') ?? '' }
     } catch (error) {
       if (error instanceof PhotoProviderError) throw error
       throw unreachable(error)
@@ -167,20 +173,20 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
   function unreachable(error: unknown): PhotoProviderError {
     const name = error instanceof Error ? error.name : ''
     if (name === 'TimeoutError' || name === 'AbortError') {
-      return new PhotoProviderError('immich', `Immich could not be reached (no answer within ${+(timeoutMs / 1000).toFixed(2)} s)`)
+      return new PhotoProviderError(feedId, `Immich could not be reached (no answer within ${+(timeoutMs / 1000).toFixed(2)} s)`)
     }
     const code = errorCode(error)
-    return new PhotoProviderError('immich', code ? `Immich could not be reached (${code})` : 'Immich could not be reached')
+    return new PhotoProviderError(feedId, code ? `Immich could not be reached (${code})` : 'Immich could not be reached')
   }
 
   function refused(status: number, notFound?: string): PhotoProviderError {
-    if (status === 401 || status === 403) return new PhotoProviderError('immich', `Immich refused the API key (HTTP ${status})`)
-    if (status >= 300 && status < 400) return new PhotoProviderError('immich', `Immich sent the request somewhere else (HTTP ${status}); use the address it redirects to in photos.immich.url`)
-    if (status === 400) return new PhotoProviderError('immich', 'Immich did not accept the request (HTTP 400); check photos.immich')
-    if (status === 404 && notFound) return new PhotoProviderError('immich', `${notFound} (HTTP 404)`)
-    if (status === 404) return new PhotoProviderError('immich', 'Immich has nothing at that address (HTTP 404); check photos.immich.url')
-    if (status >= 500) return new PhotoProviderError('immich', `Immich could not be reached: it answered with an error (HTTP ${status})`)
-    return new PhotoProviderError('immich', `Immich answered with an unexpected status (HTTP ${status})`)
+    if (status === 401 || status === 403) return new PhotoProviderError(feedId, `Immich refused the API key (HTTP ${status})`)
+    if (status >= 300 && status < 400) return new PhotoProviderError(feedId, `Immich sent the request somewhere else (HTTP ${status}); use the address it redirects to in photos.immich.url`)
+    if (status === 400) return new PhotoProviderError(feedId, 'Immich did not accept the request (HTTP 400); check photos.immich')
+    if (status === 404 && notFound) return new PhotoProviderError(feedId, `${notFound} (HTTP 404)`)
+    if (status === 404) return new PhotoProviderError(feedId, 'Immich has nothing at that address (HTTP 404); check photos.immich.url')
+    if (status >= 500) return new PhotoProviderError(feedId, `Immich could not be reached: it answered with an error (HTTP ${status})`)
+    return new PhotoProviderError(feedId, `Immich answered with an unexpected status (HTTP ${status})`)
   }
 
   async function json<Schema extends z.ZodType>(path: string, schema: Schema, request: { search?: string, body?: unknown } = {}): Promise<z.output<Schema>> {
@@ -189,10 +195,10 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
     try {
       parsed = JSON.parse(bytes.toString('utf8'))
     } catch {
-      throw new PhotoProviderError('immich', 'Immich did not answer with JSON; check photos.immich.url')
+      throw new PhotoProviderError(feedId, 'Immich did not answer with JSON; check photos.immich.url')
     }
     const result = schema.safeParse(parsed)
-    if (!result.success) throw new PhotoProviderError('immich', 'Immich answered in a form that was not understood')
+    if (!result.success) throw new PhotoProviderError(feedId, 'Immich answered in a form that was not understood')
     return result.data
   }
 
@@ -211,7 +217,7 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
       const next = answer.assets.nextPage == null ? null : Number(answer.assets.nextPage)
       if (next === null) return found
       // A page that doesn't move on would ask for ever.
-      if (!Number.isInteger(next) || next <= page) throw new PhotoProviderError('immich', 'Immich answered in a form that was not understood')
+      if (!Number.isInteger(next) || next <= page) throw new PhotoProviderError(feedId, 'Immich answered in a form that was not understood')
       page = next
     }
     log.warn(`[photos] immich: stopped reading an album after ${MAX_PAGES} pages`)
@@ -275,7 +281,9 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
   }
 
   return {
-    id: 'immich',
+    id: feedId,
+    source: 'immich',
+    ...(options.name === undefined ? {} : { name: options.name }),
 
     async list() {
       const listing = await pool()
@@ -286,7 +294,7 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
 
     async fetch(providerAssetId) {
       // Checked before it goes into the address, so no id can add a path or a query.
-      if (!UUID.test(providerAssetId)) throw new PhotoProviderError('immich', 'That is not a photo in Immich')
+      if (!UUID.test(providerAssetId)) throw new PhotoProviderError(feedId, 'That is not a photo in Immich')
       let image: { bytes: Buffer, type: string }
       try {
         image = await send(`/assets/${providerAssetId.toLowerCase()}/thumbnail`, '?size=preview', undefined, 'image/*', MAX_IMAGE_BYTES, GONE)
@@ -296,7 +304,7 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
         throw error
       }
       if (!image.type.toLowerCase().startsWith('image/') || image.bytes.length === 0) {
-        throw new PhotoProviderError('immich', 'Immich did not send an image')
+        throw new PhotoProviderError(feedId, 'Immich did not send an image')
       }
       const listing = known.get(providerAssetId)
       if (listing && (settings.mode === 'random' || noMemories)) {
@@ -309,31 +317,5 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
       }
       return image.bytes
     },
-  }
-}
-
-/** The body of a response, stopping as soon as it passes the limit. */
-async function readBytes(response: Response, maxBytes: number): Promise<Buffer> {
-  const tooLarge = () => new PhotoProviderError('immich', `Immich sent more than ${Math.round(maxBytes / (1024 * 1024))} MB in one answer`)
-  const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await discard(response)
-    throw tooLarge()
-  }
-  if (!response.body) return Buffer.from(await response.arrayBuffer())
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let received = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      received += value.byteLength
-      if (received > maxBytes) throw tooLarge()
-      chunks.push(value)
-    }
-    return Buffer.concat(chunks)
-  } finally {
-    await reader.cancel().catch(() => undefined)
   }
 }

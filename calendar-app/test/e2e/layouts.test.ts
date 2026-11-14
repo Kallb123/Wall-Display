@@ -99,10 +99,32 @@ describe('custom layouts', async () => {
       id: 'kitchen',
       ...kitchen,
       options: {},
+      photo_feed: null,
       created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     })
     expect(await $fetch('/api/layouts')).toEqual([created])
+  })
+
+  it('keeps a photo feed that is set up, and refuses one that is not with the ones that are', async () => {
+    // The dev config sets up a local folder, whose feed is called `local`.
+    const withFeed = await create({ ...kitchen, name: 'Feeds', photo_feed: 'local' })
+    expect(withFeed.photo_feed).toBe('local')
+    expect((await update(withFeed.id, { ...kitchen, name: 'Feeds', photo_feed: null })).photo_feed).toBeNull()
+
+    await expect(create({ ...kitchen, name: 'Nope', photo_feed: 'mountains' })).rejects.toMatchObject(reason(400, 'use local'))
+    await expect(update(withFeed.id, { ...kitchen, name: 'Feeds', photo_feed: 'mountains' })).rejects.toMatchObject(reason(400, 'photo_feed "mountains"'))
+    await expect(create({ ...kitchen, name: 'Nope', photo_feed: 'Not A Feed' })).rejects.toMatchObject(reason(400, 'photo_feed'))
+
+    const copy = await send<CustomLayout>('POST', `/api/layouts/${withFeed.id}/duplicate`)
+    expect(copy.photo_feed).toBeNull()
+    expect((await send<CustomLayout>('PUT', `/api/layouts/${withFeed.id}`, { ...kitchen, name: 'Feeds', photo_feed: 'local' })).photo_feed).toBe('local')
+    expect((await send<CustomLayout>('POST', `/api/layouts/${withFeed.id}/duplicate`)).photo_feed).toBe('local')
+
+    // Leave the library as the tests after this one expect it.
+    for (const layout of await $fetch<CustomLayout[]>('/api/layouts')) {
+      if (layout.id !== 'kitchen') await send('DELETE', `/api/layouts/${layout.id}`)
+    }
   })
 
   it('round-trips pane options, and a body with none means none', async () => {

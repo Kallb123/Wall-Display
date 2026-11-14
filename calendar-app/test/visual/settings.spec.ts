@@ -113,8 +113,12 @@ const photos: PhotosSettingsStatus = {
   cache_max_bytes: 2048 * MB,
   google_ignored: false,
   providers: [
-    { id: 'immich', mode: 'albums', where: 'immich.local:2283', photos: 1240, cached: 312, last_success_at: minutesAgo(7), last_error: null },
-    { id: 'local', mode: null, where: '/photos', photos: 0, cached: 36, last_success_at: minutesAgo(190), last_error: 'The photo folder is not there' },
+    { id: 'immich', source: 'immich', name: 'Immich', mode: 'albums', where: 'immich.local:2283', photos: 1240, cached: 312, last_success_at: minutesAgo(7), last_error: null },
+    { id: 'local', source: 'local', name: 'Local folder', mode: null, where: '/photos', photos: 0, cached: 36, last_success_at: minutesAgo(190), last_error: 'The photo folder is not there' },
+  ],
+  feeds: [
+    { id: 'immich', name: 'Immich', source: 'immich' },
+    { id: 'local', name: 'Local folder', source: 'local' },
   ],
 }
 

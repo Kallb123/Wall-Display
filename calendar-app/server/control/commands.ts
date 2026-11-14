@@ -9,7 +9,7 @@ import type { LayoutSummary } from '../../shared/layouts'
  * nor MQTT can send them. `rule` is the rule's index in the schedule's `rules`.
  */
 export type ScheduleCommand =
-  | { type: 'schedule_start', schedule: string, rule: number, view: View, layout?: string }
+  | { type: 'schedule_start', schedule: string, rule: number, view: View, layout?: string, photo_feed?: string }
   | { type: 'schedule_end', schedule: string, rule: number }
 
 /** Every command the control service applies: the public ones, and the schedule policy's. */
@@ -157,19 +157,23 @@ function releaseSchedule(state: DisplayState): DisplayState {
  * (someone chose it) and nothing is remembered. When another window is still in
  * charge, the new one takes over its return view and layout, so overlapping or
  * back-to-back windows end on what was up before the first. A custom rule whose
- * layout is not in the library starts nothing.
+ * layout is not in the library starts nothing. A rule that names a photo feed is
+ * the exception to "left alone": the wall may already be on the view, but the
+ * feed is the point of the rule, so the window still opens (its return view is
+ * the one already up, so ending it changes nothing but the feed).
  */
 function startSchedule(state: DisplayState, command: Extract<ScheduleCommand, { type: 'schedule_start' }>, ctx: ControlContext): DisplayState {
   if (state.schedules_off.includes(command.schedule)) return state
   const layout = command.view === 'custom' ? (command.layout ?? null) : null
   if (command.view === 'custom' && !ctx.layouts.some(known => known.id === layout)) return state
   const held = state.schedule !== null && holdsWall(state, state.schedule) ? state.schedule : null
-  if (held === null && state.view === command.view && (layout === null || state.layout === layout)) return state
+  const photoFeed = command.photo_feed ?? null
+  if (held === null && photoFeed === null && state.view === command.view && (layout === null || state.layout === layout)) return state
   return {
     ...state,
     view: command.view,
     layout: layout ?? state.layout,
-    schedule: { schedule: command.schedule, rule: command.rule, view: command.view, return_view: held?.return_view ?? state.view, layout, return_layout: held ? held.return_layout : state.layout },
+    schedule: { schedule: command.schedule, rule: command.rule, view: command.view, return_view: held?.return_view ?? state.view, layout, return_layout: held ? held.return_layout : state.layout, photo_feed: photoFeed },
   }
 }
 

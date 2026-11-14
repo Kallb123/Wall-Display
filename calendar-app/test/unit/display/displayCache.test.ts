@@ -54,6 +54,7 @@ const layout: CustomLayout = {
   landscape: { rows: [{ size: 1, panes: [{ component: 'week', size: 2 }, { component: 'agenda', size: 1 }] }] },
   portrait: { rows: [{ size: 1, panes: [{ component: 'week', size: 2 }] }, { size: 1, panes: [{ component: 'agenda', size: 1 }] }] },
   options: { week: { show_hours: false } },
+  photo_feed: null,
   created_at: '2026-10-01T09:00:00.000Z',
   updated_at: '2026-10-01T09:00:00.000Z',
 }

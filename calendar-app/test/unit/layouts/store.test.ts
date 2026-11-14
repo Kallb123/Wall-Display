@@ -6,7 +6,8 @@ import { createLayoutsService } from '../../../server/layouts/service'
 import { schedulesUsingLayout } from '../../../server/layouts/checks'
 import { createLayout, deleteLayout, duplicateLayout, getLayout, listLayouts, updateLayout } from '../../../server/layouts/store'
 import { migratedMemoryDb } from '../db/helpers'
-import type { AppConfig } from '../../../server/config/schema'
+import type { AppConfig, PhotosConfig } from '../../../server/config/schema'
+import { configuredFeedIds, photoFeedRefusal } from '../../../server/layouts/feeds'
 
 // The layout store against a migrated in-memory database, the service that
 // keeps the list and the check that ties layouts to schedules.
@@ -51,7 +52,7 @@ describe('createLayout and getLayout', () => {
     const { db } = migratedMemoryDb()
     const created = createLayout(db, input(), NOW)
 
-    expect(created).toEqual({ id: 'kitchen', ...input(), created_at: NOW.toISOString(), updated_at: NOW.toISOString() })
+    expect(created).toEqual({ id: 'kitchen', ...input(), photo_feed: null, created_at: NOW.toISOString(), updated_at: NOW.toISOString() })
     expect(getLayout(db, 'kitchen')).toEqual(created)
     expect(getLayout(db, 'nothing')).toBeUndefined()
   })
@@ -112,7 +113,7 @@ describe('updateLayout', () => {
 
     const updated = updateLayout(db, 'kitchen', edited, LATER)
 
-    expect(updated).toEqual({ id: 'kitchen', ...edited, created_at: NOW.toISOString(), updated_at: LATER.toISOString() })
+    expect(updated).toEqual({ id: 'kitchen', ...edited, photo_feed: null, created_at: NOW.toISOString(), updated_at: LATER.toISOString() })
     expect(getLayout(db, 'kitchen')).toEqual(updated)
   })
 
@@ -147,7 +148,7 @@ describe('duplicateLayout', () => {
 
     const copy = duplicateLayout(db, 'kitchen', LATER)!
 
-    expect(copy).toEqual({ id: 'copy-of-kitchen', ...input({ name: 'Copy of Kitchen' }), created_at: LATER.toISOString(), updated_at: LATER.toISOString() })
+    expect(copy).toEqual({ id: 'copy-of-kitchen', ...input({ name: 'Copy of Kitchen' }), photo_feed: null, created_at: LATER.toISOString(), updated_at: LATER.toISOString() })
     expect(listLayouts(db)).toHaveLength(2)
   })
 
@@ -183,7 +184,7 @@ describe('deleteLayout', () => {
 })
 
 describe('createLayoutsService', () => {
-  const layout = (id: string): CustomLayout => ({ id, ...input({ name: id }), created_at: NOW.toISOString(), updated_at: NOW.toISOString() })
+  const layout = (id: string): CustomLayout => ({ id, ...input({ name: id }), photo_feed: null, created_at: NOW.toISOString(), updated_at: NOW.toISOString() })
 
   it('starts with the stored layouts, silently', () => {
     const onChange = vi.fn()
@@ -193,7 +194,7 @@ describe('createLayoutsService', () => {
     service.start()
 
     expect(service.get()).toEqual([layout('a')])
-    expect(service.summaries()).toEqual([{ id: 'a', name: 'a', components: ['week', 'photo'] }])
+    expect(service.summaries()).toEqual([{ id: 'a', name: 'a', components: ['week', 'photo'], photo_feed: null }])
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -234,6 +235,57 @@ describe('createLayoutsService', () => {
     stored = [layout('a')]
     expect(() => service.changed()).not.toThrow()
     expect(error).toHaveBeenCalledWith(expect.stringContaining('boom'))
+  })
+})
+
+describe('a layout\'s photo feed', () => {
+  it('stores it, changes it and copies it', () => {
+    const { db } = migratedMemoryDb()
+    expect(createLayout(db, input({ photo_feed: 'mountains' }), NOW).photo_feed).toBe('mountains')
+    expect(getLayout(db, 'kitchen')!.photo_feed).toBe('mountains')
+
+    expect(updateLayout(db, 'kitchen', input({ photo_feed: 'unsplash' }), LATER)!.photo_feed).toBe('unsplash')
+    expect(duplicateLayout(db, 'kitchen', LATER)!.photo_feed).toBe('unsplash')
+    expect(updateLayout(db, 'kitchen', input({ photo_feed: null }), LATER)!.photo_feed).toBeNull()
+  })
+
+  it('is null when none is sent, as from a client from before photo feeds', () => {
+    const { db } = migratedMemoryDb()
+    expect(createLayout(db, input(), NOW).photo_feed).toBeNull()
+  })
+
+  it('is kept as null by a layout without a photo pane, whatever was sent', () => {
+    const { db } = migratedMemoryDb()
+    const noPhoto = {
+      landscape: { rows: [{ size: 1, panes: [{ component: 'week' as const, size: 1 }] }] },
+      portrait: { rows: [{ size: 1, panes: [{ component: 'week' as const, size: 1 }] }] },
+    }
+    expect(createLayout(db, input({ ...noPhoto, photo_feed: 'mountains' }), NOW).photo_feed).toBeNull()
+  })
+})
+
+describe('configuredFeedIds and photoFeedRefusal', () => {
+  const photos = { immich: { url: 'http://immich' }, unsplash: { access_key: 'k' }, feeds: [{ id: 'mountains' }, { id: 'garden' }] } as unknown as PhotosConfig
+
+  it('lists the sources set up, then the feeds in config order', () => {
+    expect(configuredFeedIds(photos)).toEqual(['immich', 'unsplash', 'mountains', 'garden'])
+  })
+
+  it('is empty with no photos block, and copes with a config that has no feeds', () => {
+    expect(configuredFeedIds(undefined)).toEqual([])
+    expect(configuredFeedIds({ local: { path: '/p' }, feeds: [] } as unknown as PhotosConfig)).toEqual(['local'])
+  })
+
+  it('accepts a feed that is set up, and null or nothing', () => {
+    expect(photoFeedRefusal('mountains', photos)).toBeNull()
+    expect(photoFeedRefusal('immich', photos)).toBeNull()
+    expect(photoFeedRefusal(null, photos)).toBeNull()
+    expect(photoFeedRefusal(undefined, undefined)).toBeNull()
+  })
+
+  it('refuses any other, listing the ones there are', () => {
+    expect(photoFeedRefusal('local', photos)).toContain('use immich, unsplash, mountains, garden')
+    expect(photoFeedRefusal('local', undefined)).toContain('there is no photos block')
   })
 })
 

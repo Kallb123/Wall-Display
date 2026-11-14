@@ -1,9 +1,11 @@
 import { getDisplayControl } from '../control/state'
 import { createImmichProvider } from '../photos/immich'
+import { photoFeedsOf } from '../photos/feeds'
 import { createLocalProvider } from '../photos/local'
 import { startPhotoRotation } from '../photos/rotation'
 import { createPhotoService } from '../photos/service'
 import { getPhotoRotation, getPhotos, setPhotoRotation, setPhotos } from '../photos/state'
+import { createUnsplashProvider } from '../photos/unsplash'
 import type { PhotoProvider } from '../photos/types'
 
 // Runs after the special days plugin (the 07 prefix). With a `photos` block in
@@ -13,6 +15,10 @@ import type { PhotoProvider } from '../photos/types'
 // is on the photo view, a timer tells it to move on every `interval_seconds`.
 // The interval follows the settings page: a saved change restarts the running
 // timers with the new one. Without the block it does nothing and the photo frame has nothing to show.
+/** What an Unsplash feed asks for, for the log: never the key. */
+const unsplashSummary = (settings: { query?: string | undefined, collections?: string[] | undefined, topics?: string[] | undefined }): string =>
+  settings.collections ? `collections ${settings.collections.join(', ')}` : settings.topics ? `topics ${settings.topics.join(', ')}` : `search "${settings.query}"`
+
 export default defineNitroPlugin((nitroApp) => {
   // A hot reload runs this again in the same process, so stop the old service first.
   getPhotos()?.stop()
@@ -27,12 +33,20 @@ export default defineNitroPlugin((nitroApp) => {
     return
   }
 
+  // One provider for each feed: the sources set up at the top level, and then
+  // each of `photos.feeds`, which share their source's key or address.
   const providers: PhotoProvider[] = []
-  if (photos.immich) {
-    providers.push(createImmichProvider(photos.immich))
-    console.info(`[photos] immich: mode ${photos.immich.mode}`)
+  for (const feed of photoFeedsOf(photos)) {
+    if (feed.source === 'immich') {
+      providers.push(createImmichProvider(feed.settings, { id: feed.id, name: feed.name }))
+      console.info(`[photos] ${feed.id}: immich, mode ${feed.settings.mode}`)
+    } else if (feed.source === 'unsplash') {
+      providers.push(createUnsplashProvider(feed.settings, { id: feed.id, name: feed.name }))
+      console.info(`[photos] ${feed.id}: unsplash, ${unsplashSummary(feed.settings)}, ${feed.settings.count} photos, ${feed.settings.pick} pick, listed every ${feed.settings.refresh_minutes} min`)
+    } else {
+      providers.push(createLocalProvider({ id: feed.id, name: feed.name, path: feed.settings.path }))
+    }
   }
-  if (photos.local) providers.push(createLocalProvider({ path: photos.local.path }))
   // Not built yet: PR 4.4 was skipped.
   if (photos.google) console.warn('[photos] google is set up in the config, but is not supported yet and is ignored')
   if (providers.length === 0) console.warn('[photos] no photo source is available, so the photo frame has nothing to show')

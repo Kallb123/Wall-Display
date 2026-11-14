@@ -196,11 +196,13 @@ describe('photosStatus', () => {
     cache_max_mb: 512,
     immich: { url: `http://immich.local:2283/reverse/proxy?token=${API_KEY}`, api_key: API_KEY, mode: 'albums' as const, album_ids: ['a'], random: { count: 200, person_ids: [] } },
     local: { path: '/photos' },
+    unsplash: undefined,
+    feeds: [],
   }
   const running = {
     providers: [
-      { id: 'immich' as const, photos: 120, cached: 40, last_success_at: '2026-10-28T11:55:00.000Z', last_error: null },
-      { id: 'local' as const, photos: 0, cached: 0, last_success_at: null, last_error: 'The folder does not exist' },
+      { id: 'immich', source: 'immich' as const, name: 'Immich', photos: 120, cached: 40, last_success_at: '2026-10-28T11:55:00.000Z', last_error: null },
+      { id: 'local', source: 'local' as const, name: 'Local folder', photos: 0, cached: 0, last_success_at: null, last_error: 'The folder does not exist' },
     ],
     cache_bytes: 300 * 1024 * 1024,
   }
@@ -226,10 +228,55 @@ describe('photosStatus', () => {
       cache_max_bytes: 512 * 1024 * 1024,
       google_ignored: false,
       providers: [
-        { id: 'immich', mode: 'albums', where: 'immich.local:2283', photos: 120, cached: 40, last_success_at: '2026-10-28T11:55:00.000Z', last_error: null },
-        { id: 'local', mode: null, where: '/photos', photos: 0, cached: 0, last_success_at: null, last_error: 'The folder does not exist' },
+        { id: 'immich', source: 'immich', name: 'Immich', mode: 'albums', where: 'immich.local:2283', photos: 120, cached: 40, last_success_at: '2026-10-28T11:55:00.000Z', last_error: null },
+        { id: 'local', source: 'local', name: 'Local folder', mode: null, where: '/photos', photos: 0, cached: 0, last_success_at: null, last_error: 'The folder does not exist' },
+      ],
+      feeds: [
+        { id: 'immich', name: 'Immich', source: 'immich' },
+        { id: 'local', name: 'Local folder', source: 'local' },
       ],
     })
+  })
+
+  it('lists Unsplash and the feeds, each with its own name, source and what it asks for, and never a key', () => {
+    const unsplash = { access_key: 'unsplash-SECRET-key', query: 'landscape', content_filter: 'high' as const, count: 60, pick: 'random' as const, refresh_minutes: 60 }
+    const feeds = [
+      { id: 'mountains', name: 'Mountains', unsplash: { query: 'mountain lake' } },
+      { id: 'garden', local: { path: '/photos/garden' } },
+      { id: 'holidays', immich: { album_ids: ['b'] } },
+      { id: 'art', unsplash: { collections: ['317099', '1234'] } },
+      { id: 'wild', unsplash: { topics: ['nature'], pick: 'fixed' as const } },
+    ]
+    const status = photosStatus({
+      config: { ...config, unsplash, feeds },
+      status: { providers: [{ id: 'mountains', source: 'unsplash' as const, name: 'Mountains', photos: 60, cached: 3, last_success_at: '2026-10-28T11:00:00.000Z', last_error: null }], cache_bytes: 0 },
+    })
+
+    expect(JSON.stringify(status)).not.toContain('unsplash-SECRET-key')
+    expect(status).toMatchObject({
+      feeds: [
+        { id: 'immich', name: 'Immich', source: 'immich' },
+        { id: 'local', name: 'Local folder', source: 'local' },
+        { id: 'unsplash', name: 'Unsplash', source: 'unsplash' },
+        { id: 'mountains', name: 'Mountains', source: 'unsplash' },
+        { id: 'garden', name: 'garden', source: 'local' },
+        { id: 'holidays', name: 'holidays', source: 'immich' },
+        { id: 'art', name: 'art', source: 'unsplash' },
+        { id: 'wild', name: 'wild', source: 'unsplash' },
+      ],
+    })
+    const providers = (status as { providers: { id: string, mode: string | null, where: string | null, photos: number }[] }).providers
+    expect(providers.map(({ id, mode, where }) => [id, mode, where])).toEqual([
+      ['immich', 'albums', 'immich.local:2283'],
+      ['local', null, '/photos'],
+      ['unsplash', null, 'random: landscape'],
+      ['mountains', null, 'random: mountain lake'],
+      ['garden', null, '/photos/garden'],
+      ['holidays', 'albums', 'immich.local:2283'],
+      ['art', null, 'random: collections 317099, 1234'],
+      ['wild', null, 'fixed: topics nature'],
+    ])
+    expect(providers.find(provider => provider.id === 'mountains')!.photos).toBe(60)
   })
 
   it('names Immich by its host and port alone: no scheme, path, query, credentials or API key', () => {

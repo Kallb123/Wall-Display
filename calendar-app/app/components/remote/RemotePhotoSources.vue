@@ -88,10 +88,11 @@ async function nextPhoto() {
   padding: 14px;
 }
 
-/* One pill cut into three, the picked source filled in the accent like an active tile. */
+/* One pill cut into a segment per source, the picked one filled in the accent like an active tile. One column each, however many sources there are, so a fourth never wraps onto a row of its own. */
 .segments {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 4px;
   padding: 4px;
   border-radius: 999px;
@@ -103,10 +104,11 @@ async function nextPhoto() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  min-width: 0;
   min-height: 52px;
-  padding: 4px 8px;
+  padding: 4px 4px;
   border-radius: 999px;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1.15;
   transition: background 0.2s ease, color 0.2s ease;

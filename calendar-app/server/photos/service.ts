@@ -1,6 +1,6 @@
 import type { PhotoSource } from '../../shared/display'
 import { PHOTO_SOURCES } from '../../shared/display'
-import { coversBox, photoUrl } from '../../shared/photos'
+import { coversBox, PHOTO_SOURCE_NAMES, photoUrl } from '../../shared/photos'
 import type { PhotoBox, PhotoInfo, PhotoRendition, StageRendition } from '../../shared/photos'
 import type { Db } from '../db/client'
 import type { PhotoAssetRow } from '../db/schema'
@@ -54,7 +54,11 @@ export interface PhotoServiceOptions {
 
 /** How a provider is doing, for the settings page. Neither message holds a URL or a key. */
 export interface PhotoProviderStatus {
-  id: PhotoSource
+  /** The feed id. */
+  id: string
+  source: PhotoSource
+  /** The feed's name, or the source's own name when it has none. */
+  name: string
   /** Photos in the pool, as last listed. */
   photos: number
   /** How many of them are in the cache now, in at least one rendition. */
@@ -70,17 +74,22 @@ export interface PhotoService {
   stop: () => void
   /** The providers that are set up. */
   configured: () => PhotoSource[]
-  /** Lists every provider now. Never rejects. If a listing is under way it waits for that one. */
-  refresh: () => Promise<void>
+  /**
+   * Lists the providers that are due now. Never rejects. If a listing is under
+   * way it waits for that one. With `force` every provider is listed, whatever
+   * its own interval says (the settings page's button).
+   */
+  refresh: (options?: { force?: boolean }) => Promise<void>
   /**
    * Moves the display on to its next photo and answers it, or null if there is
-   * nothing to show. The provider is `preferred` if it is set up, otherwise the
-   * first that is. The image is rendered for the `rendition` of stage the display
+   * nothing to show. The feed is the first of `preferred` (most specific first:
+   * a schedule window's, the layout's, the display's own) that is set up,
+   * otherwise the first source that is. The image is rendered for the `rendition` of stage the display
    * has (landscape unless it says otherwise), or, if `box` (the size of what it
    * is drawn in) is given and the photo is close to its shape, as the plain
    * photo to be cropped to the box. Never rejects.
    */
-  next: (displayId: string, preferred: PhotoSource, rendition?: StageRendition, box?: PhotoBox) => Promise<PhotoInfo | null>
+  next: (displayId: string, preferred: string | readonly string[], rendition?: StageRendition, box?: PhotoBox) => Promise<PhotoInfo | null>
   status: () => { providers: PhotoProviderStatus[], cache_bytes: number }
   /** Resolves when the background preparation of next photos has finished. For tests. */
   idle: () => Promise<void>
@@ -160,10 +169,14 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     },
   })
 
-  /** The provider a display on `preferred` gets. */
-  function choose(preferred: PhotoSource): PhotoProvider | undefined {
-    return providers.find(provider => provider.id === preferred)
-      ?? PHOTO_SOURCES.map(id => providers.find(provider => provider.id === id)).find(Boolean)
+  /** The provider a display gets: the first of `preferred` that is set up, otherwise the first provider of the first source that is. */
+  function choose(preferred: string | readonly string[]): PhotoProvider | undefined {
+    const wanted: readonly string[] = typeof preferred === 'string' ? [preferred] : preferred
+    for (const id of wanted) {
+      const found = providers.find(provider => provider.id === id)
+      if (found) return found
+    }
+    return PHOTO_SOURCES.map(source => providers.find(provider => provider.source === source)).find(Boolean)
   }
 
   /**
@@ -222,8 +235,15 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   // -------------------------------------------------------------------------
   // Listing
 
-  async function refreshProvider(provider: PhotoProvider): Promise<void> {
+  /**
+   * Lists one provider, unless its last successful listing is newer than the
+   * interval it asks for (a rate-limited source such as Unsplash is not listed at
+   * every tick). Nothing is skipped on the first listing, which has no success
+   * yet, nor after a failure, which is retried at the next tick.
+   */
+  async function refreshProvider(provider: PhotoProvider, force: boolean): Promise<void> {
     const state = states.get(provider.id)!
+    if (!force && provider.refreshIntervalMs !== undefined && state.lastSuccessAt && now().getTime() - state.lastSuccessAt.getTime() < provider.refreshIntervalMs) return
     try {
       const listing = await provider.list()
       if (stopped) return
@@ -259,10 +279,10 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     }
   }
 
-  function refresh(): Promise<void> {
+  function refresh({ force = false }: { force?: boolean } = {}): Promise<void> {
     if (stopped) return Promise.resolve()
     if (refreshing) return refreshing
-    const current = Promise.all(providers.map(refreshProvider)).then(tidy).finally(() => {
+    const current = Promise.all(providers.map(provider => refreshProvider(provider, force))).then(tidy).finally(() => {
       if (refreshing === current) refreshing = undefined
       if (started && !stopped) {
         clearTimeout(timer)
@@ -347,7 +367,8 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       height: row.height,
       orientation: row.orientation,
       taken_at: row.takenAt?.toISOString() ?? null,
-      provider: provider.id,
+      provider: provider.source,
+      credit: row.credit ?? null,
     }
   }
 
@@ -368,7 +389,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     background.add(job)
   }
 
-  async function pick(displayId: string, preferred: PhotoSource, rendition: StageRendition, box: PhotoBox | undefined): Promise<PhotoInfo | null> {
+  async function pick(displayId: string, preferred: string | readonly string[], rendition: StageRendition, box: PhotoBox | undefined): Promise<PhotoInfo | null> {
     const provider = choose(preferred)
     if (!provider) return null
 
@@ -446,7 +467,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       timer = undefined
     },
 
-    configured: () => providers.map(provider => provider.id),
+    configured: () => [...new Set(providers.map(provider => provider.source))],
 
     refresh,
 
@@ -466,6 +487,8 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
           const rows = listPool(db, provider.id)
           return {
             id: provider.id,
+            source: provider.source,
+            name: provider.name ?? PHOTO_SOURCE_NAMES[provider.source],
             photos: rows.length,
             cached: rows.filter(row => withFiles.has(row.id)).length,
             last_success_at: state.lastSuccessAt?.toISOString() ?? null,

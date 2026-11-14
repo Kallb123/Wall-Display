@@ -13,6 +13,10 @@ import type { PhotoListing, PhotoProvider } from './types'
 // followed, but no id can ask for a file outside it.
 
 export interface LocalProviderOptions {
+  /** The feed id this provider is. Default: `local`, the source's own. */
+  id?: string
+  /** The feed's name for the settings page. */
+  name?: string
   /** The folder to read. */
   path: string
   /** For tests. Default: the console. */
@@ -52,6 +56,7 @@ export function resolveInside(root: string, assetId: string): string | null {
 }
 
 export function createLocalProvider(options: LocalProviderOptions): PhotoProvider {
+  const feedId = options.id ?? 'local'
   const { log = console } = options
   const root = resolve(options.path)
   // What was read from a file last time, so a listing every few minutes re-reads only the files that changed.
@@ -110,7 +115,9 @@ export function createLocalProvider(options: LocalProviderOptions): PhotoProvide
   }
 
   return {
-    id: 'local',
+    id: feedId,
+    source: 'local',
+    ...(options.name === undefined ? {} : { name: options.name }),
 
     async list() {
       let files: { id: string, file: string }[]
@@ -118,7 +125,7 @@ export function createLocalProvider(options: LocalProviderOptions): PhotoProvide
         files = await walk(await supportedExtensions())
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
-        throw new PhotoProviderError('local', code === 'ENOENT' || code === 'ENOTDIR'
+        throw new PhotoProviderError(feedId, code === 'ENOENT' || code === 'ENOTDIR'
           ? `The photo folder ${root} was not found`
           : `The photo folder ${root} can't be read`)
       }
@@ -150,11 +157,11 @@ export function createLocalProvider(options: LocalProviderOptions): PhotoProvide
 
     async fetch(providerAssetId) {
       const file = resolveInside(root, providerAssetId)
-      if (!file) throw new PhotoProviderError('local', 'That is not a photo in the folder')
+      if (!file) throw new PhotoProviderError(feedId, 'That is not a photo in the folder')
       try {
         return await readFile(file)
       } catch {
-        throw new PhotoProviderError('local', 'The photo is no longer in the folder')
+        throw new PhotoProviderError(feedId, 'The photo is no longer in the folder')
       }
     },
   }

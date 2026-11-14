@@ -310,7 +310,7 @@ describe('the remote page', () => {
       photoSources = ['immich', 'local']
       const { wrapper } = await mountRemote({ view: 'photo', photo_source: 'immich' })
 
-      expect(wrapper.findAll('[data-testid^="photo-source-"]').map(button => button.text().split('\n')[0])).toEqual(['Immich', 'Google Not set up', 'Folder'])
+      expect(wrapper.findAll('[data-testid^="photo-source-"]').map(button => button.text().split('\n')[0])).toEqual(['Immich', 'Google Not set up', 'Folder', 'Unsplash Not set up'])
       expect(segment(wrapper, 'immich').attributes('aria-pressed')).toBe('true')
       expect(segment(wrapper, 'local').attributes('aria-pressed')).toBe('false')
 

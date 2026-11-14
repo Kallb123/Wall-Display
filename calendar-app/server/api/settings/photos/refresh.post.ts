@@ -11,6 +11,6 @@ export default defineEventHandler(async (): Promise<PhotosSettingsStatus> => {
   const config = useConfig().photos
   if (!photos || !config) throw createError({ statusCode: 409, statusMessage: 'Conflict', message: 'Photos are not set up: add a photos block to the config' })
 
-  await photos.refresh()
+  await photos.refresh({ force: true })
   return photosStatus({ config, status: photos.status() })
 })

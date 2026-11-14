@@ -85,6 +85,13 @@
       "when": 1794428826436,
       "tag": "0011_special_day_backdrop_art",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794649029457,
+      "tag": "0012_burly_umar",
+      "breakpoints": true
     }
   ]
 }

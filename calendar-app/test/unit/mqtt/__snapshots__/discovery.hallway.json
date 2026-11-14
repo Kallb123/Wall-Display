@@ -312,7 +312,8 @@
       "options": [
         "immich",
         "google",
-        "local"
+        "local",
+        "unsplash"
       ],
       "entity_category": "config",
       "availability_topic": "wallcal/hallway/availability",

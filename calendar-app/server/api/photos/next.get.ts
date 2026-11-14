@@ -1,5 +1,6 @@
 import { boxQuery, renditionQuery } from '../../../shared/photos'
 import type { PhotoResponse } from '../../../shared/photos'
+import { photoFeedPreferences } from '../../control/photoFeed'
 
 // Moves a display on to its next photo and answers it (architecture §5.1):
 // `{ photo: { id, url, width, height, orientation, taken_at, provider }, interval_seconds }`, or
@@ -33,6 +34,7 @@ export default defineEventHandler(async (event): Promise<PhotoResponse> => {
   setResponseHeader(event, 'Cache-Control', 'no-store')
   const photos = usePhotos()
   if (!photos) return { photo: null }
-  const photo = await photos.next(display, control.getState(display).photo_source, rendition, box)
+  // The feed to show: the schedule window's, then the layout's, then the display's own choice (control/photoFeed.ts). The service uses the first that is set up.
+  const photo = await photos.next(display, photoFeedPreferences(control.getState(display), useLayouts().summaries()), rendition, box)
   return { photo, interval_seconds: useSettings().config().photos?.interval_seconds }
 })

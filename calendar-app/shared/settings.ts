@@ -100,14 +100,33 @@ export interface DiscoveryResult {
 /** How an Immich source picks its photos (`photos.immich.mode`). */
 export type ImmichMode = 'albums' | 'random' | 'memories'
 
-/** One photo source that is set up and running, as the Photos tab shows it. */
+/**
+ * A photo feed that can be chosen for a layout or a schedule: a source's own
+ * (the id is the source's name) or one of the config's `photos.feeds`. Listed in
+ * `PhotosSettingsStatus.feeds`.
+ */
+export interface PhotoFeedChoice {
+  /** What a layout's or a rule's `photo_feed` holds. */
+  id: string
+  /** The name to show: a source's label ("Unsplash"), or a feed's `name`, or its id when it has none. */
+  name: string
+  source: PhotoSource
+}
+
+/** One photo feed that is set up and running (a source's own, or one of `photos.feeds`), as the Photos tab shows it. */
 export interface PhotoProviderSettings {
-  id: PhotoSource
+  /** The feed id: the source's name for a source's own feed, or the `id` of the `photos.feeds` entry. */
+  id: string
+  /** The kind of source the feed uses. */
+  source: PhotoSource
+  /** What to call it: the feed's `name` (its id when it has none), or the source's label for a source's own. */
+  name: string
   /** Immich only: how its photos are picked. Null for the others. */
   mode: ImmichMode | null
   /**
-   * Where it is: Immich's host and port (no scheme, path or credentials), or the
-   * local folder's path. The API key never appears.
+   * Where it is: Immich's host and port (no scheme, path or credentials), the
+   * local folder's path, or in a few words what Unsplash is asked for (`landscape`,
+   * `collections 317099`, `topics nature`). An API key never appears.
    */
   where: string | null
   /** Photos in the pool, as last listed. */
@@ -138,6 +157,8 @@ export type PhotosSettingsStatus =
       cache_max_bytes: number
       /** In config order of preference: Immich, Google, then the folder. A source that is not built (Google) is not listed. */
       providers: PhotoProviderSettings[]
+      /** Every feed a layout or a schedule rule can name in `photo_feed`: the sources set up, then `photos.feeds` in config order. */
+      feeds: PhotoFeedChoice[]
       /** The config has a `google` block, which is accepted and ignored for now. */
       google_ignored: boolean
     }

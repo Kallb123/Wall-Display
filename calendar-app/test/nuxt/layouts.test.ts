@@ -28,7 +28,7 @@ const arrangement = (...rows: [number, ...[string, number][]][]): LayoutArrangem
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component: component as 'week', size: paneSize })) })),
 })
 
-const layout = (id: string, name: string, landscape: LayoutArrangement, portrait: LayoutArrangement): CustomLayout => ({ id, name, landscape, portrait, options: {}, created_at: STAMP, updated_at: STAMP })
+const layout = (id: string, name: string, landscape: LayoutArrangement, portrait: LayoutArrangement): CustomLayout => ({ id, name, landscape, portrait, options: {}, photo_feed: null, created_at: STAMP, updated_at: STAMP })
 
 /** A photo beside a week, and the two stacked in portrait. */
 const kitchen = () => layout('kitchen', 'Kitchen', arrangement([1, ['photo', 2], ['week', 3]]), arrangement([2, ['photo', 1]], [3, ['week', 1]]))
@@ -409,6 +409,44 @@ describe('the layouts editor', () => {
     expect(select('time_corner').attributes('disabled')).toBeDefined()
   })
 
+  it('chooses the photo feed beside the photo pane\'s options, and leaves the choice out where the feeds are not known', async () => {
+    const feeds = [
+      { id: 'unsplash', name: 'Unsplash', source: 'unsplash' },
+      { id: 'mountains', name: 'Mountains', source: 'unsplash' },
+    ]
+    const without = await mountManager()
+    expect(without.find('[data-testid="photo-feed"]').exists()).toBe(false)
+
+    const wrapper = await mountManager({ photoFeeds: feeds })
+    const select = wrapper.find('[data-testid="option-photo_feed"]')
+    expect(select.findAll('option').map(option => option.text())).toEqual(['Default', 'Unsplash', 'Mountains (Unsplash)'])
+    expect((select.element as HTMLSelectElement).value).toBe('0')
+
+    await select.setValue('2')
+    await submit(wrapper)
+    expect((writes[0]!.body as { photo_feed: unknown }).photo_feed).toBe('mountains')
+    expect(library[0]!.photo_feed).toBe('mountains')
+
+    await wrapper.find('[data-testid="option-photo_feed"]').setValue('0')
+    await submit(wrapper)
+    expect((writes[1]!.body as { photo_feed: unknown }).photo_feed).toBeNull()
+  })
+
+  it('keeps a saved feed that is no longer set up on show, and offers no feed on a layout without a photo pane', async () => {
+    library[0]!.photo_feed = 'gone'
+    const wrapper = await mountManager({ photoFeeds: [{ id: 'unsplash', name: 'Unsplash', source: 'unsplash' }] })
+    const select = wrapper.find('[data-testid="option-photo_feed"]')
+
+    expect(select.findAll('option').map(option => option.text())).toEqual(['Default', 'Unsplash', 'gone (not set up)'])
+    expect((select.element as HTMLSelectElement).value).toBe('2')
+
+    // Taking the photo pane away drops the feed with it.
+    await click(wrapper, 'toggle-photo')
+    expect(wrapper.find('[data-testid="photo-feed"]').exists()).toBe(false)
+    await submit(wrapper)
+    expect((writes[0]!.body as { photo_feed: unknown }).photo_feed).toBeNull()
+  })
+
   it('offers the initials only once events are coloured', async () => {
     const wrapper = await mountManager()
     await click(wrapper, 'toggle-agenda')
@@ -443,6 +481,7 @@ describe('the layouts editor', () => {
         landscape: arrangement([1, ['week', 3], ['photo', 2], ['agenda', 1]]),
         portrait: arrangement([2, ['photo', 1]], [3, ['week', 1], ['agenda', 1]]),
         options: {},
+        photo_feed: null,
       },
     }])
     expect(wrapper.find('[data-testid="layouts-note"]').text()).toBe('Saved.')

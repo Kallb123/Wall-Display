@@ -1,4 +1,6 @@
 import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, LAYOUT_COMPONENTS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MIN_DAY_GRID_COLUMNS, MIN_DAY_GRID_ROWS, MIN_LAYOUT_SIZE, MIN_STAR_GRID_COLUMNS, MIN_STAR_GRID_ROWS, PANE_CORNERS, PANE_OPTIONS, customLayoutInputSchema, transposeArrangement } from '../../shared/layouts'
+import { PHOTO_SOURCE_NAMES } from '../../shared/photos'
+import type { PhotoFeedChoice } from '../../shared/settings'
 import type { CustomLayout, CustomLayoutInput, DayGrid, DayGridStart, LayoutArrangement, LayoutComponent, LayoutPane, OverlayCorner, PaneCornerKey, PaneOptionKey, StarGrid, PaneOptions, ResolvedPaneOptions } from '../../shared/layouts'
 
 // What the layout editor does to the layout it is editing (architecture §7.6,
@@ -93,12 +95,12 @@ function withArrangement(input: CustomLayoutInput, which: Orientation, arrangeme
 /** What a new layout starts as: a week beside an agenda, with the portrait arrangement made from it. */
 export function newLayoutInput(name = ''): CustomLayoutInput {
   const landscape: LayoutArrangement = { rows: [{ size: 1, panes: [{ component: 'week', size: 3 }, { component: 'agenda', size: 2 }] }] }
-  return { name, landscape, portrait: transposeArrangement(landscape), options: {} }
+  return { name, landscape, portrait: transposeArrangement(landscape), options: {}, photo_feed: null }
 }
 
 /** What the editor edits of a saved layout: everything the server accepts back. */
 export function inputOf(layout: CustomLayout): CustomLayoutInput {
-  return copy({ name: layout.name, landscape: layout.landscape, portrait: layout.portrait, options: layout.options })
+  return copy({ name: layout.name, landscape: layout.landscape, portrait: layout.portrait, options: layout.options, photo_feed: layout.photo_feed })
 }
 
 /** Whether two inputs are the same, for knowing if there is anything to save. */
@@ -159,6 +161,8 @@ export function toggleComponent(input: CustomLayoutInput, component: LayoutCompo
     }
   }
   if (!on) next.options = withoutKey(next.options, component)
+  // A feed means nothing without a photo pane, and the server keeps none for a layout without one.
+  if (!on && component === 'photo') next.photo_feed = null
   return next
 }
 
@@ -312,6 +316,38 @@ export function setPaneCorner(input: CustomLayoutInput, component: LayoutCompone
   const set: PaneOptions = value === DEFAULT_PANE_OPTIONS[key] ? withoutKey(current, key) : { ...current, [key]: value }
   const options = Object.keys(set).length > 0 ? { ...input.options, [component]: set } : withoutKey(input.options, component)
   return { ...input, options }
+}
+
+/** Chooses the photo feed the photo pane draws from, or null for the display's own choice. Handing back the same input when nothing would change, or when there is no photo pane to choose for. */
+export function setPhotoFeed(input: CustomLayoutInput, feed: string | null): CustomLayoutInput {
+  if (!componentsOf(input).includes('photo') || (input.photo_feed ?? null) === feed) return input
+  return { ...input, photo_feed: feed }
+}
+
+/** One entry of the photo pane's "Photos from" select: the feed's id (null for the display's choice), and the words for it. */
+export interface PhotoFeedOption {
+  value: string | null
+  label: string
+}
+
+/**
+ * What the "Photos from" select offers: the display's own choice first, then
+ * every feed that is set up, named by the feed's own name with its source in
+ * brackets when the name says something different (a source's own feed is
+ * named after it, so it needs no brackets). A feed the layout names that is not
+ * in the list (the config changed since) stays on offer as "<id> (not set up)",
+ * so the select shows what is saved instead of quietly showing something else;
+ * the server turns it down if it is saved again.
+ */
+export function photoFeedOptions(feeds: readonly PhotoFeedChoice[], current: string | null | undefined): PhotoFeedOption[] {
+  // "Default" rather than "The display's choice", which a phone cuts short; the hint under the options says what it means.
+  const options: PhotoFeedOption[] = [{ value: null, label: 'Default' }]
+  for (const feed of feeds) {
+    const source = PHOTO_SOURCE_NAMES[feed.source]
+    options.push({ value: feed.id, label: feed.name === source ? feed.name : `${feed.name} (${source})` })
+  }
+  if (current && !feeds.some(feed => feed.id === current)) options.push({ value: current, label: `${current} (not set up)` })
+  return options
 }
 
 /** Throws away the portrait arrangement and makes it again from the landscape one. */

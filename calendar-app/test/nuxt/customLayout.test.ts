@@ -114,6 +114,13 @@ describe('CustomLayoutView on the landscape stage', () => {
 
     expect(style(wrapper, 'photo')).toContain('border-radius: 0px 64px 64px 0px')
   })
+
+  it('squares every corner of the photo pane when rounded corners are off', async () => {
+    const wrapper = await open('landscape', { layout: layout({ options: { photo: { rounded_corners: false } } }) })
+
+    expect(style(wrapper, 'photo')).toContain('border-radius: 0')
+    expect(style(wrapper, 'photo')).not.toContain('64px')
+  })
 })
 
 describe('CustomLayoutView on the portrait stage', () => {

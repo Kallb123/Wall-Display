@@ -6,7 +6,7 @@ import type { LayoutComponent } from '../../../shared/layouts'
 import { bleeds, edgeBleed, NO_BLEED, PANE_RADIUS, paneClipPath } from '../../utils/bleed'
 import type { Bleed } from '../../utils/bleed'
 import { layoutPanes, paneFit } from '../../utils/layouts'
-import type { PaneBox } from '../../utils/layouts'
+import type { PaneBox, RoundedCorners } from '../../utils/layouts'
 import type { ViewProps } from '../../utils/views'
 import AgendaView from './AgendaView.vue'
 import DayGridView from './DayGridView.vue'
@@ -27,7 +27,8 @@ import WeekView from './WeekView.vue'
 // the view is laid out on a virtual stage at its minimum size, and that is
 // scaled down to the pane with a transform, so nothing overflows or clips. The
 // photo frame needs no minimum and draws to any box. The photo pane gets the
-// rounded inner corners of the week and photo view, and the tile colour until
+// rounded inner corners of the week and photo view (all square when its
+// `rounded_corners` option is off), and the tile colour until
 // the first photo has loaded. A takeover's palette is the stage's and reaches
 // every calendar pane; the photo covers its own.
 //
@@ -72,15 +73,20 @@ const single = computed(() => panes.value.length === 1)
 /** The view a pane tells its component it is: its own, or `custom` for a component that is not a view (the day grid and the star chart). */
 const viewOf = (component: LayoutComponent): View => (component === 'days' || component === 'stars' ? 'custom' : component)
 
-const boxStyle = (box: PaneBox, bleed: Bleed) => ({
-  left: `${box.x}px`,
-  top: `${box.y}px`,
-  width: `${box.width}px`,
-  height: `${box.height}px`,
-  ...(box.component === 'photo' && (bleeds(bleed)
-    ? { clipPath: paneClipPath(box.width, box.height, box.rounded, bleed), '--bleed': `${Math.max(bleed.top, bleed.right, bleed.bottom, bleed.left)}px` }
-    : { borderRadius: [box.rounded.topLeft, box.rounded.topRight, box.rounded.bottomRight, box.rounded.bottomLeft].map(round => round ? `${PANE_RADIUS}px` : '0').join(' ') })),
-})
+const SQUARE: RoundedCorners = { topLeft: false, topRight: false, bottomRight: false, bottomLeft: false }
+
+const boxStyle = (box: PaneBox, bleed: Bleed, roundedCorners: boolean) => {
+  const rounded = roundedCorners ? box.rounded : SQUARE
+  return {
+    left: `${box.x}px`,
+    top: `${box.y}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    ...(box.component === 'photo' && (bleeds(bleed)
+      ? { clipPath: paneClipPath(box.width, box.height, rounded, bleed), '--bleed': `${Math.max(bleed.top, bleed.right, bleed.bottom, bleed.left)}px` }
+      : { borderRadius: [rounded.topLeft, rounded.topRight, rounded.bottomRight, rounded.bottomLeft].map(round => round ? `${PANE_RADIUS}px` : '0').join(' ') })),
+  }
+}
 </script>
 
 <template>
@@ -90,7 +96,7 @@ const boxStyle = (box: PaneBox, bleed: Bleed) => ({
       :key="box.component"
       class="pane"
       :class="{ photo: box.component === 'photo', bleeding: bleeds(bleed) }"
-      :style="boxStyle(box, bleed)"
+      :style="boxStyle(box, bleed, options.rounded_corners)"
       :data-testid="`layout-pane-${box.component}`"
     >
       <div

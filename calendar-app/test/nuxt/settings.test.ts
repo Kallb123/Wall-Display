@@ -73,6 +73,7 @@ const photosStatus = (changes: Partial<Extract<PhotosSettingsStatus, { configure
   cache_bytes: 512 * MB,
   cache_max_bytes: 2048 * MB,
   providers: [provider(), provider({ id: 'local', mode: null, where: '/photos', photos: 8, cached: 8 })],
+  feeds: [{ id: 'immich', name: 'Immich', source: 'immich' }, { id: 'local', name: 'Local folder', source: 'local' }],
   google_ignored: false,
   ...changes,
 })

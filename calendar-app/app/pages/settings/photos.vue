@@ -51,7 +51,7 @@ async function refreshNow() {
   }
 }
 
-const SOURCE_ICONS: Record<PhotoSource, typeof Cloud> = { immich: Cloud, google: Cloud, local: FolderOpen }
+const SOURCE_ICONS: Record<PhotoSource, typeof Cloud> = { immich: Cloud, google: Cloud, local: FolderOpen, unsplash: Cloud }
 
 const configured = computed(() => photos.value?.configured ? photos.value : null)
 const percent = computed(() => configured.value ? cachePercent(configured.value.cache_bytes, configured.value.cache_max_bytes) : 0)

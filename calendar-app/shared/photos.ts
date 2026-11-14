@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { PHOTO_SOURCES } from './display'
+import type { PhotoSource } from './display'
 
 // The photo the server hands a display (PR 4.1, architecture §5): where to load
 // the image from and what shape it is. The image itself is already rendered to
@@ -18,6 +19,11 @@ export const photoInfoSchema = z.strictObject({
   /** When it was taken, as an ISO 8601 instant, if the provider knows. */
   taken_at: z.string().nullable(),
   provider: z.enum(PHOTO_SOURCES),
+  /**
+   * Who to credit on the frame, as it is to be shown ("Photo by Jane Doe on
+   * Unsplash"), when the source asks for that; null or left out otherwise.
+   */
+  credit: z.string().nullable().optional(),
 })
 export type PhotoInfo = z.infer<typeof photoInfoSchema>
 
@@ -32,6 +38,29 @@ export const photoResponseSchema = z.strictObject({
   interval_seconds: z.number().positive().optional(),
 })
 export type PhotoResponse = z.infer<typeof photoResponseSchema>
+
+/** What each photo source is called on the settings page, the layout editor and in a feed's place when it has no name. */
+export const PHOTO_SOURCE_NAMES: Record<PhotoSource, string> = {
+  immich: 'Immich',
+  google: 'Google Photos',
+  local: 'Local folder',
+  unsplash: 'Unsplash',
+}
+
+/** The longest photo feed id. */
+export const MAX_PHOTO_FEED_ID = 40
+
+/**
+ * A reference to a photo feed: a source's own (`immich`, `local`, `unsplash`)
+ * or the id of one of the config's `photos.feeds`. Lower case letters, digits,
+ * `-` and `_`, starting with a letter or digit. Whether it names a feed that is
+ * set up is checked against the config, not here.
+ */
+export const photoFeedIdSchema = z.string()
+  .trim()
+  .min(1, 'must not be empty')
+  .max(MAX_PHOTO_FEED_ID, `must be at most ${MAX_PHOTO_FEED_ID} characters`)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lower case letters, digits, - and _ (like "mountains")')
 
 /** Where a rendered photo (a `<sha256>.webp` name) is served from. */
 export function photoUrl(name: string): string {

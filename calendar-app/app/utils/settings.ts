@@ -1,5 +1,6 @@
 import type { PhotoSource, ScreenState, View } from '../../shared/display'
 import type { CalendarStatus, ConnectionsStatus, FallbackEvent, ImmichMode, MqttLinkState, PhotoProviderSettings } from '../../shared/settings'
+import { PHOTO_SOURCE_NAMES } from '../../shared/photos'
 import { addDays, todayIn } from '../../shared/dates'
 import { monthLabel } from './remote'
 
@@ -176,14 +177,8 @@ export function viewLabel(view: View): string {
   return VIEW_LABELS[view]
 }
 
-const PHOTO_SOURCE_LABELS: Record<PhotoSource, string> = {
-  immich: 'Immich',
-  google: 'Google Photos',
-  local: 'Local folder',
-}
-
 export function photoSourceLabel(source: PhotoSource): string {
-  return PHOTO_SOURCE_LABELS[source]
+  return PHOTO_SOURCE_NAMES[source]
 }
 
 /** `On`, or `Off (standby)`: an off panel is asleep, not unplugged. */

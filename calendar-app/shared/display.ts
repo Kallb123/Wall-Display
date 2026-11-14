@@ -41,7 +41,7 @@ export const PHOTO_VIEWS = ['photo', 'week_photo'] as const satisfies readonly V
 export const showsPhotos = (view: View): boolean => (PHOTO_VIEWS as readonly View[]).includes(view)
 
 // The same values as PHOTO_PROVIDERS in server/db/schema.ts, which shared code can't import.
-export const PHOTO_SOURCES = ['immich', 'google', 'local'] as const
+export const PHOTO_SOURCES = ['immich', 'google', 'local', 'unsplash'] as const
 export type PhotoSource = (typeof PHOTO_SOURCES)[number]
 
 export const SCREEN_STATES = ['on', 'off'] as const

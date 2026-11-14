@@ -229,6 +229,10 @@ describe('photosStatus', () => {
         { id: 'immich', mode: 'albums', where: 'immich.local:2283', photos: 120, cached: 40, last_success_at: '2026-10-28T11:55:00.000Z', last_error: null },
         { id: 'local', mode: null, where: '/photos', photos: 0, cached: 0, last_success_at: null, last_error: 'The folder does not exist' },
       ],
+      feeds: [
+        { id: 'immich', name: 'Immich', source: 'immich' },
+        { id: 'local', name: 'Local folder', source: 'local' },
+      ],
     })
   })
 

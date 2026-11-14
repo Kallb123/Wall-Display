@@ -1,5 +1,6 @@
 import type { DisplayState, SocketRole } from '../../shared/display'
 import { PHOTO_SOURCES } from '../../shared/display'
+import { PHOTO_SOURCE_NAMES } from '../../shared/photos'
 import type { CalendarStatus, ConnectionsStatus, DisplayStatus, MqttLinkState, PhotoProviderSettings, PhotosSettingsStatus, SettingsPerson } from '../../shared/settings'
 import type { AppConfig, CalendarConfig, DisplayConfig, MqttConfig, PhotosConfig } from '../config/schema'
 import type { Db } from '../db/client'
@@ -151,7 +152,8 @@ export function photosStatus({ config, status }: PhotosStatusArgs): PhotosSettin
   const running = new Map((status?.providers ?? []).map(provider => [provider.id, provider]))
   const providers: PhotoProviderSettings[] = []
   for (const id of PHOTO_SOURCES) {
-    if (id === 'google') continue
+    // Unsplash is listed once its config block is read (agent A's part of this change).
+    if (id === 'google' || id === 'unsplash') continue
     const set = id === 'immich' ? config.immich : config.local
     if (!set) continue
     const live = running.get(id)
@@ -166,8 +168,12 @@ export function photosStatus({ config, status }: PhotosStatusArgs): PhotosSettin
     })
   }
 
+  // The sources' own feeds for now; `photos.feeds` are added once they are read from the config.
+  const feeds = providers.map(provider => ({ id: provider.id, name: PHOTO_SOURCE_NAMES[provider.id], source: provider.id }))
+
   return {
     configured: true,
+    feeds,
     interval_seconds: config.interval_seconds,
     // `landscape_only` is the older name of the same switch.
     match_orientation: config.match_orientation || config.landscape_only,

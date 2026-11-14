@@ -74,13 +74,14 @@ export interface PhotoService {
   refresh: () => Promise<void>
   /**
    * Moves the display on to its next photo and answers it, or null if there is
-   * nothing to show. The provider is `preferred` if it is set up, otherwise the
-   * first that is. The image is rendered for the `rendition` of stage the display
+   * nothing to show. The feed is the first of `preferred` (most specific first:
+   * a schedule window's, the layout's, the display's own) that is set up,
+   * otherwise the first source that is. The image is rendered for the `rendition` of stage the display
    * has (landscape unless it says otherwise), or, if `box` (the size of what it
    * is drawn in) is given and the photo is close to its shape, as the plain
    * photo to be cropped to the box. Never rejects.
    */
-  next: (displayId: string, preferred: PhotoSource, rendition?: StageRendition, box?: PhotoBox) => Promise<PhotoInfo | null>
+  next: (displayId: string, preferred: string | readonly string[], rendition?: StageRendition, box?: PhotoBox) => Promise<PhotoInfo | null>
   status: () => { providers: PhotoProviderStatus[], cache_bytes: number }
   /** Resolves when the background preparation of next photos has finished. For tests. */
   idle: () => Promise<void>
@@ -160,10 +161,14 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     },
   })
 
-  /** The provider a display on `preferred` gets. */
-  function choose(preferred: PhotoSource): PhotoProvider | undefined {
-    return providers.find(provider => provider.id === preferred)
-      ?? PHOTO_SOURCES.map(id => providers.find(provider => provider.id === id)).find(Boolean)
+  /** The provider a display gets: the first of `preferred` that is set up, otherwise the first source that is. */
+  function choose(preferred: string | readonly string[]): PhotoProvider | undefined {
+    const wanted: readonly string[] = typeof preferred === 'string' ? [preferred] : preferred
+    for (const id of wanted) {
+      const found = providers.find(provider => provider.id === id)
+      if (found) return found
+    }
+    return PHOTO_SOURCES.map(id => providers.find(provider => provider.id === id)).find(Boolean)
   }
 
   /**
@@ -368,7 +373,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     background.add(job)
   }
 
-  async function pick(displayId: string, preferred: PhotoSource, rendition: StageRendition, box: PhotoBox | undefined): Promise<PhotoInfo | null> {
+  async function pick(displayId: string, preferred: string | readonly string[], rendition: StageRendition, box: PhotoBox | undefined): Promise<PhotoInfo | null> {
     const provider = choose(preferred)
     if (!provider) return null
 

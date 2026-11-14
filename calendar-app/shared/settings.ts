@@ -100,6 +100,19 @@ export interface DiscoveryResult {
 /** How an Immich source picks its photos (`photos.immich.mode`). */
 export type ImmichMode = 'albums' | 'random' | 'memories'
 
+/**
+ * A photo feed that can be chosen for a layout or a schedule: a source's own
+ * (the id is the source's name) or one of the config's `photos.feeds`. Listed in
+ * `PhotosSettingsStatus.feeds`.
+ */
+export interface PhotoFeedChoice {
+  /** What a layout's or a rule's `photo_feed` holds. */
+  id: string
+  /** The name to show: the feed's `name`, or the source's label. */
+  name: string
+  source: PhotoSource
+}
+
 /** One photo source that is set up and running, as the Photos tab shows it. */
 export interface PhotoProviderSettings {
   id: PhotoSource
@@ -138,6 +151,8 @@ export type PhotosSettingsStatus =
       cache_max_bytes: number
       /** In config order of preference: Immich, Google, then the folder. A source that is not built (Google) is not listed. */
       providers: PhotoProviderSettings[]
+      /** Every feed a layout or a schedule rule can name in `photo_feed`: the sources set up, then `photos.feeds` in config order. */
+      feeds: PhotoFeedChoice[]
       /** The config has a `google` block, which is accepted and ignored for now. */
       google_ignored: boolean
     }

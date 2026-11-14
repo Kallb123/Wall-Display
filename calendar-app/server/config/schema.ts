@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { isSingleEmoji } from '../../shared/emoji'
 import { CAMERA_KINDS, commandSchema, layoutIdSchema, MOTIONS, NIGHT_TEXTS, ORIENTATIONS, scheduleIdSchema, TAKEOVER_ART_PLACES, VIEWS } from '../../shared/display'
 import type { CameraKind } from '../../shared/display'
+import { photoFeedIdSchema } from '../../shared/photos'
 
 // The shape of config.yaml. Keys stay snake_case, as written in the YAML.
 // Pure: no file access. The one environment-specific part is where a relative
@@ -173,6 +174,8 @@ const scheduleRule = z.strictObject({
   view: z.enum(VIEWS, { error: `must be one of ${VIEWS.join(', ')}` }),
   /** The id of the custom layout (PR 5.17) when `view` is custom. The layouts live in the database, so whether it exists is checked when the window starts. */
   layout: layoutIdSchema.optional(),
+  /** The photo feed shown while the window is in charge (a source such as unsplash, or a `photos.feeds` id). Left out, the display's own. */
+  photo_feed: photoFeedIdSchema.optional(),
   from: time,
   to: time,
   days: days.default([...WEEKDAYS]),

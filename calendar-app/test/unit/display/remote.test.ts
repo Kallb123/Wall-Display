@@ -217,11 +217,12 @@ describe('effectivePhotoSource', () => {
 })
 
 describe('PHOTO_SOURCE_CHOICES', () => {
-  it('offers Immich, Google and Folder, the folder being local on the wire', () => {
+  it('offers Immich, Google, Folder and Unsplash, the folder being local on the wire', () => {
     expect(PHOTO_SOURCE_CHOICES).toEqual([
       { source: 'immich', label: 'Immich' },
       { source: 'google', label: 'Google' },
       { source: 'local', label: 'Folder' },
+      { source: 'unsplash', label: 'Unsplash' },
     ])
   })
 })

@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { displayStateSchema } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
+import type { PhotoHistoryEntry } from '../../shared/photoHistory'
 import type { StarChart } from '../../shared/stars'
 import { fontsReady, playServer } from './helpers'
 
@@ -12,15 +13,71 @@ import { fontsReady, playServer } from './helpers'
 
 test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 })
 
+// The photo history the server would answer (architecture §7.5), on the frozen
+// Wednesday 28 October, 09:41 in London: the photo on the wall now, an Immich
+// photo with everything Immich knows, an Unsplash one with its photographer, a
+// folder photo with little but its path, and a few older ones for "Show more".
+// The pictures are the little drawings /api/visual-history/*.svg, answered below.
+const at = (time: string, day = '2026-10-28') => `${day}T${time}:00Z`
+const entry = (id: number, changes: Partial<PhotoHistoryEntry>, details: PhotoHistoryEntry['details'] = {}): PhotoHistoryEntry => ({
+  id,
+  photo_id: `immich:asset-${id}`,
+  feed: 'immich',
+  feed_name: null,
+  provider: 'immich',
+  rendition: 'landscape',
+  shown_at: at('09:30'),
+  ended_at: at('09:35'),
+  image_url: `/api/visual-history/${id % 3}.svg`,
+  width: 4000,
+  height: 3000,
+  orientation: 'landscape',
+  taken_at: null,
+  credit: null,
+  ...changes,
+  details,
+})
+const historyEntries: PhotoHistoryEntry[] = [
+  entry(9, { shown_at: at('09:39'), ended_at: null, feed_name: 'Family album', taken_at: at('15:41', '2025-06-14') }, {
+    description: 'Evening light on Derwentwater',
+    location: 'Keswick, Cumbria, United Kingdom',
+    camera: 'FUJIFILM X-T5 \u00B7 XF16-55mm',
+    file_name: 'DSCF0412.jpg',
+    people: ['Isla', 'Theo'],
+    source_url: 'https://immich.example/photos/asset-9',
+  }),
+  entry(8, { provider: 'unsplash', feed: 'pool-1', feed_name: 'Mountains', shown_at: at('09:34'), ended_at: at('09:39'), credit: 'Photo by Jane Doe on Unsplash' }, {
+    description: 'A lone hiker on a ridge above the clouds',
+    location: 'Dolomites, Italy',
+    photographer: 'Jane Doe',
+    photographer_url: 'https://unsplash.com/@jane?utm_source=wall_display',
+    source_url: 'https://unsplash.com/photos/abc?utm_source=wall_display',
+  }),
+  entry(7, { provider: 'local', feed: 'local', image_url: null, shown_at: at('09:29'), ended_at: at('09:34'), taken_at: at('11:02', '2024-12-25') }, { file_name: 'christmas/IMG_9041.jpg' }),
+  entry(6, { shown_at: at('09:24'), ended_at: at('09:29') }, { location: 'Edinburgh, Scotland' }),
+  entry(5, { shown_at: at('09:19'), ended_at: at('09:24') }, { description: 'Isla\'s birthday' }),
+  entry(4, { shown_at: at('23:55', '2026-10-27'), ended_at: at('00:01') }, { description: 'Bonfire night rehearsal' }),
+  entry(3, { shown_at: at('22:10', '2026-10-27'), ended_at: at('22:15', '2026-10-27') }, { description: 'The garden in autumn' }),
+]
+
+const DRAWINGS = ['#c98f5b', '#6f9a8d', '#8a7bb5'].map((colour, index) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${colour}"/><circle cx="${20 + index * 12}" cy="24" r="9" fill="#fff" opacity=".6"/><path d="M0 64 L24 36 L40 52 L50 42 L64 58 V64Z" fill="#000" opacity=".25"/></svg>`)
+
+/** Answers `GET /api/displays/hallway/photo-history` with fixed entries, and their pictures. */
+async function photoHistory(page: Page, entries: PhotoHistoryEntry[]) {
+  await page.route('**/api/displays/hallway/photo-history**', route => route.fulfill({ json: { entries } }))
+  await page.route('**/api/visual-history/*.svg', route => route.fulfill({ body: DRAWINGS[Number(/(\d)\.svg$/.exec(route.request().url())![1])]!, contentType: 'image/svg+xml' }))
+}
+
 /** Answers `GET /api/remote`: whether the server wants a PIN. */
 async function pinRequired(page: Page, required: boolean) {
   await page.route('**/api/remote', route => route.fulfill({ json: { pin_required: required } }))
 }
 
 /** Opens the remote for the hallway once the name and the fonts are in. */
-async function openRemote(page: Page, initial: Partial<DisplayState> = {}, required = false, stars?: StarChart) {
+async function openRemote(page: Page, initial: Partial<DisplayState> = {}, required = false, stars?: StarChart, history: PhotoHistoryEntry[] = []) {
   const server = await playServer(page, initial, undefined, null, { stars })
   await pinRequired(page, required)
+  await photoHistory(page, history)
   await page.goto('/remote?id=hallway')
   await expect(page.getByTestId('display-name')).toHaveText('Hallway')
   await expect(page.getByTestId('connection-pill')).toHaveText('Connected')
@@ -94,6 +151,47 @@ test.describe('dark stars', () => {
 
     await expect(page.getByTestId('star-row-theo')).toBeVisible()
     await expect(page).toHaveScreenshot('stars-dark.png', { fullPage: true })
+  })
+})
+
+// The Photo history section (architecture §7.5): it follows "Photos from", so it
+// shows here, where the visual config has a photo folder.
+test.describe('photo history', () => {
+  test('lists the photos, opens the details of one, and shows more', async ({ page }) => {
+    await openRemote(page, { view: 'photo', photo_source: 'local', brightness: 80 }, false, undefined, historyEntries)
+    const section = page.getByTestId('photo-history')
+
+    await expect(section.getByTestId('photo-history-entry')).toHaveCount(5)
+    await expect(section.getByTestId('photo-history-live')).toHaveText('On the wall')
+    await section.getByTestId('photo-history-entry').first().getByRole('button').click()
+    await expect(section.getByTestId('photo-history-details')).toContainText('Keswick, Cumbria, United Kingdom')
+    await expect(section.getByTestId('photo-history-details')).toContainText('Saturday 14 June 2025, 16:41')
+    await expect(section.getByTestId('photo-history-details')).toContainText('09:39 \u2013 now (2 min)')
+    await expect(section).toHaveScreenshot('photo-history.png')
+
+    await section.getByTestId('photo-history-more').click()
+    await expect(section.getByTestId('photo-history-entry')).toHaveCount(7)
+    await expect(section.getByTestId('photo-history-more')).toHaveCount(0)
+    await expect(section.getByTestId('photo-history-entry').nth(5)).toContainText('Yesterday 23:55 \u2013 Today 00:01')
+  })
+
+  test('says what it is for when nothing has been shown', async ({ page }) => {
+    await openRemote(page, { view: 'photo', photo_source: 'local' })
+
+    await expect(page.getByTestId('photo-history')).toHaveScreenshot('photo-history-empty.png')
+  })
+
+  test.describe('dark', () => {
+    test.use({ colorScheme: 'dark' })
+
+    test('lists the photos and opens the details of one', async ({ page }) => {
+      await openRemote(page, { view: 'photo', photo_source: 'local', brightness: 80 }, false, undefined, historyEntries)
+      const section = page.getByTestId('photo-history')
+
+      await section.getByTestId('photo-history-entry').nth(1).getByRole('button').click()
+      await expect(section.getByTestId('photo-history-details')).toContainText('Jane Doe')
+      await expect(section).toHaveScreenshot('photo-history-dark.png')
+    })
   })
 })
 

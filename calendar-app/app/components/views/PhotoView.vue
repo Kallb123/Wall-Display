@@ -90,6 +90,16 @@ import type { ViewProps } from '../../utils/views'
 // forecast there is nothing to show, and a pill that would hold only that is
 // left out, as one with only the weather and no weather is.
 //
+// A photo from a source that asks for it to be credited (Unsplash's terms)
+// carries a `credit`, such as "Jane Doe on Unsplash". It is drawn as a short
+// line of small, quiet type in the bottom right corner of the box, a few pixels
+// in from the edge: lower than a pill's inset, so a pill sitting in that corner
+// is never touched. It is plain text with a shadow rather than glass, so it
+// asks little of the photo, and it is left out while the overlay banner is
+// showing. It has no corner of its own to walk, which burn-in does not need: it
+// moves with the stage's orbit, and it changes with every photo (it is gone
+// between two photos that have none). It fades with the photo it belongs to.
+//
 // Pills in the two corners of one edge (say the time and date bottom left and
 // the forecast bottom right) that sit close, or overlap, would leave only a
 // sliver of photo between them. The view measures each pill's layout size (not
@@ -188,6 +198,9 @@ function stale(photo: PhotoInfo, box: { width: number, height: number }): boolea
 /** What the photo on show was asked for: its info and the box it was asked for, to tell when a new size makes it the wrong kind of file. */
 let shownFor: { photo: PhotoInfo, box: { width: number, height: number } } | null = null
 
+/** The credit of the photo on show, if its source asks for one. It changes with the photo. */
+const credit = ref<string | null>(null)
+
 const shownUrl = computed(() => top.value === null ? null : layers.value[top.value])
 
 /** Loads and decodes `url` off screen. Resolves false if it can't be had. */
@@ -215,6 +228,7 @@ async function show(photo: PhotoInfo, id: number) {
   layers.value = target === 0 ? [photo.url, layers.value[1]] : [layers.value[0], photo.url]
   under.value = previous
   top.value = target
+  credit.value = photo.credit ?? null
   held.clear()
   held.add(image)
   if (props.motion) startDrift(target)
@@ -511,6 +525,11 @@ function joinedHeight(corner: Corner): number | undefined {
         </div>
       </div>
     </TransitionGroup>
+    <Transition name="credit">
+      <p v-if="credit && top !== null && !overlayShowing" :key="credit" class="credit" :class="{ compact: pane }" data-testid="photo-credit">
+        {{ credit }}
+      </p>
+    </Transition>
   </section>
 </template>
 
@@ -692,6 +711,40 @@ function joinedHeight(corner: Corner): number | undefined {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: none;
+}
+
+/* The photo's credit: small, quiet and legible on a light or dark photo by its shadow alone. Below any pill's inset, so a pill in the bottom right corner is never under it. */
+.credit {
+  position: absolute;
+  z-index: 3;
+  right: 28px;
+  bottom: 18px;
+  max-width: calc(100% - 56px);
+  margin: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+.credit.compact {
+  right: 20px;
+  bottom: 12px;
+  max-width: calc(100% - 40px);
+  font-size: 22px;
+}
+.credit-enter-active,
+.credit-leave-active {
+  transition: opacity 1.5s ease-in-out;
+}
+.credit-enter-from,
+.credit-leave-to {
+  opacity: 0;
 }
 
 /* Which corner the page has chosen for it (utils/burnIn.ts). */

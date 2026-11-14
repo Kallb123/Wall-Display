@@ -745,6 +745,8 @@ The app also reads HA's REST API, but only for `homeassistant` calendar sources.
 
 An `alarm` block names one more HA entity, for a display whose night view has `night_text: next_alarm`: a timestamp sensor such as the companion app's `sensor.<phone>_next_alarm`, or an `input_datetime` that has a date. The server polls it (every `poll_seconds`, 300 by default), keeps the last good answer and sends changes as `alarm.updated`, an ISO 8601 instant or `null` for none. The page ignores an alarm that has passed or is more than a day away. Like `weather`, it needs the `homeassistant` block, and the config is refused if a display asks for `next_alarm` with no `alarm` block.
 
+A `timers` block lists HA entities that hold kitchen timers: a Nest speaker's `sensor.<speaker>_timers` (the ha-google-home integration, whose `timers` attribute lists each timer with a `fire_time`, a `status` of `set`, `paused` or `ringing`, a `duration` and a `label`) or a `timer.*` helper. Whatever the source, the server reads the entity's state, turns it into the shared `WallTimer` shape (`server/timers/parse.ts`) and pushes each display its own list as `timers.updated`, so the page needs to know nothing about either source. Each entity is polled (every `poll_seconds`, 30 by default) with the same backoff as the alarm, and a second WebSocket connection to HA (the triggers' client, `server/triggers/socket.ts`, with its own `[timers]` log prefix) subscribes to a `state` trigger on all of them. With only `entity_id`, such a trigger fires on attribute changes too, which is where the timers are, so a state arrives within a moment of HA having it and is applied at once. HA allows that subscription only to an administrator's token; with another, polling carries on alone. A timer is an instant, so the page counts down by itself and the server sends nothing on a clock; only a change in a display's list is sent. A source drops a timer when it ends, so a running timer that disappears at its end time (within 3 seconds before it) is kept as `done` until `done_seconds` after (60 by default), and one that disappears earlier, or one that was ringing, is gone at once. A display gets the timers of the entities that list it in `displays`, or of every entity without one, ringing first, then done, then running by end time, then paused. Like `alarm`, it needs the `homeassistant` block, and the refresh paths read it again.
+
 **Who handles the button?** This is set per gesture in the config:
 
 ```yaml
@@ -1062,6 +1064,7 @@ wall-display/
 │   │   ├── layouts/             # store.ts (custom layouts in SQLite), service.ts, state.ts, checks.ts
 │   │   ├── weather/             # HA weather entity + forecast cache
 │   │   ├── alarm/               # HA next-alarm entity, polled
+│   │   ├── timers/              # HA kitchen-timer entities: parse.ts, service.ts (polled and pushed, done tracking)
 │   │   ├── control/             # state.ts, commands.ts, policies.ts, schedule.ts
 │   │   ├── mqtt/                # client.ts, discovery.ts
 │   │   └── db/                  # Drizzle schema + migrations

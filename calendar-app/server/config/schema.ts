@@ -478,6 +478,23 @@ const alarm = z.strictObject({
   poll_seconds: z.number().int().min(30).default(300),
 })
 
+// The Home Assistant entities that hold kitchen timers: a speaker's timers
+// sensor from the ha-google-home integration (`sensor.<speaker>_timers`) or a
+// `timer.*` helper. Each shows on the listed displays, or on every display if
+// `displays` is left out. They are read through the `homeassistant` block, by
+// polling every `poll_seconds` and, when the token allows it, as Home Assistant
+// reports changes. `done_seconds` is how long a timer that ran out stays up,
+// saying Done.
+const timerEntity = z.strictObject({
+  entity_id: z.string().regex(/^[a-z][a-z0-9_]*\.[a-z0-9_]+$/, 'must be an entity id like "sensor.kitchen_speaker_timers" or "timer.pasta"'),
+  displays: z.array(slug).min(1, 'must list at least one display id (or leave displays out for every display)').optional(),
+})
+const timers = z.strictObject({
+  entities: z.array(timerEntity).min(1, 'must list at least one entity'),
+  poll_seconds: z.number().int().min(5).default(30),
+  done_seconds: z.number().int().min(0).max(600).default(60),
+})
+
 // Immich (architecture §5.2). `mode` says which photos make the pool: the
 // albums in `album_ids`, a random pick from the whole library (narrowed by the
 // `random` filters), or today's memories. Left out, it is `albums` when there
@@ -724,6 +741,7 @@ export function createConfigSchema(baseDir: string) {
     mqtt: mqtt.optional(),
     weather: weather.optional(),
     alarm: alarm.optional(),
+    timers: timers.optional(),
     photos: photos(baseDir).optional(),
     cameras: z.array(camera).default([]),
     triggers: z.array(trigger).default([]),
@@ -739,6 +757,7 @@ type RawConfig = {
   photos?: { immich?: unknown, local?: unknown, unsplash?: unknown, feeds: { id: string }[] } | undefined
   weather?: unknown
   alarm?: unknown
+  timers?: { entities: { entity_id: string, displays?: string[] | undefined }[] } | undefined
   cameras: { id: string }[]
   triggers: { id: string, displays?: string[] | undefined, actions: { type: string, camera?: string | null, schedule?: string }[] }[]
 }
@@ -821,6 +840,20 @@ function crossChecks(config: RawConfig, ctx: z.RefinementCtx) {
     issue(['alarm'], 'reads a Home Assistant alarm entity, but there is no "homeassistant" block (it needs a url and token)')
   }
   const displayIds = new Set(config.displays.map(display => display.id))
+  if (config.timers) {
+    if (!config.homeassistant) {
+      issue(['timers'], 'reads Home Assistant timer entities, but there is no "homeassistant" block (it needs a url and token)')
+    }
+    const seenEntities = new Map<string, number>()
+    config.timers.entities.forEach((entity, index) => {
+      const first = seenEntities.get(entity.entity_id)
+      if (first === undefined) seenEntities.set(entity.entity_id, index)
+      else issue(['timers', 'entities', index, 'entity_id'], `duplicate entity "${entity.entity_id}" (also listed at timers.entities[${first}])`)
+      entity.displays?.forEach((id, i) => {
+        if (!displayIds.has(id)) issue(['timers', 'entities', index, 'displays', i], `unknown display "${id}" (must be the id of an entry in displays)`)
+      })
+    })
+  }
   const cameraIds = new Set(config.cameras.map(camera => camera.id))
   config.triggers.forEach((trigger, index) => {
     if (!config.homeassistant) {
@@ -886,6 +919,8 @@ export type SyncConfig = AppConfig['sync']
 export type MqttConfig = NonNullable<AppConfig['mqtt']>
 export type WeatherConfig = NonNullable<AppConfig['weather']>
 export type AlarmConfig = NonNullable<AppConfig['alarm']>
+export type TimersConfig = NonNullable<AppConfig['timers']>
+export type TimerEntityConfig = TimersConfig['entities'][number]
 export type PhotosConfig = NonNullable<AppConfig['photos']>
 export type ImmichConfig = NonNullable<PhotosConfig['immich']>
 export type UnsplashConfig = NonNullable<PhotosConfig['unsplash']>

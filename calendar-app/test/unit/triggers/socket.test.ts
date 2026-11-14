@@ -269,6 +269,20 @@ describe('failures', () => {
   })
 })
 
+describe('logPrefix', () => {
+  it('starts every line of the log with the prefix it is given, and adds the note when a subscription is refused', () => {
+    const { latest, log } = setup({ logPrefix: '[timers]', refusedNote: 'polling still works' })
+    latest().login()
+    latest().receive({ id: 1, type: 'result', success: false, error: { code: 'unauthorized', message: 'Unauthorized' } })
+    latest().emit('close')
+
+    const lines = [...log.info.mock.calls, ...log.warn.mock.calls].map(call => call[0] as string)
+    expect(lines).toHaveLength(3)
+    expect(lines.every(line => line.startsWith('[timers] '))).toBe(true)
+    expect(log.warn).toHaveBeenCalledWith('[timers] Home Assistant refused trigger "doorbell": Unauthorized; polling still works')
+  })
+})
+
 describe('stop', () => {
   it('closes the connection, and nothing fires or reconnects after it', () => {
     const { latest, onTrigger, socket } = setup()

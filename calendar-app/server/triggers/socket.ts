@@ -40,6 +40,10 @@ export interface HaTriggerSocketOptions {
   retryMs?: number
   /** The longest wait before connecting again. Default 5 minutes. */
   maxRetryMs?: number
+  /** What each line of the log starts with, so a second connection says whose it is. Default `[triggers]`. */
+  logPrefix?: string
+  /** Added to the log line when Home Assistant refuses a subscription, to say what still works. Default: nothing. */
+  refusedNote?: string
   /** For tests. Default: the console. */
   log?: Pick<Console, 'info' | 'warn' | 'error'>
 }
@@ -93,6 +97,8 @@ export function createHaTriggerSocket(options: HaTriggerSocketOptions): HaTrigge
     replyTimeoutMs = DEFAULT_REPLY_TIMEOUT_MS,
     retryMs = DEFAULT_RETRY_MS,
     maxRetryMs = DEFAULT_MAX_RETRY_MS,
+    logPrefix = '[triggers]',
+    refusedNote,
     log = console,
   } = options
 
@@ -121,7 +127,7 @@ export function createHaTriggerSocket(options: HaTriggerSocketOptions): HaTrigge
     lastError = message
     if (message !== loggedError) {
       loggedError = message
-      log.warn(`[triggers] ${message}; trying again in ${Math.round(delayMs / 1000)} s`)
+      log.warn(`${logPrefix} ${message}; trying again in ${Math.round(delayMs / 1000)} s`)
     }
   }
 
@@ -181,7 +187,7 @@ export function createHaTriggerSocket(options: HaTriggerSocketOptions): HaTrigge
       // The config schema checks the URL, so this is a mistake, and trying again won't mend it.
       state = 'disconnected'
       lastError = 'the Home Assistant URL is not valid'
-      log.error(`[triggers] ${lastError}`)
+      log.error(`${logPrefix} ${lastError}`)
       return
     }
     state = 'connecting'
@@ -250,7 +256,7 @@ export function createHaTriggerSocket(options: HaTriggerSocketOptions): HaTrigge
         try {
           onTrigger(id, message.event?.variables)
         } catch (error) {
-          log.error(`[triggers] acting on "${id}" failed: ${error instanceof Error ? error.message : String(error)}`)
+          log.error(`${logPrefix} acting on "${id}" failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
     }
@@ -260,8 +266,8 @@ export function createHaTriggerSocket(options: HaTriggerSocketOptions): HaTrigge
     clearTimeout(replyTimer)
     replyTimer = undefined
     state = 'connected'
-    if (loggedError !== null) log.info(`[triggers] connected to Home Assistant again after ${failures} failed ${failures === 1 ? 'attempt' : 'attempts'}`)
-    else log.info(`[triggers] connected to Home Assistant, listening for ${subscriptions.length} ${subscriptions.length === 1 ? 'trigger' : 'triggers'}`)
+    if (loggedError !== null) log.info(`${logPrefix} connected to Home Assistant again after ${failures} failed ${failures === 1 ? 'attempt' : 'attempts'}`)
+    else log.info(`${logPrefix} connected to Home Assistant, listening for ${subscriptions.length} ${subscriptions.length === 1 ? 'trigger' : 'triggers'}`)
     failures = 0
     loggedError = null
     lastError = null
@@ -288,7 +294,7 @@ export function createHaTriggerSocket(options: HaTriggerSocketOptions): HaTrigge
     // Home Assistant's own words, such as "Unauthorized" for a user who isn't an administrator. They hold neither the URL nor the token.
     const reason = typeof message.error?.message === 'string' ? message.error.message.slice(0, 200) : 'no reason given'
     lastError = `Home Assistant refused trigger "${id}": ${reason}`
-    log.warn(`[triggers] ${lastError}`)
+    log.warn(`${logPrefix} ${lastError}${refusedNote ? `; ${refusedNote}` : ''}`)
   }
 
   return {

@@ -92,6 +92,38 @@ export type Orientation = (typeof ORIENTATIONS)[number]
 export const nextAlarmSchema = z.iso.datetime({ offset: true }).nullable()
 export type NextAlarm = z.output<typeof nextAlarmSchema>
 
+/**
+ * What a kitchen timer on the wall is doing. `running` counts down to
+ * `ends_at`; `paused` is held at `remaining_seconds`; `ringing` is a timer the
+ * source says is going off now (a Google speaker ringing); `done` is one the
+ * server saw reach its end, kept for a short while after so the wall can say so.
+ */
+export const WALL_TIMER_STATUSES = ['running', 'paused', 'ringing', 'done'] as const
+export type WallTimerStatus = (typeof WALL_TIMER_STATUSES)[number]
+
+/**
+ * One countdown timer read from Home Assistant (a `timer.*` helper, or one item
+ * of a Google Home speaker's timers sensor), as the displays draw it. The wall
+ * counts down on its own from `ends_at`, so nothing is sent each second.
+ */
+export const wallTimerSchema = z.object({
+  /** Stable while the timer lasts: the entity id, and the source's own timer id when an entity holds several. */
+  id: z.string().min(1),
+  /** The timer's own name (a Google timer's label, a helper's friendly name), or null for none. */
+  label: z.string().nullable(),
+  status: z.enum(WALL_TIMER_STATUSES),
+  /** When it ends, or ended, as an ISO 8601 instant. Null for a paused timer, and for a ringing one whose source gave no time. */
+  ends_at: z.iso.datetime({ offset: true }).nullable(),
+  /** A paused timer's time left, in whole seconds. Null for every other status. */
+  remaining_seconds: z.number().int().nonnegative().nullable(),
+  /** The length it was set for, in whole seconds, for a progress bar, or null when the source doesn't say. */
+  duration_seconds: z.number().int().positive().nullable(),
+})
+export type WallTimer = z.output<typeof wallTimerSchema>
+
+/** What `timers.updated` carries: a display's timers, soonest to end first. */
+export const wallTimersSchema = z.array(wallTimerSchema)
+
 export const SOCKET_ROLES = ['display', 'remote'] as const
 export type SocketRole = (typeof SOCKET_ROLES)[number]
 
@@ -421,6 +453,8 @@ export type ServerMessage =
   | { type: 'special_days.updated', special_days: SpecialDaysResolution | null }
   /** To every socket when the next alarm changes, and to a new socket on connect. Null when there is none (no `alarm` block, no alarm set, or no successful fetch yet). */
   | { type: 'alarm.updated', alarm: NextAlarm }
+  /** To a display's sockets when its timers change (a timer started, paused, ended or cancelled in Home Assistant), and to a new socket on connect. Only the timers of sources that show on that display. Empty with no `timers` block. */
+  | { type: 'timers.updated', display_id: string, timers: WallTimer[] }
   /** To the display's sockets when its settings change on the settings page (PR 5.6), and to a new socket on connect. The whole of them, as `GET /api/displays` has them. */
   | { type: 'settings.updated', display_id: string, settings: DisplaySettings }
   /** To every socket when the custom layouts change (PR 5.17), and to a new socket on connect. The whole library, by name. */

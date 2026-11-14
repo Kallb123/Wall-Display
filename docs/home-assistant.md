@@ -200,6 +200,78 @@ displays:
 - **What shows.** The wall shows an alarm that is still to come and within the next 24 hours, with "Today" or "Tomorrow" in front of the time. An alarm that has passed, or is further away, is left out. With no alarm the line is left out.
 - **How often.** Every `poll_seconds`, 5 minutes by default, so an alarm you set on your phone appears on the wall within about that long. A failing HA is retried after twice the interval, then four times, up to an hour, and the last good answer is kept meanwhile. A failure is logged once, with a `[alarm]` prefix, and never contains the URL or the token. The **Refresh calendars** button, the `refresh` command and `POST /api/refresh` read the alarm again too.
 
+## Kitchen timers
+
+The wall can show the countdown timers you have running in Home Assistant, such as "set a timer for ten minutes" said to a Nest speaker. The timers count down on the wall itself, so nothing is sent each second. They are read from HA entities you list in a `timers` block, from either of two sources below.
+
+```yaml
+homeassistant:
+  url: http://homeassistant.local:8123
+  token: !secret ha_token   # an administrator's long-lived access token
+
+timers:
+  entities:
+    - entity_id: sensor.kitchen_speaker_timers
+      displays: [kitchen]   # left out: every display
+    - entity_id: timer.pasta
+  poll_seconds: 30   # default 30; at least 5
+  done_seconds: 60   # default 60; 0 to 600
+```
+
+- **Which entities.** `entities` lists at least one, each a `sensor.<speaker>_timers` entity from the Google Home integration or a `timer.*` helper (anything else that has a `timers` list in its attributes in the same format is read too). `displays` limits an entity to some displays; left out, every display shows it. The config is refused at start-up if the `homeassistant` block is missing, an entity id is listed twice or isn't written `domain.object_id`, or a display id is unknown.
+- **How they get to the wall.** The app logs in to HA's WebSocket and subscribes to the state of the listed entities, so a timer appears as soon as HA has it. HA only allows that to an administrator's token, as for [triggers](#doorbell-camera); with another user's token the log says `[timers] Home Assistant refused trigger "timers": Unauthorized` and the timers are still read, but only every `poll_seconds`. Either way the app also polls each entity with `GET /api/states/<entity_id>` every `poll_seconds` (30 by default, so a timer can take up to that long to show), starting a few seconds after the app does. A failing HA is retried after twice the interval, then four times, up to an hour, and the last good timers are kept meanwhile. Problems are logged once, with a `[timers]` prefix, and never contain the URL or the token. The **Refresh calendars** button, the `refresh` command and `POST /api/refresh` read the timers again too.
+- **What shows.** Each timer is shown as running (counting down), paused (held at the time left) or ringing (a speaker is going off now). Ringing timers come first, then ones that have finished, then running ones by how soon they end, then paused ones.
+- **Done.** A source drops a timer as soon as it is over, so the app can't see it end. If a running timer disappears at its end time (or within 3 seconds before it), the app knows it ran out, and keeps it on the wall as **Done** for `done_seconds` after the end time, then takes it down. One that disappears earlier was cancelled and goes at once, and so does one that was ringing: it was dismissed. `done_seconds: 0` shows no Done at all.
+
+### Source 1: Google Nest speakers
+
+Google gives no official way to read a speaker's timers, but the [ha-google-home](https://github.com/leikoilja/ha-google-home) custom integration does. Install it from HACS and sign in. It adds a `sensor.<speaker>_timers` entity for each speaker, whose attributes list that speaker's timers (with their label, end time and whether they are set, paused or ringing). Put those entities in `timers.entities`.
+
+- It polls the speakers every 15 seconds by default (you can change that in the integration's options), so a timer you set by voice reaches HA, and so the wall, within about that long.
+- It can only read timers and delete them. It cannot create one, so you can't start a timer from HA with it.
+- It relies on an unofficial local API of the speaker and on a Google account login, so a change on Google's side may break it. If the sensor shows `unavailable`, check its page in HA first: the wall shows no timers for an entity that isn't available.
+
+### Source 2: a `timer` helper
+
+A `timer.*` helper is a countdown that HA keeps itself. Create one under Settings → Devices & services → Helpers → Create helper → Timer, and give it a name such as "Pasta": its entity is `timer.pasta`, and the name is what the wall shows. A running helper counts to its `finishes_at`, and a paused one is held at the time it has left.
+
+The wall only shows a helper; starting one is up to you. For an HA Voice device, an Assist sentence can start it:
+
+```yaml
+- alias: Kitchen timer by voice
+  triggers:
+    - trigger: conversation
+      command: "set the kitchen timer for {minutes} minutes"
+  actions:
+    - action: timer.start
+      target:
+        entity_id: timer.pasta
+      data:
+        duration:
+          minutes: "{{ trigger.slots.minutes }}"
+    - set_conversation_response: "Kitchen timer set for {{ trigger.slots.minutes }} minutes."
+```
+
+and when it runs out, an automation can say so on a speaker:
+
+```yaml
+- alias: Kitchen timer finished
+  triggers:
+    - trigger: event
+      event_type: timer.finished
+      event_data:
+        entity_id: timer.pasta
+  actions:
+    - action: tts.speak
+      target:
+        entity_id: tts.home_assistant_cloud
+      data:
+        media_player_entity_id: media_player.kitchen_speaker
+        message: "The kitchen timer has finished."
+```
+
+Assist's own built-in timers ("set a timer for ten minutes" with no automation) have no entity in HA yet, so the wall can't show them directly. The sentence above is the way round: it starts a helper that the wall does show.
+
 ## Doorbell camera
 
 The wall can show a camera's live feed over whatever it is showing when something happens in HA, such as the doorbell ringing, then put the view back by itself. The app listens to HA directly, so there is no automation to write in HA and MQTT is not needed. Two blocks in the config do it: `cameras`, the feeds, and `triggers`, what to listen for and what to do.
@@ -615,6 +687,8 @@ If `remote.pin` is set, the remote asks for it once and keeps it in that browser
 | "Month shown" or "Week shown" goes back by itself | A month or week picked on the remote or from HA reverts to the current one after `month_return_minutes` (15 by default, set per display, and the same time for both). |
 | No weather on the wall | The config has a `weather` block (and a `homeassistant` block). `GET /api/weather` is not `null`; if it is, `docker compose logs calendar-app` has a `[weather]` line with the reason. HA refusing the token, no such entity, or an entity with no daily forecast are the usual ones. |
 | No alarm on the night view | The display has `night_text: next_alarm`, and the config has an `alarm` block (and a `homeassistant` block). The entity's state in Developer tools → States is a time, not `unknown`; the time is within the next 24 hours. If it is, `docker compose logs calendar-app` has an `[alarm]` line with the reason, such as HA refusing the token or no such entity. |
+| No timers on the wall | The config has a `timers` block (and a `homeassistant` block), and the display is in the entity's `displays` (or it has none). The entity's attributes in Developer tools → States list the timer (`timers` for a speaker's sensor) and its state isn't `unavailable`. `docker compose logs calendar-app` has `[timers]` lines with the reason, such as HA refusing the token or no such entity, or saying an entity has no timers to read. |
+| Timers appear late | The WebSocket needs an administrator's token (`[timers] Home Assistant refused trigger`), without it they come every `poll_seconds`. A speaker's sensor is itself only updated every 15 seconds by default, in the Google Home integration's options. |
 | The Webpage card is blank | See the caveats above: HTTPS, or you are away from home. |
 
 To remove the device on purpose, delete it in HA and set `discovery: false`, or the app will bring it back at its next start. Or clear each retained config as in the table.

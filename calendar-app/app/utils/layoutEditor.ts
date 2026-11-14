@@ -343,8 +343,9 @@ export function photoFeedOptions(feeds: readonly PhotoFeedChoice[], current: str
   // "Default" rather than "The display's choice", which a phone cuts short; the hint under the options says what it means.
   const options: PhotoFeedOption[] = [{ value: null, label: 'Default' }]
   for (const feed of feeds) {
-    const source = PHOTO_SOURCE_NAMES[feed.source]
-    options.push({ value: feed.id, label: feed.name === source ? feed.name : `${feed.name} (${source})` })
+    // A pool (no single source) says so; a feed named for its source says just that.
+    const source = feed.source ? PHOTO_SOURCE_NAMES[feed.source] : 'pool'
+    options.push({ value: feed.id, label: !feed.source || feed.name !== source ? `${feed.name} (${source})` : feed.name })
   }
   if (current && !feeds.some(feed => feed.id === current)) options.push({ value: current, label: `${current} (not set up)` })
   return options

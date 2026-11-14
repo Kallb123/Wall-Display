@@ -238,6 +238,24 @@ describe('photosStatus', () => {
     })
   })
 
+  it('appends the pools to the feeds, and shows no provider that was made for a pool\'s source', () => {
+    const status = photosStatus({
+      config,
+      status: { providers: [...running.providers, { id: '~0123456789abcdef', source: 'unsplash' as const, name: 'Unsplash "lakes"', photos: 30, cached: 0, last_success_at: null, last_error: null }], cache_bytes: 0 },
+      pools: [{ id: 'holiday', name: 'Holiday' }, { id: 'pets', name: 'Pets' }],
+    })
+
+    expect(status).toMatchObject({
+      feeds: [
+        { id: 'immich', name: 'Immich', source: 'immich' },
+        { id: 'local', name: 'Local folder', source: 'local' },
+        { id: 'holiday', name: 'Holiday', source: null, pool: true },
+        { id: 'pets', name: 'Pets', source: null, pool: true },
+      ],
+    })
+    expect((status as { providers: { id: string }[] }).providers.map(provider => provider.id)).toEqual(['immich', 'local'])
+  })
+
   it('lists Unsplash and the feeds, each with its own name, source and what it asks for, and never a key', () => {
     const unsplash = { access_key: 'unsplash-SECRET-key', query: 'landscape', content_filter: 'high' as const, count: 60, pick: 'random' as const, refresh_minutes: 60 }
     const feeds = [

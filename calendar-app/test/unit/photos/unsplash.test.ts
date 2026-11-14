@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { createUnsplashProvider, imageUrl } from '../../../server/photos/unsplash'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createUnsplashProvider, imageUrl, resetUnsplashBudgets } from '../../../server/photos/unsplash'
 import type { UnsplashProviderOptions } from '../../../server/photos/unsplash'
 import { PhotoProviderError } from '../../../server/photos/types'
 
 // The Unsplash provider against a fake `fetch`: nothing here reaches a network.
 // The fake keeps a record of every call, so the tests can say what was sent
 // where, and above all that the key went to api.unsplash.com and nowhere else.
+
+// The request budget is kept per access key for the whole process, and every test here uses one key.
+beforeEach(resetUnsplashBudgets)
 
 const KEY = 'unsplash-key-0123456789-SECRET'
 type Settings = Parameters<typeof createUnsplashProvider>[0]
@@ -660,6 +663,25 @@ describe('download pings and the request limit', () => {
       expect(line).not.toContain(KEY)
       expect(line).not.toMatch(/https?:/)
     }
+  })
+
+  it('shares the budget between providers with the same key, and not with another key', async () => {
+    // Only the first provider is told how much is left; the others get answers without the header.
+    const told = budget(5)
+    const silent = budget(null)
+    const first = provider({ pick: 'fixed' }, told.handler, { id: '~one' })
+    const same = provider({ pick: 'fixed', query: 'lakes' }, silent.handler, { id: '~two' })
+    const another = provider({ pick: 'fixed', access_key: 'another-key' }, silent.handler, { id: '~three' })
+    await first.provider.list()
+    await same.provider.list()
+    await another.provider.list()
+
+    await same.provider.fetch('p0')
+    await another.provider.fetch('p0')
+    await settle()
+
+    expect(pings(same.calls)).toEqual([])
+    expect(pings(another.calls)).toEqual(['/photos/p0/download'])
   })
 
   it('learns the budget from the answer to a ping too', async () => {

@@ -366,6 +366,8 @@ photos:
   # (what a feed leaves out is what that block says); a local feed has a folder
   # of its own. Give each exactly one of unsplash, immich or local. An id is
   # lower case letters, digits, - and _, and is not the name of a source.
+  # To mix several sources (Unsplash searches, Immich albums, these feeds) into
+  # one, make a pool on the settings page's Photos tab instead: no YAML needed.
   feeds:
     - id: mountains
       name: Mountains # shown on the settings page and in the layout editor; default: the id

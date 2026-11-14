@@ -1,4 +1,5 @@
 import type { PhotosSettingsStatus } from '../../../../shared/settings'
+import { getPhotoPools } from '../../../photoPools/state'
 import { photosStatus } from '../../../settings/status'
 
 // Lists every photo source again now, which is "Refresh now" on the Photos tab,
@@ -12,5 +13,5 @@ export default defineEventHandler(async (): Promise<PhotosSettingsStatus> => {
   if (!photos || !config) throw createError({ statusCode: 409, statusMessage: 'Conflict', message: 'Photos are not set up: add a photos block to the config' })
 
   await photos.refresh({ force: true })
-  return photosStatus({ config, status: photos.status() })
+  return photosStatus({ config, status: photos.status(), pools: getPhotoPools()?.get() ?? [] })
 })

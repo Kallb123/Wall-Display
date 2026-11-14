@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { UnsplashConfig } from '../config/schema'
 import { discard, errorCode } from '../sources/http'
@@ -32,6 +33,10 @@ import type { PhotoListing, PhotoProvider } from './types'
 // page, which gives the same photos until they change on Unsplash) or `random`
 // (each listing asks `/photos/random`, which gives new photos every time; the
 // ones shown lately stay in the pool, as Immich's random mode does).
+//
+// The hourly limit belongs to the access key, not to a provider: a pool can run
+// several searches on one key. So what the API last said is left is kept per key
+// (see `budgetFor`) and shared by every provider using it.
 
 export interface UnsplashProviderOptions {
   /** The feed id this provider is. Default: `unsplash`, the source's own. */
@@ -76,6 +81,32 @@ const MAX_CREDIT_NAME = 80
 const PATH_ID = /^[A-Za-z0-9_-]{1,64}$/
 /** The id of a photo: what Unsplash uses in its own addresses. */
 const PHOTO_ID = /^[A-Za-z0-9_-]{1,64}$/
+
+/** What the API last said about a key's hourly budget, shared by every provider that uses the key. */
+interface Budget {
+  /** The requests left this hour as the last answer from the API said, or null before any has. */
+  remaining: number | null
+  /** Whether download pings are being skipped, so that it is only logged when that starts or stops. */
+  skipping: boolean
+}
+
+const budgets = new Map<string, Budget>()
+
+/** The budget of an access key. Keyed by a hash, so the key itself is not held as a map key. */
+function budgetFor(accessKey: string): Budget {
+  const key = createHash('sha256').update(accessKey).digest('hex')
+  let budget = budgets.get(key)
+  if (!budget) {
+    budget = { remaining: null, skipping: false }
+    budgets.set(key, budget)
+  }
+  return budget
+}
+
+/** Forgets every key's budget. For tests. */
+export function resetUnsplashBudgets(): void {
+  budgets.clear()
+}
 
 const GONE = 'That photo is no longer on Unsplash'
 
@@ -181,10 +212,7 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
   const known = new Map<string, Entry>()
   /** Photos shown from earlier random listings, oldest first. */
   const shown = new Map<string, Entry>()
-  /** The requests left this hour as the last answer from the API said, or null before any has. */
-  let remaining: number | null = null
-  /** Whether download pings are being skipped, so that it is only logged when that starts or stops. */
-  let skipping = false
+  const budget = budgetFor(settings.access_key)
   /** The photos already reported as used since the server started: once each is what Unsplash asks. */
   const reported = new Set<string>()
 
@@ -217,9 +245,9 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
   }
 
   function setRemaining(left: number): void {
-    remaining = left
-    if (skipping && left >= RESERVE) {
-      skipping = false
+    budget.remaining = left
+    if (budget.skipping && left >= RESERVE) {
+      budget.skipping = false
       log.info(`[photos] ${feedId}: Unsplash has requests to spare again, so photos shown are reported to it again`)
     }
   }
@@ -420,9 +448,9 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
    */
   function report(id: string, download: string | null): void {
     if (!download || reported.has(id)) return
-    if (remaining !== null && remaining < RESERVE) {
-      if (!skipping) {
-        skipping = true
+    if (budget.remaining !== null && budget.remaining < RESERVE) {
+      if (!budget.skipping) {
+        budget.skipping = true
         log.info(`[photos] ${feedId}: Unsplash's request limit is nearly used up, so photos shown are not reported to it until there is room again`)
       }
       return

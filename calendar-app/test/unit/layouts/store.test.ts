@@ -283,6 +283,18 @@ describe('configuredFeedIds and photoFeedRefusal', () => {
     expect(photoFeedRefusal(undefined, undefined)).toBeNull()
   })
 
+  it('lists the photo pools after the feeds, but only when there is a photos block', () => {
+    expect(configuredFeedIds(photos, ['evening-pool'])).toEqual(['immich', 'unsplash', 'mountains', 'garden', 'evening-pool'])
+    expect(configuredFeedIds(undefined, ['evening-pool'])).toEqual([])
+  })
+
+  it('accepts a pool, and says which pools there are when refusing', () => {
+    expect(photoFeedRefusal('evening-pool', photos, ['evening-pool'])).toBeNull()
+    expect(photoFeedRefusal('evening-pool', photos)).toContain('use immich, unsplash, mountains, garden')
+    expect(photoFeedRefusal('evening-pool', photos, ['other'])).toContain('mountains, garden, other')
+    expect(photoFeedRefusal('evening-pool', undefined, ['evening-pool'])).toContain('there is no photos block')
+  })
+
   it('refuses any other, listing the ones there are', () => {
     expect(photoFeedRefusal('local', photos)).toContain('use immich, unsplash, mountains, garden')
     expect(photoFeedRefusal('local', undefined)).toContain('there is no photos block')

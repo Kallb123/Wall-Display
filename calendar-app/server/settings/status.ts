@@ -1,4 +1,5 @@
 import type { DisplayState, SocketRole } from '../../shared/display'
+import type { PhotoPool } from '../../shared/photoPools'
 import type { CalendarStatus, ConnectionsStatus, DisplayStatus, MqttLinkState, PhotoProviderSettings, PhotosSettingsStatus, SettingsPerson } from '../../shared/settings'
 import type { AppConfig, CalendarConfig, DisplayConfig, MqttConfig, PhotosConfig, UnsplashConfig } from '../config/schema'
 import type { Db } from '../db/client'
@@ -126,6 +127,8 @@ export interface PhotosStatusArgs {
   config: Pick<PhotosConfig, 'interval_seconds' | 'match_orientation' | 'landscape_only' | 'cache_max_mb' | 'immich' | 'google' | 'local' | 'unsplash' | 'feeds'> | undefined
   /** The photo service's status, or undefined when it isn't running. */
   status: ReturnType<PhotoService['status']> | undefined
+  /** The photo pools people have made, which a layout can pick as a feed. Default: none. */
+  pools?: readonly Pick<PhotoPool, 'id' | 'name'>[]
 }
 
 /** `host:port` of an address, and nothing else: no scheme, path, query or credentials. Null for something that isn't an address. */
@@ -159,12 +162,14 @@ function unsplashWhere(settings: Pick<UnsplashConfig, 'query' | 'collections' | 
  * the cache against its cap, and the rotation settings. A feed is described by
  * the fields chosen here (Immich's mode and host, the folder's path, what
  * Unsplash is asked for), so the API keys and any other part of the Immich
- * address stay in the config. A feed with no status yet (the service starts
- * after the config is read) shows zeros.
+ * address stay in the config. The pools people made follow the feeds as feeds
+ * of their own (no source, `pool: true`), so a layout can pick them. A feed
+ * with no status yet (the service starts after the config is read) shows zeros.
  */
-export function photosStatus({ config, status }: PhotosStatusArgs): PhotosSettingsStatus {
+export function photosStatus({ config, status, pools = [] }: PhotosStatusArgs): PhotosSettingsStatus {
   if (!config) return { configured: false }
 
+  // Only the feeds the config sets up are listed: the providers run for a pool's own sources (`~…`) are shown with the pool.
   const running = new Map((status?.providers ?? []).map(provider => [provider.id, provider]))
   const feeds = photoFeedsOf(config)
   const providers: PhotoProviderSettings[] = feeds.map((feed) => {
@@ -184,7 +189,7 @@ export function photosStatus({ config, status }: PhotosStatusArgs): PhotosSettin
 
   return {
     configured: true,
-    feeds: feeds.map(({ id, name, source }) => ({ id, name, source })),
+    feeds: [...feeds.map(({ id, name, source }) => ({ id, name, source })), ...pools.map(({ id, name }) => ({ id, name, source: null, pool: true as const }))],
     interval_seconds: config.interval_seconds,
     // `landscape_only` is the older name of the same switch.
     match_orientation: config.match_orientation || config.landscape_only,

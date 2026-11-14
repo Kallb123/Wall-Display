@@ -7,6 +7,7 @@
 
 import type { DisplayState, NextAlarm } from '../../shared/display'
 import type { CustomLayout } from '../../shared/layouts'
+import type { PhotoPool } from '../../shared/photoPools'
 import type { StarChart } from '../../shared/stars'
 import type { SpecialDaysResolution } from '../../shared/special-days'
 import type { WeatherSnapshot } from '../../shared/weather'
@@ -29,6 +30,8 @@ export interface BusEvents {
   'alarm.updated': { alarm: NextAlarm }
   /** The custom layouts changed (PR 5.17). `layouts` is the whole new library, by name. */
   'layouts.updated': { layouts: CustomLayout[] }
+  /** The photo pools made on the Photos tab changed: one was added, edited or deleted. `pools` is the whole new list. */
+  'photo_pools.updated': { pools: PhotoPool[] }
   /** The star chart changed (PR 5.20): a star was added or taken away, or someone's chart was switched or set up. `stars` is the whole new chart. */
   'stars.updated': { stars: StarChart }
   /**

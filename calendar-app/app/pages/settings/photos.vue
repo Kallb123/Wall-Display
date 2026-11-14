@@ -2,6 +2,7 @@
 import { Cloud, FolderOpen, Images, RefreshCw, WifiOff } from 'lucide-vue-next'
 import type { PhotoSource } from '../../../shared/display'
 import type { PhotosSettingsStatus } from '../../../shared/settings'
+import PhotoPoolsSection from '~/components/photos/PhotoPoolsSection.vue'
 import { requestFailure } from '~/utils/remote'
 import {
   SERVER_UNREACHABLE,
@@ -17,10 +18,12 @@ import {
 
 // The Photos tab (architecture §7.6): where the photo frame's pictures come
 // from and how each source is doing, how full the cache is against its cap,
-// and how the rotation is set. Read-only: the sources and the rotation are
-// set in the config, and no secret is sent here. It reads what the server
-// reports and asks again every 15 seconds while the tab is open. "Refresh now"
-// lists every source again, and is the one write.
+// and how the rotation is set. The sources and the rotation are set in the
+// config, and no secret is sent here. It reads what the server reports and asks
+// again every 15 seconds while the tab is open. "Refresh now" lists every
+// source again. Under the cache, "Your pools" is where a person mixes sources
+// into pools of their own (PhotoPoolsSection), which a layout's photo pane can
+// show; those are the writes on this tab.
 
 useHead({ title: 'Photos · Settings' })
 
@@ -143,6 +146,8 @@ function lastListingTitle(success: string | null): string | undefined {
           </div>
         </dl>
       </SettingsCard>
+
+      <PhotoPoolsSection />
 
       <p v-if="configured.providers.length === 0" class="empty small" data-testid="no-providers">
         No photo source is available: set up an Immich server, a local folder or Unsplash in the config.

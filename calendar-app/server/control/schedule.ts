@@ -15,7 +15,7 @@ import type { DisplayControl } from './service'
 // timers and a fake or real control.
 
 /** The part of a schedule's config the policy reads. */
-export type PolicySchedule = Pick<ScheduleConfig, 'id' | 'name'> & { rules: readonly Pick<ScheduleRule, 'view' | 'layout' | 'from' | 'to' | 'days'>[] }
+export type PolicySchedule = Pick<ScheduleConfig, 'id' | 'name'> & { rules: readonly Pick<ScheduleRule, 'view' | 'layout' | 'photo_feed' | 'from' | 'to' | 'days'>[] }
 
 type PolicyRule = PolicySchedule['rules'][number]
 
@@ -233,7 +233,7 @@ export function createSchedulePolicy(options: SchedulePolicyOptions): SchedulePo
             continue
           }
           const command: ControlCommand = boundary.kind === 'start'
-            ? { type: 'schedule_start', schedule: schedule.id, rule: boundary.ruleIndex, view: rule.view, ...(rule.layout !== undefined && { layout: rule.layout }) }
+            ? { type: 'schedule_start', schedule: schedule.id, rule: boundary.ruleIndex, view: rule.view, ...(rule.layout !== undefined && { layout: rule.layout }), ...(rule.photo_feed !== undefined && { photo_feed: rule.photo_feed }) }
             : { type: 'schedule_end', schedule: schedule.id, rule: boundary.ruleIndex }
           send(display.id, schedule, rule, command, schedule.id)
         }

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { WEEK_VIEWS, layoutIdSchema, showsPhotos } from './display'
 import type { View } from './display'
+import { photoFeedIdSchema } from './photos'
 
 // Custom layouts (PR 5.17): the view components a user arranges into rows and
 // panes, kept in a shared library and shown by the `custom` view. This is the
@@ -180,10 +181,17 @@ export interface CustomLayoutInput {
   portrait: LayoutArrangement
   /** Only the options that differ from the defaults are kept. A body without it means none. */
   options: LayoutOptions
+  /**
+   * The photo feed a photo pane draws from (a source such as `unsplash`, or one of the config's `photos.feeds`), or null for the display's own choice. It is only
+   * meaningful with a photo pane: a layout without one is stored with null, whatever was sent. A body without it means null.
+   */
+  photo_feed?: string | null
 }
 
 /** A layout as stored and served. */
 export interface CustomLayout extends CustomLayoutInput {
+  /** Always present once stored: null when the layout leaves the feed to the display. */
+  photo_feed: string | null
   id: string
   /** ISO 8601 instants. */
   created_at: string
@@ -195,6 +203,8 @@ export interface LayoutSummary {
   id: string
   name: string
   components: LayoutComponent[]
+  /** The photo feed the layout's photo pane draws from, or null for the display's own choice. */
+  photo_feed: string | null
 }
 
 const size = z.number()
@@ -279,6 +289,8 @@ const inputShape = {
   portrait: arrangementSchema,
   // Optional in what is sent, so a client from before the options still works; always there once parsed.
   options: optionsSchema.default({}),
+  // Optional and nullable in what is sent, so a client from before photo feeds still works; always there (null or a feed) once parsed.
+  photo_feed: photoFeedIdSchema.nullable().optional().transform(feed => feed ?? null),
 }
 
 /** Every component of an arrangement, in the order they are drawn (rows top to bottom, panes left to right). */
@@ -371,7 +383,17 @@ export function layoutDayGrids(layout: CustomLayoutInput | LayoutArrangement): D
 
 /** What the control service and the clients' view helpers need of a layout. Cheap, so call it where it is needed. */
 export function layoutSummary(layout: CustomLayoutInput & { id: string }): LayoutSummary {
-  return { id: layout.id, name: layout.name, components: layoutComponents(layout) }
+  return { id: layout.id, name: layout.name, components: layoutComponents(layout), photo_feed: layout.photo_feed ?? null }
+}
+
+/**
+ * The photo feed to keep for a layout: what it names, or null for the display's
+ * own choice, and always null when the layout has no photo pane, because a feed
+ * means nothing without one. A layout that loses its photo pane on an edit
+ * therefore loses its feed quietly, rather than the save being refused.
+ */
+export function layoutPhotoFeed(layout: CustomLayoutInput): string | null {
+  return layoutComponents(layout).includes('photo') ? layout.photo_feed ?? null : null
 }
 
 /** Anything that knows its components: a summary, or a whole layout through `layoutSummary`. */

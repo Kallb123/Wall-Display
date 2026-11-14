@@ -143,6 +143,23 @@ export const scheduleIdSchema = z.string().regex(SCHEDULE_ID_PATTERN, 'must be l
 export const LAYOUT_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 export const layoutIdSchema = z.string().max(64, 'must be at most 64 characters').regex(LAYOUT_ID_PATTERN, 'must be lowercase letters, digits and hyphens, starting with a letter or digit')
 
+/** The longest photo feed id. */
+export const MAX_PHOTO_FEED_ID = 40
+
+/**
+ * A reference to a photo feed: a source's own (`immich`, `local`, `unsplash`)
+ * or the id of one of the config's `photos.feeds`. Lower case letters, digits,
+ * `-` and `_`, starting with a letter or digit. Whether it names a feed that is
+ * set up is checked against the config, not here. It lives here, beside
+ * `layoutIdSchema`, because the schedule window names a feed and shared/photos.ts
+ * imports this file.
+ */
+export const photoFeedIdSchema = z.string()
+  .trim()
+  .min(1, 'must not be empty')
+  .max(MAX_PHOTO_FEED_ID, `must be at most ${MAX_PHOTO_FEED_ID} characters`)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lower case letters, digits, - and _ (like "mountains")')
+
 /** A month as `YYYY-MM`. */
 export type MonthKey = string
 
@@ -197,7 +214,8 @@ export const cameraStateSchema = z.strictObject({
  * The schedule window that put the view on the wall (PR 5.4, architecture §7.8):
  * the schedule's id, the rule's index in its `rules`, the view the rule shows,
  * and the view to go back to when the window ends. For a custom view it also
- * holds the layout the rule put up and the layout to go back to (PR 5.17). It is null when no window
+ * holds the layout the rule put up and the layout to go back to (PR 5.17), and
+ * any photo feed the rule asks for. It is null when no window
  * is in charge, and goes as soon as the view changes to anything else, so a
  * view chosen by hand is never undone.
  */
@@ -210,6 +228,8 @@ export const scheduleWindowSchema = z.strictObject({
   layout: layoutIdSchema.nullable().default(null),
   /** The state's `layout` from before the window, which the end puts back. */
   return_layout: layoutIdSchema.nullable().default(null),
+  /** The photo feed the rule asked for while the window is in charge (a source such as unsplash, or a `photos.feeds` id), or null for none: the layout's, or the display's own, then decides. */
+  photo_feed: photoFeedIdSchema.nullable().default(null),
 })
 
 export const displayStateSchema = z.object({

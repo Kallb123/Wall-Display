@@ -39,6 +39,7 @@ const layout = (overrides: Partial<CustomLayout> = {}): CustomLayout => ({
   updated_at: '2026-10-01T09:00:00.000Z',
   ...overrides,
   options: overrides.options ?? {},
+  photo_feed: overrides.photo_feed ?? null,
 })
 
 const props = (device: 'portrait' | 'landscape', overrides: Partial<ViewProps> = {}): ViewProps => ({

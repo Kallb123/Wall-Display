@@ -262,6 +262,7 @@ describe('CustomLayoutView with a days pane', () => {
     landscape: { rows: [{ size: 1, panes: [{ component: 'days', size: 1, grid: grid({ rows: 3, columns: 5 }) }] }] },
     portrait: { rows: [{ size: 1, panes: [{ component: 'days', size: 1, grid: grid({ rows: 5, columns: 2 }) }] }] },
     options: {},
+    photo_feed: null,
     created_at: '2026-10-01T09:00:00.000Z',
     updated_at: '2026-10-01T09:00:00.000Z',
   })

@@ -774,9 +774,9 @@ describe('set_schedule', () => {
 
 // PR 5.17: the custom view and the layouts it shows.
 describe('custom layouts', () => {
-  const kitchen: LayoutSummary = { id: 'kitchen', name: 'Kitchen', components: ['week', 'agenda'] }
-  const board: LayoutSummary = { id: 'board', name: 'Board', components: ['month', 'photo'] }
-  const slides: LayoutSummary = { id: 'slides', name: 'Slides', components: ['photo'] }
+  const kitchen: LayoutSummary = { id: 'kitchen', name: 'Kitchen', components: ['week', 'agenda'], photo_feed: null }
+  const board: LayoutSummary = { id: 'board', name: 'Board', components: ['month', 'photo'], photo_feed: null }
+  const slides: LayoutSummary = { id: 'slides', name: 'Slides', components: ['photo'], photo_feed: null }
   // By name, as the layouts service lists them: Board, Kitchen, Slides.
   const layouts = [board, kitchen, slides]
   const withLayouts = (list: LayoutSummary[] = layouts, photos = true) => ctx(NOW, RETURN_MINUTES, 'monday', photos, list)
@@ -997,6 +997,21 @@ describe('custom layouts', () => {
 
     it('keeps the window when the same layout is chosen again', () => {
       expect(play(state({ view: 'agenda' }), start('custom', 'kitchen'), { type: 'set_layout', layout: 'kitchen' }).schedule).not.toBeNull()
+    })
+
+    it('carries the rule\'s photo feed on the window, and null when it names none', () => {
+      const withFeed: ControlCommand = { type: 'schedule_start', schedule: 'evenings', rule: 0, view: 'photo', photo_feed: 'mountains' }
+
+      expect(play(state({ view: 'month' }), withFeed).schedule).toMatchObject({ photo_feed: 'mountains' })
+      expect(play(state({ view: 'month' }), start('photo')).schedule).toMatchObject({ photo_feed: null })
+      expect(play(state({ view: 'month' }), withFeed, end).schedule).toBeNull()
+    })
+
+    it('opens a window for a feed even when the wall is already on that view, so the feed applies', () => {
+      const withFeed: ControlCommand = { type: 'schedule_start', schedule: 'evenings', rule: 0, view: 'photo', photo_feed: 'mountains' }
+
+      expect(play(state({ view: 'photo' }), withFeed)).toMatchObject({ view: 'photo', schedule: { photo_feed: 'mountains', return_view: 'photo' } })
+      expect(play(state({ view: 'photo' }), start('photo')).schedule).toBeNull()
     })
 
     it('records no layout for a window on a built-in view', () => {

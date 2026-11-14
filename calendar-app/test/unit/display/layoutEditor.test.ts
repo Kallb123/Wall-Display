@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
 import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
-import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, toggleComponent, paneCornerDisabled, PANE_CORNER_LABELS } from '../../../app/utils/layoutEditor'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, photoFeedOptions, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, setPhotoFeed, toggleComponent, paneCornerDisabled, PANE_CORNER_LABELS } from '../../../app/utils/layoutEditor'
 
 const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
@@ -244,6 +244,53 @@ describe('resetPortrait', () => {
     const input: CustomLayoutInput = { name: 'x', landscape: arrangement([1, ['photo', 1], ['week', 3]]), portrait: arrangement([1, ['week', 1], ['photo', 1]]) }
 
     expect(resetPortrait(input).portrait).toEqual(arrangement([1, ['photo', 1]], [3, ['week', 1]]))
+  })
+})
+
+describe('the photo feed', () => {
+  const withPhoto = () => toggleComponent(newLayoutInput('x'), 'photo', true)
+
+  it('starts as the display\'s choice, and inputOf carries a saved one', () => {
+    expect(newLayoutInput().photo_feed).toBeNull()
+    const saved = { ...withPhoto(), photo_feed: 'mountains', id: 'x', created_at: '', updated_at: '' }
+    expect(inputOf({ ...saved, photo_feed: 'mountains' }).photo_feed).toBe('mountains')
+    expect(sameInput(inputOf(saved), withPhoto())).toBe(false)
+  })
+
+  it('is set only on a layout with a photo pane, handing back the same input when nothing changes', () => {
+    const input = withPhoto()
+    const chosen = setPhotoFeed(input, 'mountains')
+
+    valid(chosen)
+    expect(chosen.photo_feed).toBe('mountains')
+    expect(setPhotoFeed(chosen, 'mountains')).toBe(chosen)
+    expect(setPhotoFeed(chosen, null).photo_feed).toBeNull()
+    expect(setPhotoFeed(input, null)).toBe(input)
+    const plain = newLayoutInput('x')
+    expect(setPhotoFeed(plain, 'mountains')).toBe(plain)
+  })
+
+  it('goes when the photo pane does', () => {
+    expect(toggleComponent(setPhotoFeed(withPhoto(), 'mountains'), 'photo', false).photo_feed).toBeNull()
+    expect(toggleComponent(setPhotoFeed(withPhoto(), 'mountains'), 'agenda', false).photo_feed).toBe('mountains')
+  })
+
+  it('offers the display\'s choice, then each feed named with its source when the name differs', () => {
+    const feeds = [
+      { id: 'immich', name: 'Immich', source: 'immich' as const },
+      { id: 'mountains', name: 'Mountains', source: 'unsplash' as const },
+    ]
+
+    expect(photoFeedOptions(feeds, null)).toEqual([
+      { value: null, label: 'The display\'s choice' },
+      { value: 'immich', label: 'Immich' },
+      { value: 'mountains', label: 'Mountains (Unsplash)' },
+    ])
+  })
+
+  it('keeps a saved feed that is not in the list on offer, as not set up', () => {
+    expect(photoFeedOptions([], 'gone').at(-1)).toEqual({ value: 'gone', label: 'gone (not set up)' })
+    expect(photoFeedOptions([], null)).toHaveLength(1)
   })
 })
 

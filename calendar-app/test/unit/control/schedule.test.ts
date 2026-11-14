@@ -650,6 +650,16 @@ describe('a window on a custom layout', () => {
     expect(applied[0]!.command).toEqual({ type: 'schedule_start', schedule: 'evenings', rule: 0, view: 'custom', layout: 'kitchen' })
   })
 
+  it('sends the rule\'s photo feed with the start, and none when the rule names none', () => {
+    const feed = schedule('daytime', [rule('10:00', '16:00', { view: 'photo', photo_feed: 'mountains' })])
+    const { applied, states } = setup({ schedules: [feed], state: { view: 'month' } })
+
+    advanceTo('2026-10-28T10:00:00Z')
+
+    expect(applied[0]!.command).toEqual({ type: 'schedule_start', schedule: 'daytime', rule: 0, view: 'photo', photo_feed: 'mountains' })
+    expect(states.get('hallway')).toMatchObject({ view: 'photo', schedule: { photo_feed: 'mountains' } })
+  })
+
   it('skips a rule whose layout does not exist, with a warning, and does not touch the wall', () => {
     const { view, applied, log } = setup({ schedules: [evenings], layouts: [], state: { view: 'week' } })
 

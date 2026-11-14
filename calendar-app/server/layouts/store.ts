@@ -1,5 +1,5 @@
 import { asc, eq, sql } from 'drizzle-orm'
-import { customLayoutSchema, MAX_LAYOUT_NAME } from '../../shared/layouts'
+import { customLayoutSchema, layoutPhotoFeed, MAX_LAYOUT_NAME } from '../../shared/layouts'
 import type { CustomLayout, CustomLayoutInput } from '../../shared/layouts'
 import type { Db } from '../db/client'
 import { customLayouts } from '../db/schema'
@@ -20,6 +20,7 @@ function toLayout(row: CustomLayoutRow): CustomLayout | null {
       landscape: JSON.parse(row.landscape),
       portrait: JSON.parse(row.portrait),
       options: JSON.parse(row.options),
+      photo_feed: row.photoFeed,
       created_at: row.createdAt.toISOString(),
       updated_at: row.updatedAt.toISOString(),
     })
@@ -60,6 +61,7 @@ export function createLayout(db: Db, input: CustomLayoutInput, now: Date): Custo
       landscape: JSON.stringify(input.landscape),
       portrait: JSON.stringify(input.portrait),
       options: JSON.stringify(input.options),
+      photoFeed: layoutPhotoFeed(input),
       createdAt: now,
       updatedAt: now,
     }).returning().get()
@@ -77,6 +79,7 @@ export function updateLayout(db: Db, id: string, input: CustomLayoutInput, now: 
       landscape: JSON.stringify(input.landscape),
       portrait: JSON.stringify(input.portrait),
       options: JSON.stringify(input.options),
+      photoFeed: layoutPhotoFeed(input),
       updatedAt: now,
     }).where(eq(customLayouts.id, id)).returning().get()
     return row ? toLayout(row) : null

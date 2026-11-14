@@ -363,6 +363,8 @@ describe('the layouts editor', () => {
     // The kitchen shows a photo and a week, and the photo is selected to begin with: its options are its overlays.
     expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_time', 'option-show_date', 'option-show_weather'])
 
+    expect(pressed('rounded_corners')).toBe('true')
+
     await wrapper.find('[data-testid="layout-editor"] [data-component="week"]').trigger('click')
     expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_title', 'option-show_hours', 'option-show_locations'])
     expect(wrapper.find('[data-testid="option-show_title"]').text()).toBe('Date title')

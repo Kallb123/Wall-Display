@@ -397,13 +397,13 @@ describe('pane options', () => {
   })
 
   it('knows which options each component has', () => {
-    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'weather_on_dates', 'show_locations'])
+    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'rounded_corners', 'weather_on_dates', 'show_locations'])
     expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates', 'show_locations'])
     for (const component of ['week_parts', 'agenda', 'days'] as const) expect(PANE_OPTIONS[component]).toContain('show_initials')
     expect(PANE_OPTIONS.week).not.toContain('show_initials')
     expect(DEFAULT_PANE_OPTIONS.show_initials).toBe(true)
     expect(PANE_OPTIONS.week).toEqual(['show_title', 'show_hours', 'weather_on_dates', 'show_locations'])
-    expect(PANE_OPTIONS.photo).toEqual(['show_time', 'show_date', 'show_weather'])
+    expect(PANE_OPTIONS.photo).toEqual(['show_time', 'show_date', 'show_weather', 'rounded_corners'])
     expect(Object.keys(PANE_OPTIONS)).toEqual([...LAYOUT_COMPONENTS])
     expect(PANE_CORNERS.photo).toEqual(['time_corner', 'date_corner'])
     for (const component of LAYOUT_COMPONENTS.filter(component => component !== 'photo')) expect(PANE_CORNERS[component]).toEqual([])
@@ -415,6 +415,16 @@ describe('pane options', () => {
     const options = { photo: { show_date: true, show_weather: false, time_corner: 'bottom-left', date_corner: 'bottom-left' } }
     expect(customLayoutInputSchema.parse(withOptions(options)).options).toEqual(options)
     expect(paneOptions(customLayoutInputSchema.parse(withOptions(options)), 'photo')).toMatchObject({ show_time: true, show_date: true, show_weather: false, time_corner: 'bottom-left', date_corner: 'bottom-left' })
+  })
+
+  it('rounds the photo pane\'s corners unless the layout says otherwise, and takes the option on a photo pane only', () => {
+    expect(DEFAULT_PANE_OPTIONS.rounded_corners).toBe(true)
+    expect(paneOptions(null, 'photo').rounded_corners).toBe(true)
+    const options = { photo: { rounded_corners: false } }
+    expect(customLayoutInputSchema.parse(withOptions(options)).options).toEqual(options)
+    expect(paneOptions(customLayoutInputSchema.parse(withOptions(options)), 'photo').rounded_corners).toBe(false)
+    expect(problem(withOptions({ photo: { rounded_corners: 'no' } }))).toBe('options.photo.rounded_corners: must be true or false')
+    expect(problem(withOptions({ week: { rounded_corners: false } }))).toBe('options.week.rounded_corners: must not be set on a week pane')
   })
 
   it('takes a corner for the photo frame\'s overlays, and only there', () => {

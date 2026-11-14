@@ -44,6 +44,7 @@ export function paneOptionLabel(component: LayoutComponent, key: PaneOptionKey):
     case 'show_time': return 'Time'
     case 'show_date': return 'Date'
     case 'show_weather': return 'Weather'
+    case 'rounded_corners': return 'Rounded corners'
     case 'weather_on_dates': return 'Weather on dates'
     case 'show_locations': return 'Locations'
   }

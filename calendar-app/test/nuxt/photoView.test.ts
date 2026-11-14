@@ -8,7 +8,7 @@ import { DEFAULT_PANE_OPTIONS } from '../../shared/layouts'
 import type { ResolvedPaneOptions } from '../../shared/layouts'
 import type { PhotoInfo } from '../../shared/photos'
 import type { CalendarEvent } from '../../shared/types/events'
-import type { WeatherSnapshot } from '../../shared/weather'
+import type { WeatherHour, WeatherSnapshot } from '../../shared/weather'
 
 // The photo frame view with the server pretended: `$fetch` answers
 // /api/photos/next from a queue the test controls, and `Image` is a stand-in
@@ -43,9 +43,22 @@ const C = photo('c')
 const weather: WeatherSnapshot = {
   current: { condition: 'rainy', temperature: 12.4 },
   daily: [{ date: '2026-10-28', condition: 'rainy', high: 14, low: 8 }],
+  hourly: [],
   temperature_unit: '°C',
   updated_at: NOW.toISOString(),
 }
+
+/** An hour of the hourly forecast, on 28 October (Europe/London is on GMT then, so local and UTC hours are the same). */
+const hour = (at: string, changes: Partial<WeatherHour> = {}): WeatherHour => ({
+  time: `2026-10-28T${at}:00:00.000Z`, condition: 'cloudy', temperature: 11, precipitation: 0, precipitation_probability: 10, ...changes,
+})
+const withHours = (hourly: WeatherHour[]): WeatherSnapshot => ({ ...weather, hourly })
+const HOURS: WeatherHour[] = [
+  hour('10', { condition: 'rainy', temperature: 10.4, precipitation: 1.2, precipitation_probability: 60 }),
+  hour('12', { condition: 'cloudy', temperature: 12.6, precipitation: 0, precipitation_probability: 0 }),
+  hour('15', { condition: 'sunny', temperature: 14, precipitation: null, precipitation_probability: null }),
+  hour('19', { condition: 'clear-night', temperature: 9, precipitation: 0.4, precipitation_probability: null }),
+]
 
 function event(changes: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -833,5 +846,88 @@ describe('the next event\'s calendar icon', () => {
     await view.update({ events: [event({ display_title: 'Dinner', icon: null })] })
 
     expect(view.wrapper.find('[data-testid="photo-next-title"]').text()).toBe('Dinner')
+  })
+})
+
+describe('today\'s forecast', () => {
+  const overlays = (options: Partial<ResolvedPaneOptions>, overrides: Partial<ViewProps> = {}): Partial<ViewProps> => ({
+    pane: true, weather: withHours(HOURS), paneOptions: { ...DEFAULT_PANE_OPTIONS, ...options }, ...overrides,
+  })
+  const parts = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.findAll('[data-testid="photo-forecast-part"]')
+
+  it('is off by default, as a pane and on the full-screen frame', async () => {
+    answers = [gives(A), gives(A)]
+    const pane = await open(overlays({}))
+    expect(pane.wrapper.find('[data-testid="photo-forecast"]').exists()).toBe(false)
+    const full = await open({ weather: withHours(HOURS) })
+    expect(full.wrapper.find('[data-testid="photo-forecast"]').exists()).toBe(false)
+  })
+
+  it('shows a column for each part still to come, with its icon, temperature and rain', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ show_forecast: true }))
+
+    expect(view.wrapper.find('[data-testid="photo-forecast"]').exists()).toBe(true)
+    expect(view.wrapper.find('[data-testid="photo-forecast-tomorrow"]').exists()).toBe(false)
+    expect(parts(view).map(part => part.attributes('data-part'))).toEqual(['morning', 'noon', 'afternoon', 'evening'])
+    const [morning, noon, afternoon, evening] = parts(view)
+    expect(morning!.text()).toContain('Morning')
+    expect(morning!.find('svg').exists()).toBe(true)
+    expect(morning!.find('[data-testid="photo-forecast-temp"]').text()).toBe('10°')
+    expect(morning!.find('[data-testid="photo-forecast-rain"]').text()).toBe('60%')
+    expect(morning!.find('[data-testid="photo-forecast-rain"]').classes()).not.toContain('dry')
+    expect(noon!.find('[data-testid="photo-forecast-temp"]').text()).toBe('13°')
+    expect(noon!.find('[data-testid="photo-forecast-rain"]').text()).toBe('0%')
+    expect(noon!.find('[data-testid="photo-forecast-rain"]').classes()).toContain('dry')
+    // Nothing known about the rain: no rain line at all.
+    expect(afternoon!.find('[data-testid="photo-forecast-rain"]').exists()).toBe(false)
+    expect(evening!.find('[data-testid="photo-forecast-rain"]').text()).toBe('0.4 mm')
+  })
+
+  it('leaves out the parts that are over', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ show_forecast: true }, { now: new Date('2026-10-28T15:10:00Z') }))
+
+    expect(parts(view).map(part => part.attributes('data-part'))).toEqual(['afternoon', 'evening'])
+  })
+
+  it('shows tomorrow\'s parts under a heading once the evening is over', async () => {
+    answers = [gives(A)]
+    const tomorrow = [hour('08', { condition: 'sunny', temperature: 8 }), hour('12', { condition: 'cloudy' })].map(h => ({ ...h, time: h.time.replace('10-28', '10-29') }))
+    const view = await open(overlays({ show_forecast: true }, { now: new Date('2026-10-28T22:30:00Z'), weather: withHours([...HOURS, ...tomorrow]) }))
+
+    expect(view.wrapper.find('[data-testid="photo-forecast-tomorrow"]').text()).toBe('Tomorrow')
+    expect(parts(view).map(part => part.attributes('data-part'))).toEqual(['morning', 'noon'])
+  })
+
+  it('shares the time\'s pill when they are in the same corner, the forecast last', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ show_forecast: true, show_date: true }, { photoCorner: 'top-right' }))
+
+    const pill = view.wrapper.findAll('[data-testid="photo-pill"]')
+    expect(pill).toHaveLength(1)
+    const order = ['photo-clock', 'photo-date', 'photo-forecast'].map(id => pill[0]!.html().indexOf(`data-testid="${id}"`))
+    expect(order.every(at => at >= 0)).toBe(true)
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+  })
+
+  it('has a pill of its own in the corner chosen for it', async () => {
+    answers = [gives(A)]
+    const view = await open(overlays({ show_forecast: true, forecast_corner: 'bottom-left' }, { photoCorner: 'top-left' }))
+
+    const pills = view.wrapper.findAll('[data-testid="photo-pill"]')
+    expect(pills.map(pill => pill.attributes('data-corner'))).toEqual(['top-left', 'bottom-left'])
+    expect(pills[1]!.find('[data-testid="photo-forecast"]').exists()).toBe(true)
+    expect(pills[1]!.find('[data-testid="photo-clock"]').exists()).toBe(false)
+  })
+
+  it('shows no forecast, and no pill for it, when there is no hourly forecast', async () => {
+    answers = [gives(A), gives(A)]
+    const view = await open(overlays({ show_forecast: true, forecast_corner: 'bottom-left' }, { weather: weather }))
+    expect(view.wrapper.find('[data-testid="photo-forecast"]').exists()).toBe(false)
+    expect(view.wrapper.findAll('[data-testid="photo-pill"]')).toHaveLength(1)
+
+    const noWeather = await open(overlays({ show_forecast: true, show_time: false, show_weather: false }, { weather: null }))
+    expect(noWeather.wrapper.findAll('[data-testid="photo-pill"]')).toHaveLength(0)
   })
 })

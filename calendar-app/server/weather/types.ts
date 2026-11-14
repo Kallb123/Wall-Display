@@ -12,6 +12,18 @@ export interface HaForecastEntry {
   templow: number | null
 }
 
+/** One hour of `weather.get_forecasts` with `type: hourly`. What an integration leaves out is null. */
+export interface HaHourlyEntry {
+  /** As Home Assistant writes it, normally an ISO 8601 instant. The mapper reads it. */
+  datetime: string
+  condition: string | null
+  temperature: number | null
+  /** Millimetres (or inches, for some units) expected in the hour. */
+  precipitation: number | null
+  /** The chance of rain, in per cent. */
+  precipitation_probability: number | null
+}
+
 /** The `weather` entity's state, its forecast, and the few attributes we use. */
 export interface HaWeather {
   /** The current condition, or `unavailable` or `unknown`. */
@@ -23,4 +35,6 @@ export interface HaWeather {
     temperature_unit: string | null
   }
   forecast: HaForecastEntry[]
+  /** Empty when the integration has no hourly forecast. */
+  hourly: HaHourlyEntry[]
 }

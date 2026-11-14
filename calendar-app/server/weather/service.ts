@@ -120,7 +120,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
     loggedError = null
     if (!reported) {
       reported = true
-      log.info(`[weather] ${snapshot.current.condition ?? 'no current condition'}, and a forecast for ${snapshot.daily.length} ${snapshot.daily.length === 1 ? 'day' : 'days'}`)
+      log.info(`[weather] ${snapshot.current.condition ?? 'no current condition'}, and a forecast for ${snapshot.daily.length} ${snapshot.daily.length === 1 ? 'day' : 'days'} and ${snapshot.hourly.length} ${snapshot.hourly.length === 1 ? 'hour' : 'hours'}`)
     }
     latest = snapshot
     schedule(intervalMs)

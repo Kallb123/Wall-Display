@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { addDays, todayIn, wallClockIn } from './dates'
 
 // The weather as the server hands it to the pages (PR 2.7): the current
 // conditions from a Home Assistant `weather` entity's state, and its daily
@@ -64,10 +65,27 @@ export const weatherCurrentSchema = z.object({
   temperature,
 })
 
+export const weatherHourSchema = z.object({
+  /** The start of the hour, as an ISO 8601 instant (it names a moment, not a wall-clock reading). */
+  time: z.iso.datetime({ offset: true }),
+  condition,
+  temperature,
+  /** Millimetres expected in the hour, or null when the integration doesn't say. */
+  precipitation: z.number().finite().nonnegative().nullable(),
+  /** The chance of rain in the hour, from 0 to 100, or null. */
+  precipitation_probability: z.number().finite().min(0).max(100).nullable(),
+})
+
 export const weatherSnapshotSchema = z.object({
   current: weatherCurrentSchema,
   /** One entry per day, in date order, no date twice. Starts at the forecast's first day, which may be before today. */
   daily: z.array(weatherDaySchema),
+  /**
+   * The hours still to come, in time order, no instant twice. Empty when the
+   * integration has no hourly forecast. The default keeps a snapshot that was
+   * cached on a wall before this field existed valid.
+   */
+  hourly: z.array(weatherHourSchema).default([]),
   /** As Home Assistant gives it (`°C`, `°F`), or null. The wall shows only `°`. */
   temperature_unit: z.string().nullable(),
   /** When the server last fetched it successfully, as an ISO 8601 instant. */
@@ -75,6 +93,7 @@ export const weatherSnapshotSchema = z.object({
 })
 
 export type WeatherDay = z.output<typeof weatherDaySchema>
+export type WeatherHour = z.output<typeof weatherHourSchema>
 export type WeatherCurrent = z.output<typeof weatherCurrentSchema>
 export type WeatherSnapshot = z.output<typeof weatherSnapshotSchema>
 
@@ -118,4 +137,124 @@ export function weatherLabel(value: WeatherCondition | null): string | null {
 /** The body of `GET /api/weather`: null when weather is off or nothing has been fetched yet. */
 export interface WeatherResponse {
   weather: WeatherSnapshot | null
+}
+
+/**
+ * The parts of the day the photo frame's forecast is split into, as local
+ * hours in the display's time zone: an hour belongs to the part whose
+ * `[from, to)` holds its hour. Nothing is shown for the night.
+ */
+export const FORECAST_PARTS = [
+  { id: 'morning', label: 'Morning', from: 6, to: 11 },
+  { id: 'noon', label: 'Noon', from: 11, to: 14 },
+  { id: 'afternoon', label: 'Afternoon', from: 14, to: 18 },
+  { id: 'evening', label: 'Evening', from: 18, to: 22 },
+] as const
+export type ForecastPartId = (typeof FORECAST_PARTS)[number]['id']
+
+export interface ForecastPart {
+  id: ForecastPartId
+  label: string
+  condition: WeatherCondition | null
+  /** Mean of the hours' temperatures, or null when none has one. */
+  temperature: number | null
+  /** Sum of the hours' precipitation in mm, or null when none has one. */
+  precipitation: number | null
+  /** Highest chance of rain among the hours, %, or null when none has one. */
+  precipitation_probability: number | null
+}
+
+export interface DayForecast {
+  /** `YYYY-MM-DD` in the display zone. */
+  date: string
+  /** True when today's parts are all over and these are tomorrow's. */
+  tomorrow: boolean
+  /** In order, only parts that are not over and have at least one hour of data. Never empty. */
+  parts: ForecastPart[]
+}
+
+const HOUR_MS = 60 * 60 * 1000
+
+/** The conditions from the most to the least severe: when two are equally common in a part, the first of them is shown. */
+const SEVERITY: readonly WeatherCondition[] = [
+  'lightning-rainy', 'hail', 'pouring', 'snowy-rainy', 'snowy', 'lightning', 'rainy',
+  'exceptional', 'fog', 'windy-variant', 'windy', 'cloudy', 'partlycloudy', 'sunny', 'clear-night',
+]
+
+/**
+ * The forecast by part of day for the wall, or null when there is nothing to
+ * show. Only the hours still to come count, so a part in progress is made of
+ * what is left of it, and a part that is over is left out. Once the last part
+ * of today is over, tomorrow's are given instead. The hours are instants, so no
+ * check of the snapshot's age is needed: the ones that have passed are dropped.
+ */
+export function dayForecast(snapshot: WeatherSnapshot | null, now: Date, timeZone: string): DayForecast | null {
+  if (!snapshot || snapshot.hourly.length === 0) return null
+
+  const today = todayIn(now, timeZone)
+  const minutesNow = wallClockIn(now, timeZone).minutes
+  // The hours that are not over, with where they fall on the wall.
+  const upcoming = snapshot.hourly
+    .map(hour => ({ hour, start: new Date(hour.time) }))
+    .filter(({ start }) => start.getTime() + HOUR_MS > now.getTime())
+    .map(({ hour, start }) => {
+      const { date, minutes } = wallClockIn(start, timeZone)
+      return { hour, date, local: Math.floor(minutes / 60) }
+    })
+
+  const partsOn = (date: string, isToday: boolean): ForecastPart[] => {
+    const parts: ForecastPart[] = []
+    for (const def of FORECAST_PARTS) {
+      if (isToday && minutesNow >= def.to * 60) continue
+      const hours = upcoming.filter(entry => entry.date === date && entry.local >= def.from && entry.local < def.to).map(entry => entry.hour)
+      if (hours.length > 0) parts.push(summarise(def.id, def.label, hours))
+    }
+    return parts
+  }
+
+  const todayParts = partsOn(today, true)
+  if (todayParts.length > 0) return { date: today, tomorrow: false, parts: todayParts }
+  // Today's parts are all over only after the last of them has ended.
+  if (minutesNow < FORECAST_PARTS[FORECAST_PARTS.length - 1]!.to * 60) return null
+  const tomorrow = addDays(today, 1)
+  const tomorrowParts = partsOn(tomorrow, false)
+  return tomorrowParts.length > 0 ? { date: tomorrow, tomorrow: true, parts: tomorrowParts } : null
+}
+
+function summarise(id: ForecastPartId, label: string, hours: WeatherHour[]): ForecastPart {
+  const known = <Key extends 'temperature' | 'precipitation' | 'precipitation_probability'>(key: Key): number[] =>
+    hours.map(hour => hour[key]).filter((value): value is number => value !== null)
+  const temperatures = known('temperature')
+  const rain = known('precipitation')
+  const chances = known('precipitation_probability')
+  return {
+    id,
+    label,
+    condition: commonCondition(hours),
+    temperature: temperatures.length > 0 ? temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length : null,
+    precipitation: rain.length > 0 ? rain.reduce((sum, value) => sum + value, 0) : null,
+    precipitation_probability: chances.length > 0 ? Math.max(...chances) : null,
+  }
+}
+
+/** The most frequent condition of the hours that have one; a tie goes to the more severe. */
+function commonCondition(hours: WeatherHour[]): WeatherCondition | null {
+  const counts = new Map<WeatherCondition, number>()
+  for (const hour of hours) {
+    if (hour.condition !== null) counts.set(hour.condition, (counts.get(hour.condition) ?? 0) + 1)
+  }
+  let best: WeatherCondition | null = null
+  for (const candidate of SEVERITY) {
+    const count = counts.get(candidate) ?? 0
+    if (count > 0 && (best === null || count > counts.get(best)!)) best = candidate
+  }
+  return best
+}
+
+/** How much rain a part expects: `40%` when a chance is known, else `1.2 mm` (`0 mm` for none), else null. */
+export function formatRain(part: Pick<ForecastPart, 'precipitation' | 'precipitation_probability'>): string | null {
+  if (part.precipitation_probability !== null) return `${Math.round(part.precipitation_probability)}%`
+  if (part.precipitation === null) return null
+  const mm = Math.round(part.precipitation * 10) / 10
+  return mm === 0 ? '0 mm' : `${mm.toFixed(1)} mm`
 }

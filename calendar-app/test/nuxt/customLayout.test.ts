@@ -150,7 +150,7 @@ describe('CustomLayoutView with pane options', () => {
   })
 
   it('gives the weather on dates option to the pane it is set on, and draws the forecast in the others', async () => {
-    const weather = { current: { condition: 'rainy' as const, temperature: 12 }, daily: [{ date: '2026-10-28', condition: 'rainy' as const, high: 14, low: 8 }], temperature_unit: '°C', updated_at: NOW.toISOString() }
+    const weather = { current: { condition: 'rainy' as const, temperature: 12 }, daily: [{ date: '2026-10-28', condition: 'rainy' as const, high: 14, low: 8 }], hourly: [], temperature_unit: '°C', updated_at: NOW.toISOString() }
     const wrapper = await open('landscape', { weather, layout: layout({ options: { week: { weather_on_dates: false } } }) })
 
     expect(wrapper.findComponent(WeekView).props('paneOptions')).toMatchObject({ weather_on_dates: false })

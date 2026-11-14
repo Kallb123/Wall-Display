@@ -397,15 +397,15 @@ describe('pane options', () => {
   })
 
   it('knows which options each component has', () => {
-    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'rounded_corners', 'weather_on_dates', 'show_locations'])
+    expect(PANE_OPTION_KEYS).toEqual(['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'show_forecast', 'rounded_corners', 'weather_on_dates', 'show_locations'])
     expect(PANE_OPTIONS.month).toEqual(['show_title', 'show_sidebar', 'fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates', 'show_locations'])
     for (const component of ['week_parts', 'agenda', 'days'] as const) expect(PANE_OPTIONS[component]).toContain('show_initials')
     expect(PANE_OPTIONS.week).not.toContain('show_initials')
     expect(DEFAULT_PANE_OPTIONS.show_initials).toBe(true)
     expect(PANE_OPTIONS.week).toEqual(['show_title', 'show_hours', 'weather_on_dates', 'show_locations'])
-    expect(PANE_OPTIONS.photo).toEqual(['show_time', 'show_date', 'show_weather', 'rounded_corners'])
+    expect(PANE_OPTIONS.photo).toEqual(['show_time', 'show_date', 'show_weather', 'show_forecast', 'rounded_corners'])
     expect(Object.keys(PANE_OPTIONS)).toEqual([...LAYOUT_COMPONENTS])
-    expect(PANE_CORNERS.photo).toEqual(['time_corner', 'date_corner'])
+    expect(PANE_CORNERS.photo).toEqual(['time_corner', 'date_corner', 'forecast_corner'])
     for (const component of LAYOUT_COMPONENTS.filter(component => component !== 'photo')) expect(PANE_CORNERS[component]).toEqual([])
     expect(Object.keys(PANE_CORNERS)).toEqual([...LAYOUT_COMPONENTS])
   })
@@ -415,6 +415,18 @@ describe('pane options', () => {
     const options = { photo: { show_date: true, show_weather: false, time_corner: 'bottom-left', date_corner: 'bottom-left' } }
     expect(customLayoutInputSchema.parse(withOptions(options)).options).toEqual(options)
     expect(paneOptions(customLayoutInputSchema.parse(withOptions(options)), 'photo')).toMatchObject({ show_time: true, show_date: true, show_weather: false, time_corner: 'bottom-left', date_corner: 'bottom-left' })
+  })
+
+  it('leaves the photo frame\'s forecast off, in the walking corner, unless the layout says otherwise, and takes it on a photo pane only', () => {
+    expect(DEFAULT_PANE_OPTIONS).toMatchObject({ show_forecast: false, forecast_corner: 'auto' })
+    expect(paneOptions(null, 'photo')).toMatchObject({ show_forecast: false, forecast_corner: 'auto' })
+    const options = { photo: { show_forecast: true, forecast_corner: 'bottom-right' } }
+    expect(problem(withOptions(options))).toBeUndefined()
+    expect(paneOptions(customLayoutInputSchema.parse(withOptions(options)), 'photo')).toMatchObject({ show_forecast: true, forecast_corner: 'bottom-right' })
+    expect(problem(withOptions({ photo: { show_forecast: 'yes' } }))).toBe('options.photo.show_forecast: must be true or false')
+    expect(problem(withOptions({ photo: { forecast_corner: 'middle' } }))).toBe('options.photo.forecast_corner: must be auto, top-left, top-right, bottom-left or bottom-right')
+    expect(problem(withOptions({ week: { show_forecast: true } }))).toBe('options.week.show_forecast: must not be set on a week pane')
+    expect(problem(withOptions({ week: { forecast_corner: 'top-left' } }))).toBe('options.week.forecast_corner: must not be set on a week pane')
   })
 
   it('rounds the photo pane\'s corners unless the layout says otherwise, and takes the option on a photo pane only', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_DAY_GRID, DEFAULT_PANE_OPTIONS, DEFAULT_STAR_GRID, MAX_STAR_GRID_COLUMNS, MAX_STAR_GRID_ROWS, MAX_DAY_GRID_COLUMNS, MAX_DAY_GRID_ROWS, MAX_LAYOUT_PANES_PER_ROW, MAX_LAYOUT_ROWS, MAX_LAYOUT_SIZE, customLayoutInputSchema } from '../../../shared/layouts'
 import type { CustomLayoutInput, LayoutArrangement, LayoutComponent } from '../../../shared/layouts'
-import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, toggleComponent, paneCornerDisabled } from '../../../app/utils/layoutEditor'
+import { componentsOf, editorErrors, findPane, inputOf, movePane, moveRow, newLayoutInput, paneGrid, paneOptionDisabled, paneOptionLabel, paneStarGrid, resetPortrait, resizeGridColumns, resizeGridRows, resizePane, resizeRow, resizeStarGridColumns, resizeStarGridRows, sameInput, setGridStart, setPaneCorner, setPaneOption, toggleComponent, paneCornerDisabled, PANE_CORNER_LABELS } from '../../../app/utils/layoutEditor'
 
 const arrangement = (...rows: [number, ...[LayoutComponent, number][]][]): LayoutArrangement => ({
   rows: rows.map(([size, ...panes]) => ({ size, panes: panes.map(([component, paneSize]) => ({ component, size: paneSize })) })),
@@ -446,6 +446,8 @@ describe('pane options', () => {
     expect(paneCornerDisabled('date_corner', { ...options, show_date: true })).toBe(false)
     expect(paneCornerDisabled('time_corner', { ...options, show_time: false })).toBe(false)
     expect(paneCornerDisabled('time_corner', { ...options, show_time: false, show_weather: false })).toBe(true)
+    expect(paneCornerDisabled('forecast_corner', options)).toBe(true)
+    expect(paneCornerDisabled('forecast_corner', { ...options, show_forecast: true })).toBe(false)
   })
 
   it('hands back the same input when nothing changes', () => {
@@ -479,6 +481,8 @@ describe('pane options', () => {
 
   it('labels show_locations, and stores it only when it is off and only on the components that have it', () => {
     expect(paneOptionLabel('agenda', 'show_locations')).toBe('Locations')
+    expect(paneOptionLabel('photo', 'show_forecast')).toBe("Today's forecast")
+    expect(PANE_CORNER_LABELS.forecast_corner).toBe('Forecast')
     const input = setPaneOption(newLayoutInput('X'), 'week', 'show_locations', false)
     expect(input.options).toEqual({ week: { show_locations: false } })
     expect(setPaneOption(input, 'week', 'show_locations', true).options).toEqual({})

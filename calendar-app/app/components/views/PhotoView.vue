@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ImageOff } from 'lucide-vue-next'
+import { Droplet, ImageOff } from 'lucide-vue-next'
 import { coversBox, photoResponseSchema } from '../../../shared/photos'
 import type { PhotoInfo } from '../../../shared/photos'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
-import { currentWeather, formatTemperature, weatherLabel } from '../../../shared/weather'
+import { currentWeather, dayForecast, formatRain, formatTemperature, weatherLabel } from '../../../shared/weather'
 import { bleeds } from '~/utils/bleed'
 import { formatLongDate, formatTime } from '~/utils/format'
 import { eventLabel } from '~/utils/eventLabel'
@@ -73,7 +73,20 @@ import type { ViewProps } from '../../utils/views'
 // bottom corner moves to the top while the overlay banner shows, as the walking
 // one does. The next event, on a full-screen frame, rides under the clock. The
 // full-screen frame and the week and photo view use the defaults: the time and
-// the weather in the walking corner, and no date.
+// the weather in the walking corner, and no date and no forecast.
+//
+// A layout can also turn on today's forecast (`show_forecast`, off unless asked
+// for, with a corner of its own): a row of four columns in a pill, under the
+// time's line and the date where they share its corner, one for each part of the
+// day (morning, noon, afternoon, evening: `dayForecast`, from the hourly
+// forecast the server polls). A column holds the part's name in small muted
+// type, the condition's icon, the expected temperature and the rain, a drop
+// with the chance of rain in per cent, or the amount in millimetres where there
+// is no chance to give; a dry part's rain is dimmed. Parts that are over are
+// left out, so the row shrinks through the day, and once the evening is over it
+// shows tomorrow's parts under a small "Tomorrow" heading. With no hourly
+// forecast there is nothing to show, and a pill that would hold only that is
+// left out, as one with only the weather and no weather is.
 //
 // A pane on the stage's edge is given a `bleed` while burn-in shifting is on:
 // the photo is drawn that far past the sides on the edge, so the strip the
@@ -302,12 +315,26 @@ const weatherNow = computed(() => {
   return icon || temperature ? { icon, temperature, label: weatherLabel(current.condition) } : null
 })
 
+/** Today's forecast by part of the day, or null when it is off or there is nothing to show. */
+const forecast = computed(() => options.value.show_forecast ? dayForecast(props.weather, props.now, props.timezone) : null)
+
+/** The forecast's columns, with what each shows already formatted. */
+const forecastParts = computed(() => (forecast.value?.parts ?? []).map(part => ({
+  id: part.id,
+  label: part.label,
+  icon: weatherIcon(part.condition),
+  temperature: part.temperature === null ? null : formatTemperature(part.temperature),
+  rain: formatRain(part),
+  // Nothing to carry: no chance, or no rain either.
+  dry: part.precipitation_probability === 0 || (part.precipitation_probability === null && part.precipitation === 0),
+})))
+
 const upcoming = computed(() => props.pane || !options.value.show_time ? null : nextEvent(props.events, props.now, props.timezone))
 
-/** The pills to draw, each in its corner. One with only the weather, and no weather to show, is left out. */
+/** The pills to draw, each in its corner. One with only the weather, and no weather to show, or only a forecast with nothing to show, is left out. */
 const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top-left', props.overlayShowing ?? false)
-  .map(pill => ({ ...pill, time: pill.time && (options.value.show_time || weatherNow.value !== null) }))
-  .filter(pill => pill.time || pill.date))
+  .map(pill => ({ ...pill, time: pill.time && (options.value.show_time || weatherNow.value !== null), forecast: pill.forecast && forecast.value !== null }))
+  .filter(pill => pill.time || pill.date || pill.forecast))
 </script>
 
 <template>
@@ -335,7 +362,7 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
     <TransitionGroup name="pill-move">
       <div
         v-for="pill in pills"
-        :key="`${pill.corner}:${pill.time}:${pill.date}`"
+        :key="`${pill.corner}:${pill.time}:${pill.date}:${pill.forecast}`"
         class="pill"
         :class="[`corner-${pill.corner}`, { compact: pane }]"
         :data-corner="pill.corner"
@@ -351,6 +378,23 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
 
         <div v-if="pill.date" class="date" data-testid="photo-date">
           {{ date }}
+        </div>
+
+        <div v-if="pill.forecast && forecast" class="forecast" data-testid="photo-forecast">
+          <div v-if="forecast.tomorrow" class="tomorrow" data-testid="photo-forecast-tomorrow">
+            Tomorrow
+          </div>
+          <div class="parts">
+            <div v-for="part in forecastParts" :key="part.id" class="part" :data-part="part.id" data-testid="photo-forecast-part">
+              <span class="part-label">{{ part.label }}</span>
+              <AppIcon v-if="part.icon" :icon="part.icon" :size="pane ? 48 : 64" />
+              <span v-if="part.temperature" class="part-temp" data-testid="photo-forecast-temp">{{ part.temperature }}</span>
+              <span v-if="part.rain" class="part-rain" :class="{ dry: part.dry }" data-testid="photo-forecast-rain">
+                <AppIcon :icon="Droplet" :size="pane ? 24 : 32" />
+                {{ part.rain }}
+              </span>
+            </div>
+          </div>
         </div>
 
         <div v-if="pill.time && upcoming" class="next" data-testid="photo-next-event">
@@ -588,6 +632,96 @@ const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Today's forecast: a row of equal columns, one per part of the day, the numbers in tabular figures so they line up from one part to the next. */
+.forecast {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tomorrow {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.parts {
+  display: flex;
+  gap: 16px;
+}
+
+.part {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 200px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.part-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 36px;
+  font-weight: 600;
+}
+
+.part svg {
+  flex: none;
+}
+
+.part-temp {
+  font-size: 60px;
+  font-weight: 700;
+}
+
+.part-rain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 38px;
+  font-weight: 600;
+}
+
+/* Nothing coming down: still said, but quietly. */
+.part-rain.dry {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.compact .forecast {
+  gap: 12px;
+}
+
+.compact .tomorrow {
+  font-size: 30px;
+}
+
+.compact .parts {
+  gap: 8px;
+}
+
+.compact .part {
+  gap: 8px;
+  min-width: 150px;
+}
+
+.compact .part-label {
+  font-size: 28px;
+}
+
+.compact .part-temp {
+  font-size: 44px;
+}
+
+.compact .part-rain {
+  gap: 6px;
+  font-size: 28px;
 }
 
 .next {

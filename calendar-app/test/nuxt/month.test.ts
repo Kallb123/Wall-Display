@@ -27,6 +27,7 @@ const weather: WeatherSnapshot = {
     { date: '2026-10-29', condition: 'sunny', high: 12.6, low: null },
     { date: '2026-10-30', condition: null, high: null, low: 4 },
   ],
+  hourly: [],
   temperature_unit: '°C',
   updated_at: NOW.toISOString(),
 }

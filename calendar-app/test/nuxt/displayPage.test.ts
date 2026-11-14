@@ -619,7 +619,7 @@ describe('burn-in shifting', () => {
     expect(wall.wrapper.find('[data-testid="week-photo-view"]').classes()).toContain('landscape')
 
     // Landscape: the photo is on the left, so top right belongs to the week.
-    await wall.tick(15 * 60_000)
+    await wall.jump(15 * 60_000)
     expect(wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')).toBe('top-right')
     expect(side()).toBe('right')
   })
@@ -902,7 +902,7 @@ describe('orientation', () => {
     expect(side()).toBe('right')
 
     // The photo pane has the stage's top right here, so the badge gives way.
-    await wall.tick(15 * 60_000)
+    await wall.jump(15 * 60_000)
     expect(wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')).toBe('top-right')
     expect(side()).toBe('left')
   })

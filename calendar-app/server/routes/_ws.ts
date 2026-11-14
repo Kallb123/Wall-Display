@@ -5,10 +5,13 @@ import { getSocketHub } from '../ws/hub'
 
 // The WebSocket at `/_ws?display=<id>&role=display|remote`. A new connection
 // gets the display's whole state, the weather, the special days, the next
-// alarm (each null when there is none yet), the custom layouts, the star chart and the display's settings, then
+// alarm (each null when there is none yet), the display's kitchen timers (an
+// empty list when there is no `timers` block or nothing has been read yet), the
+// custom layouts, the star chart and the display's settings, then
 // every `state.updated`, `events.updated`, `weather.updated`,
-// `special_days.updated`, `alarm.updated`, `layouts.updated`, `stars.updated` and `settings.updated` (the control,
-// weather, special days, alarm and settings plugins connect the event bus to the hub).
+// `special_days.updated`, `alarm.updated`, `timers.updated`, `layouts.updated`, `stars.updated` and `settings.updated` (the control,
+// weather, special days, alarm and settings plugins connect the event bus to the hub,
+// and the timers plugin sends to the hub itself).
 // The display shows the state and the remote shows what the display is
 // showing, so both only listen.
 export default defineWebSocketHandler({
@@ -34,6 +37,8 @@ export default defineWebSocketHandler({
     peer.send(JSON.stringify(specialDays))
     const alarm: ServerMessage = { type: 'alarm.updated', alarm: useAlarm()?.get() ?? null }
     peer.send(JSON.stringify(alarm))
+    const timers: ServerMessage = { type: 'timers.updated', display_id: query.displayId, timers: useTimers()?.get(query.displayId) ?? [] }
+    peer.send(JSON.stringify(timers))
     const layouts: ServerMessage = { type: 'layouts.updated', layouts: useLayouts().get() }
     peer.send(JSON.stringify(layouts))
     const stars: ServerMessage = { type: 'stars.updated', stars: useStars().get() }

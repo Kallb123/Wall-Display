@@ -619,7 +619,7 @@ describe('burn-in shifting', () => {
     expect(wall.wrapper.find('[data-testid="week-photo-view"]').classes()).toContain('landscape')
 
     // Landscape: the photo is on the left, so top right belongs to the week.
-    await wall.tick(15 * 60_000)
+    await wall.jump(15 * 60_000)
     expect(wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')).toBe('top-right')
     expect(side()).toBe('right')
   })
@@ -902,7 +902,7 @@ describe('orientation', () => {
     expect(side()).toBe('right')
 
     // The photo pane has the stage's top right here, so the badge gives way.
-    await wall.tick(15 * 60_000)
+    await wall.jump(15 * 60_000)
     expect(wall.wrapper.find('[data-testid="photo-pill"]').attributes('data-corner')).toBe('top-right')
     expect(side()).toBe('left')
   })
@@ -1037,5 +1037,50 @@ describe('orientation', () => {
     expect(wall.stage().attributes('data-orientation')).toBe('portrait')
     expect(wall.stage().findAll('img.takeover-art')).toHaveLength(0)
     expect(wall.stage().attributes('data-palette')).toBe('night')
+  })
+})
+
+describe('kitchen timers', () => {
+  const pasta = { id: 'timer.pasta', label: 'Pasta', status: 'running', ends_at: '2026-10-31T10:05:00.000Z', remaining_seconds: null, duration_seconds: 600 }
+  const timersUpdated = (timers: unknown[], display = 'hallway') => ({ type: 'timers.updated', display_id: display, timers })
+
+  it('shows nothing until a timer is pushed, then the card, and takes it away again', async () => {
+    const wall = await openWall()
+    const send = (message: unknown) => { FakeSocket.all.at(-1)!.push(message); return flushPromises() }
+    expect(wall.wrapper.find('[data-testid="timer-stack"]').exists()).toBe(false)
+
+    await send(timersUpdated([pasta]))
+    expect(wall.wrapper.find('[data-testid="timer-time"]').text()).toBe('5:00')
+    expect(wall.wrapper.find('[data-testid="timer-label"]').text()).toBe('Pasta')
+
+    await send(timersUpdated([]))
+    await flushPromises()
+    expect(wall.wrapper.find('[data-testid="timer-card"]').exists()).toBe(false)
+  })
+
+  it('ignores another display\'s timers', async () => {
+    const wall = await openWall()
+    FakeSocket.all.at(-1)!.push(timersUpdated([pasta], 'kitchen'))
+    await flushPromises()
+
+    expect(wall.wrapper.find('[data-testid="timer-stack"]').exists()).toBe(false)
+  })
+
+  it('is under the camera and over the banner, in the stage', async () => {
+    const wall = await openWall({ state: state({ overlay: { text: 'Dinner', icon: null, until: '2026-10-31T11:00:00.000Z' } }) })
+    FakeSocket.all.at(-1)!.push(timersUpdated([pasta]))
+    await flushPromises()
+
+    const banner = wall.wrapper.find('[data-testid="overlay-banner"]').element
+    const stack = wall.wrapper.find('[data-testid="timer-stack"]').element
+    expect(wall.positionInStage(stack)).toBeGreaterThan(wall.positionInStage(banner))
+  })
+
+  it('goes quiet on the night view', async () => {
+    const wall = await openWall({ state: state({ view: 'night' }) })
+    FakeSocket.all.at(-1)!.push(timersUpdated([pasta]))
+    await flushPromises()
+
+    expect(wall.wrapper.find('[data-testid="timer-stack"]').classes()).toContain('quiet')
   })
 })

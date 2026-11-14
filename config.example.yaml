@@ -77,7 +77,7 @@ calendars:
     person: home
     source: { type: homeassistant, entity_id: calendar.bin_collection } # poll_seconds default 300
 
-# Needed if a calendar uses a homeassistant source, or you set up weather, alarm or triggers below.
+# Needed if a calendar uses a homeassistant source, or you set up weather, alarm, timers or triggers below.
 homeassistant:
   url: http://homeassistant.local:8123
   token: !secret ha_token # a long-lived access token
@@ -100,6 +100,20 @@ weather:
 # alarm:
 #   entity_id: sensor.pixel_8_next_alarm # a sensor or input_datetime entity
 #   poll_seconds: 300 # default 300; at least 30
+
+# Kitchen timers: the countdowns you have running in Home Assistant, shown on
+# the wall. It reads each entity through the homeassistant block above: a Nest
+# speaker's sensor.<speaker>_timers from the ha-google-home integration, or a
+# timer.* helper. They show as soon as Home Assistant has them if the token is
+# an administrator's (a WebSocket, as for triggers below), and are polled every
+# poll_seconds either way. Leave this out and no timers are read.
+# timers:
+#   entities:
+#     - entity_id: sensor.kitchen_speaker_timers
+#       displays: [kitchen] # optional; left out, every display shows it
+#     - entity_id: timer.pasta
+#   poll_seconds: 30 # default 30; at least 5
+#   done_seconds: 60 # default 60; 0 to 600. How long a timer that ran out stays up saying Done
 
 # Camera feeds the wall can show over its view, such as the front door when the
 # doorbell rings (see triggers below). The wall's browser loads the address

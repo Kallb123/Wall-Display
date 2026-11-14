@@ -34,8 +34,8 @@ export default defineNitroPlugin((nitroApp) => {
     cameras: config.cameras,
     // The photo service starts after this plugin, so it is looked up when the command arrives.
     photosConfigured: () => photoSourcesOf(usePhotos()?.configured() ?? []).length > 0,
-    // The weather and alarm services start after this plugin, so they are looked up when the command arrives.
-    refresh: () => Promise.all([useSyncScheduler().refreshAll(), useWeather()?.refresh(), useAlarm()?.refresh()]),
+    // The weather, alarm and timers services start after this plugin, so they are looked up when the command arrives.
+    refresh: () => Promise.all([useSyncScheduler().refreshAll(), useWeather()?.refresh(), useAlarm()?.refresh(), useTimers()?.refresh()]),
   })
   setDisplayControl(control)
 

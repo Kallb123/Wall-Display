@@ -2,7 +2,7 @@
 import { Eye } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { currentMonth, DEFAULT_DAY_PARTS, DEFAULT_WEATHER_ON_DATES, DEFAULT_WEEK_HOURS, displayStateSchema, firstDayOfWeek } from '../../shared/display'
-import type { DisplaySettings, DisplayState, NextAlarm, View } from '../../shared/display'
+import type { DisplaySettings, DisplayState, NextAlarm, View, WallTimer } from '../../shared/display'
 import { DEFAULT_PANE_OPTIONS, layoutSummary, paneOptions } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
 import type { StarChart } from '../../shared/stars'
@@ -82,6 +82,8 @@ const events = ref<CalendarEvent[]>([])
 const weather = ref<WeatherSnapshot | null>(null)
 /** The next alarm the server last sent, or null for none (the night view's, if the display shows it). */
 const alarm = ref<NextAlarm>(null)
+/** The kitchen timers the server last sent for this display. Not cached: they are short-lived, and the server sends them on every connect. */
+const timers = ref<WallTimer[]>([])
 /** The special days the server last sent for the real today (never a preview's), or null for none. */
 const specialDays = ref<SpecialDaysResolution | null>(null)
 /** The library of custom layouts the server last sent (the cache's until then). */
@@ -100,6 +102,7 @@ function select(id: string) {
   events.value = cached?.events ?? []
   weather.value = cached?.weather ?? null
   alarm.value = cached?.alarm ?? null
+  timers.value = []
   specialDays.value = cached?.special_days ?? null
   layouts.value = cached?.layouts ?? []
   stars.value = cached?.stars ?? null
@@ -321,6 +324,11 @@ watch(socket.alarm, (next) => {
   if (next !== undefined) alarm.value = next
 })
 
+// The kitchen timers, likewise (an empty list is the server saying there are none).
+watch(socket.timers, (next) => {
+  if (next !== undefined) timers.value = next
+})
+
 // The library of layouts, likewise.
 watch(socket.layouts, (next) => {
   if (next !== undefined) layouts.value = next
@@ -448,6 +456,9 @@ const dimming = computed(() => state.value.screen === 'off' ? 1 : (100 - state.v
 
         <!-- Outside the view's transition, so a view change doesn't fade it out and back. Under the dimmer, so screen off blacks it out too. -->
         <OverlayBanner v-if="!unknown" :overlay="state.overlay" :now="now" />
+
+        <!-- Over the view, and under the camera, which covers it. Dimmer on the night view. -->
+        <TimerStack v-if="!unknown" :timers="timers" :orientation="stage.orientation" :quiet="state.view === 'night'" />
 
         <!-- Over the view and the banner, such as the front door when the doorbell rings. Under the dimmer like the rest. -->
         <CameraFeed v-if="!unknown" :camera="state.camera" :now="now" />

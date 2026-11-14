@@ -1,5 +1,5 @@
-import { displaySettingsSchema, displayStateSchema, nextAlarmSchema } from '../../shared/display'
-import type { DisplaySettings, DisplayState, NextAlarm, SocketRole } from '../../shared/display'
+import { displaySettingsSchema, displayStateSchema, nextAlarmSchema, wallTimersSchema } from '../../shared/display'
+import type { DisplaySettings, DisplayState, NextAlarm, SocketRole, WallTimer } from '../../shared/display'
 import { customLayoutSchema } from '../../shared/layouts'
 import type { CustomLayout } from '../../shared/layouts'
 import { starChartSchema } from '../../shared/stars'
@@ -38,7 +38,10 @@ export interface DisplaySocketOptions {
  * `photo.next` messages for this display (the server's cue to show another
  * photo; a rise is the signal, the number means nothing) and `opens` counts
  * the times the socket has opened, a reconnect being one more. Both only ever
- * grow, even when the display changes. If
+ * grow, even when the display changes. `timers` is this display's kitchen
+ * timers (`timers.updated`), `undefined` until heard; they are kept when the
+ * socket drops, because the wall counts them down itself, and a message that
+ * does not parse is dropped. If
  * the socket closes or errors it is opened again after a growing wait (see
  * `reconnectDelay`), for as long as the scope lives. `displayId` may be null
  * (nothing to connect to yet) and may change.
@@ -52,6 +55,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
   const layouts = ref<CustomLayout[] | undefined>(undefined)
   const stars = ref<StarChart | undefined>(undefined)
   const settings = ref<DisplaySettings | undefined>(undefined)
+  const timers = ref<WallTimer[] | undefined>(undefined)
   const photoNext = ref(0)
   const opens = ref(0)
 
@@ -104,7 +108,7 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       return
     }
     if (typeof message !== 'object' || message === null) return
-    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays, alarm: nextAlarm, layouts: nextLayouts, stars: nextStars, settings: nextSettings } = message as Record<string, unknown>
+    const { type, display_id: from, state: next, weather: nextWeather, special_days: nextSpecialDays, alarm: nextAlarm, layouts: nextLayouts, stars: nextStars, settings: nextSettings, timers: nextTimers } = message as Record<string, unknown>
 
     if (type === 'state.updated' && from === id) {
       const parsed = displayStateSchema.safeParse(next)
@@ -135,6 +139,10 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
       // This display's own settings, as the settings page changes them. One that is the wrong shape, or names another display, is ignored.
       const parsed = displaySettingsSchema.safeParse(nextSettings)
       if (parsed.success && parsed.data.id === id) settings.value = parsed.data
+    } else if (type === 'timers.updated' && from === id) {
+      // This display's own timers: another display's are not for this wall. A list that is the wrong shape is ignored, so the last good one stays.
+      const parsed = wallTimersSchema.safeParse(nextTimers)
+      if (parsed.success) timers.value = parsed.data
     } else if (type === 'photo.next' && from === id) {
       photoNext.value++
     }
@@ -150,11 +158,12 @@ export function useDisplaySocket(displayId: MaybeRefOrGetter<string | null>, opt
     layouts.value = undefined
     stars.value = undefined
     settings.value = undefined
+    timers.value = undefined
     if (id) connect(id)
     else status.value = 'closed'
   }, { immediate: true })
 
   onScopeDispose(close)
 
-  return { status, state, weather, specialDays, alarm, layouts, stars, settings, photoNext, opens }
+  return { status, state, weather, specialDays, alarm, layouts, stars, settings, timers, photoNext, opens }
 }

@@ -1,4 +1,5 @@
 import type { PhotoSource } from '../../shared/display'
+import type { PhotoDetails } from '../../shared/photoHistory'
 
 // What a source of photos has to offer (architecture §5.1). The service lists a
 // provider's pool now and then and asks it for the bytes of one photo when it
@@ -15,6 +16,8 @@ export interface PhotoListing {
   takenAt?: Date | null
   /** Who to credit when the photo is shown ("Photo by Jane Doe on Unsplash"). Undefined leaves what is stored; null clears it. */
   credit?: string | null
+  /** What the source says about the photo (place, caption, camera, links). Undefined leaves what is stored; null clears it. */
+  details?: PhotoDetails | null
 }
 
 export interface PhotoProvider {

@@ -59,6 +59,92 @@ async function listed(context: Setup) {
   return context
 }
 
+describe('history', () => {
+  it('notes each photo handed out, with what its source said, and ends the one before', async () => {
+    let clock = new Date('2026-10-28T12:00:00Z')
+    const { service, providers, files } = await setup({ local: ['a', 'b'] }, { now: () => clock })
+    providers.local!.provider.list = async () => ['a', 'b'].map(providerAssetId => ({ providerAssetId, width: 1600, height: 900, credit: 'Photo by Jane', details: { location: `Place ${providerAssetId}`, people: ['Ada'] } }))
+    await service.refresh()
+
+    const first = (await service.next('hallway', 'local'))!
+    clock = new Date('2026-10-28T12:05:00Z')
+    const second = (await service.next('hallway', 'local'))!
+    await service.idle()
+
+    const entries = service.history('hallway', 10)
+    expect(entries.map(entry => entry.photo_id)).toEqual([second.id, first.id])
+    expect(entries[0]).toMatchObject({
+      feed: 'local',
+      feed_name: 'Local folder',
+      provider: 'local',
+      rendition: 'landscape',
+      shown_at: '2026-10-28T12:05:00.000Z',
+      ended_at: null,
+      image_url: second.url,
+      width: 1600,
+      height: 900,
+      orientation: 'landscape',
+      taken_at: null,
+      credit: 'Photo by Jane',
+      details: { location: `Place ${second.id.split(':')[1]}`, people: ['Ada'] },
+    })
+    expect(entries[1]).toMatchObject({ shown_at: '2026-10-28T12:00:00.000Z', ended_at: '2026-10-28T12:05:00.000Z', image_url: first.url })
+    expect(files()).toContain(first.url.split('/').pop())
+    expect(service.history('kitchen', 10)).toEqual([])
+    expect(service.history('hallway', 1)).toHaveLength(1)
+  })
+
+  it('has no image once the file has left the cache, and no feed name once the feed is gone', async () => {
+    const context = await setup({ local: ['a'] }, { maxBytes: 150, bytes: 100 })
+    const { service, providers } = context
+    providers.local!.provider.list = async () => [{ providerAssetId: 'a', width: 1600, height: 900 }]
+    await service.refresh()
+    const photo = (await service.next('hallway', 'local'))!
+    await service.idle()
+    expect(service.history('hallway', 10)[0]!.image_url).toBe(photo.url)
+
+    // The photo leaves the pool: its row and renditions go, but the history stays.
+    providers.local!.provider.list = async () => []
+    await service.refresh({ force: true })
+
+    expect(service.history('hallway', 10)).toHaveLength(1)
+    expect(service.history('hallway', 10)[0]).toMatchObject({ photo_id: 'local:a', image_url: null })
+  })
+
+  it('names a pool by its own name', async () => {
+    const { service, providers } = await setup({ local: ['a'] })
+    await service.setPools({ providers: [], groups: [{ id: 'holiday', name: 'Holiday', members: ['local'] }] })
+    await service.refresh()
+    void providers
+
+    await service.next('hallway', 'holiday')
+    await service.idle()
+
+    expect(service.history('hallway', 10)[0]).toMatchObject({ feed: 'holiday', feed_name: 'Holiday', provider: 'local' })
+    await service.setPools({ providers: [], groups: [] })
+    expect(service.history('hallway', 10)[0]).toMatchObject({ feed: 'holiday', feed_name: null })
+  })
+
+  it('records the stage rendition asked for, not the cover file shown', async () => {
+    const { service } = await listed(await setup({ local: ['a'] }))
+
+    await service.next('hallway', 'local', 'landscape', { width: 1600, height: 900 })
+
+    expect(service.history('hallway', 10)[0]).toMatchObject({ rendition: 'landscape' })
+  })
+
+  it('never stops the frame when the history can\'t be written', async () => {
+    const context = await setup({ local: ['a'] })
+    await context.service.refresh()
+    context.db.$client.exec('drop table photo_history')
+
+    const photo = await context.service.next('hallway', 'local')
+
+    expect(photo).not.toBeNull()
+    expect(context.log.warn).toHaveBeenCalledWith(expect.stringContaining('history'))
+  })
+})
+
 describe('next', () => {
   it('answers a photo from the pool, with where to load it', async () => {
     const { service, files } = await listed(await setup({ local: ['a'] }))

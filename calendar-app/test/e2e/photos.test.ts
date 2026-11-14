@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
+import { photoHistoryResponseSchema } from '../../shared/photoHistory'
 import { photoResponseSchema } from '../../shared/photos'
 import type { PhotoInfo } from '../../shared/photos'
 import { builtApp } from '../helpers/builtApp'
@@ -185,6 +186,45 @@ describe('the photo routes', async () => {
       expect(response.status).toBe(200)
       const { photo } = photoResponseSchema.parse(await response.json())
       expect(await sizeOf(photo!.url)).toEqual([1440, 2560])
+    })
+  })
+
+  describe('GET /api/displays/:id/photo-history', () => {
+    it('lists the photos the display was handed, newest first, with the first ended and the last on show', async () => {
+      // Earlier tests have asked for photos too, so only the newest two entries are checked.
+      const before = photoHistoryResponseSchema.parse(await $fetch('/api/displays/hallway/photo-history')).entries.length
+      const one = (await next())!
+      const two = (await next())!
+
+      const response = await fetch('/api/displays/hallway/photo-history?limit=2')
+      expect(response.status).toBe(200)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      const { entries } = photoHistoryResponseSchema.parse(await response.json())
+
+      expect(before).toBeGreaterThanOrEqual(0)
+      expect(entries.map(entry => entry.photo_id)).toEqual([two.id, one.id])
+      expect(entries[0]).toMatchObject({ feed: 'local', provider: 'local', rendition: 'landscape', ended_at: null, image_url: two.url, orientation: two.orientation })
+      expect(entries[1]!.ended_at).toBe(entries[0]!.shown_at)
+      // The local folder's only detail is the path in the folder.
+      expect(entries[0]!.details.file_name).toBe(two.id.replace('local:', ''))
+    })
+
+    it('answers 30 entries at most when no limit is given', async () => {
+      const { entries } = photoHistoryResponseSchema.parse(await $fetch('/api/displays/hallway/photo-history'))
+      expect(entries.length).toBeLessThanOrEqual(30)
+    })
+
+    it('is a 404 for a display that is not in the config', async () => {
+      const response = await fetch('/api/displays/attic/photo-history')
+
+      expect(response.status).toBe(404)
+      expect(await message(response)).toContain('attic')
+    })
+
+    it('is a 400 for a limit that is not a whole number from 1 to 100', async () => {
+      for (const limit of ['0', '101', '-1', 'abc', '1.5', '']) {
+        expect((await fetch(`/api/displays/hallway/photo-history?limit=${limit}`)).status, limit).toBe(400)
+      }
     })
   })
 

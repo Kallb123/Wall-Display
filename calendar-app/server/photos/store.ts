@@ -55,6 +55,7 @@ export function syncListing(db: Db, provider: string, listing: readonly PhotoLis
           orientation: sized ? orientationOf(item.width!, item.height!) : 'landscape',
           takenAt: item.takenAt ?? null,
           credit: item.credit ?? null,
+          details: item.details ?? null,
           createdAt: now,
         })
         continue
@@ -65,6 +66,8 @@ export function syncListing(db: Db, provider: string, listing: readonly PhotoLis
       }
       if (item.takenAt !== undefined && (item.takenAt?.getTime() ?? null) !== (row.takenAt?.getTime() ?? null)) changes.takenAt = item.takenAt
       if (item.credit !== undefined && item.credit !== row.credit) changes.credit = item.credit
+      // Compared as text: the stored object comes back from JSON, so it is never the same instance.
+      if (item.details !== undefined && JSON.stringify(item.details) !== JSON.stringify(row.details)) changes.details = item.details
       if (Object.keys(changes).length > 0) tx.update(photoAssets).set(changes).where(eq(photoAssets.id, id)).run()
     }
     for (let i = 0; i < inserts.length; i += BATCH) tx.insert(photoAssets).values(inserts.slice(i, i + BATCH)).run()

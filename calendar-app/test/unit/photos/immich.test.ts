@@ -49,8 +49,8 @@ describe('albums mode', () => {
     expect(immichProvider.id).toBe('immich')
     expect(calls.map(call => [call.method, call.url.pathname])).toEqual([['POST', '/api/search/metadata'], ['POST', '/api/search/metadata']])
     expect(calls.map(call => call.body)).toEqual([
-      { albumIds: [ALBUM_A], type: 'IMAGE', page: 1, size: 1000, withExif: true },
-      { albumIds: [ALBUM_A], type: 'IMAGE', page: 2, size: 1000, withExif: true },
+      { albumIds: [ALBUM_A], type: 'IMAGE', page: 1, size: 1000, withExif: true, withPeople: true },
+      { albumIds: [ALBUM_A], type: 'IMAGE', page: 2, size: 1000, withExif: true, withPeople: true },
     ])
     // The video is left out; the selfie is stored on its side (orientation 6), so its size is turned.
     expect(brief(listing, byId)).toEqual(['beach 4032x3024', 'picnic 4032x3024', 'castle 6000x4000', 'kite 4000x3000', 'selfie 3024x4032'])
@@ -113,7 +113,7 @@ describe('random mode', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe('POST')
     expect(calls[0]!.url.pathname).toBe('/api/search/random')
-    expect(calls[0]!.body).toEqual({ size: 200, type: 'IMAGE', withExif: true })
+    expect(calls[0]!.body).toEqual({ size: 200, type: 'IMAGE', withExif: true, withPeople: true })
     // `snow` is stored 3000x2000 on its side; `no-exif` has no size, so none is given.
     expect(brief(listing, byId)).toEqual(['garden 4032x3024', 'harbour 5000x2800', 'snow 2000x3000', 'no-exif', 'no-date 4032x3024', 'old-bike 4032x3024'])
     expect(listing.find(item => item.providerAssetId === idOf('garden'))!.takenAt).toEqual(new Date('2024-07-04T11:11:11.000Z'))
@@ -134,6 +134,7 @@ describe('random mode', () => {
       size: 50,
       type: 'IMAGE',
       withExif: true,
+      withPeople: true,
       personIds: [PERSON],
       takenAfter: '2023-01-01T00:00:00.000Z',
       takenBefore: '2023-12-31T23:59:59.999Z',
@@ -213,7 +214,7 @@ describe('memories mode', () => {
     await immichProvider.list()
 
     expect(calls.map(call => call.url.pathname)).toEqual(['/api/memories', '/api/search/random', '/api/memories', '/api/search/random'])
-    expect(calls[1]!.body).toEqual({ size: 200, type: 'IMAGE', withExif: true })
+    expect(calls[1]!.body).toEqual({ size: 200, type: 'IMAGE', withExif: true, withPeople: true })
     expect(first).toHaveLength(6)
     expect(log.info).toHaveBeenCalledTimes(1)
     expect(log.info.mock.calls[0]![0]).toContain('no memories today')
@@ -241,7 +242,7 @@ describe('memories mode', () => {
 
     await immichProvider.list()
 
-    expect(calls[1]!.body).toEqual({ size: 10, type: 'IMAGE', withExif: true, personIds: [PERSON] })
+    expect(calls[1]!.body).toEqual({ size: 10, type: 'IMAGE', withExif: true, withPeople: true, personIds: [PERSON] })
   })
 
   it('does not fall back when Immich cannot be reached', async () => {
@@ -276,6 +277,74 @@ describe('the asset mapping', () => {
     expect(toListing(base)).not.toHaveProperty('width')
     expect(toListing({ ...base, exifInfo: { exifImageWidth: 0, exifImageHeight: 300 } })).not.toHaveProperty('width')
     expect(toListing({ ...base, exifInfo: { exifImageWidth: 400, exifImageHeight: null } })).not.toHaveProperty('height')
+  })
+
+  describe('details', () => {
+    const asset = {
+      ...base,
+      originalFileName: 'IMG_0042.jpg',
+      people: [{ name: 'Ada' }, { name: '' }, { name: '  Grace  ' }, { name: 'Ada' }, {}],
+      exifInfo: { city: 'Keswick', state: 'Cumbria', country: 'United Kingdom', description: 'Sunrise   over\nthe lake', make: 'FUJIFILM', model: 'X-T5', lensModel: 'XF16-55mm' },
+    }
+
+    it('says where, what, with what and who, and links to the photo in Immich', () => {
+      expect(toListing(asset, 'https://photos.example.com')!.details).toEqual({
+        description: 'Sunrise over the lake',
+        location: 'Keswick, Cumbria, United Kingdom',
+        camera: 'FUJIFILM X-T5 · XF16-55mm',
+        file_name: 'IMG_0042.jpg',
+        people: ['Ada', 'Grace'],
+        source_url: `https://photos.example.com/photos/${base.id}`,
+      })
+    })
+
+    it('keeps a path of the address in the link, and drops a trailing slash', () => {
+      expect(toListing(base, 'http://nas.local:2283/immich/')!.details).toEqual({ source_url: `http://nas.local:2283/immich/photos/${base.id}` })
+    })
+
+    it('gives no link when the address carries credentials, is not valid, or is not given', () => {
+      expect(toListing(base, 'https://user:secret@photos.example.com')!.details).toBeNull()
+      expect(toListing(base, 'https://user@photos.example.com')!.details).toBeNull()
+      expect(toListing(base, 'not an address')!.details).toBeNull()
+      expect(toListing(base)!.details).toBeNull()
+    })
+
+    it('does not repeat the make when the model starts with it, and copes with one of them missing', () => {
+      const camera = (exifInfo: Record<string, unknown>) => toListing({ ...base, exifInfo })!.details?.camera
+      expect(camera({ make: 'Canon', model: 'Canon EOS R5' })).toBe('Canon EOS R5')
+      expect(camera({ make: 'Apple', model: 'iPhone 15', lensModel: 'iPhone 15 back camera' })).toBe('Apple iPhone 15 · iPhone 15 back camera')
+      expect(camera({ make: 'Apple' })).toBe('Apple')
+      expect(camera({ model: 'X100V' })).toBe('X100V')
+      expect(camera({ lensModel: 'XF35mm' })).toBe('XF35mm')
+    })
+
+    it('joins only the parts of the place that are there', () => {
+      expect(toListing({ ...base, exifInfo: { country: 'Norway', city: '  ' } })!.details?.location).toBe('Norway')
+    })
+
+    it('leaves out what is missing, odd or the wrong type, and cleans and caps text', () => {
+      expect(toListing({ ...base, exifInfo: { description: '   ', city: null } })!.details).toBeNull()
+      const long = toListing({ ...base, exifInfo: { description: `a\u0000b ${'x'.repeat(500)}` } })!.details!.description!
+      expect(long.startsWith('a b x')).toBe(true)
+      expect(long).toHaveLength(300)
+    })
+
+    it('does not skip an asset whose extra fields are not what was expected', async () => {
+      const odd = { ...base, originalFileName: 42, people: 'nobody', exifInfo: { city: 7, make: {}, model: [], description: false } }
+      const { provider: immichProvider } = provider({ mode: 'random' }, server({ random: [odd] }))
+
+      const listing = await immichProvider.list()
+
+      expect(listing).toHaveLength(1)
+      // Only the link, which needs none of the odd fields.
+      expect(listing[0]!.details).toEqual({ source_url: `${BASE}/photos/${base.id}` })
+    })
+
+    it('lists the details with the link to the configured address, over the provider', async () => {
+      const { provider: immichProvider } = provider({ mode: 'random' }, server({ random: [asset] }))
+
+      expect((await immichProvider.list())[0]!.details).toMatchObject({ location: 'Keswick, Cumbria, United Kingdom', source_url: `${BASE}/photos/${base.id}` })
+    })
   })
 
   it('skips what is not a photo to show', () => {

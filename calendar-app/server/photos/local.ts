@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve, sep } from 'node:path'
 import { exifTakenAt } from './exif'
 import { uprightSize } from './render'
 import { loadSharp } from './sharp'
+import { cleanText } from './text'
 import { PhotoProviderError } from './types'
 import type { PhotoListing, PhotoProvider } from './types'
 
@@ -105,7 +106,7 @@ export function createLocalProvider(options: LocalProviderOptions): PhotoProvide
       const sharp = await loadSharp()
       const meta = await sharp(file).metadata()
       if (meta.width && meta.height) {
-        listing = { providerAssetId: id, ...uprightSize(meta.width, meta.height, meta.orientation), takenAt: exifTakenAt(meta.exif) }
+        listing = { providerAssetId: id, ...uprightSize(meta.width, meta.height, meta.orientation), takenAt: exifTakenAt(meta.exif), details: { file_name: cleanText(id, 500) } }
       }
     } catch {
       // Not a picture after all, or damaged: left out of the pool.

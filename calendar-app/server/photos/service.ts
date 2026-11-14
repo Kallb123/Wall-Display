@@ -1,10 +1,13 @@
 import type { PhotoSource } from '../../shared/display'
 import { PHOTO_SOURCES } from '../../shared/display'
+import { photoDetailsSchema } from '../../shared/photoHistory'
+import type { PhotoHistoryEntry } from '../../shared/photoHistory'
 import { coversBox, PHOTO_SOURCE_NAMES, photoUrl } from '../../shared/photos'
 import type { PhotoBox, PhotoInfo, PhotoRendition, StageRendition } from '../../shared/photos'
 import type { Db } from '../db/client'
 import type { PhotoAssetRow } from '../db/schema'
 import { createPhotoCache } from './cache'
+import { listHistory, recordShown } from './history'
 import { peek, take } from './playlist'
 import type { Random } from './playlist'
 import type { PhotoGroup } from './pools'
@@ -33,7 +36,9 @@ import type { PhotoProvider } from './types'
 // several providers (see pools.ts). A group has a playlist of its own, keyed by
 // its id, and each photo in it is fetched and credited by the provider it
 // belongs to. The pools can change while the server runs (`setPools`), which adds
-// and removes the providers made for them. Everything it touches comes in through the options, so
+// and removes the providers made for them. Each photo handed out is also noted in
+// the photo history (history.ts), which `history` reads back for the remote; a
+// failure to note it is logged and never stops the photo being shown. Everything it touches comes in through the options, so
 // a test uses a fake provider, fake timers and an in-memory database.
 
 export interface PhotoServiceOptions {
@@ -106,6 +111,12 @@ export interface PhotoService {
    * one of the providers the service was made with.
    */
   setPools: (pools: { providers: readonly PhotoProvider[], groups: readonly PhotoGroup[] }) => Promise<void>
+  /**
+   * The photos a display was handed lately, newest first, as the remote lists
+   * them. A photo's image is given only while its file is still in the cache,
+   * and the feed's name only while the feed is still set up.
+   */
+  history: (displayId: string, limit: number) => PhotoHistoryEntry[]
   status: () => { providers: PhotoProviderStatus[], cache_bytes: number }
   /** Resolves when the background preparation of next photos has finished. For tests. */
   idle: () => Promise<void>
@@ -418,6 +429,24 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     }
   }
 
+  /** Notes in the photo history that the display is now showing this photo. The history must never stop the frame, so a failure is only logged. */
+  function noteShown(displayId: string, rendition: StageRendition, feed: string, cached: Cached, source: PhotoSource): void {
+    try {
+      const row = getAsset(db, cached.asset.id)
+      if (!row) return
+      recordShown(db, { displayId, rendition, asset: row, feed, source, cacheFile: cached.file, now: now() })
+    } catch (error) {
+      log.warn(`[photos] could not note a photo in the history: ${error instanceof Error ? error.name : 'unknown error'}`)
+    }
+  }
+
+  /** The name of a feed as the settings page shows it: a provider's, or a pool's. Null once it is no longer set up. */
+  function feedName(feed: string): string | null {
+    const provider = providerById(feed)
+    if (provider) return provider.name ?? PHOTO_SOURCE_NAMES[provider.source]
+    return groups.find(group => group.id === feed)?.name ?? null
+  }
+
   /** Starts preparing the photo after this one, in the same rendition and for the same box, so the next request is answered from the cache. */
   function prepare(heldKey: string, id: string | null, rendition: StageRendition, box: PhotoBox | undefined): void {
     if (!id) {
@@ -488,6 +517,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       }
 
       markShown(db, cached.asset.id, cached.rendition, now())
+      noteShown(displayId, rendition, key, cached, providerById(cached.asset.provider)?.source ?? members[0]!.source)
       shown.set(heldKey, { id: cached.asset.id, rendition: cached.rendition, file: cached.file })
       savePlaylist(db, displayId, key, taken.playlist, now())
       cache.evict()
@@ -564,6 +594,31 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       const listing = Promise.all(added.map(provider => refreshProvider(provider, true))).then(tidy).finally(() => listingNew.delete(listing))
       listingNew.add(listing)
       await listing
+    },
+
+    history(displayId, limit) {
+      const files = new Set(cachedRenditions(db).map(row => row.cacheFile))
+      return listHistory(db, displayId, limit).map((row): PhotoHistoryEntry => {
+        // Stored as JSON, so read tolerantly: odd details are dropped, never an error.
+        const details = photoDetailsSchema.safeParse(row.details ?? {})
+        return {
+          id: row.id,
+          photo_id: row.assetId,
+          feed: row.feed,
+          feed_name: feedName(row.feed),
+          provider: row.source,
+          rendition: row.rendition,
+          shown_at: row.shownAt.toISOString(),
+          ended_at: row.endedAt?.toISOString() ?? null,
+          image_url: row.cacheFile && files.has(row.cacheFile) ? photoUrl(row.cacheFile) : null,
+          width: row.width,
+          height: row.height,
+          orientation: row.orientation,
+          taken_at: row.takenAt?.toISOString() ?? null,
+          credit: row.credit,
+          details: details.success ? details.data : {},
+        }
+      })
     },
 
     status() {

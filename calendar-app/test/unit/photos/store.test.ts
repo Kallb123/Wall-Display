@@ -50,6 +50,21 @@ describe('syncListing', () => {
     expect(getAsset(db, 'mountains:a')!.credit).toBeNull()
   })
 
+  it('stores the details, changes them, and leaves them when a listing says nothing of them', () => {
+    const { db } = migratedMemoryDb()
+    syncListing(db, 'immich', [{ providerAssetId: 'a', details: { location: 'Keswick', people: ['Ada'] } }, { providerAssetId: 'b' }], NOW)
+    expect(getAsset(db, 'immich:a')!.details).toEqual({ location: 'Keswick', people: ['Ada'] })
+    expect(getAsset(db, 'immich:b')!.details).toBeNull()
+
+    syncListing(db, 'immich', [{ providerAssetId: 'a' }, { providerAssetId: 'b', details: { file_name: 'b.jpg' } }], NOW)
+    expect(getAsset(db, 'immich:a')!.details).toEqual({ location: 'Keswick', people: ['Ada'] })
+    expect(getAsset(db, 'immich:b')!.details).toEqual({ file_name: 'b.jpg' })
+
+    syncListing(db, 'immich', [{ providerAssetId: 'a', details: { location: 'Keswick', people: ['Ada'] } }, { providerAssetId: 'b', details: null }], NOW)
+    expect(getAsset(db, 'immich:a')!.details).toEqual({ location: 'Keswick', people: ['Ada'] })
+    expect(getAsset(db, 'immich:b')!.details).toBeNull()
+  })
+
   it('removes photos that are no longer listed, and returns the cache files of all their renditions', () => {
     const { db } = migratedMemoryDb()
     syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }, { providerAssetId: 'b.jpg' }], NOW)

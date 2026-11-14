@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import type { ImmichConfig } from '../config/schema'
 import { discard, errorCode } from '../sources/http'
+import type { PhotoDetails } from '../../shared/photoHistory'
 import { readBytes } from './http'
+import { cleanText, compactDetails, joinText } from './text'
 import { PhotoProviderError } from './types'
 import type { PhotoListing, PhotoProvider } from './types'
 
@@ -56,12 +58,22 @@ const asset = z.object({
   visibility: optional(z.string()),
   localDateTime: optional(z.string()),
   fileCreatedAt: optional(z.string()),
+  originalFileName: optional(z.string()),
+  // The people Immich has recognised in it; only the named ones are kept (see `detailsOf`).
+  people: optional(z.array(z.object({ name: optional(z.string()) }).catch({}))),
   exifInfo: optional(z.object({
     exifImageWidth: optional(z.number()),
     exifImageHeight: optional(z.number()),
     // Immich keeps the EXIF number as text ("6"); an older server may send a number.
     orientation: optional(z.union([z.string(), z.number()])),
     dateTimeOriginal: optional(z.string()),
+    city: optional(z.string()),
+    state: optional(z.string()),
+    country: optional(z.string()),
+    description: optional(z.string()),
+    make: optional(z.string()),
+    model: optional(z.string()),
+    lensModel: optional(z.string()),
   })),
 })
 type ImmichAsset = z.output<typeof asset>
@@ -80,8 +92,60 @@ const date = (value: string | null | undefined): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-/** The listing for an asset, or null if it isn't a photo to show: not an image, in the bin, archived, or with an id that can't be fetched. */
-export function toListing(item: ImmichAsset): PhotoListing | null {
+/**
+ * The camera as one line: the make and model, without repeating the make when
+ * the model already starts with it (Immich often has "Canon" and "Canon EOS R5"),
+ * and the lens after a dot if it is known.
+ */
+function cameraOf(exif: NonNullable<ImmichAsset['exifInfo']>): string | null {
+  const make = cleanText(exif.make, 80)
+  const model = cleanText(exif.model, 80)
+  const body = make && model
+    ? (model.toLowerCase().startsWith(make.toLowerCase()) ? model : `${make} ${model}`)
+    : (model ?? make)
+  const lens = cleanText(exif.lensModel, 120)
+  return joinText([body, lens], ' · ')
+}
+
+/**
+ * The address of a photo in Immich's web app, or undefined when it can't be
+ * given safely: the configured address is not valid, or has a user name or
+ * password in it, which must never be shown or linked.
+ */
+function webUrl(baseUrl: string | undefined, id: string): string | undefined {
+  if (!baseUrl) return undefined
+  try {
+    const url = new URL(baseUrl)
+    if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username !== '' || url.password !== '') return undefined
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/photos/${id.toLowerCase()}`
+    url.search = ''
+    url.hash = ''
+    return url.href
+  } catch {
+    return undefined
+  }
+}
+
+/** What Immich says about an asset, or null if it says nothing. */
+function detailsOf(item: ImmichAsset, baseUrl: string | undefined): PhotoDetails | null {
+  const exif = item.exifInfo
+  const people = (item.people ?? []).map(person => cleanText(person.name, 80)).filter((name): name is string => name !== null)
+  return compactDetails<PhotoDetails>({
+    description: cleanText(exif?.description),
+    location: joinText([exif?.city, exif?.state, exif?.country], ', '),
+    camera: exif ? cameraOf(exif) : null,
+    file_name: cleanText(item.originalFileName),
+    people: [...new Set(people)],
+    source_url: webUrl(baseUrl, item.id) ?? null,
+  })
+}
+
+/**
+ * The listing for an asset, or null if it isn't a photo to show: not an image,
+ * in the bin, archived, or with an id that can't be fetched. `baseUrl` is the
+ * configured Immich address, for the link to the photo in its web app.
+ */
+export function toListing(item: ImmichAsset, baseUrl?: string): PhotoListing | null {
   if (item.type !== 'IMAGE' || item.isTrashed === true || item.isArchived === true) return null
   if (item.visibility != null && item.visibility !== 'timeline') return null
   if (!UUID.test(item.id)) return null
@@ -89,6 +153,7 @@ export function toListing(item: ImmichAsset): PhotoListing | null {
   const listing: PhotoListing = {
     providerAssetId: item.id,
     takenAt: date(item.exifInfo?.dateTimeOriginal) ?? date(item.localDateTime) ?? date(item.fileCreatedAt),
+    details: detailsOf(item, baseUrl),
   }
   // The EXIF size is the size as stored. Immich's previews are turned upright already, so a
   // photo saved on its side (orientation 5 to 8) is shown the other way round.
@@ -103,11 +168,11 @@ export function toListing(item: ImmichAsset): PhotoListing | null {
 }
 
 /** The assets in `items` that are photos to show. Anything that isn't shaped like an asset is skipped, not an error: one odd asset shouldn't empty the frame. */
-function listings(items: readonly unknown[]): PhotoListing[] {
+function listings(items: readonly unknown[], baseUrl?: string): PhotoListing[] {
   const found: PhotoListing[] = []
   for (const item of items) {
     const parsed = asset.safeParse(item)
-    const listing = parsed.success ? toListing(parsed.data) : null
+    const listing = parsed.success ? toListing(parsed.data, baseUrl) : null
     if (listing) found.push(listing)
   }
   return found
@@ -211,9 +276,9 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
     let page = 1
     for (let pages = 0; pages < MAX_PAGES; pages++) {
       const answer = await json('/search/metadata', searchPage, {
-        body: { albumIds: [albumId], type: 'IMAGE', page, size: PAGE_SIZE, withExif: true },
+        body: { albumIds: [albumId], type: 'IMAGE', page, size: PAGE_SIZE, withExif: true, withPeople: true },
       })
-      found.push(...listings(answer.assets.items))
+      found.push(...listings(answer.assets.items, settings.url))
       const next = answer.assets.nextPage == null ? null : Number(answer.assets.nextPage)
       if (next === null) return found
       // A page that doesn't move on would ask for ever.
@@ -233,17 +298,17 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
 
   async function fromRandom(): Promise<PhotoListing[]> {
     const { count, person_ids: personIds, taken_after: takenAfter, taken_before: takenBefore } = settings.random
-    const body: Record<string, unknown> = { size: count, type: 'IMAGE', withExif: true }
+    const body: Record<string, unknown> = { size: count, type: 'IMAGE', withExif: true, withPeople: true }
     if (personIds.length > 0) body.personIds = personIds
     if (takenAfter) body.takenAfter = takenAfter
     if (takenBefore) body.takenBefore = takenBefore
     // The answer is a plain list of assets.
-    return unique(listings(await json('/search/random', z.array(z.unknown()), { body })))
+    return unique(listings(await json('/search/random', z.array(z.unknown()), { body }), settings.url))
   }
 
   async function fromMemories(): Promise<PhotoListing[]> {
     const answer = await json('/memories', memories, { search: new URLSearchParams({ for: now().toISOString() }).toString() })
-    return unique(answer.flatMap(memory => listings(memory.assets)))
+    return unique(answer.flatMap(memory => listings(memory.assets, settings.url)))
   }
 
   // -------------------------------------------------------------------------

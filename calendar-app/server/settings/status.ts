@@ -142,14 +142,14 @@ const MAX_WHERE = 60
 
 /**
  * What an Unsplash feed shows, in a few words, led by how it picks: `random`
- * (new photos at each refresh) or `top` (the same top photos of the search,
- * collections or topics every time, which is the `fixed` pick). Then its
+ * (new photos at each refresh) or `fixed` (the same top photos of the search,
+ * collections or topics every time). Then its
  * search (`random: landscape`), its collections (`random: collections 317099`)
- * or its topics (`top: topics nature`). The access key is not part of it.
+ * or its topics (`fixed: topics nature`). The access key is not part of it.
  */
 function unsplashWhere(settings: Pick<UnsplashConfig, 'query' | 'collections' | 'topics' | 'pick'>): string {
   const what = settings.collections ? `collections ${settings.collections.join(', ')}` : settings.topics ? `topics ${settings.topics.join(', ')}` : settings.query ?? 'landscape'
-  const text = `${settings.pick === 'random' ? 'random' : 'top'}: ${what}`
+  const text = `${settings.pick === 'random' ? 'random' : 'fixed'}: ${what}`
   return text.length > MAX_WHERE ? `${text.slice(0, MAX_WHERE - 1)}…` : text
 }
 

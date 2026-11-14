@@ -274,7 +274,7 @@ describe('photosStatus', () => {
       ['garden', null, '/photos/garden'],
       ['holidays', 'albums', 'immich.local:2283'],
       ['art', null, 'random: collections 317099, 1234'],
-      ['wild', null, 'top: topics nature'],
+      ['wild', null, 'fixed: topics nature'],
     ])
     expect(providers.find(provider => provider.id === 'mountains')!.photos).toBe(60)
   })

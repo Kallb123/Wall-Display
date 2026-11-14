@@ -14,7 +14,8 @@ const settings = (changes: Partial<Settings> = {}): Settings => ({
   query: 'landscape',
   content_filter: 'high',
   count: 60,
-  refresh_hours: 12,
+  pick: 'fixed',
+  refresh_minutes: 720,
   ...changes,
 })
 
@@ -93,7 +94,7 @@ describe('a search', () => {
 
     expect(unsplash.id).toBe('unsplash')
     expect(unsplash.source).toBe('unsplash')
-    expect(unsplash.refreshIntervalMs).toBe(12 * 60 * 60 * 1000)
+    expect(unsplash.refreshIntervalMs).toBe(720 * 60_000)
     expect(listing).toHaveLength(60)
     expect(calls.map(call => `${call.url.origin}${call.url.pathname}`)).toEqual(['https://api.unsplash.com/search/photos', 'https://api.unsplash.com/search/photos'])
     expect(Object.fromEntries(calls[0]!.url.searchParams)).toEqual({ query: 'mountain lake', per_page: '30', page: '1', content_filter: 'low', orientation: 'landscape' })
@@ -435,5 +436,278 @@ describe('fetching a photo', () => {
 
     await failure(unsplash.fetch('a1'))
     expect(await unsplash.fetch('b2')).toEqual(JPEG)
+  })
+})
+
+describe('a random pick', () => {
+  /** `/photos/random`: answers `count` photos, new ones each time (`r0`, `r1`, ...), unless the pool is `limit` photos. */
+  const randomServer = (limit = Infinity) => {
+    let next = 0
+    const handler: Handler = (call) => {
+      if (call.url.pathname !== '/photos/random') return call.url.hostname === 'images.unsplash.com' ? imageResponse() : new Response(null, { status: 404 })
+      const asked = Number(call.url.searchParams.get('count'))
+      const given = Math.max(0, Math.min(asked, limit - next))
+      const batch = photos('r', given, next)
+      next += given
+      return jsonResponse(batch)
+    }
+    return handler
+  }
+  const random = (changes: Partial<Settings>, handler: Handler, options: UnsplashProviderOptions = {}) => provider({ pick: 'random', ...changes }, handler, options)
+
+  it('asks /photos/random for a search, with its orientation and content filter', async () => {
+    const { provider: unsplash, calls } = random({ query: 'mountain lake', count: 20, orientation: 'landscape', content_filter: 'low' }, randomServer())
+
+    const listing = await unsplash.list()
+
+    expect(listing).toHaveLength(20)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url.pathname).toBe('/photos/random')
+    expect(Object.fromEntries(calls[0]!.url.searchParams)).toEqual({ query: 'mountain lake', count: '20', orientation: 'landscape', content_filter: 'low' })
+    expect(calls[0]!.headers).toMatchObject({ 'Authorization': `Client-ID ${KEY}`, 'Accept-Version': 'v1' })
+    expect(calls[0]!.init.redirect).toBe('manual')
+  })
+
+  it('sends collections as one comma-separated list, and no query', async () => {
+    const { provider: unsplash, calls } = random({ query: undefined, collections: ['111', '222'], count: 5 }, randomServer())
+
+    await unsplash.list()
+
+    expect(Object.fromEntries(calls[0]!.url.searchParams)).toEqual({ collections: '111,222', count: '5', content_filter: 'high' })
+  })
+
+  it('sends topics as one comma-separated list, and no query', async () => {
+    const { provider: unsplash, calls } = random({ query: undefined, topics: ['nature', 'travel'], count: 5, orientation: 'squarish' }, randomServer())
+
+    await unsplash.list()
+
+    expect(Object.fromEntries(calls[0]!.url.searchParams)).toEqual({ topics: 'nature,travel', count: '5', orientation: 'squarish', content_filter: 'high' })
+  })
+
+  it('makes a request for each 30 photos, asking only for what is still needed', async () => {
+    const { provider: unsplash, calls } = random({ count: 70 }, randomServer())
+
+    expect(await unsplash.list()).toHaveLength(70)
+
+    expect(calls.map(call => call.url.searchParams.get('count'))).toEqual(['30', '30', '10'])
+  })
+
+  it('stops at a request that gave fewer than it was asked for', async () => {
+    const { provider: unsplash, calls } = random({ count: 90 }, randomServer(40))
+
+    expect(await unsplash.list()).toHaveLength(40)
+
+    expect(calls).toHaveLength(2)
+  })
+
+  it('lists a photo that came in two requests once', async () => {
+    const { provider: unsplash } = random({ count: 60 }, (call) => jsonResponse(photos('d', Number(call.url.searchParams.get('count')))))
+
+    expect((await unsplash.list()).map(entry => entry.providerAssetId)).toEqual(ids('d', 30))
+  })
+
+  it('refuses an id that could change the request, without asking', async () => {
+    const { provider: unsplash, calls } = random({ query: undefined, collections: ['1,2&query=x'] }, randomServer())
+
+    expect((await failure(unsplash.list())).message).toBe('photos.unsplash.collections has an id that is not valid')
+    expect(calls).toEqual([])
+  })
+
+  it('brings new photos at each listing and keeps the ones shown, newest shown last, for the pool', async () => {
+    const { provider: unsplash } = random({ count: 3 }, randomServer())
+    await unsplash.list()
+    await unsplash.fetch('r0')
+    await unsplash.fetch('r1')
+
+    const second = (await unsplash.list()).map(entry => entry.providerAssetId)
+
+    // The new three first, then what was shown; r2 was never shown, so it is gone.
+    expect(second).toEqual(['r3', 'r4', 'r5', 'r0', 'r1'])
+    // A kept photo can still be fetched, though the request did not give it again.
+    expect(await unsplash.fetch('r1')).toEqual(JPEG)
+  })
+
+  it('does not list a shown photo twice when Unsplash gives it again, and moves it to the newest', async () => {
+    let batch = [item('a'), item('b')]
+    const { provider: unsplash } = random({ count: 2 }, (call) => call.url.pathname === '/photos/random' ? jsonResponse(batch) : imageResponse())
+    await unsplash.list()
+    await unsplash.fetch('a')
+    await unsplash.fetch('b')
+    await unsplash.fetch('a')
+    batch = [item('a'), item('c')]
+
+    expect((await unsplash.list()).map(entry => entry.providerAssetId)).toEqual(['a', 'c', 'b'])
+  })
+
+  it('keeps the photos shown lately when Unsplash fails, so they keep rotating', async () => {
+    let failing = false
+    const { provider: unsplash } = random({ count: 2 }, (call) => {
+      if (call.url.pathname !== '/photos/random') return imageResponse()
+      return failing ? new Response(null, { status: 403, headers: { 'X-Ratelimit-Remaining': '0' } }) : jsonResponse(photos('r', 2))
+    })
+    await unsplash.list()
+    await unsplash.fetch('r0')
+    failing = true
+    await failure(unsplash.list())
+
+    // The pool as it was is what is fetched from.
+    expect(await unsplash.fetch('r1')).toEqual(JPEG)
+  })
+
+  it('keeps at most 100 shown photos, the oldest dropped first', async () => {
+    // Five batches of 30 listed in turn, with every photo shown.
+    let batchStart = 0
+    const server = (call: Call) => call.url.pathname === '/photos/random' ? jsonResponse(photos('r', 30, batchStart)) : imageResponse()
+    const { provider: many } = random({ count: 30 }, server)
+    for (; batchStart < 150; batchStart += 30) {
+      await many.list()
+      for (const id of ids('r', 30, batchStart)) await many.fetch(id)
+    }
+    batchStart = 1000
+
+    const listing = (await many.list()).map(entry => entry.providerAssetId)
+
+    expect(listing).toHaveLength(30 + 100)
+    // The newest 100 shown are r50 to r149, the oldest of them last in the pool.
+    expect(listing.slice(30)).toEqual(ids('r', 100, 50))
+  })
+
+  it('drops a photo that is gone (404) from the ones kept', async () => {
+    let gone = false
+    const { provider: unsplash } = random({ count: 2 }, (call) => {
+      if (call.url.pathname === '/photos/random') return jsonResponse(photos('r', 2, gone ? 10 : 0))
+      return gone && call.url.pathname === '/photo-r0' ? new Response(null, { status: 404 }) : imageResponse()
+    })
+    await unsplash.list()
+    await unsplash.fetch('r0')
+    await unsplash.fetch('r1')
+    gone = true
+    await unsplash.list()
+    expect((await failure(unsplash.fetch('r0'))).message).toBe('That photo is no longer on Unsplash (HTTP 404)')
+
+    expect((await unsplash.list()).map(entry => entry.providerAssetId)).toEqual(['r10', 'r11', 'r1'])
+  })
+
+  it('shows what each listing found and nothing is kept in fixed mode', async () => {
+    const { provider: unsplash } = provider({ pick: 'fixed' }, (call) => call.url.pathname === '/search/photos' ? jsonResponse({ total_pages: 1, results: [item('a1')] }) : imageResponse())
+    await unsplash.list()
+    await unsplash.fetch('a1')
+
+    expect((await unsplash.list()).map(entry => entry.providerAssetId)).toEqual(['a1'])
+    expect((await failure(unsplash.fetch('zz'))).message).toBe('That photo has not been listed from Unsplash yet')
+  })
+})
+
+describe('download pings and the request limit', () => {
+  /** Listing answers say how many requests are left, as set by `left`; pings and images are answered plainly. */
+  function budget(initial: number | null) {
+    const state = { left: initial as number | null, status: 200 }
+    const handler: Handler = (call) => {
+      if (call.url.hostname === 'images.unsplash.com') return imageResponse()
+      const headers: Record<string, string> = state.left === null ? {} : { 'X-Ratelimit-Remaining': String(state.left) }
+      if (call.url.pathname === '/search/photos') {
+        if (state.status !== 200) return new Response('Rate Limit Exceeded', { status: state.status, headers })
+        return jsonResponse({ total_pages: 1, results: photos('p', 5) }, 200, headers)
+      }
+      return jsonResponse({ url: 'https://images.unsplash.com/x' }, 200, headers)
+    }
+    return { state, handler }
+  }
+  const pings = (calls: Call[]) => calls.filter(call => call.url.pathname.endsWith('/download')).map(call => call.url.pathname)
+  const logger = () => {
+    const lines: string[] = []
+    return { lines, log: { info: (line: string) => lines.push(line), warn: (line: string) => lines.push(line) } }
+  }
+
+  it('pings while the budget is not known or is above the reserve', async () => {
+    const { state, handler } = budget(null)
+    const { provider: unsplash, calls } = provider({ pick: 'fixed' }, handler)
+    await unsplash.list()
+    await unsplash.fetch('p0')
+    await settle()
+    state.left = 40
+    await unsplash.list()
+    await unsplash.fetch('p1')
+    await settle()
+
+    expect(pings(calls)).toEqual(['/photos/p0/download', '/photos/p1/download'])
+  })
+
+  it('skips pings while fewer than 10 requests are left, logging once, and resumes when a listing shows the budget is back', async () => {
+    const { state, handler } = budget(9)
+    const { lines, log } = logger()
+    const { provider: unsplash, calls } = provider({ pick: 'fixed' }, handler, { log })
+    await unsplash.list()
+
+    await unsplash.fetch('p0')
+    await unsplash.fetch('p1')
+    await settle()
+    expect(pings(calls)).toEqual([])
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/not reported to it until there is room again/)
+
+    state.left = 10
+    await unsplash.list()
+    // The skipped photo was not marked as reported, so it is pinged now.
+    await unsplash.fetch('p0')
+    await unsplash.fetch('p2')
+    await settle()
+
+    expect(pings(calls)).toEqual(['/photos/p0/download', '/photos/p2/download'])
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toMatch(/reported to it again/)
+    for (const line of lines) {
+      expect(line).not.toContain(KEY)
+      expect(line).not.toMatch(/https?:/)
+    }
+  })
+
+  it('learns the budget from the answer to a ping too', async () => {
+    const { state, handler } = budget(null)
+    const { provider: unsplash, calls } = provider({ pick: 'fixed' }, handler)
+    await unsplash.list()
+    state.left = 3
+    await unsplash.fetch('p0')
+    await settle()
+    await unsplash.fetch('p1')
+    await settle()
+
+    expect(pings(calls)).toEqual(['/photos/p0/download'])
+  })
+
+  it('stops pinging after a rate-limit answer, until an answer shows the budget back above the reserve', async () => {
+    const { state, handler } = budget(30)
+    const { lines, log } = logger()
+    const { provider: unsplash, calls } = provider({ pick: 'fixed' }, handler, { log })
+    await unsplash.list()
+    // A 403 that says rate limit, with no header at all.
+    state.left = null
+    state.status = 403
+    await failure(unsplash.list())
+
+    await unsplash.fetch('p0')
+    await settle()
+    expect(pings(calls)).toEqual([])
+    expect(lines).toHaveLength(1)
+
+    state.status = 200
+    state.left = 25
+    await unsplash.list()
+    await unsplash.fetch('p0')
+    await settle()
+
+    expect(pings(calls)).toEqual(['/photos/p0/download'])
+    expect(lines).toHaveLength(2)
+  })
+
+  it('does not take a header that is not a number for a budget', async () => {
+    const { provider: unsplash, calls } = provider({ pick: 'fixed' }, (call) => call.url.pathname === '/search/photos'
+      ? jsonResponse({ total_pages: 1, results: photos('p', 1) }, 200, { 'X-Ratelimit-Remaining': 'lots' })
+      : imageResponse())
+    await unsplash.list()
+    await unsplash.fetch('p0')
+    await settle()
+
+    expect(pings(calls)).toEqual(['/photos/p0/download'])
   })
 })

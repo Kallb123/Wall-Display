@@ -42,7 +42,7 @@ export default defineNitroPlugin((nitroApp) => {
       console.info(`[photos] ${feed.id}: immich, mode ${feed.settings.mode}`)
     } else if (feed.source === 'unsplash') {
       providers.push(createUnsplashProvider(feed.settings, { id: feed.id, name: feed.name }))
-      console.info(`[photos] ${feed.id}: unsplash, ${unsplashSummary(feed.settings)}, ${feed.settings.count} photos, listed every ${feed.settings.refresh_hours} h`)
+      console.info(`[photos] ${feed.id}: unsplash, ${unsplashSummary(feed.settings)}, ${feed.settings.count} photos, ${feed.settings.pick} pick, listed every ${feed.settings.refresh_minutes} min`)
     } else {
       providers.push(createLocalProvider({ id: feed.id, name: feed.name, path: feed.settings.path }))
     }

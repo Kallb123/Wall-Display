@@ -20,19 +20,20 @@ async function problem(block: Record<string, unknown>, change: (raw: ReturnType<
 }
 
 describe('photos.unsplash', () => {
-  it('has defaults: a search for landscape, high content filter, 60 photos, listed every 12 hours', async () => {
+  it('has defaults: a search for landscape, high content filter, 60 random photos, listed every 60 minutes', async () => {
     expect((await photos({ unsplash: { access_key: 'k' } })).unsplash).toEqual({
       access_key: 'k',
       query: 'landscape',
       content_filter: 'high',
       count: 60,
-      refresh_hours: 12,
+      pick: 'random',
+      refresh_minutes: 60,
     })
   })
 
   it('takes a query, collections or topics, with an orientation', async () => {
-    expect((await photos({ unsplash: { access_key: 'k', query: 'mountain lake', orientation: 'portrait', count: 300, refresh_hours: 168, content_filter: 'low' } })).unsplash)
-      .toEqual({ access_key: 'k', query: 'mountain lake', orientation: 'portrait', count: 300, refresh_hours: 168, content_filter: 'low' })
+    expect((await photos({ unsplash: { access_key: 'k', query: 'mountain lake', orientation: 'portrait', count: 300, refresh_minutes: 10080, pick: 'fixed', content_filter: 'low' } })).unsplash)
+      .toEqual({ access_key: 'k', query: 'mountain lake', orientation: 'portrait', count: 300, refresh_minutes: 10080, pick: 'fixed', content_filter: 'low' })
     // A number is a collection id too, as YAML would read `[317099]`.
     expect((await photos({ unsplash: { access_key: 'k', collections: [317099, '1234'] } })).unsplash).toMatchObject({ collections: ['317099', '1234'] })
     expect((await photos({ unsplash: { access_key: 'k', collections: [317099] } })).unsplash).not.toHaveProperty('query')
@@ -58,8 +59,10 @@ describe('photos.unsplash', () => {
     ['a content filter that does not exist', { access_key: 'k', content_filter: 'medium' }, 'photos.unsplash.content_filter'],
     ['a count of 0', { access_key: 'k', count: 0 }, 'photos.unsplash.count'],
     ['a count above 300', { access_key: 'k', count: 301 }, 'photos.unsplash.count'],
-    ['a refresh of 0 hours', { access_key: 'k', refresh_hours: 0 }, 'photos.unsplash.refresh_hours'],
-    ['a refresh above a week', { access_key: 'k', refresh_hours: 169 }, 'photos.unsplash.refresh_hours'],
+    ['a refresh sooner than the 10 minute tick', { access_key: 'k', refresh_minutes: 9 }, 'photos.unsplash.refresh_minutes'],
+    ['a refresh that is not whole minutes', { access_key: 'k', refresh_minutes: 30.5 }, 'photos.unsplash.refresh_minutes'],
+    ['a refresh above a week', { access_key: 'k', refresh_minutes: 10081 }, 'photos.unsplash.refresh_minutes'],
+    ['a pick that does not exist', { access_key: 'k', pick: 'shuffle' }, 'photos.unsplash.pick'],
     ['an unknown setting', { access_key: 'k', size: 'big' }, 'photos.unsplash.size: unknown setting'],
   ])('refuses %s', async (_name, block, path) => {
     expect(await problem({ unsplash: block })).toContain(path)
@@ -80,10 +83,10 @@ describe('photos.feeds', () => {
 
   it('resolves an Unsplash feed over the block: the key and what it leaves out come from the block', async () => {
     const block = await photos({
-      unsplash: { access_key: 'key', query: 'sea', orientation: 'landscape', count: 90, refresh_hours: 6, content_filter: 'low' },
+      unsplash: { access_key: 'key', query: 'sea', orientation: 'landscape', count: 90, refresh_minutes: 30, pick: 'fixed', content_filter: 'low' },
       feeds: [
         { id: 'mountains', name: 'Mountains', unsplash: { query: 'mountain lake', count: 30 } },
-        { id: 'art', unsplash: { collections: ['317099'], orientation: 'squarish' } },
+        { id: 'art', unsplash: { collections: ['317099'], orientation: 'squarish', pick: 'random', refresh_minutes: 90 } },
         { id: 'same', unsplash: {} },
       ],
     })
@@ -94,14 +97,14 @@ describe('photos.feeds', () => {
       id: 'mountains',
       name: 'Mountains',
       source: 'unsplash',
-      settings: { access_key: 'key', query: 'mountain lake', orientation: 'landscape', count: 30, refresh_hours: 6, content_filter: 'low' },
+      settings: { access_key: 'key', query: 'mountain lake', orientation: 'landscape', count: 30, pick: 'fixed', refresh_minutes: 30, content_filter: 'low' },
     })
     // Its own collections replace the block's search, rather than joining it.
     expect(art).toEqual({
       id: 'art',
       name: 'art',
       source: 'unsplash',
-      settings: { access_key: 'key', collections: ['317099'], orientation: 'squarish', count: 90, refresh_hours: 6, content_filter: 'low' },
+      settings: { access_key: 'key', collections: ['317099'], orientation: 'squarish', count: 90, pick: 'random', refresh_minutes: 90, content_filter: 'low' },
     })
     expect(same!.settings).toEqual(block.unsplash)
   })

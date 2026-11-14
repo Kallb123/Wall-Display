@@ -563,7 +563,14 @@ const unsplashPool = {
   orientation: z.enum(['landscape', 'portrait', 'squarish']).optional(),
   content_filter: z.enum(['low', 'high']).optional(),
   count: z.number().int().min(1).max(300).optional(),
-  refresh_hours: z.number().int().min(1).max(168).optional(),
+  // `random` brings new photos at every refresh; `fixed` pages through the same
+  // search, collections or topics, which gives the same photos until they
+  // change on Unsplash (see server/photos/unsplash.ts).
+  pick: z.enum(['random', 'fixed']).optional(),
+  // How often the pool is listed again. The photo service wakes every 10
+  // minutes, so a refresh is never sooner than that: less than 10 would mean
+  // nothing, and is refused. At most a week.
+  refresh_minutes: z.number().int().min(10).max(10080).optional(),
 }
 
 type UnsplashChoice = { query?: string | undefined, collections?: string[] | undefined, topics?: string[] | undefined }
@@ -578,9 +585,10 @@ const unsplash = z.strictObject({
   access_key: text,
   ...unsplashPool,
   content_filter: unsplashPool.content_filter.default('high'),
-  // The pool is listed in pages of 30, and a demo key may make 50 requests an hour.
+  // The pool is listed in pages (or random picks) of 30, and a demo key may make 50 requests an hour.
   count: unsplashPool.count.default(60),
-  refresh_hours: unsplashPool.refresh_hours.default(12),
+  pick: unsplashPool.pick.default('random'),
+  refresh_minutes: unsplashPool.refresh_minutes.default(60),
 }).superRefine(oneUnsplashChoice).transform(value => (
   value.query === undefined && value.collections === undefined && value.topics === undefined ? { ...value, query: 'landscape' } : value
 ))

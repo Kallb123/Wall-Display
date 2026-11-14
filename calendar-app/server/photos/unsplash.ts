@@ -17,10 +17,21 @@ import type { PhotoListing, PhotoProvider } from './types'
 // error that was caught, because those can quote the address.
 //
 // Unsplash allows a demo key 50 requests an hour. A listing costs one request
-// per page (a pool of 60 is two), the photos themselves come from the image
-// host, which is not counted, and the service lists this provider only every
-// `refresh_hours` (see `refreshIntervalMs`), so the limit is far away. If it is
-// reached all the same, the photos already known keep rotating.
+// per page of 30 (a pool of 60 is two), the photos themselves come from the
+// image host, which is not counted, and the service lists this provider only
+// every `refresh_minutes` (see `refreshIntervalMs`), so a listing alone stays
+// far from the limit. The other thing that costs requests is the ping Unsplash's
+// API guidelines ask for when a photo is used (its `download_location`): one per
+// new photo shown, which for a frame that changes photo every minute would be
+// 60 an hour, more than the whole allowance. So every answer from the API says
+// how many requests are left (`X-Ratelimit-Remaining`), and the pings are
+// skipped while that is below a reserve, so the listings keep their budget. If
+// the limit is reached all the same, the photos already known keep rotating.
+//
+// The pick is either `fixed` (the search, collection or topic is read page by
+// page, which gives the same photos until they change on Unsplash) or `random`
+// (each listing asks `/photos/random`, which gives new photos every time; the
+// ones shown lately stay in the pool, as Immich's random mode does).
 
 export interface UnsplashProviderOptions {
   /** The feed id this provider is. Default: `unsplash`, the source's own. */
@@ -31,9 +42,11 @@ export interface UnsplashProviderOptions {
   fetch?: typeof fetch
   /** For each request, the body included. Default 30 000. */
   timeoutMs?: number
+  /** For tests. Default: the console. */
+  log?: Pick<Console, 'info' | 'warn'>
 }
 
-type Settings = Pick<UnsplashConfig, 'access_key' | 'query' | 'collections' | 'topics' | 'orientation' | 'content_filter' | 'count' | 'refresh_hours'>
+type Settings = Pick<UnsplashConfig, 'access_key' | 'query' | 'collections' | 'topics' | 'orientation' | 'content_filter' | 'count' | 'pick' | 'refresh_minutes'>
 
 const API = 'https://api.unsplash.com'
 const API_HOST = 'api.unsplash.com'
@@ -48,6 +61,12 @@ const MAX_IMAGE_BYTES = 32 * 1024 * 1024
 const MAX_ERROR_BYTES = 64 * 1024
 /** What a page asks for, which is Unsplash's default and most of what it gives for a search. */
 const PAGE_SIZE = 30
+/** The most `/photos/random` gives in one request. */
+const RANDOM_MAX = 30
+/** How many photos shown from earlier random listings stay in the pool, so that the cache is not thrown away at every listing. */
+const KEEP_SHOWN = 100
+/** The requests left in the hour below which a download ping is not worth one of them. */
+const RESERVE = 10
 /** The longest side asked of the image host: the stage is 2560 px, so this is never upscaled. */
 const IMAGE_SIDE = 2560
 /** The longest credit kept, so an odd name can't fill the frame. */
@@ -77,6 +96,12 @@ const searchPage = z.object({
   total_pages: z.number().nullish().catch(undefined),
 })
 const photoPage = z.array(z.unknown())
+
+/** A listed photo and what is kept of it until it is fetched. */
+interface Entry {
+  listing: PhotoListing
+  known: Known
+}
 
 /** What is kept of a listed photo until it is fetched. */
 interface Known {
@@ -128,7 +153,7 @@ function creditFor(name: string): string | null {
 }
 
 /** The listing for a photo and what to keep of it, or null if it isn't one to show: no usable id, address or photographer. */
-export function toListing(item: UnsplashPhoto): { listing: PhotoListing, known: Known } | null {
+export function toListing(item: UnsplashPhoto): Entry | null {
   if (!PHOTO_ID.test(item.id)) return null
   const image = imageUrl(item.urls.raw)
   const credit = creditFor(item.user.name)
@@ -150,9 +175,16 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
   const feedId = options.id ?? 'unsplash'
   const fetchFn = options.fetch ?? fetch
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const log = options.log ?? console
 
-  /** What was listed last time, by photo id, for fetching one. */
-  const known = new Map<string, Known>()
+  /** What was listed last time and the photos kept from before, by photo id, for fetching one. */
+  const known = new Map<string, Entry>()
+  /** Photos shown from earlier random listings, oldest first. */
+  const shown = new Map<string, Entry>()
+  /** The requests left this hour as the last answer from the API said, or null before any has. */
+  let remaining: number | null = null
+  /** Whether download pings are being skipped, so that it is only logged when that starts or stops. */
+  let skipping = false
   /** The photos already reported as used since the server started: once each is what Unsplash asks. */
   const reported = new Set<string>()
 
@@ -171,6 +203,27 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
     return new PhotoProviderError(feedId, code ? `Unsplash could not be reached (${code})` : 'Unsplash could not be reached')
   }
 
+  /**
+   * Takes note of how many requests an answer from the API says are left. The
+   * header is on every answer, a refused one too; an answer without it (or with
+   * something that is not a number) changes nothing. This is also where pings
+   * are seen to be allowed again: the limit is per hour, so a later listing
+   * shows the budget has come back.
+   */
+  function noteRemaining(response: Response): void {
+    const value = response.headers.get('x-ratelimit-remaining')
+    if (value === null || !/^\d{1,9}$/.test(value.trim())) return
+    setRemaining(Number(value))
+  }
+
+  function setRemaining(left: number): void {
+    remaining = left
+    if (skipping && left >= RESERVE) {
+      skipping = false
+      log.info(`[photos] ${feedId}: Unsplash has requests to spare again, so photos shown are reported to it again`)
+    }
+  }
+
   /** The error for a failed answer from the API. `notFound` says what a 404 means for this request. */
   async function refused(response: Response, notFound: string): Promise<PhotoProviderError> {
     const { status } = response
@@ -186,6 +239,8 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
       } else {
         await discard(response)
       }
+      // A 403 that says the limit is reached means none are left, whatever a header might not say.
+      if (limited) setRemaining(0)
       return limited
         ? new PhotoProviderError(feedId, `Unsplash's hourly request limit was reached (HTTP ${status}); photos already known are kept`)
         : new PhotoProviderError(feedId, `Unsplash refused the access key (HTTP ${status})`)
@@ -209,6 +264,7 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
     } catch (error) {
       throw unreachable(error)
     }
+    noteRemaining(response)
     if (!response.ok) throw await refused(response, notFound)
 
     let parsed: unknown
@@ -225,8 +281,8 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
   }
 
   /** The photos of `items` that are ones to show. Anything that isn't shaped like a photo is skipped, not an error: one odd photo shouldn't empty the frame. */
-  function usable(items: readonly unknown[]): { listing: PhotoListing, known: Known }[] {
-    const found: { listing: PhotoListing, known: Known }[] = []
+  function usable(items: readonly unknown[]): Entry[] {
+    const found: Entry[] = []
     for (const item of items) {
       const parsed = photo.safeParse(item)
       const entry = parsed.success ? toListing(parsed.data) : null
@@ -240,8 +296,8 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
    * when enough are had, at a page that is short (the last one), or after the
    * last page a search says it has.
    */
-  async function paged(path: string, params: Record<string, string>, limit: number, notFound: string): Promise<{ listing: PhotoListing, known: Known }[]> {
-    const found: { listing: PhotoListing, known: Known }[] = []
+  async function paged(path: string, params: Record<string, string>, limit: number, notFound: string): Promise<Entry[]> {
+    const found: Entry[] = []
     const pages = Math.ceil(limit / PAGE_SIZE)
     for (let page = 1; page <= pages && found.length < limit; page++) {
       const query = { ...params, per_page: String(PAGE_SIZE), page: String(page) }
@@ -260,8 +316,8 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
     return found
   }
 
-  /** `list`'s pool as the pairs of listing and known, with each photo once. */
-  async function pool(): Promise<{ listing: PhotoListing, known: Known }[]> {
+  /** The `fixed` pick: the search's, collections' or topics' photos, a page at a time, each photo once. */
+  async function fixedPool(): Promise<Entry[]> {
     const { count, orientation } = settings
     const common: Record<string, string> = orientation ? { orientation } : {}
 
@@ -290,11 +346,11 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
 
     const share = Math.ceil(count / sources.length)
     // One after the other: the limit is per hour, and there is no hurry.
-    const lists: { listing: PhotoListing, known: Known }[][] = []
+    const lists: Entry[][] = []
     for (const source of sources) lists.push(await paged(source.path, source.params, share, source.notFound))
 
     const seen = new Set<string>()
-    const dealt: { listing: PhotoListing, known: Known }[] = []
+    const dealt: Entry[] = []
     for (let i = 0; dealt.length < count && lists.some(list => i < list.length); i++) {
       for (const list of lists) {
         const entry = list[i]
@@ -307,13 +363,77 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
     return dealt
   }
 
-  /** Tells Unsplash the photo was used, as its API guidelines ask. Once per photo, never waited for, and nothing that goes wrong with it matters. */
+  /**
+   * The `random` pick: new photos from `/photos/random`, up to 30 a request, so
+   * `count` of 60 is two requests, each answered with a JSON list of photos. It
+   * stops early at a request that gave fewer than it was asked for (there are
+   * not more to be had), and a photo that came twice counts once. What to pick
+   * from is the one of `query`, `collections` and `topics` that is set, which
+   * Unsplash takes in one request only if it is the one (the config allows no
+   * more); ids are sent as one comma-separated list.
+   */
+  async function randomPicks(): Promise<Entry[]> {
+    const { count, orientation } = settings
+    const params: Record<string, string> = {}
+    if (settings.collections && settings.collections.length > 0) {
+      if (!settings.collections.every(id => PATH_ID.test(id))) throw new PhotoProviderError(feedId, 'photos.unsplash.collections has an id that is not valid')
+      params.collections = settings.collections.join(',')
+    } else if (settings.topics && settings.topics.length > 0) {
+      if (!settings.topics.every(id => PATH_ID.test(id))) throw new PhotoProviderError(feedId, 'photos.unsplash.topics has a topic that is not valid')
+      params.topics = settings.topics.join(',')
+    } else {
+      params.query = settings.query ?? 'landscape'
+    }
+    if (orientation) params.orientation = orientation
+    params.content_filter = settings.content_filter
+
+    const found = new Map<string, Entry>()
+    // One after the other, as the limit is per hour and there is no hurry.
+    for (let asked = 0; asked < count; asked += RANDOM_MAX) {
+      const wanted = Math.min(RANDOM_MAX, count - asked)
+      const items = await json('/photos/random', { ...params, count: String(wanted) }, photoPage, 'Unsplash has no such collection, topic or search')
+      for (const entry of usable(items)) if (!found.has(entry.listing.providerAssetId)) found.set(entry.listing.providerAssetId, entry)
+      if (items.length < wanted) break
+    }
+    return [...found.values()]
+  }
+
+  /**
+   * A random pick is a new batch at every listing, so on its own the pool would
+   * lose the photos in the cache at every listing, and with Unsplash down or
+   * its limit reached only the few shown from the latest batch would be left to
+   * rotate. The photos shown lately stay in the pool for that, after the new ones.
+   */
+  async function randomPool(): Promise<Entry[]> {
+    const seen = new Set<string>()
+    return [...await randomPicks(), ...shown.values()].filter(entry => !seen.has(entry.listing.providerAssetId) && seen.add(entry.listing.providerAssetId))
+  }
+
+  /**
+   * Tells Unsplash the photo was used, as its API guidelines ask. Once per
+   * photo, never waited for, and nothing that goes wrong with it matters. The
+   * guidelines ask for it, but a frame that changes photo every minute would
+   * spend the whole hourly allowance on pings and leave nothing for listing, so
+   * while the requests left are below the reserve (or the limit was just
+   * reached) it is skipped. A skipped photo is not marked as reported, so it is
+   * still reported if it is shown again once there is budget.
+   */
   function report(id: string, download: string | null): void {
     if (!download || reported.has(id)) return
+    if (remaining !== null && remaining < RESERVE) {
+      if (!skipping) {
+        skipping = true
+        log.info(`[photos] ${feedId}: Unsplash's request limit is nearly used up, so photos shown are not reported to it until there is room again`)
+      }
+      return
+    }
     reported.add(id)
     try {
       fetchFn(download, { headers: headers('application/json'), redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) })
-        .then(response => discard(response))
+        .then((response) => {
+          noteRemaining(response)
+          return discard(response)
+        })
         .catch(() => undefined)
     } catch {
       // Nothing to do.
@@ -324,30 +444,34 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
     id: feedId,
     source: 'unsplash',
     ...(options.name === undefined ? {} : { name: options.name }),
-    refreshIntervalMs: settings.refresh_hours * 60 * 60 * 1000,
+    refreshIntervalMs: settings.refresh_minutes * 60_000,
 
     async list() {
-      const entries = await pool()
+      const entries = settings.pick === 'random' ? await randomPool() : await fixedPool()
       known.clear()
-      for (const { listing, known: details } of entries) known.set(listing.providerAssetId, details)
+      for (const entry of entries) known.set(entry.listing.providerAssetId, entry)
       return entries.map(entry => entry.listing)
     },
 
     async fetch(providerAssetId) {
       if (!PHOTO_ID.test(providerAssetId)) throw new PhotoProviderError(feedId, 'That is not a photo from Unsplash')
-      const details = known.get(providerAssetId)
-      if (!details) throw new PhotoProviderError(feedId, 'That photo has not been listed from Unsplash yet')
+      const entry = known.get(providerAssetId)
+      if (!entry) throw new PhotoProviderError(feedId, 'That photo has not been listed from Unsplash yet')
 
       let response: Response
       try {
         // No key: the image host has no use for it and has no business seeing it.
-        response = await fetchFn(details.image, { headers: { Accept: 'image/*' }, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) })
+        response = await fetchFn(entry.known.image, { headers: { Accept: 'image/*' }, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) })
       } catch (error) {
         throw unreachable(error)
       }
       if (!response.ok) {
         await discard(response)
-        if (response.status === 404) throw new PhotoProviderError(feedId, `${GONE} (HTTP 404)`)
+        if (response.status === 404) {
+          // Taken down from Unsplash since it was listed: not worth keeping in the pool until the next listing.
+          shown.delete(providerAssetId)
+          throw new PhotoProviderError(feedId, `${GONE} (HTTP 404)`)
+        }
         if (response.status >= 300 && response.status < 400) throw new PhotoProviderError(feedId, `Unsplash sent the request somewhere else (HTTP ${response.status})`)
         if (response.status >= 500) throw new PhotoProviderError(feedId, `Unsplash could not be reached: it answered with an error (HTTP ${response.status})`)
         throw new PhotoProviderError(feedId, `Unsplash answered with an unexpected status (HTTP ${response.status})`)
@@ -362,7 +486,15 @@ export function createUnsplashProvider(settings: Settings, options: UnsplashProv
       if (!(response.headers.get('content-type') ?? '').toLowerCase().startsWith('image/') || bytes.length === 0) {
         throw new PhotoProviderError(feedId, 'Unsplash did not send an image')
       }
-      report(providerAssetId, details.download)
+      report(providerAssetId, entry.known.download)
+      if (settings.pick === 'random') {
+        shown.delete(providerAssetId)
+        shown.set(providerAssetId, entry)
+        for (const oldest of shown.keys()) {
+          if (shown.size <= KEEP_SHOWN) break
+          shown.delete(oldest)
+        }
+      }
       return bytes
     },
   }

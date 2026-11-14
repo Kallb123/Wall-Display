@@ -59,7 +59,8 @@ export function resolveUnsplash(block: UnsplashConfig, feed: UnsplashFeedConfig)
     ...((feed.orientation ?? block.orientation) === undefined ? {} : { orientation: (feed.orientation ?? block.orientation)! }),
     content_filter: feed.content_filter ?? block.content_filter,
     count: feed.count ?? block.count,
-    refresh_hours: feed.refresh_hours ?? block.refresh_hours,
+    pick: feed.pick ?? block.pick,
+    refresh_minutes: feed.refresh_minutes ?? block.refresh_minutes,
   }
 }
 

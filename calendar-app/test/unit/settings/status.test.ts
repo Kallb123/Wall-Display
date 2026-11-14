@@ -239,13 +239,13 @@ describe('photosStatus', () => {
   })
 
   it('lists Unsplash and the feeds, each with its own name, source and what it asks for, and never a key', () => {
-    const unsplash = { access_key: 'unsplash-SECRET-key', query: 'landscape', content_filter: 'high' as const, count: 60, refresh_hours: 12 }
+    const unsplash = { access_key: 'unsplash-SECRET-key', query: 'landscape', content_filter: 'high' as const, count: 60, pick: 'random' as const, refresh_minutes: 60 }
     const feeds = [
       { id: 'mountains', name: 'Mountains', unsplash: { query: 'mountain lake' } },
       { id: 'garden', local: { path: '/photos/garden' } },
       { id: 'holidays', immich: { album_ids: ['b'] } },
       { id: 'art', unsplash: { collections: ['317099', '1234'] } },
-      { id: 'wild', unsplash: { topics: ['nature'] } },
+      { id: 'wild', unsplash: { topics: ['nature'], pick: 'fixed' as const } },
     ]
     const status = photosStatus({
       config: { ...config, unsplash, feeds },
@@ -269,12 +269,12 @@ describe('photosStatus', () => {
     expect(providers.map(({ id, mode, where }) => [id, mode, where])).toEqual([
       ['immich', 'albums', 'immich.local:2283'],
       ['local', null, '/photos'],
-      ['unsplash', null, 'landscape'],
-      ['mountains', null, 'mountain lake'],
+      ['unsplash', null, 'random: landscape'],
+      ['mountains', null, 'random: mountain lake'],
       ['garden', null, '/photos/garden'],
       ['holidays', 'albums', 'immich.local:2283'],
-      ['art', null, 'collections 317099, 1234'],
-      ['wild', null, 'topics nature'],
+      ['art', null, 'random: collections 317099, 1234'],
+      ['wild', null, 'top: topics nature'],
     ])
     expect(providers.find(provider => provider.id === 'mountains')!.photos).toBe(60)
   })

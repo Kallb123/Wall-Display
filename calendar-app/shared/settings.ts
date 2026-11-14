@@ -113,14 +113,20 @@ export interface PhotoFeedChoice {
   source: PhotoSource
 }
 
-/** One photo source that is set up and running, as the Photos tab shows it. */
+/** One photo feed that is set up and running (a source's own, or one of `photos.feeds`), as the Photos tab shows it. */
 export interface PhotoProviderSettings {
-  id: PhotoSource
+  /** The feed id: the source's name for a source's own feed, or the `id` of the `photos.feeds` entry. */
+  id: string
+  /** The kind of source the feed uses. */
+  source: PhotoSource
+  /** What to call it: the feed's `name` (its id when it has none), or the source's label for a source's own. */
+  name: string
   /** Immich only: how its photos are picked. Null for the others. */
   mode: ImmichMode | null
   /**
-   * Where it is: Immich's host and port (no scheme, path or credentials), or the
-   * local folder's path. The API key never appears.
+   * Where it is: Immich's host and port (no scheme, path or credentials), the
+   * local folder's path, or in a few words what Unsplash is asked for (`landscape`,
+   * `collections 317099`, `topics nature`). An API key never appears.
    */
   where: string | null
   /** Photos in the pool, as last listed. */

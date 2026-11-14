@@ -1,12 +1,11 @@
 import type { DisplayState, SocketRole } from '../../shared/display'
-import { PHOTO_SOURCES } from '../../shared/display'
-import { PHOTO_SOURCE_NAMES } from '../../shared/photos'
 import type { CalendarStatus, ConnectionsStatus, DisplayStatus, MqttLinkState, PhotoProviderSettings, PhotosSettingsStatus, SettingsPerson } from '../../shared/settings'
-import type { AppConfig, CalendarConfig, DisplayConfig, MqttConfig, PhotosConfig } from '../config/schema'
+import type { AppConfig, CalendarConfig, DisplayConfig, MqttConfig, PhotosConfig, UnsplashConfig } from '../config/schema'
 import type { Db } from '../db/client'
 import { syncStatus } from '../db/schema'
 import type { MqttBridgeStatus } from '../mqtt/client'
 import { brokerName } from '../mqtt/client'
+import { photoFeedsOf } from '../photos/feeds'
 import type { PhotoService } from '../photos/service'
 import { recentFallbacks } from '../sources/fallbacks'
 import type { HaStatus } from '../sources/homeassistant/status'
@@ -124,7 +123,7 @@ export function discoveryProblem(mqtt: Pick<MqttConfig, 'discovery'> | undefined
 
 export interface PhotosStatusArgs {
   /** The `photos` block, or undefined when the config has none. */
-  config: Pick<PhotosConfig, 'interval_seconds' | 'match_orientation' | 'landscape_only' | 'cache_max_mb' | 'immich' | 'google' | 'local'> | undefined
+  config: Pick<PhotosConfig, 'interval_seconds' | 'match_orientation' | 'landscape_only' | 'cache_max_mb' | 'immich' | 'google' | 'local' | 'unsplash' | 'feeds'> | undefined
   /** The photo service's status, or undefined when it isn't running. */
   status: ReturnType<PhotoService['status']> | undefined
 }
@@ -138,42 +137,51 @@ function hostOf(address: string): string | null {
   }
 }
 
+/** The longest search shown on a card; a long one is cut. */
+const MAX_WHERE = 60
+
 /**
- * The Photos tab: each running photo source with its pool, what is cached and
- * how its last listing went, the cache against its cap, and the rotation
- * settings. A source is described by the fields chosen here (Immich's mode and
- * host, the folder's path), so the API key and any other part of the Immich
- * address stay in the config. A source with no status yet (the service starts
+ * What an Unsplash feed shows, in a few words: its search (`landscape`), its
+ * collections (`collections 317099`) or its topics (`topics nature`). The
+ * access key is not part of it.
+ */
+function unsplashWhere(settings: Pick<UnsplashConfig, 'query' | 'collections' | 'topics'>): string {
+  const text = settings.collections ? `collections ${settings.collections.join(', ')}` : settings.topics ? `topics ${settings.topics.join(', ')}` : settings.query ?? 'landscape'
+  return text.length > MAX_WHERE ? `${text.slice(0, MAX_WHERE - 1)}…` : text
+}
+
+/**
+ * The Photos tab: each running photo feed (the sources set up, then
+ * `photos.feeds`) with its pool, what is cached and how its last listing went,
+ * the cache against its cap, and the rotation settings. A feed is described by
+ * the fields chosen here (Immich's mode and host, the folder's path, what
+ * Unsplash is asked for), so the API keys and any other part of the Immich
+ * address stay in the config. A feed with no status yet (the service starts
  * after the config is read) shows zeros.
  */
 export function photosStatus({ config, status }: PhotosStatusArgs): PhotosSettingsStatus {
   if (!config) return { configured: false }
 
   const running = new Map((status?.providers ?? []).map(provider => [provider.id, provider]))
-  const providers: PhotoProviderSettings[] = []
-  for (const id of PHOTO_SOURCES) {
-    // Unsplash is listed once its config block is read (agent A's part of this change).
-    if (id === 'google' || id === 'unsplash') continue
-    const set = id === 'immich' ? config.immich : config.local
-    if (!set) continue
-    const live = running.get(id)
-    providers.push({
-      id,
-      mode: id === 'immich' ? config.immich?.mode ?? null : null,
-      where: id === 'immich' ? hostOf(config.immich!.url) : config.local!.path,
+  const feeds = photoFeedsOf(config)
+  const providers: PhotoProviderSettings[] = feeds.map((feed) => {
+    const live = running.get(feed.id)
+    return {
+      id: feed.id,
+      source: feed.source,
+      name: feed.name,
+      mode: feed.source === 'immich' ? feed.settings.mode : null,
+      where: feed.source === 'immich' ? hostOf(feed.settings.url) : feed.source === 'local' ? feed.settings.path : unsplashWhere(feed.settings),
       photos: live?.photos ?? 0,
       cached: live?.cached ?? 0,
       last_success_at: live?.last_success_at ?? null,
       last_error: live?.last_error ?? null,
-    })
-  }
-
-  // The sources' own feeds for now; `photos.feeds` are added once they are read from the config.
-  const feeds = providers.map(provider => ({ id: provider.id, name: PHOTO_SOURCE_NAMES[provider.id], source: provider.id }))
+    }
+  })
 
   return {
     configured: true,
-    feeds,
+    feeds: feeds.map(({ id, name, source }) => ({ id, name, source })),
     interval_seconds: config.interval_seconds,
     // `landscape_only` is the older name of the same switch.
     match_orientation: config.match_orientation || config.landscape_only,

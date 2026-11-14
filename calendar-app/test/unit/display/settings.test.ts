@@ -330,13 +330,18 @@ describe('photoCount', () => {
 
 describe('providerDetail', () => {
   it('gives Immich\'s mode and host', () => {
-    expect(providerDetail({ id: 'immich', mode: 'albums', where: 'immich.local:2283' })).toBe('Albums · immich.local:2283')
-    expect(providerDetail({ id: 'immich', mode: 'random', where: 'immich.local' })).toBe('Random from the library · immich.local')
-    expect(providerDetail({ id: 'immich', mode: 'memories', where: null })).toBe('Memories (on this day)')
+    expect(providerDetail({ source: 'immich', name: 'Immich', mode: 'albums', where: 'immich.local:2283' })).toBe('Albums · immich.local:2283')
+    expect(providerDetail({ source: 'immich', name: 'Immich', mode: 'random', where: 'immich.local' })).toBe('Random from the library · immich.local')
+    expect(providerDetail({ source: 'immich', name: 'Immich', mode: 'memories', where: null })).toBe('Memories (on this day)')
   })
 
   it('gives the folder\'s path', () => {
-    expect(providerDetail({ id: 'local', mode: null, where: '/photos' })).toBe('/photos')
+    expect(providerDetail({ source: 'local', name: 'Local folder', mode: null, where: '/photos' })).toBe('/photos')
+  })
+
+  it('names the source of a feed that has a name of its own', () => {
+    expect(providerDetail({ source: 'unsplash', name: 'Mountains', mode: null, where: 'mountain lake' })).toBe('Unsplash · mountain lake')
+    expect(providerDetail({ source: 'immich', name: 'Holidays', mode: 'albums', where: 'immich.local' })).toBe('Immich · Albums · immich.local')
   })
 })
 

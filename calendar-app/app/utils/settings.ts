@@ -252,10 +252,15 @@ const IMMICH_MODE_LABELS: Record<ImmichMode, string> = {
   memories: 'Memories (on this day)',
 }
 
-/** What a provider card says under its name: Immich's mode and host, or the folder. */
-export function providerDetail(provider: Pick<PhotoProviderSettings, 'id' | 'mode' | 'where'>): string {
+/**
+ * What a provider card says under its name: the source, when the name is not
+ * already it (a feed called "Mountains" is of Unsplash), then Immich's mode and
+ * host, the folder, or what Unsplash is asked for.
+ */
+export function providerDetail(provider: Pick<PhotoProviderSettings, 'source' | 'name' | 'mode' | 'where'>): string {
+  const source = provider.name === PHOTO_SOURCE_NAMES[provider.source] ? null : PHOTO_SOURCE_NAMES[provider.source]
   const mode = provider.mode ? IMMICH_MODE_LABELS[provider.mode] : null
-  return [mode, provider.where].filter(Boolean).join(' · ')
+  return [source, mode, provider.where].filter(Boolean).join(' · ')
 }
 
 /** A provider's listing as a chip: it has listed, it has not yet, or it is failing (and why). */

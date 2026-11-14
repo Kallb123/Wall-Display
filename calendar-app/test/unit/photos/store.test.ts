@@ -36,6 +36,20 @@ describe('syncListing', () => {
     expect(getAsset(db, 'local:a.jpg')).toMatchObject({ width: 900, height: 1600, takenAt: new Date('2020-01-01T00:00:00Z') })
   })
 
+  it('stores a credit, changes it, and leaves it when a listing says nothing of it', () => {
+    const { db } = migratedMemoryDb()
+    syncListing(db, 'mountains', [{ providerAssetId: 'a', credit: 'Photo by Jane on Unsplash' }, { providerAssetId: 'b' }], NOW)
+    expect(getAsset(db, 'mountains:a')).toMatchObject({ provider: 'mountains', credit: 'Photo by Jane on Unsplash' })
+    expect(getAsset(db, 'mountains:b')!.credit).toBeNull()
+
+    syncListing(db, 'mountains', [{ providerAssetId: 'a' }, { providerAssetId: 'b', credit: 'Photo by Joe on Unsplash' }], NOW)
+    expect(getAsset(db, 'mountains:a')!.credit).toBe('Photo by Jane on Unsplash')
+    expect(getAsset(db, 'mountains:b')!.credit).toBe('Photo by Joe on Unsplash')
+
+    syncListing(db, 'mountains', [{ providerAssetId: 'a', credit: null }, { providerAssetId: 'b' }], NOW)
+    expect(getAsset(db, 'mountains:a')!.credit).toBeNull()
+  })
+
   it('removes photos that are no longer listed, and returns the cache files of all their renditions', () => {
     const { db } = migratedMemoryDb()
     syncListing(db, 'local', [{ providerAssetId: 'a.jpg' }, { providerAssetId: 'b.jpg' }], NOW)

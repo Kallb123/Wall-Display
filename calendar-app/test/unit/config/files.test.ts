@@ -21,6 +21,8 @@ describe('shipped config files', () => {
     expect(config.homeassistant?.token).toBe('CHANGE_ME_HOME_ASSISTANT_TOKEN')
     expect(config.remote?.pin).toBe('1234')
     expect(config.photos?.immich?.api_key).toBe('CHANGE_ME_IMMICH_KEY')
+    expect(config.photos?.unsplash).toMatchObject({ access_key: 'CHANGE_ME_UNSPLASH_ACCESS_KEY', query: 'landscape', count: 60 })
+    expect(config.photos?.feeds.map(feed => feed.id)).toEqual(['mountains'])
     expect(config.displays[0]!.id).toBe('hallway')
   })
 

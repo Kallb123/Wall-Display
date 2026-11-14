@@ -57,6 +57,8 @@ const MB = 1024 * 1024
 
 const provider = (changes: Partial<PhotoProviderSettings> = {}): PhotoProviderSettings => ({
   id: 'immich',
+  source: 'immich',
+  name: 'Immich',
   mode: 'albums',
   where: 'immich.local:2283',
   photos: 120,
@@ -72,7 +74,7 @@ const photosStatus = (changes: Partial<Extract<PhotosSettingsStatus, { configure
   match_orientation: false,
   cache_bytes: 512 * MB,
   cache_max_bytes: 2048 * MB,
-  providers: [provider(), provider({ id: 'local', mode: null, where: '/photos', photos: 8, cached: 8 })],
+  providers: [provider(), provider({ id: 'local', source: 'local', name: 'Local folder', mode: null, where: '/photos', photos: 8, cached: 8 })],
   feeds: [{ id: 'immich', name: 'Immich', source: 'immich' }, { id: 'local', name: 'Local folder', source: 'local' }],
   google_ignored: false,
   ...changes,
@@ -620,6 +622,15 @@ describe('the Photos tab', () => {
     expect(find(wrapper, 'provider-error').exists()).toBe(false)
   })
 
+  it('shows a feed by its own name, with its source and what it asks for', async () => {
+    photos = photosStatus({ providers: [provider({ id: 'mountains', source: 'unsplash', name: 'Mountains', mode: null, where: 'mountain lake', photos: 60 })] })
+    const wrapper = await mountAt(PhotosPage, '/settings/photos')
+
+    expect(text(wrapper, 'provider-name', 'mountains')).toBe('Mountains')
+    expect(text(wrapper, 'provider-detail', 'mountains')).toBe('Unsplash · mountain lake')
+    expect(text(wrapper, 'provider-photos', 'mountains')).toBe('60 photos')
+  })
+
   it('shows the cache size against its cap, with a bar', async () => {
     photos = photosStatus({ cache_bytes: 1536 * MB, cache_max_bytes: 2048 * MB })
     const wrapper = await mountAt(PhotosPage, '/settings/photos')
@@ -654,7 +665,7 @@ describe('the Photos tab', () => {
     photos = photosStatus({
       providers: [
         provider({ photos: 0, cached: 0, last_success_at: null, last_error: 'Immich refused the API key (HTTP 401)' }),
-        provider({ id: 'local', mode: null, where: '/photos', last_error: 'The folder is not there' }),
+        provider({ id: 'local', source: 'local', name: 'Local folder', mode: null, where: '/photos', last_error: 'The folder is not there' }),
       ],
     })
     const wrapper = await mountAt(PhotosPage, '/settings/photos')

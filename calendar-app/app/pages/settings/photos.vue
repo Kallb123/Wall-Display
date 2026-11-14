@@ -9,7 +9,6 @@ import {
   cachePercent,
   fullDateTime,
   photoCount,
-  photoSourceLabel,
   pollLabel,
   providerChip,
   providerDetail,
@@ -90,7 +89,7 @@ function lastListingTitle(success: string | null): string | undefined {
     </p>
 
     <SettingsPlaceholder v-else-if="photos && !photos.configured" :icon="Images" title="Photo frame is off" data-testid="photos-off">
-      The config has no photos block, so the photo frame has nothing to show. Add one to config.yaml with a folder of pictures or an Immich server, and restart the app. The sources and the cache will be listed here.
+      The config has no photos block, so the photo frame has nothing to show. Add one to config.yaml with a folder of pictures, an Immich server or Unsplash, and restart the app. The sources and the cache will be listed here.
     </SettingsPlaceholder>
 
     <template v-if="configured">
@@ -146,17 +145,17 @@ function lastListingTitle(success: string | null): string | undefined {
       </SettingsCard>
 
       <p v-if="configured.providers.length === 0" class="empty small" data-testid="no-providers">
-        No photo source is available: set up an Immich server or a local folder in the config.
+        No photo source is available: set up an Immich server, a local folder or Unsplash in the config.
       </p>
 
       <SettingsCard v-for="provider in configured.providers" :key="provider.id" :data-provider="provider.id" data-testid="provider-card">
         <header class="head">
           <div class="titles">
             <h2 class="name" data-testid="provider-name">
-              {{ photoSourceLabel(provider.id) }}
+              {{ provider.name }}
             </h2>
             <p class="source" data-testid="provider-detail">
-              <AppIcon :icon="SOURCE_ICONS[provider.id]" :size="18" />
+              <AppIcon :icon="SOURCE_ICONS[provider.source]" :size="18" />
               {{ providerDetail(provider) }}
             </p>
           </div>

@@ -1,9 +1,10 @@
 import type { PhotosSettingsStatus } from '../../../shared/settings'
+import { getPhotoPools } from '../../photoPools/state'
 import { photosStatus } from '../../settings/status'
 
 // The photo sources, the cache against its cap and the rotation settings, for
 // the settings page's Photos tab. Reading is open. The shaping copies out named
 // fields only, so the Immich API key and the rest of its address never appear.
 export default defineEventHandler((): PhotosSettingsStatus => {
-  return photosStatus({ config: useSettings().config().photos, status: usePhotos()?.status() })
+  return photosStatus({ config: useSettings().config().photos, status: usePhotos()?.status(), pools: getPhotoPools()?.get() ?? [] })
 })

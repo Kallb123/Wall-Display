@@ -5,6 +5,7 @@ import type { PhotoSource } from '../../../shared/display'
 import { photoInfoSchema, photoUrl } from '../../../shared/photos'
 import { REFRESH_INTERVAL_MS, createPhotoService } from '../../../server/photos/service'
 import type { PhotoService, PhotoServiceOptions } from '../../../server/photos/service'
+import { photoPlaylists } from '../../../server/db/schema'
 import { getAsset, getRendition, listPool } from '../../../server/photos/store'
 import { migratedMemoryDb } from '../db/helpers'
 import { fakeProvider, fakeRender, quietLog, seeded, tempDir } from './helpers'
@@ -199,6 +200,116 @@ describe('which provider', () => {
     const { service } = await setup({ local: [], immich: [] })
 
     expect(service.configured().sort()).toEqual(['immich', 'local'])
+  })
+})
+
+describe('photo pools', () => {
+  /** A service over the fake `local` provider, with pool providers `~a` and `~b` and a group `mix` of them. */
+  async function pooled(options: Partial<PhotoServiceOptions> = {}) {
+    const context = await setup({ local: ['l1'] }, options)
+    const a = fakeProvider('~a', ['a1', 'a2'], { source: 'unsplash', name: 'Unsplash "a"' })
+    const b = fakeProvider('~b', ['b1', 'b2'], { source: 'immich', name: 'Immich album b' })
+    const groups = [{ id: 'mix', name: 'Mix', members: ['~a', '~b'] }]
+    return { ...context, a, b, groups }
+  }
+
+  it('draws from every member of a group, each photo credited to the provider it belongs to', async () => {
+    const { service, a, b, groups } = await pooled()
+    service.start()
+    await service.setPools({ providers: [a.provider, b.provider], groups })
+    await service.refresh()
+
+    const seen = []
+    for (let i = 0; i < 4; i++) seen.push(await service.next('hallway', 'mix'))
+
+    expect(seen.map(photo => photo!.id).sort()).toEqual(['~a:a1', '~a:a2', '~b:b1', '~b:b2'])
+    expect(seen.find(photo => photo!.id === '~a:a1')!.provider).toBe('unsplash')
+    expect(seen.find(photo => photo!.id === '~b:b1')!.provider).toBe('immich')
+    // Fetched by the provider each belongs to.
+    expect(a.fetched.sort()).toEqual(['a1', 'a2'])
+    expect(b.fetched.sort()).toEqual(['b1', 'b2'])
+  })
+
+  it('keeps the playlist under the group\'s id, apart from its members\'', async () => {
+    const { service, db, a, b, groups } = await pooled()
+    await service.setPools({ providers: [a.provider, b.provider], groups })
+    service.start()
+    await service.refresh()
+
+    await service.next('hallway', 'mix')
+
+    const keys = db.select().from(photoPlaylists).all().map(row => row.provider)
+    expect(keys).toEqual(['mix'])
+  })
+
+  it('skips a group with no running member like an unknown feed', async () => {
+    const { service, a, b } = await pooled()
+    await service.refresh()
+    await service.setPools({ providers: [a.provider, b.provider], groups: [{ id: 'empty', name: 'Empty', members: ['gone'] }, { id: 'mix', name: 'Mix', members: ['~a'] }] })
+    await service.refresh()
+
+    expect((await service.next('hallway', ['empty', 'mix']))!.id).toMatch(/^~a:/)
+    expect((await service.next('hallway', ['empty']))!.id).toBe('local:l1')
+  })
+
+  it('still shows a group\'s other members while one is down', async () => {
+    const { service, a, b, groups } = await pooled()
+    await service.setPools({ providers: [a.provider, b.provider], groups })
+    await service.refresh()
+    a.fetchFails = true
+
+    const ids = []
+    for (let i = 0; i < 3; i++) ids.push((await service.next('hallway', 'mix'))!.id)
+
+    expect(ids.every(id => id.startsWith('~b:'))).toBe(true)
+  })
+
+  it('lists the providers a pool adds at once, and only those', async () => {
+    const { service, a, providers } = await pooled()
+    service.start()
+    await service.idle()
+    const before = providers.local!.listCalls
+
+    await service.setPools({ providers: [a.provider], groups: [] })
+
+    expect(a.listCalls).toBe(1)
+    expect(providers.local!.listCalls).toBe(before)
+    expect(service.status().providers.map(provider => [provider.id, provider.photos])).toEqual([['local', 1], ['~a', 2]])
+  })
+
+  it('keeps the running instance of a provider passed again, and refreshes the pool providers too', async () => {
+    const { service, a } = await pooled()
+    service.start()
+    await service.setPools({ providers: [a.provider], groups: [] })
+    const again = fakeProvider('~a', ['other'], { source: 'unsplash' })
+
+    await service.setPools({ providers: [again.provider], groups: [] })
+    await service.refresh({ force: true })
+
+    expect(again.listCalls).toBe(0)
+    expect(a.listCalls).toBe(2)
+  })
+
+  it('purges a removed provider\'s photos and files, unless it is also set up in the config', async () => {
+    const { service, a, b, db, files } = await pooled()
+    service.start()
+    await service.setPools({ providers: [a.provider, b.provider], groups: [{ id: 'mix', name: 'Mix', members: ['~a', '~b'] }] })
+    await service.refresh()
+    for (let i = 0; i < 4; i++) await service.next('hallway', 'mix')
+    await service.idle()
+    expect(listPool(db, '~b')).toHaveLength(2)
+    const before = files().length
+
+    await service.setPools({ providers: [a.provider], groups: [{ id: 'mix', name: 'Mix', members: ['~a'] }] })
+
+    expect(listPool(db, '~b')).toEqual([])
+    expect(listPool(db, '~a')).toHaveLength(2)
+    expect(files().length).toBeLessThan(before)
+    expect(service.status().providers.map(provider => provider.id)).toEqual(['local', '~a'])
+    // A pool provider with a static provider's id is ignored, and its removal never touches the static rows.
+    await service.setPools({ providers: [fakeProvider('local', ['x']).provider], groups: [] })
+    expect(listPool(db, 'local')).toHaveLength(1)
+    expect(service.status().providers.map(provider => provider.id)).toEqual(['local'])
   })
 })
 

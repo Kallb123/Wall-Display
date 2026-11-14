@@ -7,6 +7,7 @@ import type { PhotoAssetRow } from '../db/schema'
 import { createPhotoCache } from './cache'
 import { peek, take } from './playlist'
 import type { Random } from './playlist'
+import type { PhotoGroup } from './pools'
 import { PhotoRenderError } from './render'
 import type { RenderedPhoto } from './render'
 import { cachedRenditions, getAsset, getRendition, listPool, loadPlaylist, markShown, savePlaylist, syncListing } from './store'
@@ -27,14 +28,19 @@ import type { PhotoProvider } from './types'
 // composite, which finds it out, and then judged. The held photos, `markShown`
 // and the cache all go by the rendition actually served, so a cover file is
 // kept, shown-stamped and evicted like any other. If a provider is down, the
-// photos already cached keep rotating. Everything it touches comes in through the options, so
+// photos already cached keep rotating. A feed that a display asks for may also
+// be a group: a photo pool a person made, which is the union of the photos of
+// several providers (see pools.ts). A group has a playlist of its own, keyed by
+// its id, and each photo in it is fetched and credited by the provider it
+// belongs to. The pools can change while the server runs (`setPools`), which adds
+// and removes the providers made for them. Everything it touches comes in through the options, so
 // a test uses a fake provider, fake timers and an in-memory database.
 
 export interface PhotoServiceOptions {
   db: Db
   /** The photo cache folder. */
   dir: string
-  /** The providers that are set up in the config. */
+  /** The providers that are set up in the config. Pool providers come later, with `setPools`. */
   providers: readonly PhotoProvider[]
   /** The cache's size cap in bytes. */
   maxBytes: number
@@ -83,13 +89,23 @@ export interface PhotoService {
   /**
    * Moves the display on to its next photo and answers it, or null if there is
    * nothing to show. The feed is the first of `preferred` (most specific first:
-   * a schedule window's, the layout's, the display's own) that is set up,
-   * otherwise the first source that is. The image is rendered for the `rendition` of stage the display
+   * a schedule window's, the layout's, the display's own) that is set up (a
+   * provider's id, or a group's with at least one member running), otherwise the
+   * first source that is. The image is rendered for the `rendition` of stage the display
    * has (landscape unless it says otherwise), or, if `box` (the size of what it
    * is drawn in) is given and the photo is close to its shape, as the plain
    * photo to be cropped to the box. Never rejects.
    */
   next: (displayId: string, preferred: string | readonly string[], rendition?: StageRendition, box?: PhotoBox) => Promise<PhotoInfo | null>
+  /**
+   * Replaces the providers run for photo pools, and the groups (the pools
+   * themselves). A provider whose id is already running keeps its instance, and
+   * its state with it. New ones are listed at once (only they, not everything),
+   * and the promise resolves when that is done. Removed ones have their photos
+   * dropped from the database and their files released, unless the id is also
+   * one of the providers the service was made with.
+   */
+  setPools: (pools: { providers: readonly PhotoProvider[], groups: readonly PhotoGroup[] }) => Promise<void>
   status: () => { providers: PhotoProviderStatus[], cache_bytes: number }
   /** Resolves when the background preparation of next photos has finished. For tests. */
   idle: () => Promise<void>
@@ -118,6 +134,12 @@ interface Cached {
   rendition: PhotoRendition
 }
 
+/** What `choose` settles on: the playlist's key, and the providers the photos come from. */
+interface Chosen {
+  key: string
+  members: PhotoProvider[]
+}
+
 interface ProviderState {
   lastSuccessAt: Date | null
   lastError: string | null
@@ -126,13 +148,21 @@ interface ProviderState {
 }
 
 export function createPhotoService(options: PhotoServiceOptions): PhotoService {
-  const { db, providers, matchOrientation, render, refreshIntervalMs = REFRESH_INTERVAL_MS, random = Math.random, now = () => new Date(), log = console } = options
+  const { db, providers: staticProviders, matchOrientation, render, refreshIntervalMs = REFRESH_INTERVAL_MS, random = Math.random, now = () => new Date(), log = console } = options
   let started = false
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let refreshing: Promise<void> | undefined
 
-  const states = new Map(providers.map(provider => [provider.id, { lastSuccessAt: null, lastError: null, loggedError: null } as ProviderState]))
+  /** The providers run for photo pools, which `setPools` replaces. The ones set up in the config are `staticProviders`. */
+  let poolProviders: PhotoProvider[] = []
+  let groups: readonly PhotoGroup[] = []
+  const everyProvider = (): PhotoProvider[] => [...staticProviders, ...poolProviders]
+  const providerById = (id: string): PhotoProvider | undefined => everyProvider().find(provider => provider.id === id)
+  const newState = (): ProviderState => ({ lastSuccessAt: null, lastError: null, loggedError: null })
+  const states = new Map(staticProviders.map(provider => [provider.id, newState()]))
+  /** Listings of providers added by `setPools` that are under way. */
+  const listingNew = new Set<Promise<void>>()
   /**
    * The photo each display shows now, and the one it will be shown next (being
    * prepared): neither may be evicted. The file is kept too, because the photo
@@ -169,23 +199,36 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     },
   })
 
-  /** The provider a display gets: the first of `preferred` that is set up, otherwise the first provider of the first source that is. */
-  function choose(preferred: string | readonly string[]): PhotoProvider | undefined {
+  /**
+   * What a display gets: the first of `preferred` that is set up, otherwise the
+   * first provider of the first source that is. A provider is a feed of its own
+   * (a pool of its photos); a group is the union of its running members. The key
+   * names the playlist.
+   */
+  function choose(preferred: string | readonly string[]): Chosen | undefined {
     const wanted: readonly string[] = typeof preferred === 'string' ? [preferred] : preferred
     for (const id of wanted) {
-      const found = providers.find(provider => provider.id === id)
-      if (found) return found
+      const found = providerById(id)
+      if (found) return { key: found.id, members: [found] }
+      const group = groups.find(candidate => candidate.id === id)
+      const members = group?.members.map(member => providerById(member)).filter((member): member is PhotoProvider => member !== undefined) ?? []
+      if (group && members.length > 0) return { key: group.id, members }
     }
-    return PHOTO_SOURCES.map(source => providers.find(provider => provider.source === source)).find(Boolean)
+    const first = PHOTO_SOURCES.map(source => staticProviders.find(provider => provider.source === source)).find(Boolean)
+    return first && { key: first.id, members: [first] }
   }
 
+  /** The id of the provider a photo belongs to: asset ids are `<provider>:<its own id>`, and a provider id has no colon. */
+  const providerIdOf = (assetId: string): string => assetId.slice(0, assetId.indexOf(':'))
+
   /**
-   * The photos that may be shown from this provider now. Photos of the other
-   * shape are not taken out (`fits` passes them over instead), so they keep
-   * their place in the playlist for a display of their own shape.
+   * The photos that may be shown from these providers now (one, or the members of
+   * a group). Photos of the other shape are not taken out (`fits` passes them
+   * over instead), so they keep their place in the playlist for a display of
+   * their own shape.
    */
-  function poolOf(provider: PhotoProvider): string[] {
-    return listPool(db, provider.id).filter(row => !broken.has(row.id)).map(row => row.id)
+  function poolOf(members: readonly PhotoProvider[]): string[] {
+    return members.flatMap(provider => listPool(db, provider.id)).filter(row => !broken.has(row.id)).map(row => row.id)
   }
 
   /** Whether a photo may be shown on a stage of this shape: always, unless the shapes are to match. */
@@ -246,7 +289,8 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     if (!force && provider.refreshIntervalMs !== undefined && state.lastSuccessAt && now().getTime() - state.lastSuccessAt.getTime() < provider.refreshIntervalMs) return
     try {
       const listing = await provider.list()
-      if (stopped) return
+      // A provider taken away by `setPools` while it was listed must not bring its photos back.
+      if (stopped || !everyProvider().includes(provider)) return
       const result = syncListing(db, provider.id, listing, now())
       // Files of photos that have gone, and any a display was still showing, go once it moves on.
       cache.release(result.files)
@@ -258,7 +302,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
         log.info(`[photos] ${provider.id}: ${listing.length} ${listing.length === 1 ? 'photo' : 'photos'} (${result.added} new, ${result.removed} gone)`)
       }
     } catch (error) {
-      if (stopped) return
+      if (stopped || !everyProvider().includes(provider)) return
       const message = safePhotoError(error)
       state.lastError = message
       // The pool in the database stays as it was, so the cache keeps rotating.
@@ -282,7 +326,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   function refresh({ force = false }: { force?: boolean } = {}): Promise<void> {
     if (stopped) return Promise.resolve()
     if (refreshing) return refreshing
-    const current = Promise.all(providers.map(provider => refreshProvider(provider, force))).then(tidy).finally(() => {
+    const current = Promise.all(everyProvider().map(provider => refreshProvider(provider, force))).then(tidy).finally(() => {
       if (refreshing === current) refreshing = undefined
       if (started && !stopped) {
         clearTimeout(timer)
@@ -297,9 +341,11 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   // Picking
 
   /** Makes sure the photo has a rendered file in the cache for this shape of stage, fetching and rendering it if not. Many callers for the same photo and shape share one fetch. */
-  function ensureCached(provider: PhotoProvider, id: string, rendition: PhotoRendition): Promise<Cached> {
+  function ensureCached(id: string, rendition: PhotoRendition): Promise<Cached> {
     const row = getAsset(db, id)
-    if (!row) return Promise.reject(LEFT_THE_POOL)
+    // A photo of a provider that has been taken away is as good as gone.
+    const provider = row && providerById(row.provider)
+    if (!row || !provider) return Promise.reject(LEFT_THE_POOL)
     const file = getRendition(db, id, rendition)?.cacheFile
     if (file && cache.has(file)) return Promise.resolve({ asset: row, file, rendition })
 
@@ -341,11 +387,11 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
    * of unknown size gets the composite first, which records the size, and is then
    * judged; if it turns out close, the cover file is made as well.
    */
-  async function ensureShown(provider: PhotoProvider, id: string, rendition: StageRendition, box: PhotoBox | undefined): Promise<Cached> {
+  async function ensureShown(id: string, rendition: StageRendition, box: PhotoBox | undefined): Promise<Cached> {
     // A cover file that can't be made (the provider is down, say) falls back to the composite if there is one.
     const cover = async (): Promise<Cached> => {
       try {
-        return await ensureCached(provider, id, 'cover')
+        return await ensureCached(id, 'cover')
       } catch (error) {
         const composite = error === LEFT_THE_POOL ? null : cachedComposite(id, rendition)
         if (composite) return composite
@@ -354,12 +400,12 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     }
     const variant = variantOf(id, rendition, box)
     if (variant === 'cover') return cover()
-    if (variant) return ensureCached(provider, id, variant)
-    const composite = await ensureCached(provider, id, rendition)
+    if (variant) return ensureCached(id, variant)
+    const composite = await ensureCached(id, rendition)
     return variantOf(id, rendition, box) === 'cover' ? cover() : composite
   }
 
-  function toInfo(row: PhotoAssetRow, file: string, provider: PhotoProvider): PhotoInfo {
+  function toInfo(row: PhotoAssetRow, file: string, source: PhotoSource): PhotoInfo {
     return {
       id: row.id,
       url: photoUrl(file),
@@ -367,20 +413,20 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       height: row.height,
       orientation: row.orientation,
       taken_at: row.takenAt?.toISOString() ?? null,
-      provider: provider.source,
+      provider: source,
       credit: row.credit ?? null,
     }
   }
 
   /** Starts preparing the photo after this one, in the same rendition and for the same box, so the next request is answered from the cache. */
-  function prepare(heldKey: string, provider: PhotoProvider, id: string | null, rendition: StageRendition, box: PhotoBox | undefined): void {
+  function prepare(heldKey: string, id: string | null, rendition: StageRendition, box: PhotoBox | undefined): void {
     if (!id) {
       upcoming.delete(heldKey)
       return
     }
     const entry: Held = { id, rendition: variantOf(id, rendition, box) ?? rendition, file: null }
     upcoming.set(heldKey, entry)
-    const job = ensureShown(provider, id, rendition, box).then((cached) => {
+    const job = ensureShown(id, rendition, box).then((cached) => {
       entry.rendition = cached.rendition
       entry.file = cached.file
     }, () => {
@@ -390,40 +436,48 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
   }
 
   async function pick(displayId: string, preferred: string | readonly string[], rendition: StageRendition, box: PhotoBox | undefined): Promise<PhotoInfo | null> {
-    const provider = choose(preferred)
-    if (!provider) return null
+    const chosen = choose(preferred)
+    if (!chosen) return null
+    const { key, members } = chosen
 
     const heldKey = `${displayId}:${rendition}`
-    if (poolOf(provider).length === 0 && refreshing) await refreshing
-    let playlist = loadPlaylist(db, displayId, provider.id)
-    // Once the provider has failed, only photos already cached are candidates.
-    let down = false
+    if (poolOf(members).length === 0) {
+      const listing = refreshing ?? (listingNew.size > 0 ? Promise.all(listingNew) : undefined)
+      if (listing) await listing
+    }
+    let playlist = loadPlaylist(db, displayId, key)
+    // Once a provider has failed, only its photos already cached are candidates.
+    const down = new Set<string>()
+    const usable = (id: string) => fits(id, rendition) && (!down.has(providerIdOf(id)) || isReady(id, rendition, box))
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !stopped; attempt++) {
-      const pool = poolOf(provider)
-      const taken = take(playlist, pool, random, down ? id => fits(id, rendition) && isReady(id, rendition, box) : id => fits(id, rendition))
+      const pool = poolOf(members)
+      const taken = take(playlist, pool, random, down.size > 0 ? usable : id => fits(id, rendition))
       if (!taken.id) {
-        savePlaylist(db, displayId, provider.id, taken.playlist, now())
+        savePlaylist(db, displayId, key, taken.playlist, now())
         return null
       }
 
       let cached: Cached
       try {
-        cached = await ensureShown(provider, taken.id, rendition, box)
+        cached = await ensureShown(taken.id, rendition, box)
       } catch (error) {
         if (error instanceof PhotoRenderError) {
           // Already noted as broken, so it is not in the pool next time.
           playlist = taken.playlist
         } else if (error !== LEFT_THE_POOL) {
+          const owner = providerIdOf(taken.id)
           const message = safePhotoError(error)
-          const state = states.get(provider.id)!
-          state.lastError = message
-          if (message !== state.loggedError) {
-            state.loggedError = message
-            log.warn(`[photos] ${provider.id}: ${message}; showing cached photos`)
+          const state = states.get(owner)
+          if (state) {
+            state.lastError = message
+            if (message !== state.loggedError) {
+              state.loggedError = message
+              log.warn(`[photos] ${owner}: ${message}; showing cached photos`)
+            }
           }
           // Back to where the playlist was, so the photos passed over are still to come.
-          down = true
+          down.add(owner)
         }
         continue
       }
@@ -435,10 +489,11 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
 
       markShown(db, cached.asset.id, cached.rendition, now())
       shown.set(heldKey, { id: cached.asset.id, rendition: cached.rendition, file: cached.file })
-      savePlaylist(db, displayId, provider.id, taken.playlist, now())
+      savePlaylist(db, displayId, key, taken.playlist, now())
       cache.evict()
-      prepare(heldKey, provider, peek(taken.playlist, poolOf(provider), random, id => fits(id, rendition)), rendition, box)
-      return toInfo(getAsset(db, cached.asset.id)!, cached.file, provider)
+      prepare(heldKey, peek(taken.playlist, poolOf(members), random, id => fits(id, rendition)), rendition, box)
+      const row = getAsset(db, cached.asset.id)!
+      return toInfo(row, cached.file, providerById(row.provider)?.source ?? members[0]!.source)
     }
     return null
   }
@@ -467,7 +522,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       timer = undefined
     },
 
-    configured: () => [...new Set(providers.map(provider => provider.source))],
+    configured: () => [...new Set(staticProviders.map(provider => provider.source))],
 
     refresh,
 
@@ -479,10 +534,42 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       })
     },
 
+    async setPools(next) {
+      if (stopped) return
+      const running = new Map(poolProviders.map(provider => [provider.id, provider]))
+      const staticIds = new Set(staticProviders.map(provider => provider.id))
+      const kept: PhotoProvider[] = []
+      const added: PhotoProvider[] = []
+      for (const provider of next.providers) {
+        if (staticIds.has(provider.id) || kept.some(candidate => candidate.id === provider.id)) continue
+        const existing = running.get(provider.id)
+        if (existing) {
+          kept.push(existing)
+        } else {
+          kept.push(provider)
+          added.push(provider)
+        }
+      }
+      const removed = poolProviders.filter(provider => !kept.some(candidate => candidate.id === provider.id))
+      poolProviders = kept
+      groups = [...next.groups]
+      for (const provider of added) states.set(provider.id, newState())
+      for (const provider of removed) {
+        states.delete(provider.id)
+        cache.release(syncListing(db, provider.id, [], now()).files)
+      }
+      if (removed.length > 0) tidy()
+      // Before start() the first listing covers them; afterwards only the new ones are listed now.
+      if (!started || added.length === 0) return
+      const listing = Promise.all(added.map(provider => refreshProvider(provider, true))).then(tidy).finally(() => listingNew.delete(listing))
+      listingNew.add(listing)
+      await listing
+    },
+
     status() {
       const withFiles = new Set(cachedRenditions(db).map(row => row.assetId))
       return {
-        providers: providers.map((provider) => {
+        providers: everyProvider().map((provider) => {
           const state = states.get(provider.id)!
           const rows = listPool(db, provider.id)
           return {
@@ -500,7 +587,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     },
 
     async idle() {
-      while (background.size > 0) await Promise.allSettled([...background])
+      while (background.size > 0 || listingNew.size > 0) await Promise.allSettled([...background, ...listingNew])
     },
   }
 }

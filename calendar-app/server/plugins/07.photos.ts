@@ -2,9 +2,11 @@ import { getDisplayControl } from '../control/state'
 import { createImmichProvider } from '../photos/immich'
 import { photoFeedsOf } from '../photos/feeds'
 import { createLocalProvider } from '../photos/local'
+import { poolFeedsOf } from '../photos/pools'
 import { startPhotoRotation } from '../photos/rotation'
 import { createPhotoService } from '../photos/service'
 import { getPhotoRotation, getPhotos, setPhotoRotation, setPhotos } from '../photos/state'
+import { getPhotoPools } from '../photoPools/state'
 import { createUnsplashProvider } from '../photos/unsplash'
 import type { PhotoProvider } from '../photos/types'
 
@@ -14,7 +16,11 @@ import type { PhotoProvider } from '../photos/types'
 // that `GET /api/photos/next` hands out, and runs the rotation: while a display
 // is on the photo view, a timer tells it to move on every `interval_seconds`.
 // The interval follows the settings page: a saved change restarts the running
-// timers with the new one. Without the block it does nothing and the photo frame has nothing to show.
+// timers with the new one. The pools a person made on the settings page add
+// providers of their own (a pool's Unsplash searches and Immich albums), which
+// are built from the pools in the database and rebuilt when they change; the
+// ones whose id is unchanged keep their instance, and with it what they know
+// (Unsplash's pool, its request budget). Without the block it does nothing and the photo frame has nothing to show.
 /** What an Unsplash feed asks for, for the log: never the key. */
 const unsplashSummary = (settings: { query?: string | undefined, collections?: string[] | undefined, topics?: string[] | undefined }): string =>
   settings.collections ? `collections ${settings.collections.join(', ')}` : settings.topics ? `topics ${settings.topics.join(', ')}` : `search "${settings.query}"`
@@ -51,6 +57,21 @@ export default defineNitroPlugin((nitroApp) => {
   if (photos.google) console.warn('[photos] google is set up in the config, but is not supported yet and is ignored')
   if (providers.length === 0) console.warn('[photos] no photo source is available, so the photo frame has nothing to show')
 
+  /** Runs a pool's source as a provider, keeping the instance already running under that id. */
+  const poolProviders = new Map<string, PhotoProvider>()
+  const buildPoolProviders = (pools: Parameters<typeof poolFeedsOf>[0]): { providers: PhotoProvider[], groups: ReturnType<typeof poolFeedsOf>['groups'] } => {
+    const { feeds, groups } = poolFeedsOf(pools, photos)
+    const next = new Map<string, PhotoProvider>()
+    for (const feed of feeds.values()) {
+      next.set(feed.id, poolProviders.get(feed.id) ?? (feed.source === 'immich'
+        ? createImmichProvider(feed.settings, { id: feed.id, name: feed.name })
+        : createUnsplashProvider(feed.settings, { id: feed.id, name: feed.name })))
+    }
+    poolProviders.clear()
+    for (const [id, provider] of next) poolProviders.set(id, provider)
+    return { providers: [...next.values()], groups }
+  }
+
   const service = createPhotoService({
     db: useDb(),
     dir: usePhotoDir(),
@@ -62,6 +83,10 @@ export default defineNitroPlugin((nitroApp) => {
     render: async (input, rendition) => (await import('../photos/render')).renderPhoto(input, rendition),
   })
   setPhotos(service)
+  // Before start(), so the first listing covers the pools' providers as well.
+  const initial = buildPoolProviders(getPhotoPools()?.get() ?? [])
+  void service.setPools(initial)
+  if (initial.groups.length > 0) console.info(`[photos] ${initial.groups.length} photo ${initial.groups.length === 1 ? 'pool' : 'pools'}, ${initial.providers.length} ${initial.providers.length === 1 ? 'source' : 'sources'} of their own`)
   service.start()
 
   // The control plugin (03) has started by now. The timers read each display's view from it.
@@ -83,8 +108,15 @@ export default defineNitroPlugin((nitroApp) => {
     if (shared && interval !== undefined) rotation?.setIntervalSeconds(interval)
   })
 
+  const unsubscribePools = useEventBus().on('photo_pools.updated', ({ pools }) => {
+    const next = buildPoolProviders(pools)
+    console.info(`[photos] pools changed: ${next.groups.length} ${next.groups.length === 1 ? 'pool' : 'pools'}, ${next.providers.length} ${next.providers.length === 1 ? 'source' : 'sources'} of their own`)
+    void service.setPools(next)
+  })
+
   nitroApp.hooks.hook('close', () => {
     unsubscribe()
+    unsubscribePools()
     service.stop()
     if (getPhotos() === service) setPhotos(undefined)
     rotation?.stop()

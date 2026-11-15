@@ -1,5 +1,5 @@
-import type { PhotoSource, ScreenState, View } from '../../shared/display'
-import type { CalendarStatus, ConnectionsStatus, FallbackEvent, ImmichMode, MqttLinkState, PhotoProviderSettings } from '../../shared/settings'
+import type { CameraKind, Command, PhotoSource, ScreenState, View } from '../../shared/display'
+import type { CalendarStatus, ConnectionsStatus, FallbackEvent, ImmichMode, MqttLinkState, PhotoProviderSettings, SetupButtonAction, SetupTriggerWhen, SetupWeekday } from '../../shared/settings'
 import { PHOTO_SOURCE_NAMES } from '../../shared/photos'
 import { addDays, todayIn } from '../../shared/dates'
 import { monthLabel } from './remote'
@@ -283,4 +283,112 @@ export function displayLink(origin: string, id: string): string {
 export function canOfferInstall(location: Pick<Location, 'protocol' | 'hostname'>): boolean {
   if (location.protocol === 'https:') return true
   return ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+}
+
+// The Setup tab: what the config's schedules, button, cameras, triggers and
+// timers say, in words.
+
+/** `1 second`, `90 seconds`, `5 minutes`, `2 hours`: a length of time in the largest whole unit. */
+export function lengthLabel(seconds: number): string {
+  const unit = (count: number, name: string) => `${count} ${name}${count === 1 ? '' : 's'}`
+  if (seconds >= 3600 && seconds % 3600 === 0) return unit(seconds / 3600, 'hour')
+  if (seconds >= 60 && seconds % 60 === 0) return unit(seconds / 60, 'minute')
+  return unit(seconds, 'second')
+}
+
+const BUTTON_ACTION_LABELS: Record<SetupButtonAction, string> = {
+  next_view: 'Next view',
+  toggle_photo: 'Photo frame on or off',
+  next_photo: 'Next photo',
+  toggle_screen: 'Screen on or off',
+  next_month: 'Next month',
+  prev_month: 'Previous month',
+  this_month: 'This month',
+  next_week: 'Next week',
+  prev_week: 'Previous week',
+  this_week: 'This week',
+  refresh: 'Reload the wall',
+  ha: 'Left to Home Assistant',
+  none: 'Nothing',
+}
+
+export function buttonActionLabel(action: SetupButtonAction): string {
+  return BUTTON_ACTION_LABELS[action]
+}
+
+const DAY_NAMES: Record<SetupWeekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
+const WEEK: SetupWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+/** `Every day`, `Weekdays`, `Weekends`, `Mon to Thu`, or `Mon, Wed and Fri`. */
+export function daysLabel(days: readonly SetupWeekday[]): string {
+  const sorted = WEEK.filter(day => days.includes(day))
+  const key = sorted.join(',')
+  if (key === WEEK.join(',')) return 'Every day'
+  if (key === 'mon,tue,wed,thu,fri') return 'Weekdays'
+  if (key === 'sat,sun') return 'Weekends'
+  const first = WEEK.indexOf(sorted[0]!)
+  const unbroken = sorted.length > 2 && sorted.every((day, index) => WEEK.indexOf(day) === first + index)
+  if (unbroken) return `${DAY_NAMES[sorted[0]!]} to ${DAY_NAMES[sorted.at(-1)!]}`
+  return listNames(sorted.map(day => DAY_NAMES[day]))
+}
+
+const CAMERA_KIND_LABELS: Record<CameraKind, string> = {
+  page: 'Web page',
+  image: 'Picture or MJPEG stream',
+  video: 'Video stream',
+}
+
+export function cameraKindLabel(kind: CameraKind): string {
+  return CAMERA_KIND_LABELS[kind]
+}
+
+/** `on`, `on or open`: states as a trigger lists them. */
+const statesLabel = (states: readonly string[]) => states.map(state => `“${state}”`).join(' or ')
+
+/** What a trigger waits for, in a line: `binary_sensor.doorbell turns “on”`, or `Event doorbell_pressed`. */
+export function triggerWhenLabel(when: SetupTriggerWhen): string {
+  if (when.kind === 'event') {
+    const data = when.event_data && Object.keys(when.event_data).length ? ` with ${JSON.stringify(when.event_data)}` : ''
+    return `Event ${when.event_type}${data}`
+  }
+  const entities = when.entity_ids.join(' or ')
+  const from = when.from ? ` from ${statesLabel(when.from)}` : ''
+  if (when.to) return `${entities} changes${from} to ${statesLabel(when.to)}`
+  return from ? `${entities} changes${from}` : `${entities} changes state`
+}
+
+/** Display ids as names, `Every display` for null. An id the list doesn't have is shown as it is. */
+export function displayNames(ids: readonly string[] | null, displays: readonly { id: string, name: string }[]): string {
+  if (ids === null) return 'Every display'
+  return listNames(ids.map(id => displays.find(display => display.id === id)?.name ?? id))
+}
+
+/** One command a trigger applies, in words: `Show the camera Front door for 2 minutes`, `Switch to the Agenda view`. */
+export function commandLabel(command: Command, cameraName: (id: string) => string = id => id): string {
+  switch (command.type) {
+    case 'set_view': return `Switch to the ${viewLabel(command.view)} view`
+    case 'next_view': return 'Go to the next view'
+    case 'set_month': return command.month === 'current' ? 'Show this month' : command.month === 'next' ? 'Show next month' : command.month === 'prev' ? 'Show last month' : `Show ${monthLabel(command.month)}`
+    case 'set_week': return command.week === 'current' ? 'Show this week' : command.week === 'next' ? 'Show next week' : command.week === 'prev' ? 'Show last week' : `Show the week of ${command.week}`
+    case 'set_screen': return command.screen === 'on' ? 'Turn the screen on' : 'Turn the screen off'
+    case 'set_brightness': return `Set the brightness to ${command.brightness}%`
+    case 'set_photo_source': return `Take photos from ${photoSourceLabel(command.photo_source)}`
+    case 'set_auto_presence': return `Turn auto presence ${command.auto_presence ? 'on' : 'off'}`
+    case 'set_auto_brightness': return `Turn auto brightness ${command.auto_brightness ? 'on' : 'off'}`
+    case 'set_schedule': return `Turn the schedule ${command.schedule} ${command.on ? 'on' : 'off'}`
+    case 'set_layout': return `Show the layout ${command.layout}`
+    case 'set_overlay': {
+      if (command.overlay === null) return 'Clear the message'
+      const ttl = command.overlay.ttl ? ` for ${lengthLabel(command.overlay.ttl)}` : ''
+      return `Show the message “${command.overlay.text}”${ttl}`
+    }
+    case 'set_camera': {
+      if (command.camera === null) return 'Take the camera down'
+      return `Show the camera ${cameraName(command.camera)} for ${lengthLabel(command.seconds)}${command.wake ? ', waking the screen' : ''}`
+    }
+    case 'photo_next': return 'Go to the next photo'
+    case 'toggle_photo': return 'Turn the photo frame on or off'
+    case 'refresh': return 'Reload the wall'
+    case 'preview_special_day': return `Preview the special ${command.id !== undefined ? `day ${command.id}` : `scene ${command.scene}`} for ${lengthLabel(command.seconds)}`
+  }
 }

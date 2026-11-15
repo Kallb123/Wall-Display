@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup, url } from '@nuxt/test-utils/e2e'
 import { PIN_HEADER } from '../../shared/remote'
-import type { CalendarStatus, ConnectionsStatus, DiscoveryResult, DisplayStatus } from '../../shared/settings'
+import type { CalendarStatus, ConnectionsStatus, DiscoveryResult, DisplayStatus, SetupStatus } from '../../shared/settings'
 import { builtApp } from '../helpers/builtApp'
 
 const appDir = fileURLToPath(new URL('../..', import.meta.url))
@@ -114,8 +114,19 @@ describe('the settings API, with nothing else set up', async () => {
     await expect($fetch('/api/settings/discovery', { method: 'POST' })).rejects.toMatchObject(reason(409, 'MQTT is not set up'))
   })
 
+  it('GET /api/settings/setup gives the rest of the config, with what is not set up as null or empty', async () => {
+    const setup = await $fetch<SetupStatus>('/api/settings/setup')
+
+    expect(setup.sync).toEqual({ months_back: 60, months_ahead: 60 })
+    expect(setup.remote_pin).toBe(false)
+    expect(setup.mqtt).toBeNull()
+    expect(setup.homeassistant).toBeNull()
+    expect(setup.displays.length).toBeGreaterThan(0)
+    expect(setup.schedules.map(entry => entry.display_id)).toEqual(setup.displays.map(display => display.id))
+  })
+
   it('includes no feed address in any response', async () => {
-    for (const path of ['/api/settings/calendars', '/api/settings/displays', '/api/settings/connections']) {
+    for (const path of ['/api/settings/calendars', '/api/settings/displays', '/api/settings/connections', '/api/settings/setup']) {
       const text = await (await fetch(path)).text()
       expect(text, path).not.toContain('file:')
       expect(text, path).not.toContain('.ics')
@@ -196,7 +207,7 @@ describe('the settings API, with Home Assistant and a broker that are not there,
   })
 
   it('includes no token, password, PIN or feed address in any GET response', async () => {
-    const paths = ['/api/settings/calendars', '/api/settings/displays', '/api/settings/connections', '/api/displays', '/api/displays/hallway/state', '/api/remote', '/api/health', '/api/events?from=2026-10-01&to=2026-11-30']
+    const paths = ['/api/settings/calendars', '/api/settings/displays', '/api/settings/connections', '/api/settings/setup', '/api/displays', '/api/displays/hallway/state', '/api/remote', '/api/health', '/api/events?from=2026-10-01&to=2026-11-30']
     for (const path of paths) {
       const response = await fetch(path)
       expect(response.status, path).toBe(200)

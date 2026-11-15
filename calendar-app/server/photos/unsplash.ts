@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { UnsplashConfig } from '../config/schema'
+import type { PhotoDetails } from '../../shared/photoHistory'
 import { discard, errorCode } from '../sources/http'
 import { readBytes } from './http'
+import { cleanText, compactDetails, joinText } from './text'
 import { PhotoProviderError } from './types'
 import type { PhotoListing, PhotoProvider } from './types'
 
@@ -76,6 +78,14 @@ const RESERVE = 10
 const IMAGE_SIDE = 2560
 /** The longest credit kept, so an odd name can't fill the frame. */
 const MAX_CREDIT_NAME = 80
+/**
+ * What Unsplash's API guidelines ask every link back to it to carry
+ * (`?utm_source=<app>&utm_medium=referral`), so that it can tell where visits
+ * come from.
+ */
+export const UNSPLASH_UTM_SOURCE = 'wall_display'
+/** A user name as Unsplash writes it: what may go in the path of the photographer's page. */
+const USERNAME = /^[\w.-]+$/
 
 /** What may be put in a path: a collection id or a topic slug (or topic id). */
 const PATH_ID = /^[A-Za-z0-9_-]{1,64}$/
@@ -117,8 +127,23 @@ const photo = z.object({
   width: z.number().nullish().catch(undefined),
   height: z.number().nullish().catch(undefined),
   urls: z.object({ raw: z.string() }),
-  user: z.object({ name: z.string() }),
-  links: z.object({ download_location: z.string() }),
+  user: z.object({
+    name: z.string(),
+    username: z.string().nullish().catch(undefined),
+  }),
+  links: z.object({ download_location: z.string(), html: z.string().nullish().catch(undefined) }),
+  // Niceties for the photo history: a photo is never skipped for lacking or mangling them.
+  description: z.string().nullish().catch(undefined),
+  alt_description: z.string().nullish().catch(undefined),
+  location: z.object({
+    name: z.string().nullish().catch(undefined),
+    city: z.string().nullish().catch(undefined),
+    country: z.string().nullish().catch(undefined),
+  }).nullish().catch(undefined),
+  exif: z.object({
+    make: z.string().nullish().catch(undefined),
+    model: z.string().nullish().catch(undefined),
+  }).nullish().catch(undefined),
 })
 type UnsplashPhoto = z.output<typeof photo>
 
@@ -183,6 +208,46 @@ function creditFor(name: string): string | null {
   return clean === '' ? null : `Photo by ${clean} on Unsplash`
 }
 
+/** `address` with the referral parameters Unsplash asks for added. */
+function withReferral(url: URL): string {
+  url.search = ''
+  url.hash = ''
+  url.searchParams.set('utm_source', UNSPLASH_UTM_SOURCE)
+  url.searchParams.set('utm_medium', 'referral')
+  return url.href
+}
+
+/** The photographer's page on Unsplash, from their user name, or null if it isn't one. */
+function photographerUrl(username: string | null | undefined): string | null {
+  if (!username || !USERNAME.test(username)) return null
+  return withReferral(new URL(`https://unsplash.com/@${username}`))
+}
+
+/** The photo's page, if `address` is an https address on unsplash.com with no credentials in it, else null. */
+function photoPageUrl(address: string | null | undefined): string | null {
+  if (!address) return null
+  try {
+    const url = new URL(address)
+    if (url.protocol !== 'https:' || url.hostname !== 'unsplash.com' || url.port !== '' || url.username !== '' || url.password !== '') return null
+    return withReferral(url)
+  } catch {
+    return null
+  }
+}
+
+/** What Unsplash says about a photo beyond its credit, or null if it says nothing. */
+function detailsOf(item: UnsplashPhoto): PhotoDetails | null {
+  const camera = joinText([item.exif?.make, item.exif?.model], ' ')
+  return compactDetails<PhotoDetails>({
+    description: cleanText(item.description) ?? cleanText(item.alt_description),
+    location: cleanText(item.location?.name) ?? joinText([item.location?.city, item.location?.country], ', '),
+    photographer: cleanText(item.user.name, MAX_CREDIT_NAME),
+    photographer_url: photographerUrl(item.user.username),
+    source_url: photoPageUrl(item.links.html),
+    camera,
+  })
+}
+
 /** The listing for a photo and what to keep of it, or null if it isn't one to show: no usable id, address or photographer. */
 export function toListing(item: UnsplashPhoto): Entry | null {
   if (!PHOTO_ID.test(item.id)) return null
@@ -194,6 +259,7 @@ export function toListing(item: UnsplashPhoto): Entry | null {
     // Unsplash's created_at is when it was uploaded, not when it was taken.
     takenAt: null,
     credit,
+    details: detailsOf(item),
   }
   if (item.width && item.height && item.width > 0 && item.height > 0) {
     listing.width = Math.round(item.width)

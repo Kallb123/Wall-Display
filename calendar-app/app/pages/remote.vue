@@ -190,6 +190,18 @@ const photoSource = computed(() => effectivePhotoSource(state.value?.photo_sourc
 // "Next photo" works wherever a photo pane is showing: the photo frame and the week and photo view.
 const photosShown = computed(() => view.value !== undefined && viewShowsPhotos(view.value, currentLayout.value))
 
+// The photo history reads the server's list when this number changes: on a
+// "Next photo" (above), and whenever the wall's state says it is showing
+// something else, which is when a photo goes on or comes off it.
+const historyRefresh = ref(0)
+watch(
+  // One string, so a state that says the same again doesn't count as a change.
+  () => [state.value?.view, state.value?.layout, state.value?.photo_source, state.value?.screen].join('|'),
+  () => {
+    historyRefresh.value++
+  },
+)
+
 function setPhotoSource(source: PhotoSource) {
   void send({ type: 'set_photo_source', photo_source: source })
 }
@@ -276,6 +288,15 @@ function closeCamera() {
           :photos-shown="photosShown"
           :send="send"
           @set-source="setPhotoSource"
+          @skipped="historyRefresh++"
+        />
+
+        <RemotePhotoHistory
+          v-if="photosConfigured && displayId"
+          :display-id="displayId"
+          :timezone="settings!.timezone"
+          :photos-shown="photosShown"
+          :refresh-key="historyRefresh"
         />
 
         <RemoteCamera v-if="camera" :name="camera.name" @close="closeCamera" />

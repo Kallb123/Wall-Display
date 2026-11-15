@@ -71,6 +71,8 @@ test.describe('the remote', () => {
   async function openRemote(page: Page) {
     await playServer(page, { view: 'custom', layout: 'kitchen' })
     await playLayouts(page)
+    // The photo history is whatever the real server has shown, so it is played empty here (remote.spec.ts draws it).
+    await page.route('**/api/displays/hallway/photo-history**', route => route.fulfill({ json: { entries: [] } }))
     await page.goto('/remote?id=hallway')
     await expect(page.getByTestId('connection-pill')).toHaveText('Connected')
     await fontsReady(page)

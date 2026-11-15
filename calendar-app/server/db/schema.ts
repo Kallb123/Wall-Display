@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import { PHOTO_RENDITIONS } from '../../shared/photos'
+import type { PhotoDetails } from '../../shared/photoHistory'
+import { PHOTO_STAGE_RENDITIONS, PHOTO_RENDITIONS } from '../../shared/photos'
+import { PHOTO_SOURCES } from '../../shared/display'
 import { STAR_PERIODS } from '../../shared/stars'
 
 // The database schema. After changing this file, run `pnpm db:generate` and
@@ -117,6 +119,8 @@ export const photoAssets = sqliteTable('photo_assets', {
   takenAt: timestamp('taken_at'),
   /** Who to credit for it on the frame ("Photo by … on Unsplash"), when its source asks for that. */
   credit: text('credit'),
+  /** What its source says about it (place, caption, camera, links), as JSON; null when it says nothing. */
+  details: text('details', { mode: 'json' }).$type<PhotoDetails>(),
   /** When this photo was last on any display, in any rendition. */
   lastShownAt: timestamp('last_shown_at'),
   createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
@@ -142,6 +146,37 @@ export const photoRenditions = sqliteTable('photo_renditions', {
 }, table => [
   primaryKey({ columns: [table.assetId, table.rendition] }),
   index('photo_renditions_cache_file_idx').on(table.cacheFile),
+])
+
+/**
+ * The photos each display has shown lately (architecture §5.1), newest last by
+ * `id`: one row each time `GET /api/photos/next` handed a display a photo, kept
+ * to `PHOTO_HISTORY_KEEP` per display. A row is a snapshot of the photo as it was
+ * when shown, with no foreign key to `photo_assets`, so it stays after the photo
+ * leaves the pool. `ended_at` is null while the photo is on show.
+ */
+export const photoHistory = sqliteTable('photo_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  displayId: text('display_id').notNull(),
+  /** The shape of stage it was shown for (never `cover`: that is how it was drawn, not what asked). */
+  rendition: text('rendition', { enum: PHOTO_STAGE_RENDITIONS }).notNull(),
+  /** `photo_assets.id`, not a foreign key: the photo may leave the pool. */
+  assetId: text('asset_id').notNull(),
+  /** The feed the display asked for: a source's own, a `photos.feeds` id or a pool's id. */
+  feed: text('feed').notNull(),
+  source: text('source', { enum: PHOTO_SOURCES }).notNull(),
+  shownAt: timestamp('shown_at').notNull(),
+  endedAt: timestamp('ended_at'),
+  width: integer('width').notNull(),
+  height: integer('height').notNull(),
+  orientation: text('orientation', { enum: PHOTO_ORIENTATIONS }).notNull(),
+  takenAt: timestamp('taken_at'),
+  credit: text('credit'),
+  details: text('details', { mode: 'json' }).$type<PhotoDetails>(),
+  /** The rendered file that was served, for the thumbnail while it is still in the cache. */
+  cacheFile: text('cache_file'),
+}, table => [
+  index('photo_history_display_idx').on(table.displayId, table.id),
 ])
 
 /**
@@ -337,6 +372,8 @@ export type PhotoAssetRow = typeof photoAssets.$inferSelect
 export type NewPhotoAssetRow = typeof photoAssets.$inferInsert
 export type PhotoRenditionRow = typeof photoRenditions.$inferSelect
 export type NewPhotoRenditionRow = typeof photoRenditions.$inferInsert
+export type PhotoHistoryRow = typeof photoHistory.$inferSelect
+export type NewPhotoHistoryRow = typeof photoHistory.$inferInsert
 export type PhotoPlaylistRow = typeof photoPlaylists.$inferSelect
 export type NewPhotoPlaylistRow = typeof photoPlaylists.$inferInsert
 export type SpecialDaySceneRow = typeof specialDayScenes.$inferSelect

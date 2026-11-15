@@ -6,6 +6,7 @@ import RemotePage from '~/pages/remote.vue'
 import { displayStateSchema } from '../../shared/display'
 import type { Command, DisplaySettings, DisplayState, PhotoSource } from '../../shared/display'
 import { PIN_ERRORS, PIN_HEADER } from '../../shared/remote'
+import type { PhotoHistoryEntry } from '../../shared/photoHistory'
 import type { StarChart } from '../../shared/stars'
 import type { SocketStatus } from '~/composables/useDisplaySocket'
 import { OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES } from '~/utils/overlay'
@@ -57,6 +58,9 @@ let pinChecks: (string | null)[] = []
 let lockedOut = false
 // The photo sources the pretend server has set up.
 let photoSources: PhotoSource[] = []
+// The photo history the pretend server answers with, newest first, and how often it was asked.
+let history: PhotoHistoryEntry[] = []
+let historyReads = 0
 // The star chart the pretend server holds, and every adjustment it was sent.
 const NO_STARS: StarChart = { people: [], counts: {} }
 let starChart: StarChart = NO_STARS
@@ -99,6 +103,10 @@ async function server(url: string, options: Options = {}) {
     if (lockedOut) throw refusal(429, PIN_ERRORS.locked)
     if (sentPin !== pin) throw refusal(401, PIN_ERRORS.wrong)
     return undefined
+  }
+  if (url === '/api/displays/hallway/photo-history') {
+    historyReads++
+    return { entries: structuredClone(history) }
   }
   if (url === '/api/stars') return structuredClone(starChart)
   if (url.startsWith('/api/stars/')) {
@@ -145,6 +153,8 @@ describe('the remote page', () => {
     pinChecks = []
     lockedOut = false
     photoSources = []
+    history = []
+    historyReads = 0
     starChart = NO_STARS
     starPosts = []
     localStorage.clear()
@@ -237,6 +247,172 @@ describe('the remote page', () => {
 
     expect(wrapper.find('[data-testid="tile-night"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.find('[data-testid="tile-month"]').attributes('aria-pressed')).toBe('false')
+  })
+
+  describe('the photo history', () => {
+    const entryAt = (id: number, changes: Partial<PhotoHistoryEntry> = {}, details: PhotoHistoryEntry['details'] = {}): PhotoHistoryEntry => ({
+      id,
+      photo_id: `immich:asset-${id}`,
+      feed: 'immich',
+      feed_name: null,
+      provider: 'immich',
+      rendition: 'landscape',
+      shown_at: new Date(NOW.getTime() - (id + 1) * 10 * 60_000).toISOString(),
+      ended_at: new Date(NOW.getTime() - id * 10 * 60_000).toISOString(),
+      image_url: null,
+      width: 4000,
+      height: 3000,
+      orientation: 'landscape',
+      taken_at: null,
+      credit: null,
+      ...changes,
+      details,
+    })
+    const entries = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.findAll('[data-testid="photo-history-entry"]')
+
+    it('is left out when the server has no photo source', async () => {
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      expect(wrapper.find('[data-testid="photo-history"]').exists()).toBe(false)
+      expect(historyReads).toBe(0)
+    })
+
+    it('says so when nothing has been shown yet', async () => {
+      photoSources = ['immich']
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      expect(wrapper.find('[data-testid="photo-history"] h2').text()).toBe('Photo history')
+      expect(wrapper.find('[data-testid="photo-history-empty"]').text()).toBe('Photos the wall shows will be listed here.')
+    })
+
+    it('lists the photos newest first, with the open one marked while the wall shows photos', async () => {
+      photoSources = ['immich']
+      history = [
+        entryAt(1, { ended_at: null, shown_at: new Date(NOW.getTime() - 5 * 60_000).toISOString() }, { description: 'Sunset over the lake', location: 'Keswick' }),
+        entryAt(0, { provider: 'local', feed: 'local', image_url: '/photos/cache/a.jpg' }, { file_name: 'trips/IMG_1.jpg' }),
+      ]
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      expect(entries(wrapper)).toHaveLength(2)
+      expect(entries(wrapper)[0]!.text()).toContain('Sunset over the lake')
+      expect(entries(wrapper)[0]!.text()).toContain('09:36 \u2013 now')
+      expect(entries(wrapper)[0]!.text()).toContain('On the wall')
+      expect(entries(wrapper)[1]!.text()).toContain('IMG_1.jpg')
+      expect(entries(wrapper)[1]!.text()).not.toContain('On the wall')
+      expect(entries(wrapper)[1]!.find('img').attributes('src')).toBe('/photos/cache/a.jpg')
+      expect(entries(wrapper)[0]!.find('img').exists()).toBe(false)
+    })
+
+    it('does not say "On the wall" when the wall is on a view without photos', async () => {
+      photoSources = ['immich']
+      history = [entryAt(1, { ended_at: null })]
+      const { wrapper } = await mountRemote({ view: 'agenda' })
+
+      expect(entries(wrapper)).toHaveLength(1)
+      expect(wrapper.find('[data-testid="photo-history-live"]').exists()).toBe(false)
+    })
+
+    it('opens one entry\'s details at a time, with links that open in a new tab', async () => {
+      photoSources = ['immich', 'unsplash']
+      history = [
+        entryAt(1, { provider: 'unsplash', feed: 'pool' }, { photographer: 'Jane Doe', photographer_url: 'https://unsplash.com/@jane', source_url: 'https://unsplash.com/photos/x' }),
+        entryAt(0, {}, { description: 'Lake', camera: 'FUJIFILM X-T5' }),
+      ]
+      const { wrapper } = await mountRemote({ view: 'photo' })
+      const rowButton = (index: number) => entries(wrapper)[index]!.find('button')
+
+      expect(wrapper.find('[data-testid="photo-history-details"]').exists()).toBe(false)
+      expect(rowButton(0).attributes('aria-expanded')).toBe('false')
+
+      await rowButton(0).trigger('click')
+      expect(rowButton(0).attributes('aria-expanded')).toBe('true')
+      const details = wrapper.find('[data-testid="photo-history-details"]')
+      expect(details.text()).toContain('Photographer')
+      const links = details.findAll('a')
+      expect(links.map(link => link.text())).toEqual(['Jane Doe', 'View on Unsplash'])
+      expect(links.map(link => link.attributes('href'))).toEqual(['https://unsplash.com/@jane', 'https://unsplash.com/photos/x'])
+      expect(links.every(link => link.attributes('target') === '_blank' && link.attributes('rel') === 'noopener noreferrer')).toBe(true)
+
+      await rowButton(1).trigger('click')
+      expect(wrapper.findAll('[data-testid="photo-history-details"]')).toHaveLength(1)
+      expect(rowButton(0).attributes('aria-expanded')).toBe('false')
+      expect(wrapper.find('[data-testid="photo-history-details"]').text()).toContain('FUJIFILM X-T5')
+
+      await rowButton(1).trigger('click')
+      expect(wrapper.find('[data-testid="photo-history-details"]').exists()).toBe(false)
+    })
+
+    it('shows five, and Show more reveals ten more at a time until there is nothing left', async () => {
+      photoSources = ['immich']
+      history = Array.from({ length: 22 }, (_, index) => entryAt(22 - index))
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      expect(entries(wrapper)).toHaveLength(5)
+      await wrapper.find('[data-testid="photo-history-more"]').trigger('click')
+      expect(entries(wrapper)).toHaveLength(15)
+      await wrapper.find('[data-testid="photo-history-more"]').trigger('click')
+      expect(entries(wrapper)).toHaveLength(22)
+      expect(wrapper.find('[data-testid="photo-history-more"]').exists()).toBe(false)
+    })
+
+    it('has no Show more for five or fewer', async () => {
+      photoSources = ['immich']
+      history = Array.from({ length: 5 }, (_, index) => entryAt(5 - index))
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      expect(entries(wrapper)).toHaveLength(5)
+      expect(wrapper.find('[data-testid="photo-history-more"]').exists()).toBe(false)
+    })
+
+    it('shows the placeholder when a picture will not load', async () => {
+      photoSources = ['immich']
+      history = [entryAt(0, { image_url: '/photos/cache/gone.jpg' })]
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      await entries(wrapper)[0]!.find('img').trigger('error')
+      expect(entries(wrapper)[0]!.find('img').exists()).toBe(false)
+    })
+
+    it('says it could not load when the first read fails, and keeps the list when a later one does', async () => {
+      photoSources = ['immich']
+      fetchMock.mockImplementation(async (url: string, options: Options) => {
+        if (url === '/api/displays/hallway/photo-history') throw refusal(500, 'Broken')
+        return server(url, options)
+      })
+      const { wrapper } = await mountRemote({ view: 'photo' })
+
+      expect(wrapper.find('[data-testid="photo-history-error"]').text()).toBe('Couldn\'t load the photo history')
+    })
+
+    it('reads the list again a moment after the wall\'s state changes, and after Next photo', async () => {
+      photoSources = ['immich']
+      history = [entryAt(0)]
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout'], now: NOW })
+      const { wrapper, socket } = await mountRemote({ view: 'photo' })
+      const reads = historyReads
+      expect(reads).toBeGreaterThan(0)
+
+      history = [entryAt(1), entryAt(0)]
+      socket!.push(stateWith({ view: 'agenda' }))
+      await flushPromises()
+      expect(historyReads).toBe(reads)
+      await vi.advanceTimersByTimeAsync(1600)
+      await flushPromises()
+      expect(historyReads).toBe(reads + 1)
+      expect(entries(wrapper)).toHaveLength(2)
+
+      socket!.push(stateWith({ view: 'photo' }))
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(1600)
+      await flushPromises()
+      const afterView = historyReads
+
+      await wrapper.find('[data-testid="photo-next"]').trigger('click')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(1600)
+      await flushPromises()
+      expect(historyReads).toBe(afterView + 1)
+    })
   })
 
   describe('the photo frame', () => {

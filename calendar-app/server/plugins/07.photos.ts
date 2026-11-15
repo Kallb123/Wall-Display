@@ -1,4 +1,6 @@
+import { viewShowsPhotos } from '../../shared/layouts'
 import { getDisplayControl } from '../control/state'
+import { closeAllOpenAtBoot, closeOpen } from '../photos/history'
 import { createImmichProvider } from '../photos/immich'
 import { photoFeedsOf } from '../photos/feeds'
 import { createLocalProvider } from '../photos/local'
@@ -20,7 +22,10 @@ import type { PhotoProvider } from '../photos/types'
 // providers of their own (a pool's Unsplash searches and Immich albums), which
 // are built from the pools in the database and rebuilt when they change; the
 // ones whose id is unchanged keep their instance, and with it what they know
-// (Unsplash's pool, its request budget). Without the block it does nothing and the photo frame has nothing to show.
+// (Unsplash's pool, its request budget). The photo history (architecture §5.1) is
+// closed off here: photos that were on show when the server last stopped are
+// ended at boot, and a display's current photo is ended when its screen goes off
+// or its view stops showing photos. Without the block it does nothing and the photo frame has nothing to show.
 /** What an Unsplash feed asks for, for the log: never the key. */
 const unsplashSummary = (settings: { query?: string | undefined, collections?: string[] | undefined, topics?: string[] | undefined }): string =>
   settings.collections ? `collections ${settings.collections.join(', ')}` : settings.topics ? `topics ${settings.topics.join(', ')}` : `search "${settings.query}"`
@@ -87,6 +92,12 @@ export default defineNitroPlugin((nitroApp) => {
   const initial = buildPoolProviders(getPhotoPools()?.get() ?? [])
   void service.setPools(initial)
   if (initial.groups.length > 0) console.info(`[photos] ${initial.groups.length} photo ${initial.groups.length === 1 ? 'pool' : 'pools'}, ${initial.providers.length} ${initial.providers.length === 1 ? 'source' : 'sources'} of their own`)
+  // Whatever was on show when the server last stopped came off then; when it did is not known, so at most one interval after it went up.
+  try {
+    closeAllOpenAtBoot(useDb(), new Date(), photos.interval_seconds)
+  } catch (error) {
+    console.warn(`[photos] could not close the photo history: ${error instanceof Error ? error.name : 'unknown error'}`)
+  }
   service.start()
 
   // The control plugin (03) has started by now. The timers read each display's view from it.
@@ -108,6 +119,18 @@ export default defineNitroPlugin((nitroApp) => {
     if (shared && interval !== undefined) rotation?.setIntervalSeconds(interval)
   })
 
+  // A photo stops being on display when the screen goes off or the view has no photo pane. The next one is noted when the display asks for it.
+  const knownDisplays = new Set(settings.config().displays.map(display => display.id))
+  const unsubscribeHistory = useEventBus().on('state.updated', ({ displayId, state }) => {
+    if (!knownDisplays.has(displayId)) return
+    try {
+      const layout = state.layout === null ? null : useLayouts().summaries().find(candidate => candidate.id === state.layout)
+      if (state.screen === 'off' || !viewShowsPhotos(state.view, layout)) closeOpen(useDb(), displayId, new Date())
+    } catch (error) {
+      console.warn(`[photos] ${displayId}: could not close the photo history: ${error instanceof Error ? error.name : 'unknown error'}`)
+    }
+  })
+
   const unsubscribePools = useEventBus().on('photo_pools.updated', ({ pools }) => {
     const next = buildPoolProviders(pools)
     console.info(`[photos] pools changed: ${next.groups.length} ${next.groups.length === 1 ? 'pool' : 'pools'}, ${next.providers.length} ${next.providers.length === 1 ? 'source' : 'sources'} of their own`)
@@ -117,6 +140,7 @@ export default defineNitroPlugin((nitroApp) => {
   nitroApp.hooks.hook('close', () => {
     unsubscribe()
     unsubscribePools()
+    unsubscribeHistory()
     service.stop()
     if (getPhotos() === service) setPhotos(undefined)
     rotation?.stop()

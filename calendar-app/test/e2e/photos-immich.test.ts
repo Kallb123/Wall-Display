@@ -110,8 +110,8 @@ photos:
   it('asked Immich with the key in the header, for the preview and never the original', () => {
     const listings = seen.filter(call => call.url === '/api/search/metadata')
     expect(listings.map(call => JSON.parse(call.body))).toEqual([
-      { albumIds: [album], type: 'IMAGE', page: 1, size: 1000, withExif: true },
-      { albumIds: [album], type: 'IMAGE', page: 2, size: 1000, withExif: true },
+      { albumIds: [album], type: 'IMAGE', page: 1, size: 1000, withExif: true, withPeople: true },
+      { albumIds: [album], type: 'IMAGE', page: 2, size: 1000, withExif: true, withPeople: true },
     ])
     const downloads = seen.filter(call => call.url?.includes('/assets/'))
     expect(downloads.length).toBeGreaterThanOrEqual(1)

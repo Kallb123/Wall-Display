@@ -19,6 +19,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   setSource: [source: PhotoSource]
+  /** The wall was asked for its next photo, so the history will have a new entry. */
+  skipped: []
 }>()
 
 const skipped = ref(false)
@@ -28,6 +30,7 @@ onScopeDispose(() => clearTimeout(skippedTimer))
 async function nextPhoto() {
   const sent = await props.send({ type: 'photo_next' })
   if (!sent) return
+  emit('skipped')
   // The wall changes by itself a moment later: say it was asked, then go back.
   skipped.value = true
   clearTimeout(skippedTimer)

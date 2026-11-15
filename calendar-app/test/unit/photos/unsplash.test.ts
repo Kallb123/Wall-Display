@@ -112,8 +112,66 @@ describe('a search', () => {
     const { provider: unsplash } = provider({}, () => jsonResponse({ total_pages: 1, results: [item('a1', { width: 4000.4, height: 6000 })] }))
 
     expect(await unsplash.list()).toEqual([
-      { providerAssetId: 'a1', width: 4000, height: 6000, takenAt: null, credit: 'Photo by Photographer a1 on Unsplash' },
+      {
+        providerAssetId: 'a1',
+        width: 4000,
+        height: 6000,
+        takenAt: null,
+        credit: 'Photo by Photographer a1 on Unsplash',
+        details: {
+          photographer: 'Photographer a1',
+          photographer_url: 'https://unsplash.com/@pa1?utm_source=wall_display&utm_medium=referral',
+          source_url: 'https://unsplash.com/photos/a1?utm_source=wall_display&utm_medium=referral',
+        },
+      },
     ])
+  })
+
+  describe('details', () => {
+    const detailsOf = async (changes: Record<string, unknown>) => {
+      const { provider: unsplash } = provider({}, () => jsonResponse({ total_pages: 1, results: [item('a1', changes)] }))
+      const listing = await unsplash.list()
+      expect(listing).toHaveLength(1)
+      return listing[0]!.details
+    }
+
+    it('says what, where and with what, and links back with the referral parameters', async () => {
+      expect(await detailsOf({
+        description: 'A  lake\nat dawn',
+        alt_description: 'water and trees',
+        location: { name: 'Lake District, UK', city: 'Keswick', country: 'United Kingdom' },
+        exif: { make: 'SONY', model: 'ILCE-7M3' },
+        links: { html: 'https://unsplash.com/photos/abc?foo=1#x', download_location: 'https://api.unsplash.com/photos/a1/download' },
+      })).toEqual({
+        description: 'A lake at dawn',
+        location: 'Lake District, UK',
+        photographer: 'Photographer a1',
+        photographer_url: 'https://unsplash.com/@pa1?utm_source=wall_display&utm_medium=referral',
+        source_url: 'https://unsplash.com/photos/abc?utm_source=wall_display&utm_medium=referral',
+        camera: 'SONY ILCE-7M3',
+      })
+    })
+
+    it('falls back to the alt text and to the city and country', async () => {
+      expect(await detailsOf({ description: null, alt_description: 'water and trees', location: { name: null, city: 'Keswick', country: 'United Kingdom' } }))
+        .toMatchObject({ description: 'water and trees', location: 'Keswick, United Kingdom' })
+    })
+
+    it('gives no link that is not on unsplash.com over https, or to a user name that is not one', async () => {
+      const details = await detailsOf({
+        user: { name: 'Jane', username: '../evil?x=1' },
+        links: { html: 'https://evil.example.com/photos/a1', download_location: 'https://api.unsplash.com/photos/a1/download' },
+      })
+      expect(details).toEqual({ photographer: 'Jane' })
+      for (const html of ['http://unsplash.com/photos/a1', 'https://user:pw@unsplash.com/photos/a1', 'https://unsplash.com.evil.test/photos/a1', 'javascript:alert(1)', 'nonsense']) {
+        expect(await detailsOf({ links: { html, download_location: 'https://api.unsplash.com/photos/a1/download' } }), html).not.toHaveProperty('source_url')
+      }
+    })
+
+    it('never skips a photo for details that are missing or the wrong type', async () => {
+      const details = await detailsOf({ description: 7, alt_description: {}, location: 'Paris', exif: [], user: { name: 'Jane', username: 42 }, links: { html: 5, download_location: 'https://api.unsplash.com/photos/a1/download' } })
+      expect(details).toEqual({ photographer: 'Jane' })
+    })
   })
 
   it('leaves orientation out when none is set, and stops at a short page', async () => {

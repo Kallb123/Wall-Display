@@ -1,4 +1,4 @@
-import type { DayParts, DisplayState, Motion, NightText, Orientation, PhotoSource, SocketRole, TakeoverArtPlace, Theme, WeatherOnDates, WeekHours } from './display'
+import type { CameraKind, Command, DayParts, DisplayState, Motion, NightText, Orientation, PhotoSource, SocketRole, TakeoverArtPlace, Theme, View, WeatherOnDates, WeekHours } from './display'
 
 // What the settings pages (architecture §7.6) and the server agree on. Pure
 // types: no I/O, and no imports from server/, so the pages can use them too.
@@ -278,4 +278,88 @@ export interface PreferencesUpdate<T> {
  */
 export interface PreferencesRefusal {
   fields: Partial<Record<string, string>>
+}
+
+// The Setup tab: everything else config.yaml sets up, shown so the page lists
+// every option even where it can't be changed here. Read only, and like the
+// rest of this file it carries no secret: the Home Assistant token, the MQTT
+// password, the PIN and the Unsplash and Immich keys stay in the config, and a
+// camera's address is shown by host and path only.
+
+/** A day a schedule rule's window can start on, Monday first. */
+export type SetupWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+/** One window of a display's built-in schedule. */
+export interface SetupScheduleRule {
+  view: View
+  /** The custom layout's id when `view` is custom, else null. */
+  layout: string | null
+  /** The photo feed the window uses, or null for the display's own. */
+  photo_feed: string | null
+  /** `HH:MM` in the config's time zone. `from` after `to` runs past midnight. */
+  from: string
+  to: string
+  /** The days the window starts on, Monday first. */
+  days: SetupWeekday[]
+}
+
+export interface SetupSchedule {
+  id: string
+  /** What Home Assistant calls its switch: the `name`, or the id when it has none. */
+  name: string
+  rules: SetupScheduleRule[]
+}
+
+/** What a trigger listens for: an entity changing state, or an event on Home Assistant's bus. */
+export type SetupTriggerWhen =
+  | { kind: 'state', entity_ids: string[], from: string[] | null, to: string[] | null }
+  | { kind: 'event', event_type: string, event_data: Record<string, unknown> | null }
+
+/** What a gesture of the physical button does (`button.single`, `double`, `long`). */
+export type SetupButtonAction =
+  | 'next_view' | 'toggle_photo' | 'next_photo' | 'toggle_screen'
+  | 'next_month' | 'prev_month' | 'this_month'
+  | 'next_week' | 'prev_week' | 'this_week'
+  | 'refresh' | 'ha' | 'none'
+
+/** `GET /api/settings/setup`: the parts of the config the other tabs don't show. */
+export interface SetupStatus {
+  timezone: string
+  /** The rolling window of events kept, in whole months around this one. */
+  sync: { months_back: number, months_ahead: number }
+  /** Whether the remote and the settings pages ask for a PIN before a change. The PIN itself is never sent. */
+  remote_pin: boolean
+  /** Every display, in config order, so the ids below can be named. */
+  displays: { id: string, name: string }[]
+  people: (SettingsPerson & { aliases: string[] })[]
+  /** A group's `people` are person ids. */
+  groups: { id: string, name: string, aliases: string[], people: string[] }[]
+  /** Home Assistant's host and port (no scheme, path or token), or null when the config has no `homeassistant` block. */
+  homeassistant: { host: string | null } | null
+  /** The broker by scheme, host and port, or null when the config has no `mqtt` block. */
+  mqtt: {
+    broker: string
+    client_id: string
+    /** Whether a username (and maybe a password) is sent. Neither is shown. */
+    signs_in: boolean
+    discovery: boolean
+    discovery_prefix: string
+  } | null
+  button: { single: SetupButtonAction, double: SetupButtonAction, long: SetupButtonAction }
+  /** `policies.auto_brightness.curve`: lux to brightness, lux going up. */
+  brightness_curve: { lux: number, brightness: number }[]
+  /** Each display's built-in schedules, in config order. A display with none has an empty list. */
+  schedules: { display_id: string, schedules: SetupSchedule[] }[]
+  weather: { entity_id: string, poll_seconds: number } | null
+  alarm: { entity_id: string, poll_seconds: number } | null
+  /** Kitchen timers. An entity's `displays` is null for every display. */
+  timers: {
+    poll_seconds: number
+    done_seconds: number
+    entities: { entity_id: string, displays: string[] | null }[]
+  } | null
+  /** `where` is the feed's host and path, without credentials or a query. */
+  cameras: { id: string, name: string, kind: CameraKind, where: string | null }[]
+  /** A trigger's `displays` is null for every display; `actions` are the commands it applies, with their defaults filled in. */
+  triggers: { id: string, when: SetupTriggerWhen, displays: string[] | null, actions: Command[] }[]
 }

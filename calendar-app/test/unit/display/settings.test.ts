@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { ConnectionsStatus } from '../../../shared/settings'
 import {
+  buttonActionLabel,
   bytesLabel,
+  commandLabel,
+  daysLabel,
+  displayNames,
+  lengthLabel,
+  triggerWhenLabel,
   cachePercent,
   canOfferInstall,
   detectionIsOff,
@@ -383,5 +389,52 @@ describe('canOfferInstall', () => {
     expect(canOfferInstall({ protocol: 'http:', hostname: '192.168.1.20' })).toBe(false)
     expect(canOfferInstall({ protocol: 'http:', hostname: 'wall.local' })).toBe(false)
     expect(canOfferInstall({ protocol: 'http:', hostname: 'localhost.example.com' })).toBe(false)
+  })
+})
+
+describe('the Setup tab\'s labels', () => {
+  it('words a length of time in its largest whole unit', () => {
+    expect(lengthLabel(1)).toBe('1 second')
+    expect(lengthLabel(90)).toBe('90 seconds')
+    expect(lengthLabel(300)).toBe('5 minutes')
+    expect(lengthLabel(7200)).toBe('2 hours')
+  })
+
+  it('names the usual sets of days, a run of days and a scattering', () => {
+    expect(daysLabel(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])).toBe('Every day')
+    expect(daysLabel(['mon', 'tue', 'wed', 'thu', 'fri'])).toBe('Weekdays')
+    expect(daysLabel(['sat', 'sun'])).toBe('Weekends')
+    expect(daysLabel(['mon', 'tue', 'wed', 'thu'])).toBe('Mon to Thu')
+    expect(daysLabel(['mon', 'wed', 'fri'])).toBe('Mon, Wed and Fri')
+    expect(daysLabel(['tue'])).toBe('Tue')
+  })
+
+  it('says what a button gesture does', () => {
+    expect(buttonActionLabel('toggle_screen')).toBe('Screen on or off')
+    expect(buttonActionLabel('none')).toBe('Nothing')
+  })
+
+  it('words what a trigger waits for', () => {
+    expect(triggerWhenLabel({ kind: 'state', entity_ids: ['binary_sensor.door'], from: ['off'], to: ['on', 'open'] })).toBe('binary_sensor.door changes from “off” to “on” or “open”')
+    expect(triggerWhenLabel({ kind: 'state', entity_ids: ['a.b', 'c.d'], from: null, to: null })).toBe('a.b or c.d changes state')
+    expect(triggerWhenLabel({ kind: 'event', event_type: 'doorbell_pressed', event_data: null })).toBe('Event doorbell_pressed')
+    expect(triggerWhenLabel({ kind: 'event', event_type: 'bus', event_data: { stop: 12 } })).toBe('Event bus with {"stop":12}')
+  })
+
+  it('names displays, or says every display', () => {
+    const displays = [{ id: 'hallway', name: 'Hallway' }, { id: 'kitchen', name: 'Kitchen' }]
+    expect(displayNames(null, displays)).toBe('Every display')
+    expect(displayNames(['hallway', 'kitchen'], displays)).toBe('Hallway and Kitchen')
+    expect(displayNames(['attic'], displays)).toBe('attic')
+  })
+
+  it('words a trigger\'s commands', () => {
+    expect(commandLabel({ type: 'set_camera', camera: 'door', seconds: 60, wake: false }, () => 'Front door')).toBe('Show the camera Front door for 1 minute')
+    expect(commandLabel({ type: 'set_camera', camera: null, seconds: 60, wake: true })).toBe('Take the camera down')
+    expect(commandLabel({ type: 'set_view', view: 'week_parts' })).toBe('Switch to the Week by part of day view')
+    expect(commandLabel({ type: 'set_screen', screen: 'on' })).toBe('Turn the screen on')
+    expect(commandLabel({ type: 'set_overlay', overlay: null })).toBe('Clear the message')
+    expect(commandLabel({ type: 'set_schedule', schedule: 'nights', on: false })).toBe('Turn the schedule nights off')
+    expect(commandLabel({ type: 'set_month', month: '2026-11' })).toBe('Show November 2026')
   })
 })

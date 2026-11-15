@@ -5,10 +5,11 @@ import App from '~/app.vue'
 import CalendarsPage from '~/pages/settings/calendars.vue'
 import DisplaysPage from '~/pages/settings/displays.vue'
 import PhotosPage from '~/pages/settings/photos.vue'
+import SetupPage from '~/pages/settings/setup.vue'
 import { displayStateSchema } from '../../shared/display'
 import type { DisplayState } from '../../shared/display'
 import { PIN_ERRORS, PIN_HEADER } from '../../shared/remote'
-import type { CalendarStatus, ConnectionsStatus, DiscoveryResult, DisplayStatus, PhotoProviderSettings, PhotosSettingsStatus } from '../../shared/settings'
+import type { CalendarStatus, ConnectionsStatus, DiscoveryResult, DisplayStatus, PhotoProviderSettings, PhotosSettingsStatus, SetupStatus } from '../../shared/settings'
 
 // The settings pages against a pretend server: `$fetch` is replaced by one
 // that answers as the real routes do (architecture §7.6, shared/settings.ts),
@@ -80,6 +81,34 @@ const photosStatus = (changes: Partial<Extract<PhotosSettingsStatus, { configure
   ...changes,
 })
 
+const setupStatus = (changes: Partial<SetupStatus> = {}): SetupStatus => ({
+  timezone: 'Europe/London',
+  sync: { months_back: 12, months_ahead: 12 },
+  remote_pin: true,
+  displays: [{ id: 'hallway', name: 'Hallway' }, { id: 'kitchen', name: 'Kitchen' }],
+  people: [{ ...mum, aliases: ['Mummy'] }],
+  groups: [{ id: 'grown-ups', name: 'Grown-ups', aliases: [], people: ['mum'] }],
+  homeassistant: { host: 'homeassistant.local:8123' },
+  mqtt: { broker: 'mqtt://mosquitto:1883', client_id: 'wallcal', signs_in: true, discovery: true, discovery_prefix: 'homeassistant' },
+  button: { single: 'next_view', double: 'toggle_photo', long: 'ha' },
+  brightness_curve: [{ lux: 0, brightness: 30 }, { lux: 20, brightness: 60 }, { lux: 200, brightness: 100 }],
+  schedules: [
+    { display_id: 'hallway', schedules: [{ id: 'evenings', name: 'Evenings', rules: [{ view: 'night', layout: null, photo_feed: null, from: '22:00', to: '06:30', days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] }] }] },
+    { display_id: 'kitchen', schedules: [] },
+  ],
+  weather: { entity_id: 'weather.home', poll_seconds: 600 },
+  alarm: null,
+  timers: { poll_seconds: 30, done_seconds: 60, entities: [{ entity_id: 'sensor.kitchen_speaker_timers', displays: ['kitchen'] }, { entity_id: 'timer.pasta', displays: null }] },
+  cameras: [{ id: 'front_door', name: 'Front door', kind: 'video', where: 'go2rtc.local:1984/api/stream.mp4' }],
+  triggers: [{
+    id: 'doorbell',
+    when: { kind: 'state', entity_ids: ['binary_sensor.front_doorbell'], from: null, to: ['on'] },
+    displays: null,
+    actions: [{ type: 'set_camera', camera: 'front_door', seconds: 120, wake: true }, { type: 'set_overlay', overlay: { text: 'Someone is at the door', ttl: 120 } }],
+  }],
+  ...changes,
+})
+
 const connections = (changes: { mqtt?: Partial<ConnectionsStatus['mqtt']>, homeassistant?: Partial<ConnectionsStatus['homeassistant']> } = {}): ConnectionsStatus => ({
   mqtt: { configured: true, broker: 'mqtt://mosquitto:1883', discovery: true, connected: 2, total: 2, ...changes.mqtt },
   homeassistant: { configured: false, state: 'off', error: null, checked_at: null, ...changes.homeassistant },
@@ -90,6 +119,7 @@ let calendars: CalendarStatus[]
 let displays: DisplayStatus[]
 let status: ConnectionsStatus
 let photos: PhotosSettingsStatus
+let setup: SetupStatus
 let pin: string | null
 let lockedOut: boolean
 let unreachable: boolean
@@ -120,6 +150,7 @@ async function server(url: string, options: Options = {}) {
     if (url === '/api/settings/displays') return structuredClone(displays)
     if (url === '/api/settings/connections') return structuredClone(status)
     if (url === '/api/settings/photos') return structuredClone(photos)
+    if (url === '/api/settings/setup') return structuredClone(setup)
     if (url === '/api/photo-pools') return { configured: true, unsplash_available: false, immich_available: true, feeds: structuredClone(photos.configured ? photos.feeds : []), pools: [] }
     if (url === '/api/special-days' || url === '/api/special-day-scenes') return []
     if (url === '/api/displays') return [{ id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London' }]
@@ -169,6 +200,7 @@ beforeEach(() => {
   displays = [display()]
   status = connections()
   photos = photosStatus()
+  setup = setupStatus()
   pin = null
   lockedOut = false
   unreachable = false
@@ -192,14 +224,15 @@ describe('the settings shell', () => {
     ['/settings/photos', 'Photos'],
     ['/settings/special-days', 'Special days'],
     ['/settings/displays', 'Displays'],
-  ])('shows the six tabs, with the one for %s marked as the current page', async (route, active) => {
+    ['/settings/setup', 'Setup'],
+  ])('shows the seven tabs, with the one for %s marked as the current page', async (route, active) => {
     const wrapper = await mountAt(App, route)
 
     expect(wrapper.find('h1').text()).toBe('Settings')
     const tabs = wrapper.findAll('nav a')
-    expect(tabs.map(tab => tab.text())).toEqual(['Calendars', 'Photos', 'Special days', 'Layouts', 'Stars', 'Displays'])
+    expect(tabs.map(tab => tab.text())).toEqual(['Calendars', 'Photos', 'Special days', 'Layouts', 'Stars', 'Displays', 'Setup'])
     expect(tabs.filter(tab => tab.attributes('aria-current') === 'page').map(tab => tab.text())).toEqual([active])
-    expect(tabs.map(tab => tab.attributes('href'))).toEqual(['/settings/calendars', '/settings/photos', '/settings/special-days', '/settings/layouts', '/settings/stars', '/settings/displays'])
+    expect(tabs.map(tab => tab.attributes('href'))).toEqual(['/settings/calendars', '/settings/photos', '/settings/special-days', '/settings/layouts', '/settings/stars', '/settings/displays', '/settings/setup'])
   })
 
   it('shows the tab\'s page below the tabs', async () => {
@@ -1062,5 +1095,89 @@ describe('polling', () => {
     expect(wrapper.find('[data-testid="unreachable"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="calendar-card"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="loading"]').exists()).toBe(false)
+  })
+})
+
+describe('the Setup tab', () => {
+  it('shows the general settings, without any secret', async () => {
+    const wrapper = await mountAt(SetupPage, '/settings/setup')
+
+    expect(wrapper.find('[data-testid="setup-timezone"]').text()).toBe('Europe/London')
+    expect(wrapper.find('[data-testid="setup-sync"]').text()).toBe('12 months back, 12 ahead')
+    expect(wrapper.find('[data-testid="setup-pin"]').text()).toBe('Set')
+    expect(wrapper.find('[data-testid="setup-homeassistant"]').text()).toBe('homeassistant.local:8123')
+    expect(wrapper.find('[data-testid="setup-mqtt"]').text()).toContain('mqtt://mosquitto:1883')
+    expect(wrapper.find('[data-testid="setup-mqtt"]').text()).toContain('Discovery under homeassistant')
+    expect(wrapper.text()).toContain('Read only')
+  })
+
+  it('lists the people and groups', async () => {
+    const wrapper = await mountAt(SetupPage, '/settings/setup')
+
+    expect(wrapper.find('[data-testid="setup-person"]').text()).toContain('Also Mummy')
+    expect(wrapper.find('[data-testid="setup-group"]').text()).toContain('Group of Mum')
+  })
+
+  it('shows each display\'s schedules, and says so when none has one', async () => {
+    let wrapper = await mountAt(SetupPage, '/settings/setup')
+    const rule = wrapper.find('[data-testid="setup-schedule-rule"]')
+    expect(rule.text()).toContain('22:00–06:30 · Every day')
+    expect(rule.text()).toContain('Night')
+    expect(wrapper.find('[data-display="kitchen"]').exists()).toBe(false)
+
+    wrapper.unmount()
+    setup = setupStatus({ schedules: [] })
+    wrapper = await mountAt(SetupPage, '/settings/setup')
+    expect(wrapper.find('[data-testid="setup-no-schedules"]').exists()).toBe(true)
+  })
+
+  it('shows the button, the brightness curve, the weather and that there is no alarm', async () => {
+    const wrapper = await mountAt(SetupPage, '/settings/setup')
+
+    expect(wrapper.find('[data-testid="setup-button-single"]').text()).toBe('Next view')
+    expect(wrapper.find('[data-testid="setup-button-long"]').text()).toBe('Left to Home Assistant')
+    expect(wrapper.findAll('[data-testid="setup-curve-point"]').map(point => [point.find('dt').text(), point.find('dd').text()])).toEqual([['0 lux', '30%'], ['20 lux', '60%'], ['200 lux', '100%']])
+    expect(wrapper.find('[data-testid="setup-weather"]').text()).toContain('weather.home')
+    expect(wrapper.find('[data-testid="setup-alarm"]').text()).toContain('Not set up')
+  })
+
+  it('shows the kitchen timers, with the displays each shows on', async () => {
+    const wrapper = await mountAt(SetupPage, '/settings/setup')
+
+    expect(wrapper.find('[data-testid="setup-timers-poll"]').text()).toBe('Every 30 seconds')
+    expect(wrapper.find('[data-testid="setup-timers-done"]').text()).toBe('1 minute')
+    expect(wrapper.findAll('[data-testid="setup-timer"]').map(row => [row.find('dt').text(), row.find('dd').text()])).toEqual([
+      ['sensor.kitchen_speaker_timers', 'Kitchen'],
+      ['timer.pasta', 'Every display'],
+    ])
+  })
+
+  it('shows the cameras and the triggers, in words', async () => {
+    const wrapper = await mountAt(SetupPage, '/settings/setup')
+
+    expect(wrapper.find('[data-testid="setup-camera"]').text()).toContain('Front door')
+    expect(wrapper.find('[data-testid="setup-camera"]').text()).toContain('Video stream · go2rtc.local:1984/api/stream.mp4')
+    expect(wrapper.find('[data-testid="setup-trigger-when"]').text()).toBe('binary_sensor.front_doorbell changes to “on”')
+    expect(wrapper.find('[data-testid="setup-trigger-displays"]').text()).toBe('Every display')
+    expect(wrapper.findAll('[data-testid="setup-trigger-action"]').map(action => action.text())).toEqual([
+      'Show the camera Front door for 2 minutes, waking the screen',
+      'Show the message “Someone is at the door” for 2 minutes',
+    ])
+  })
+
+  it('says when there are no timers, cameras or triggers', async () => {
+    setup = setupStatus({ timers: null, cameras: [], triggers: [] })
+    const wrapper = await mountAt(SetupPage, '/settings/setup')
+
+    expect(wrapper.find('[data-testid="setup-no-timers"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="setup-no-cameras"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="setup-no-triggers"]').exists()).toBe(true)
+  })
+
+  it('says the server can\'t be reached, when it can\'t', async () => {
+    unreachable = true
+    const wrapper = await mountAt(SetupPage, '/settings/setup')
+
+    expect(wrapper.find('[data-testid="unreachable"]').exists()).toBe(true)
   })
 })

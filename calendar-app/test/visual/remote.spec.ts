@@ -456,16 +456,64 @@ test('says the wall could not be reached when a command gets no answer', async (
  * Answers every command with the state it would give (just the view, screen
  * and overlay for these tests) and lists what was sent, in order.
  */
+// The cameras: the visual config has none, so the server's display list is
+// answered with two added, as a config with a doorbell and a garden camera would.
+test.describe('the cameras', () => {
+  const FRONT_DOOR: DisplayState['camera'] = { id: 'front-door', name: 'Front door', url: 'http://go2rtc.local:1984/stream.html?src=front_door', kind: 'page', until: '2026-10-28T10:00:00.000Z', restore_screen: false }
+
+  async function withCameras(page: Page) {
+    await page.route('**/api/displays', async (route) => {
+      const displays = await (await route.fetch()).json() as object[]
+      await route.fulfill({ json: displays.map(display => ({ ...display, cameras: [{ id: 'front-door', name: 'Front door' }, { id: 'garden', name: 'Garden' }] })) })
+    })
+  }
+
+  test('looks right with one camera on the wall and one to show', async ({ page }) => {
+    await withCameras(page)
+    await openRemote(page, { view: 'agenda', camera: FRONT_DOOR })
+
+    await expect(page.getByTestId('camera-front-door').getByTestId('camera-live')).toHaveText('On the wall now')
+    await expect(page.getByTestId('cameras')).toHaveScreenshot('cameras-light.png')
+  })
+
+  test.describe('dark', () => {
+    test.use({ colorScheme: 'dark' })
+
+    test('looks right with one camera on the wall and one to show', async ({ page }) => {
+      await withCameras(page)
+      await openRemote(page, { view: 'agenda', camera: FRONT_DOOR })
+
+      await expect(page.getByTestId('camera-front-door').getByTestId('camera-live')).toBeVisible()
+      await expect(page.getByTestId('cameras')).toHaveScreenshot('cameras-dark.png')
+    })
+  })
+
+  test('Show puts a camera on the wall, and Hide takes it down', async ({ page }) => {
+    await withCameras(page)
+    await openRemote(page, { view: 'agenda' })
+    const commands = await recordCommands(page)
+
+    await page.getByRole('button', { name: 'Show Garden' }).click()
+    await expect.poll(() => commands).toEqual([{ type: 'set_camera', camera: 'garden' }])
+    await expect(page.getByTestId('camera-garden').getByTestId('camera-hide')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Hide Garden' }).click()
+    await expect.poll(() => commands).toEqual([{ type: 'set_camera', camera: 'garden' }, { type: 'set_camera', camera: null }])
+    await expect(page.getByTestId('camera-garden').getByTestId('camera-show')).toBeVisible()
+  })
+})
+
 async function recordCommands(page: Page) {
   const sent: unknown[] = []
   let state = displayStateSchema.parse({})
   await page.route('**/api/displays/hallway/commands', async (route) => {
-    const command = route.request().postDataJSON() as { type: string, view?: DisplayState['view'], screen?: DisplayState['screen'], photo_source?: DisplayState['photo_source'], overlay?: { text: string, icon?: string, ttl?: number } | null }
+    const command = route.request().postDataJSON() as { type: string, view?: DisplayState['view'], screen?: DisplayState['screen'], photo_source?: DisplayState['photo_source'], overlay?: { text: string, icon?: string, ttl?: number } | null, camera?: string | null }
     sent.push(command)
     if (command.type === 'set_view') state = displayStateSchema.parse({ ...state, view: command.view })
     if (command.type === 'set_screen') state = displayStateSchema.parse({ ...state, screen: command.screen })
     if (command.type === 'set_photo_source') state = displayStateSchema.parse({ ...state, photo_source: command.photo_source })
     if (command.type === 'set_overlay') state = displayStateSchema.parse({ ...state, overlay: command.overlay && { text: command.overlay.text, icon: command.overlay.icon ?? null, until: null } })
+    if (command.type === 'set_camera') state = displayStateSchema.parse({ ...state, camera: command.camera ? { id: command.camera, name: command.camera === 'garden' ? 'Garden' : 'Front door', url: `http://go2rtc.local:1984/stream.html?src=${command.camera}`, kind: 'page', until: '2026-10-28T10:00:00.000Z' } : null })
     await route.fulfill({ json: state })
   })
   return sent

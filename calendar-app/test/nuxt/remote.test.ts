@@ -21,7 +21,7 @@ import { OVERLAY_DURATIONS, OVERLAY_ICON_CHOICES } from '~/utils/overlay'
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
 mockNuxtImport('$fetch', () => fetchMock)
 
-const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [] }
+const settings: DisplaySettings = { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [], cameras: [] }
 const NOW = new Date('2026-10-28T09:41:00Z')
 
 class FakeSocket {
@@ -58,6 +58,9 @@ let pinChecks: (string | null)[] = []
 let lockedOut = false
 // The photo sources the pretend server has set up.
 let photoSources: PhotoSource[] = []
+// The cameras in the pretend server's config.
+let cameras: DisplaySettings['cameras'] = []
+const CAMERAS = { 'front-door': 'Front door', 'garden': 'Garden' } as Record<string, string>
 // The photo history the pretend server answers with, newest first, and how often it was asked.
 let history: PhotoHistoryEntry[] = []
 let historyReads = 0
@@ -74,6 +77,7 @@ function apply(command: Command): DisplayState {
   if (command.type === 'set_month') state = stateWith({ ...state, view: 'month', month: command.month === 'current' ? null : command.month })
   if (command.type === 'set_week') state = stateWith({ ...state, view: 'week', week: command.week === 'current' ? null : command.week })
   if (command.type === 'set_brightness') state = stateWith({ ...state, brightness: command.brightness })
+  if (command.type === 'set_camera') state = stateWith({ ...state, camera: command.camera === null ? null : cameraOnWall(command.camera, command.seconds) })
   if (command.type === 'set_overlay') {
     const { overlay } = command
     state = stateWith({
@@ -82,6 +86,11 @@ function apply(command: Command): DisplayState {
     })
   }
   return state
+}
+
+/** A camera on the wall for `seconds` from now, as the control service puts it there. */
+function cameraOnWall(id: string, seconds = 60): DisplayState['camera'] {
+  return { id, name: CAMERAS[id] ?? id, url: `http://go2rtc.local:1984/stream.html?src=${id}`, kind: 'page', until: new Date(NOW.getTime() + seconds * 1000).toISOString(), restore_screen: false }
 }
 
 /** A failed request as `$fetch` throws it: the status, and the body the server's errors carry. */
@@ -96,7 +105,7 @@ interface Options { method?: string, body?: unknown, headers?: Record<string, st
 /** The server: it answers each request as the real routes do (architecture §7.5). */
 async function server(url: string, options: Options = {}) {
   const sentPin = options.headers?.[PIN_HEADER] ?? null
-  if (url === '/api/displays') return [{ ...settings, photo_sources: photoSources }]
+  if (url === '/api/displays') return [{ ...settings, photo_sources: photoSources, cameras }]
   if (url === '/api/remote') return { pin_required: pin !== null }
   if (url === '/api/remote/pin') {
     pinChecks.push(sentPin)
@@ -153,6 +162,7 @@ describe('the remote page', () => {
     pinChecks = []
     lockedOut = false
     photoSources = []
+    cameras = []
     history = []
     historyReads = 0
     starChart = NO_STARS
@@ -768,6 +778,91 @@ describe('the remote page', () => {
       await flushPromises()
       expect(sent().at(-1)).toEqual({ type: 'set_screen', screen: 'on' })
       expect(wrapper.find('[data-testid="controls"]').classes()).not.toContain('dimmed')
+    })
+  })
+
+  describe('the cameras', () => {
+    const FRONT_AND_GARDEN = [{ id: 'front-door', name: 'Front door' }, { id: 'garden', name: 'Garden' }]
+    const rows = (wrapper: Awaited<ReturnType<typeof mountRemote>>['wrapper']) => wrapper.findAll('[data-testid="cameras"] li').map(row => ({
+      name: row.find('[data-testid="camera-name"]').text(),
+      live: row.find('[data-testid="camera-live"]').exists(),
+      button: row.find('button').text(),
+    }))
+
+    it('is left out with no cameras and none on the wall', async () => {
+      const { wrapper } = await mountRemote()
+
+      expect(wrapper.find('[data-testid="cameras"]').exists()).toBe(false)
+    })
+
+    it('lists each camera in the config with a button to show it', async () => {
+      cameras = FRONT_AND_GARDEN
+      const { wrapper } = await mountRemote()
+
+      expect(rows(wrapper)).toEqual([
+        { name: 'Front door', live: false, button: 'Show' },
+        { name: 'Garden', live: false, button: 'Show' },
+      ])
+      expect(wrapper.find('[data-testid="camera-garden"] button').attributes('aria-label')).toBe('Show Garden')
+    })
+
+    it('Show sends set_camera for that camera, and its row then says it is on the wall with a Hide button', async () => {
+      cameras = FRONT_AND_GARDEN
+      const { wrapper } = await mountRemote()
+
+      await wrapper.find('[data-testid="camera-garden"] [data-testid="camera-show"]').trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_camera', camera: 'garden' }])
+      expect(rows(wrapper)).toEqual([
+        { name: 'Front door', live: false, button: 'Show' },
+        { name: 'Garden', live: true, button: 'Hide' },
+      ])
+    })
+
+    it('Hide takes the camera on the wall down', async () => {
+      cameras = FRONT_AND_GARDEN
+      const { wrapper } = await mountRemote({ camera: cameraOnWall('front-door') })
+      expect(rows(wrapper)[0]).toEqual({ name: 'Front door', live: true, button: 'Hide' })
+
+      await wrapper.find('[data-testid="camera-hide"]').trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_camera', camera: null }])
+      expect(rows(wrapper)).toEqual([
+        { name: 'Front door', live: false, button: 'Show' },
+        { name: 'Garden', live: false, button: 'Show' },
+      ])
+    })
+
+    it('showing another camera while one is up swaps it', async () => {
+      cameras = FRONT_AND_GARDEN
+      const { wrapper } = await mountRemote({ camera: cameraOnWall('front-door') })
+
+      await wrapper.find('[data-testid="camera-garden"] [data-testid="camera-show"]').trigger('click')
+      await flushPromises()
+
+      expect(sent()).toEqual([{ type: 'set_camera', camera: 'garden' }])
+      expect(rows(wrapper).map(row => row.live)).toEqual([false, true])
+    })
+
+    it('still offers to hide a camera on the wall that the list does not have', async () => {
+      const { wrapper } = await mountRemote({ camera: cameraOnWall('porch') })
+
+      expect(rows(wrapper)).toEqual([{ name: 'porch', live: true, button: 'Hide' }])
+    })
+
+    it('follows the socket when the camera goes up or comes down elsewhere (the doorbell, its time running out)', async () => {
+      cameras = FRONT_AND_GARDEN
+      const { wrapper, socket } = await mountRemote()
+
+      socket!.push(stateWith({ camera: cameraOnWall('front-door') }))
+      await flushPromises()
+      expect(rows(wrapper).map(row => row.live)).toEqual([true, false])
+
+      socket!.push(stateWith({ camera: null }))
+      await flushPromises()
+      expect(rows(wrapper).map(row => row.live)).toEqual([false, false])
     })
   })
 

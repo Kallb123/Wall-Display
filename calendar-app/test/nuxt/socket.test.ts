@@ -276,6 +276,7 @@ describe('useDisplaySocket settings', () => {
     weather_on_dates: { month: true, week: true, week_parts: true, agenda: true },
     show_locations: true,
     photo_sources: ['local'],
+    cameras: [],
   }
 
   beforeEach(() => {

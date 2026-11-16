@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
-import type { DisplayState } from '../../shared/display'
+import type { DisplaySettings, DisplayState } from '../../shared/display'
 import { builtApp } from '../helpers/builtApp'
 import { startFakeHomeAssistant } from '../helpers/fakeHaWebSocket'
 
@@ -98,5 +98,13 @@ triggers:
     const response = await fetch('/api/displays/hallway/commands', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'set_camera', camera: 'attic' }) })
 
     expect(response.status).toBe(404)
+  })
+
+  it('lists the cameras for the remote by id and name, never their address', async () => {
+    const response = await fetch('/api/displays')
+    const text = await response.text()
+
+    expect((JSON.parse(text) as DisplaySettings[]).map(display => display.cameras)).toEqual([[{ id: 'front-door', name: 'Front door' }]])
+    expect(text).not.toContain('go2rtc.local')
   })
 })

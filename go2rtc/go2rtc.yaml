@@ -1,0 +1,38 @@
+# go2rtc's config: the cameras, and the three ways out. ${NAME} is filled in
+# from .env (see docker-compose.yml), so no password is written here.
+
+api:
+  listen: ":1984"
+  # Lets a page served from somewhere else (the wall, Home Assistant) fetch from this API.
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+  # The address a browser is told to send WebRTC media to. Inside Docker go2rtc
+  # only knows the container's own address, which nothing else can reach, so
+  # the host's LAN address is given here.
+  candidates:
+    - ${HOST_IP}:8555
+
+# Each name here is the <stream> in every address go2rtc gives out. A camera is
+# only connected to while something is watching its stream.
+streams:
+  # Reolink doorbell. _main is the full picture; _sub is a small one that
+  # starts faster and suits a snapshot or a detector.
+  front_door:
+    - rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@${FRONT_DOOR_IP}:554/h264Preview_01_main
+  front_door_sub:
+    - rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@${FRONT_DOOR_IP}:554/h264Preview_01_sub
+
+  # Another camera is another entry:
+  # driveway:
+  #   - rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@192.168.1.51:554/h264Preview_01_main
+  #
+  # A camera that sends H.265, which most browsers can't play: add a second
+  # source that re-encodes it, and a browser is given that one.
+  # driveway:
+  #   - rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@192.168.1.51:554/h265Preview_01_main
+  #   - ffmpeg:driveway#video=h264

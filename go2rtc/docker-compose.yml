@@ -1,0 +1,25 @@
+# One go2rtc for the whole house: it holds the only connection to each camera
+# and hands the stream on to everything that wants it (the wall, Home Assistant,
+# Frigate, a phone's browser). A stack of its own, separate from the wall's.
+#
+#   cp .env.example .env    then fill in the host's address and the camera logins
+#   docker compose up -d
+#   http://<host>:1984/     go2rtc's own page: every stream, with links to each way of playing it
+#
+# The cameras are listed in go2rtc.yaml.
+services:
+  go2rtc:
+    # :latest follows releases. Pin one (:1.9.9, say) to hold it still.
+    image: alexxit/go2rtc:latest
+    restart: unless-stopped
+    ports:
+      - "1984:1984"       # HTTP: the player page, the API, MP4, MJPEG, HLS, snapshots, WebRTC signalling
+      - "8554:8554"       # RTSP: the restream, for Frigate, Home Assistant, VLC and other servers
+      - "8555:8555/tcp"   # WebRTC media
+      - "8555:8555/udp"
+    environment:
+      TZ: Europe/London
+    # The values go2rtc.yaml refers to as ${NAME}: the host's address and the camera logins.
+    env_file: .env
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro

@@ -438,6 +438,12 @@ export const displaySettingsSchema = z.object({
    * disables the others. The same for every display.
    */
   photo_sources: z.array(z.enum(PHOTO_SOURCES)),
+  /**
+   * The cameras in the config's `cameras`, in config order, so the remote can
+   * offer to show each one. By id and name only: a camera's address can hold
+   * credentials. Empty with none. The same for every display.
+   */
+  cameras: z.array(z.object({ id: z.string().min(1), name: z.string().min(1) })),
 })
 
 export type DisplaySettings = z.output<typeof displaySettingsSchema>

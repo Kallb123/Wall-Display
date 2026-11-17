@@ -9,11 +9,12 @@ export function photoSourcesOf(configured: readonly string[]): PhotoSource[] {
 
 /**
  * One display's settings as the wall and the remote have them: from the
- * effective config (`useSettings().config()`), without any secret. The same
+ * effective config (`useSettings().config()`), without any secret (the
+ * cameras go by id and name, never their address). The same
  * shape is `GET /api/displays`, the `settings.updated` socket message and what
  * a new socket is sent. Throws for an id that is not in the config.
  */
-export function displaySettings(config: Pick<AppConfig, 'timezone' | 'displays'>, displayId: string, photoSources: PhotoSource[]): DisplaySettings {
+export function displaySettings(config: Pick<AppConfig, 'timezone' | 'displays' | 'cameras'>, displayId: string, photoSources: PhotoSource[]): DisplaySettings {
   const display = config.displays.find(candidate => candidate.id === displayId)
   if (!display) throw new Error(`Unknown display "${displayId}"`)
   return {
@@ -33,5 +34,6 @@ export function displaySettings(config: Pick<AppConfig, 'timezone' | 'displays'>
     weather_on_dates: { month: display.weather_on_dates.month, week: display.weather_on_dates.week, week_parts: display.weather_on_dates.week_parts, agenda: display.weather_on_dates.agenda },
     show_locations: display.show_locations,
     photo_sources: photoSources,
+    cameras: config.cameras.map(({ id, name }) => ({ id, name })),
   }
 }

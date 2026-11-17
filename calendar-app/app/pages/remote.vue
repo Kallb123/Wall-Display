@@ -8,7 +8,7 @@ import type { StarChart } from '../../shared/stars'
 import RemoteStars from '~/components/stars/RemoteStars.vue'
 import { UNREACHABLE } from '~/composables/useRemoteCommands'
 import { reconnectDelay } from '~/utils/backoff'
-import { isCameraShowing } from '~/utils/camera'
+import { cameraRows, isCameraShowing } from '~/utils/camera'
 import { isOverlayShowing, overlayEndLabel } from '~/utils/overlay'
 import { requestFailure, effectivePhotoSource } from '~/utils/remote'
 import { THEMES, themeStyle } from '~/utils/themes'
@@ -218,10 +218,17 @@ const pickers = useRemotePickers(settings, state, now, send)
 const overlay = computed(() => state.value && isOverlayShowing(state.value.overlay, now.value) ? state.value.overlay : null)
 const overlayUntil = computed(() => overlay.value && settings.value ? overlayEndLabel(overlay.value, now.value, settings.value.timezone) : '')
 
-// The camera on the wall, if there is one (the doorbell rang, say), so it can be taken down once the door is answered.
+// The cameras in the config, each with a button to show it on the wall, and the
+// one on the wall, if there is one (the doorbell rang, say), with a button to take
+// it down once the door is answered.
 const camera = computed(() => state.value && isCameraShowing(state.value.camera, now.value) ? state.value.camera : null)
+const cameras = computed(() => cameraRows(settings.value?.cameras ?? [], camera.value))
 
-function closeCamera() {
+function showCamera(id: string) {
+  void send({ type: 'set_camera', camera: id })
+}
+
+function hideCamera() {
   void send({ type: 'set_camera', camera: null })
 }
 </script>
@@ -299,7 +306,7 @@ function closeCamera() {
           :refresh-key="historyRefresh"
         />
 
-        <RemoteCamera v-if="camera" :name="camera.name" @close="closeCamera" />
+        <RemoteCameras v-if="cameras.length" :cameras="cameras" @show="showCamera" @hide="hideCamera" />
 
         <RemoteMessage :overlay="overlay" :until="overlayUntil" :send="send" />
 

@@ -690,7 +690,7 @@ describe('settings changed on the settings page', () => {
   const update = (changes: Record<string, unknown>) => ({
     type: 'settings.updated',
     display_id: 'hallway',
-    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [], ...changes },
+    settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'auto', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [], cameras: [], ...changes },
   })
 
   it('re-themes the wall at once', async () => {
@@ -960,7 +960,7 @@ describe('orientation', () => {
     const wall = await openWall({ state: night() })
     expect(stageSize(wall)).toEqual([1440, 2560])
 
-    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [] } })
+    FakeSocket.all.at(-1)!.push({ type: 'settings.updated', display_id: 'hallway', settings: { id: 'hallway', name: 'Hallway', theme: 'light', month_style: 'soft', week_start: 'monday', timezone: 'Europe/London', burn_in: true, motion: 'off', takeover_art: 'behind', orientation: 'landscape', night_text: 'none', week_hours: { from: 7, to: 21 }, day_parts: { afternoon: 12, evening: 17 }, weather_on_dates: { month: true, week: true, week_parts: true, agenda: true }, show_locations: true, photo_sources: [], cameras: [] } })
     await flushPromises()
     expect(stageSize(wall)).toEqual([2560, 1440])
   })

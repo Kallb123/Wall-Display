@@ -1,0 +1,68 @@
+# Dependabot opens a pull request each week for anything out of date, and CI
+# (.github/workflows/ci.yml) checks it like any other change.
+#
+# Minor and patch updates come in one pull request per ecosystem, so a week's
+# updates are one review. Major updates come one per pull request, since each
+# can need code changes of its own.
+#
+# Each update waits a few days after its release before Dependabot proposes it,
+# so a broken or compromised release has time to be pulled first. Security
+# updates don't wait.
+#
+# Not covered here:
+#   - The Node base image in calendar-app/Dockerfile (node:24-bookworm-slim) is
+#     a floating tag that picks up Node 24 patches on every build. Its major
+#     version follows .node-version and is changed by hand.
+#   - The images in docker-compose.yml and go2rtc/docker-compose.yml are
+#     floating tags (:latest, :2) too.
+#   - The ruff pin in the hw-probe CI job is in the workflow's `run` line,
+#     which Dependabot doesn't read. Keep it in step with pi-agent/pyproject.toml.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /calendar-app
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 5
+    groups:
+      # A new @playwright/test brings a new Chromium, which draws different
+      # pixels, so the visual baselines in test/visual/*-snapshots/ usually
+      # need making again (see AGENTS.md). Its own pull request keeps that
+      # from holding up the rest.
+      playwright:
+        patterns:
+          - "@playwright/test"
+          - playwright-core
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: pip
+    directory: /pi-agent
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 5
+    groups:
+      pip-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"

@@ -128,6 +128,20 @@ describe('photos.feeds', () => {
     expect(otherAlbum).toMatchObject({ mode: 'albums', album_ids: ['9d2f4e6a-5b1c-4f3a-8a7e-2c4b6d8e0f02'] })
   })
 
+  it('gives an Immich feed the block\'s show_date unless it says its own', async () => {
+    const block = await photos({
+      immich: { ...IMMICH, show_date: true },
+      feeds: [
+        { id: 'inherits', immich: {} },
+        { id: 'plain', immich: { show_date: false } },
+      ],
+    })
+
+    expect(photoFeedsOf(block).map(feed => feed.source === 'immich' && feed.settings.show_date)).toEqual([true, true, false])
+    const off = await photos({ immich: IMMICH, feeds: [{ id: 'dated', immich: { show_date: true } }] })
+    expect(photoFeedsOf(off).map(feed => feed.source === 'immich' && feed.settings.show_date)).toEqual([false, true])
+  })
+
   it('gives a local feed its own folder, made absolute', async () => {
     const block = await photos({ feeds: [{ id: 'garden', local: { path: '/srv/garden/' } }] })
 

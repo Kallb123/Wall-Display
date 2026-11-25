@@ -183,6 +183,32 @@ describe('next', () => {
     expect(service.status().providers.map(({ id, name }) => [id, name])).toEqual([['mountains', 'Mountains'], ['lakes', 'Unsplash']])
   })
 
+  it('asks for the date to be drawn when the feed says so and the date is known, and not otherwise', async () => {
+    const db = migratedMemoryDb().db
+    const dir = join(await tempDir(), 'photos')
+    const dated = fakeProvider('dated', [], { source: 'immich', showDate: true })
+    const plain = fakeProvider('plain', [], { source: 'immich' })
+    const taken = new Date('2019-07-14T13:05:00Z')
+    dated.provider.list = async () => [{ providerAssetId: 'a', width: 1600, height: 900, takenAt: taken }]
+    plain.provider.list = async () => [{ providerAssetId: 'b', width: 1600, height: 900, takenAt: taken }]
+    const service = createPhotoService({
+      db, dir, providers: [dated.provider, plain.provider], maxBytes: 1_000_000, matchOrientation: false, render: fakeRender(), random: seeded(7), log: quietLog(),
+    })
+    await service.refresh()
+
+    const shown = photoInfoSchema.parse(await service.next('hallway', 'dated'))
+    expect(shown).toMatchObject({ taken_at: '2019-07-14T13:05:00.000Z', show_date: true })
+    expect(photoInfoSchema.parse(await service.next('hallway', 'plain'))).not.toHaveProperty('show_date')
+    // A pool's photo follows the feed it came from.
+    await service.setPools({ providers: [], groups: [{ id: 'both', name: 'Both', members: ['dated'] }] })
+    expect(await service.next('kitchen', 'both')).toMatchObject({ show_date: true })
+
+    // With no date to draw there is nothing to ask for.
+    dated.provider.list = async () => [{ providerAssetId: 'a', width: 1600, height: 900, takenAt: null }]
+    await service.refresh({ force: true })
+    expect(await service.next('hallway', 'dated')).not.toHaveProperty('show_date')
+  })
+
   it('shows every photo once before any repeats, and then starts again', async () => {
     const { service } = await listed(await setup({ local: ['a', 'b', 'c', 'd'] }))
 

@@ -5,7 +5,7 @@ import type { PhotoInfo } from '../../../shared/photos'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, dayForecast, formatRain, formatTemperature, weatherLabel } from '../../../shared/weather'
 import { bleeds } from '~/utils/bleed'
-import { formatLongDate, formatTime } from '~/utils/format'
+import { formatFullDate, formatLongDate, formatTime } from '~/utils/format'
 import { eventLabel } from '~/utils/eventLabel'
 import { driftSeconds, photoDrift } from '~/utils/motion'
 import { nextEvent } from '~/utils/nextEvent'
@@ -99,6 +99,9 @@ import type { ViewProps } from '../../utils/views'
 // showing. It has no corner of its own to walk, which burn-in does not need: it
 // moves with the stage's orbit, and it changes with every photo (it is gone
 // between two photos that have none). It fades with the photo it belongs to.
+// A photo whose feed asks for its date (Immich's `show_date`) carries
+// `show_date`, and the day it was taken ("14 July 2019", in the display's time
+// zone) is drawn on the same line, before any credit.
 //
 // Pills in the two corners of one edge (say the time and date bottom left and
 // the forecast bottom right) that sit close, or overlap, would leave only a
@@ -200,6 +203,12 @@ let shownFor: { photo: PhotoInfo, box: { width: number, height: number } } | nul
 
 /** The credit of the photo on show, if its source asks for one. It changes with the photo. */
 const credit = ref<string | null>(null)
+/** When the photo on show was taken, if its feed asks for the date to be drawn. It changes with the photo. */
+const takenAt = ref<Date | null>(null)
+/** The day the photo on show was taken, as it is drawn. */
+const takenOn = computed(() => takenAt.value ? formatFullDate(takenAt.value, props.timezone) : null)
+/** The line drawn in the bottom right corner: the date, the credit, or both. Its text is the transition's key, so it fades when it changes. */
+const caption = computed(() => [takenOn.value, credit.value].filter(Boolean).join(' · ') || null)
 
 const shownUrl = computed(() => top.value === null ? null : layers.value[top.value])
 
@@ -229,6 +238,8 @@ async function show(photo: PhotoInfo, id: number) {
   under.value = previous
   top.value = target
   credit.value = photo.credit ?? null
+  const taken = photo.show_date && photo.taken_at ? new Date(photo.taken_at) : null
+  takenAt.value = taken && !Number.isNaN(taken.getTime()) ? taken : null
   held.clear()
   held.add(image)
   if (props.motion) startDrift(target)
@@ -525,9 +536,13 @@ function joinedHeight(corner: Corner): number | undefined {
         </div>
       </div>
     </TransitionGroup>
-    <Transition name="credit">
-      <p v-if="credit && top !== null && !overlayShowing" :key="credit" class="credit" :class="{ compact: pane }" data-testid="photo-credit">
-        {{ credit }}
+    <Transition name="caption">
+      <p v-if="caption && top !== null && !overlayShowing" :key="caption" class="caption" :class="{ compact: pane }" data-testid="photo-caption">
+        <span v-if="takenOn" data-testid="photo-date">{{ takenOn }}</span>
+        <template v-if="takenOn && credit">
+          ·
+        </template>
+        <span v-if="credit" data-testid="photo-credit">{{ credit }}</span>
       </p>
     </Transition>
   </section>
@@ -713,8 +728,8 @@ function joinedHeight(corner: Corner): number | undefined {
   box-shadow: none;
 }
 
-/* The photo's credit: small, quiet and legible on a light or dark photo by its shadow alone. Below any pill's inset, so a pill in the bottom right corner is never under it. */
-.credit {
+/* The photo's date and credit: small, quiet and legible on a light or dark photo by its shadow alone. Below any pill's inset, so a pill in the bottom right corner is never under it. */
+.caption {
   position: absolute;
   z-index: 3;
   right: 28px;
@@ -732,18 +747,18 @@ function joinedHeight(corner: Corner): number | undefined {
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.65);
   pointer-events: none;
 }
-.credit.compact {
+.caption.compact {
   right: 20px;
   bottom: 12px;
   max-width: calc(100% - 40px);
   font-size: 22px;
 }
-.credit-enter-active,
-.credit-leave-active {
+.caption-enter-active,
+.caption-leave-active {
   transition: opacity 1.5s ease-in-out;
 }
-.credit-enter-from,
-.credit-leave-to {
+.caption-enter-from,
+.caption-leave-to {
   opacity: 0;
 }
 

@@ -326,6 +326,7 @@ photos:
     #   person_ids: ["5c7e9a1b-3d5f-4b7a-9c2e-4f6a8b0c2d03"] # only photos of these people (Immich -> People)
     #   taken_after: "2022-01-01" # quote dates; a day starts at midnight UTC
     #   taken_before: "2024-12-31" # and this one includes the whole day
+    # show_date: true # draw the date each photo was taken ("14 July 2019") in the corner of the frame; default false. A feed can say its own
   google: # not built yet: accepted, but ignored
     client_id: example.apps.googleusercontent.com
     client_secret: !secret google_client_secret
@@ -373,6 +374,6 @@ photos:
       name: Mountains # shown on the settings page and in the layout editor; default: the id
       unsplash: { query: "mountain lake", orientation: landscape }
     # - id: holidays
-    #   immich: { mode: albums, album_ids: ["0b6a1c52-7a3e-4a47-9c1d-1d8d4a8f1a01"] }
+    #   immich: { mode: albums, album_ids: ["0b6a1c52-7a3e-4a47-9c1d-1d8d4a8f1a01"], show_date: true }
     # - id: garden
     #   local: { path: ./photos/garden }

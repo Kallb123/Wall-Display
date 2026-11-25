@@ -525,7 +525,64 @@ describe('the photo\'s credit', () => {
     answers = [gives(credited('a', 'Jane Doe on Unsplash'))]
     const view = await open({ pane: true })
 
-    expect(credit(view).classes()).toContain('compact')
+    expect(view.wrapper.find('[data-testid="photo-caption"]').classes()).toContain('compact')
+  })
+})
+
+describe('the date the photo was taken', () => {
+  const date = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.find('[data-testid="photo-date"]')
+  const caption = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.find('[data-testid="photo-caption"]')
+
+  it('is drawn in the bottom corner when the photo asks for it, in the display\'s time zone', async () => {
+    answers = [gives(photo('a', { provider: 'immich', taken_at: '2019-07-14T23:30:00Z', show_date: true }))]
+    const view = await open()
+
+    expect(date(view).text()).toBe('15 July 2019')
+    expect(caption(view).text()).toBe('15 July 2019')
+    expect(caption(view).classes()).not.toContain('compact')
+  })
+
+  it('is left out when the photo does not ask for it, or its date is not known', async () => {
+    answers = [gives(photo('a', { taken_at: '2019-07-14T13:05:00Z' })), gives(photo('b', { taken_at: null, show_date: true }))]
+    const view = await open()
+    expect(caption(view).exists()).toBe(false)
+
+    await view.update({ photoNext: 1 })
+    await fade()
+    expect(caption(view).exists()).toBe(false)
+  })
+
+  it('changes with the photo, and goes with one that does not ask for it', async () => {
+    answers = [
+      gives(photo('a', { taken_at: '2019-07-14T13:05:00Z', show_date: true })),
+      gives(photo('b', { taken_at: '2021-03-02T10:00:00Z', show_date: true })),
+      gives(photo('c', { taken_at: '2021-03-02T10:00:00Z' })),
+    ]
+    const view = await open()
+
+    await view.update({ photoNext: 1 })
+    await fade()
+    expect(date(view).text()).toBe('2 March 2021')
+
+    await view.update({ photoNext: 2 })
+    await fade()
+    expect(date(view).exists()).toBe(false)
+  })
+
+  it('comes before a credit on the same line', async () => {
+    answers = [gives(photo('a', { taken_at: '2019-07-14T13:05:00Z', show_date: true, credit: 'Photo by Jane Doe on Unsplash' }))]
+    const view = await open()
+
+    expect(caption(view).text().replace(/\s+/g, ' ')).toBe('14 July 2019 · Photo by Jane Doe on Unsplash')
+  })
+
+  it('is left out while the overlay banner is showing', async () => {
+    answers = [gives(photo('a', { taken_at: '2019-07-14T13:05:00Z', show_date: true }))]
+    const view = await open({ overlayShowing: true })
+    expect(date(view).exists()).toBe(false)
+
+    await view.update({ overlayShowing: false })
+    expect(date(view).text()).toBe('14 July 2019')
   })
 })
 

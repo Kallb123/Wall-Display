@@ -8,6 +8,7 @@ const OPTIONS = {
   time: { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
   date: { weekday: 'long', day: 'numeric', month: 'long' },
   weekday: { weekday: 'long' },
+  day: { day: 'numeric', month: 'long', year: 'numeric' },
 } as const satisfies Record<string, Intl.DateTimeFormatOptions>
 
 function formatterFor(kind: keyof typeof OPTIONS, timeZone: string): Intl.DateTimeFormat {
@@ -33,4 +34,9 @@ export function formatLongDate(date: Date, timeZone: string): string {
 /** `Wednesday`. */
 export function formatWeekday(date: Date, timeZone: string): string {
   return formatterFor('weekday', timeZone).format(date)
+}
+
+/** `14 July 2019`: a day with its year, such as the day a photo was taken. */
+export function formatFullDate(date: Date, timeZone: string): string {
+  return formatterFor('day', timeZone).format(date)
 }

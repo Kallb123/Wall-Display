@@ -29,7 +29,7 @@ export interface ImmichProviderOptions {
   log?: Pick<Console, 'info' | 'warn'>
 }
 
-type Settings = Pick<ImmichConfig, 'url' | 'api_key' | 'mode' | 'album_ids' | 'random'>
+type Settings = Pick<ImmichConfig, 'url' | 'api_key' | 'mode' | 'album_ids' | 'random'> & Partial<Pick<ImmichConfig, 'show_date'>>
 
 const DEFAULT_TIMEOUT_MS = 30_000
 /** The largest JSON answer accepted: a page of 1000 assets with their EXIF is a few MB. */
@@ -349,6 +349,7 @@ export function createImmichProvider(settings: Settings, options: ImmichProvider
     id: feedId,
     source: 'immich',
     ...(options.name === undefined ? {} : { name: options.name }),
+    showDate: settings.show_date ?? false,
 
     async list() {
       const listing = await pool()

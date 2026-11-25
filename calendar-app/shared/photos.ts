@@ -24,6 +24,12 @@ export const photoInfoSchema = z.strictObject({
    * Unsplash"), when the source asks for that; null or left out otherwise.
    */
   credit: z.string().nullable().optional(),
+  /**
+   * Whether to draw `taken_at` on the frame as the date the photo was taken
+   * ("14 July 2019"): true when its feed asks for that (Immich's `show_date`)
+   * and the date is known, left out otherwise.
+   */
+  show_date: z.boolean().optional(),
 })
 export type PhotoInfo = z.infer<typeof photoInfoSchema>
 

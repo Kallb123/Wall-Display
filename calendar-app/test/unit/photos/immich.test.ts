@@ -368,6 +368,14 @@ describe('the asset mapping', () => {
   })
 })
 
+describe('show_date', () => {
+  it('asks the frame to draw the date only when it is on', () => {
+    expect(provider({}).provider.showDate).toBe(false)
+    expect(provider({ show_date: false }).provider.showDate).toBe(false)
+    expect(provider({ show_date: true }).provider.showDate).toBe(true)
+  })
+})
+
 describe('the address', () => {
   it('puts every call under <url>/api, whether or not the address ends in a slash or has a path', async () => {
     for (const [url, prefix] of [[BASE, ''], [`${BASE}/`, ''], [`${BASE}/immich`, '/immich'], [`${BASE}/immich//`, '/immich'], [`${BASE}/?token=1#top`, '']] as const) {

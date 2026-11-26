@@ -553,8 +553,6 @@ const immich = z.strictObject({
   mode: z.enum(['albums', 'random', 'memories']).optional(),
   album_ids: z.array(text).default([]),
   random: immichRandom.prefault({}),
-  // Draw the date each photo was taken on the frame ("14 July 2019"), for memories and old albums.
-  show_date: z.boolean().default(false),
 }).superRefine((value, ctx) => {
   if (value.mode === 'albums' && value.album_ids.length === 0) {
     ctx.addIssue({ code: 'custom', message: 'mode "albums" needs at least one album id in album_ids', path: ['album_ids'] })
@@ -615,12 +613,11 @@ const unsplash = z.strictObject({
 const unsplashFeed = z.strictObject(unsplashPool).superRefine(oneUnsplashChoice)
 
 // A feed that uses Immich: the address and key come from `photos.immich`, and
-// what is set here is laid over its `mode`, `album_ids`, `random` and `show_date`.
+// what is set here is laid over its `mode`, `album_ids` and `random`.
 const immichFeed = z.strictObject({
   mode: z.enum(['albums', 'random', 'memories']).optional(),
   album_ids: z.array(text).optional(),
   random: immichRandomFeed().optional(),
-  show_date: z.boolean().optional(),
 })
 
 // `photos.feeds`: named pools of photos, each from one source. A layout or a

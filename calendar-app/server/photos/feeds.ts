@@ -66,7 +66,7 @@ export function resolveUnsplash(block: UnsplashConfig, feed: UnsplashFeedConfig)
 
 /**
  * An Immich feed's settings: the top-level block's address and key, with the
- * feed's own `mode`, `album_ids`, `random` and `show_date` laid over the block's. The mode
+ * feed's own `mode`, `album_ids` and `random` laid over the block's. The mode
  * is the feed's if it says one; otherwise it follows what the feed gave, as the
  * block's does (album ids mean `albums`, a `random` filter means `random`), and
  * a feed that gives nothing of that kind keeps the block's mode.
@@ -79,7 +79,7 @@ export function resolveImmich(block: ImmichConfig, feed: ImmichFeedConfig): Immi
   }
   const mode = feed.mode
     ?? (feed.album_ids !== undefined && feed.album_ids.length > 0 ? 'albums' : feed.random !== undefined ? 'random' : block.mode)
-  return { url: block.url, api_key: block.api_key, mode, album_ids: albumIds, random, show_date: feed.show_date ?? block.show_date }
+  return { url: block.url, api_key: block.api_key, mode, album_ids: albumIds, random }
 }
 
 /**

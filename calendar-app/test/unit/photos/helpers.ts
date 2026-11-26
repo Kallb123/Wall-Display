@@ -48,7 +48,7 @@ export interface FakeProvider {
 }
 
 /** A provider with a pool the test edits, that can be made to fail. */
-export function fakeProvider(id: string, ids: string[] = [], extra: { source?: PhotoSource, name?: string, refreshIntervalMs?: number, showDate?: boolean } = {}): FakeProvider {
+export function fakeProvider(id: string, ids: string[] = [], extra: { source?: PhotoSource, name?: string, refreshIntervalMs?: number } = {}): FakeProvider {
   const fake: FakeProvider = {
     items: new Map(ids.map(item => [item, { width: 1600, height: 900 }])),
     fetched: [],
@@ -60,7 +60,6 @@ export function fakeProvider(id: string, ids: string[] = [], extra: { source?: P
       source: extra.source ?? ((PHOTO_SOURCES as readonly string[]).includes(id) ? id as PhotoSource : 'local'),
       ...(extra.name === undefined ? {} : { name: extra.name }),
       ...(extra.refreshIntervalMs === undefined ? {} : { refreshIntervalMs: extra.refreshIntervalMs }),
-      ...(extra.showDate === undefined ? {} : { showDate: extra.showDate }),
       async list() {
         fake.listCalls++
         if (fake.listFails) throw new PhotoProviderError(id, 'The server did not answer')

@@ -30,8 +30,6 @@ export interface PhotoProvider {
   readonly source: PhotoSource
   /** The feed's name for the settings page. The service falls back to the source's own name. */
   readonly name?: string
-  /** Whether the frame draws the date each of its photos was taken (Immich's `show_date`). Unset: it doesn't. */
-  readonly showDate?: boolean
   /**
    * How long the service leaves between two listings of this provider, when it
    * wants them further apart than the service's own tick (Unsplash's rate limit

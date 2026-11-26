@@ -416,19 +416,16 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
     return variantOf(id, rendition, box) === 'cover' ? cover() : composite
   }
 
-  /** What a display is told about the photo. `show_date` is there only when the feed asks for the date to be drawn and the date is known. */
-  function toInfo(row: PhotoAssetRow, file: string, provider: Pick<PhotoProvider, 'source' | 'showDate'>): PhotoInfo {
-    const takenAt = row.takenAt?.toISOString() ?? null
+  function toInfo(row: PhotoAssetRow, file: string, source: PhotoSource): PhotoInfo {
     return {
       id: row.id,
       url: photoUrl(file),
       width: row.width,
       height: row.height,
       orientation: row.orientation,
-      taken_at: takenAt,
-      provider: provider.source,
+      taken_at: row.takenAt?.toISOString() ?? null,
+      provider: source,
       credit: row.credit ?? null,
-      ...(provider.showDate === true && takenAt !== null ? { show_date: true } : {}),
     }
   }
 
@@ -526,7 +523,7 @@ export function createPhotoService(options: PhotoServiceOptions): PhotoService {
       cache.evict()
       prepare(heldKey, peek(taken.playlist, poolOf(members), random, id => fits(id, rendition)), rendition, box)
       const row = getAsset(db, cached.asset.id)!
-      return toInfo(row, cached.file, providerById(row.provider) ?? { source: members[0]!.source })
+      return toInfo(row, cached.file, providerById(row.provider)?.source ?? members[0]!.source)
     }
     return null
   }

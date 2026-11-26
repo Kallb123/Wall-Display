@@ -98,7 +98,9 @@ export interface LayoutArrangement {
  * still show their people's initials. The photo frame's are its overlays: the
  * time, the date and the weather, each of which can be left off (the weather
  * sits beside the time, in the time's corner), and today's forecast by part of
- * the day (`show_forecast`, off unless turned on), which has a corner of its own.
+ * the day (`show_forecast`, off unless turned on), which has a corner of its own,
+ * and the day the photo on show was taken (`show_photo_date`, off unless turned
+ * on, for a photo whose source knows it), which has a corner of its own too.
  * `rounded_corners` is whether the photo pane's corners are
  * rounded where they are not the stage's own, on unless turned off. `weather_on_dates` is whether a
  * calendar pane draws the day's forecast next to its dates, which for a
@@ -107,7 +109,7 @@ export interface LayoutArrangement {
  * is room, which for a full-screen view is the display's `show_locations`. Not every option
  * means something to every component (`PANE_OPTIONS`).
  */
-export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'show_forecast', 'rounded_corners', 'weather_on_dates', 'show_locations'] as const
+export const PANE_OPTION_KEYS = ['show_title', 'show_sidebar', 'show_hours', 'fill_events', 'show_initials', 'wrap_titles', 'show_time', 'show_date', 'show_weather', 'show_forecast', 'show_photo_date', 'rounded_corners', 'weather_on_dates', 'show_locations'] as const
 export type PaneOptionKey = (typeof PANE_OPTION_KEYS)[number]
 
 /**
@@ -119,8 +121,8 @@ export type PaneOptionKey = (typeof PANE_OPTION_KEYS)[number]
 export const OVERLAY_CORNERS = ['auto', 'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
 export type OverlayCorner = (typeof OVERLAY_CORNERS)[number]
 
-/** The pane options that are a corner rather than on or off: where the photo frame's time (with the weather), its date and its forecast sit. */
-export const PANE_CORNER_KEYS = ['time_corner', 'date_corner', 'forecast_corner'] as const
+/** The pane options that are a corner rather than on or off: where the photo frame's time (with the weather), its date, its forecast and the photo's date sit. */
+export const PANE_CORNER_KEYS = ['time_corner', 'date_corner', 'forecast_corner', 'photo_date_corner'] as const
 export type PaneCornerKey = (typeof PANE_CORNER_KEYS)[number]
 
 /** The options set on a pane. A key that is left out has its default (`DEFAULT_PANE_OPTIONS`). */
@@ -129,7 +131,7 @@ export type PaneOptions = Partial<Record<PaneOptionKey, boolean> & Record<PaneCo
 /** The options a view draws by: every key present. */
 export type ResolvedPaneOptions = Record<PaneOptionKey, boolean> & Record<PaneCornerKey, OverlayCorner>
 
-/** What a pane looks like when nothing is set, and what every full-screen view uses. The photo frame shows the time and the weather in the walking corner, and no date and no forecast. */
+/** What a pane looks like when nothing is set, and what every full-screen view uses. The photo frame shows the time and the weather in the walking corner, and no date, no forecast and no photo date. */
 export const DEFAULT_PANE_OPTIONS: ResolvedPaneOptions = {
   show_title: true,
   show_sidebar: true,
@@ -141,12 +143,14 @@ export const DEFAULT_PANE_OPTIONS: ResolvedPaneOptions = {
   show_date: false,
   show_weather: true,
   show_forecast: false,
+  show_photo_date: false,
   rounded_corners: true,
   weather_on_dates: true,
   show_locations: true,
   time_corner: 'auto',
   date_corner: 'auto',
   forecast_corner: 'auto',
+  photo_date_corner: 'auto',
 }
 
 /** Which on-or-off options apply to which component. The editor offers these and the schema refuses any other. */
@@ -157,7 +161,7 @@ export const PANE_OPTIONS: Record<LayoutComponent, readonly PaneOptionKey[]> = {
   agenda: ['fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates', 'show_locations'],
   days: ['fill_events', 'show_initials', 'wrap_titles', 'weather_on_dates', 'show_locations'],
   stars: ['show_title'],
-  photo: ['show_time', 'show_date', 'show_weather', 'show_forecast', 'rounded_corners'],
+  photo: ['show_time', 'show_date', 'show_weather', 'show_forecast', 'show_photo_date', 'rounded_corners'],
 }
 
 /** Which corner options apply to which component: only the photo frame has overlays to place. */
@@ -168,7 +172,7 @@ export const PANE_CORNERS: Record<LayoutComponent, readonly PaneCornerKey[]> = {
   agenda: [],
   days: [],
   stars: [],
-  photo: ['time_corner', 'date_corner', 'forecast_corner'],
+  photo: ['time_corner', 'date_corner', 'forecast_corner', 'photo_date_corner'],
 }
 
 /** The options of a layout, by component. They are shared by both arrangements: they are style, where a day grid's shape is geometry. */
@@ -265,12 +269,14 @@ const paneOptionsSchema = z.strictObject({
   show_date: optionFlag,
   show_weather: optionFlag,
   show_forecast: optionFlag,
+  show_photo_date: optionFlag,
   rounded_corners: optionFlag,
   weather_on_dates: optionFlag,
   show_locations: optionFlag,
   time_corner: cornerOption,
   date_corner: cornerOption,
   forecast_corner: cornerOption,
+  photo_date_corner: cornerOption,
 })
 
 const optionsSchema = z.strictObject({

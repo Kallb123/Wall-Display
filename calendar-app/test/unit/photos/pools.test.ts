@@ -6,7 +6,7 @@ import { poolSourceProviderId } from '../../../server/photos/poolIds'
 // Which providers and groups a set of pools makes, from the config's photos block.
 
 const unsplash = { access_key: 'unsplash-key', query: 'landscape', content_filter: 'high' as const, count: 60, pick: 'random' as const, refresh_minutes: 60 }
-const immich = { url: 'http://immich.local', api_key: 'key', mode: 'random' as const, album_ids: [], random: { count: 200, person_ids: [] }, show_date: false }
+const immich = { url: 'http://immich.local', api_key: 'key', mode: 'random' as const, album_ids: [], random: { count: 200, person_ids: [] } }
 const block = { unsplash, immich, local: { path: '/photos' }, feeds: [{ id: 'garden', local: { path: '/photos/garden' } }] }
 
 const pool = (id: string, sources: PhotoPoolSource[]): PhotoPool => ({ id, name: id.toUpperCase(), sources, created_at: '', updated_at: '' })
@@ -49,11 +49,8 @@ describe('poolFeedsOf', () => {
 
     expect(feeds.get(poolSourceProviderId(album))).toMatchObject({
       source: 'immich',
-      settings: { url: 'http://immich.local', api_key: 'key', mode: 'albums', album_ids: ['abc-1'], show_date: false },
+      settings: { url: 'http://immich.local', api_key: 'key', mode: 'albums', album_ids: ['abc-1'] },
     })
-    // An album in a pool draws the date as the block says.
-    const dated = poolFeedsOf([pool('p', [album])], { ...block, immich: { ...immich, show_date: true } })
-    expect(dated.feeds.get(poolSourceProviderId(album))!.settings).toMatchObject({ show_date: true })
   })
 
   it('leaves out a source whose block is missing and a feed that is not set up', () => {

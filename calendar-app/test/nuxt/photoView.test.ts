@@ -525,64 +525,7 @@ describe('the photo\'s credit', () => {
     answers = [gives(credited('a', 'Jane Doe on Unsplash'))]
     const view = await open({ pane: true })
 
-    expect(view.wrapper.find('[data-testid="photo-caption"]').classes()).toContain('compact')
-  })
-})
-
-describe('the date the photo was taken', () => {
-  const date = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.find('[data-testid="photo-date"]')
-  const caption = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.find('[data-testid="photo-caption"]')
-
-  it('is drawn in the bottom corner when the photo asks for it, in the display\'s time zone', async () => {
-    answers = [gives(photo('a', { provider: 'immich', taken_at: '2019-07-14T23:30:00Z', show_date: true }))]
-    const view = await open()
-
-    expect(date(view).text()).toBe('15 July 2019')
-    expect(caption(view).text()).toBe('15 July 2019')
-    expect(caption(view).classes()).not.toContain('compact')
-  })
-
-  it('is left out when the photo does not ask for it, or its date is not known', async () => {
-    answers = [gives(photo('a', { taken_at: '2019-07-14T13:05:00Z' })), gives(photo('b', { taken_at: null, show_date: true }))]
-    const view = await open()
-    expect(caption(view).exists()).toBe(false)
-
-    await view.update({ photoNext: 1 })
-    await fade()
-    expect(caption(view).exists()).toBe(false)
-  })
-
-  it('changes with the photo, and goes with one that does not ask for it', async () => {
-    answers = [
-      gives(photo('a', { taken_at: '2019-07-14T13:05:00Z', show_date: true })),
-      gives(photo('b', { taken_at: '2021-03-02T10:00:00Z', show_date: true })),
-      gives(photo('c', { taken_at: '2021-03-02T10:00:00Z' })),
-    ]
-    const view = await open()
-
-    await view.update({ photoNext: 1 })
-    await fade()
-    expect(date(view).text()).toBe('2 March 2021')
-
-    await view.update({ photoNext: 2 })
-    await fade()
-    expect(date(view).exists()).toBe(false)
-  })
-
-  it('comes before a credit on the same line', async () => {
-    answers = [gives(photo('a', { taken_at: '2019-07-14T13:05:00Z', show_date: true, credit: 'Photo by Jane Doe on Unsplash' }))]
-    const view = await open()
-
-    expect(caption(view).text().replace(/\s+/g, ' ')).toBe('14 July 2019 · Photo by Jane Doe on Unsplash')
-  })
-
-  it('is left out while the overlay banner is showing', async () => {
-    answers = [gives(photo('a', { taken_at: '2019-07-14T13:05:00Z', show_date: true }))]
-    const view = await open({ overlayShowing: true })
-    expect(date(view).exists()).toBe(false)
-
-    await view.update({ overlayShowing: false })
-    expect(date(view).text()).toBe('14 July 2019')
+    expect(credit(view).classes()).toContain('compact')
   })
 })
 
@@ -1038,6 +981,62 @@ describe('today\'s forecast', () => {
 
     const noWeather = await open(overlays({ show_forecast: true, show_time: false, show_weather: false }, { weather: null }))
     expect(noWeather.wrapper.findAll('[data-testid="photo-pill"]')).toHaveLength(0)
+  })
+})
+
+describe('the photo\'s date', () => {
+  const overlays = (options: Partial<ResolvedPaneOptions>, overrides: Partial<ViewProps> = {}): Partial<ViewProps> => ({
+    pane: true, weather, paneOptions: { ...DEFAULT_PANE_OPTIONS, ...options }, ...overrides,
+  })
+  const taken = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.find('[data-testid="photo-taken-date"]')
+  const pillAt = (view: Awaited<ReturnType<typeof open>>, corner: string) => view.wrapper.find(`[data-testid="photo-pill"][data-corner="${corner}"]`)
+  const dated = (name: string, at: string | null) => photo(name, { provider: 'immich', taken_at: at })
+
+  it('is off by default, as a pane and on the full-screen frame', async () => {
+    answers = [gives(dated('a', '2019-07-14T13:05:00Z')), gives(dated('a', '2019-07-14T13:05:00Z'))]
+    expect(taken(await open(overlays({}))).exists()).toBe(false)
+    expect(taken(await open()).exists()).toBe(false)
+  })
+
+  it('shows the day the photo was taken, in the display\'s time zone, in the corner chosen', async () => {
+    answers = [gives(dated('a', '2019-07-14T23:30:00Z'))]
+    const view = await open(overlays({ show_photo_date: true, photo_date_corner: 'bottom-right' }, { photoCorner: 'top-left' }))
+
+    expect(pillAt(view, 'bottom-right').find('[data-testid="photo-taken-date"]').text()).toBe('15 July 2019')
+    expect(pillAt(view, 'top-left').find('[data-testid="photo-taken"]').exists()).toBe(false)
+  })
+
+  it('shares the walking pill by default, after today\'s date', async () => {
+    answers = [gives(dated('a', '2019-07-14T13:05:00Z'))]
+    const view = await open(overlays({ show_photo_date: true, show_date: true }, { photoCorner: 'top-right' }))
+
+    const pill = pillAt(view, 'top-right')
+    expect(pill.find('[data-testid="photo-date"]').text()).toBe('Wednesday 28 October')
+    expect(pill.find('[data-testid="photo-taken-date"]').text()).toBe('14 July 2019')
+    const html = pill.html()
+    expect(html.indexOf('photo-date')).toBeLessThan(html.indexOf('photo-taken'))
+  })
+
+  it('changes with the photo, and leaves out a pill of its own for a photo with no date', async () => {
+    answers = [gives(dated('a', '2019-07-14T13:05:00Z')), gives(dated('b', '2021-03-02T10:00:00Z')), gives(dated('c', null))]
+    const view = await open(overlays({ show_photo_date: true, photo_date_corner: 'bottom-left' }))
+    expect(taken(view).text()).toBe('14 July 2019')
+
+    await view.update({ photoNext: 1 })
+    await fade()
+    expect(taken(view).text()).toBe('2 March 2021')
+
+    await view.update({ photoNext: 2 })
+    await fade()
+    expect(taken(view).exists()).toBe(false)
+    expect(pillAt(view, 'bottom-left').exists()).toBe(false)
+  })
+
+  it('has nothing to show before a photo is on show', async () => {
+    answers = [gives(null)]
+    const view = await open(overlays({ show_photo_date: true, photo_date_corner: 'bottom-left' }))
+
+    expect(pillAt(view, 'bottom-left').exists()).toBe(false)
   })
 })
 

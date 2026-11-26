@@ -101,17 +101,6 @@ describe('photos.immich', () => {
     })
   })
 
-  describe('show_date', () => {
-    it('is off unless turned on', async () => {
-      expect((await immich({})).show_date).toBe(false)
-      expect((await immich({ show_date: true })).show_date).toBe(true)
-    })
-
-    it('is an error when it is not true or false', async () => {
-      expect(await problem({ show_date: 'yes' })).toContain('photos.immich.show_date')
-    })
-  })
-
   it('still takes the settings from before the modes, as they were', async () => {
     const block = await immich({ album_ids: [ALBUM, 'second-album'] })
 

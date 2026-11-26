@@ -47,6 +47,7 @@ export function paneOptionLabel(component: LayoutComponent, key: PaneOptionKey):
     case 'show_date': return 'Date'
     case 'show_weather': return 'Weather'
     case 'show_forecast': return "Today's forecast"
+    case 'show_photo_date': return 'Photo date'
     case 'rounded_corners': return 'Rounded corners'
     case 'weather_on_dates': return 'Weather on dates'
     case 'show_locations': return 'Locations'
@@ -61,6 +62,7 @@ export const PANE_CORNER_LABELS: Record<PaneCornerKey, string> = {
   time_corner: 'Time and weather',
   date_corner: 'Date',
   forecast_corner: 'Forecast',
+  photo_date_corner: 'Photo date',
 }
 
 /** The words the editor uses for each corner. `auto` walks round the corners against burn-in. */
@@ -75,6 +77,7 @@ export const OVERLAY_CORNER_LABELS: Record<OverlayCorner, string> = {
 /** Whether the editor shows a corner choice out of reach: there is nothing to place when what it places is off. The time's corner is still the weather's when the time is off. */
 export function paneCornerDisabled(key: PaneCornerKey, options: ResolvedPaneOptions): boolean {
   if (key === 'forecast_corner') return !options.show_forecast
+  if (key === 'photo_date_corner') return !options.show_photo_date
   return key === 'time_corner' ? !options.show_time && !options.show_weather : !options.show_date
 }
 

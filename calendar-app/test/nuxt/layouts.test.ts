@@ -361,7 +361,7 @@ describe('the layouts editor', () => {
     const pressed = (key: string) => wrapper.find(`[data-testid="option-${key}"]`).attributes('aria-pressed')
 
     // The kitchen shows a photo and a week, and the photo is selected to begin with: its options are its overlays.
-    expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_time', 'option-show_date', 'option-show_weather', 'option-show_forecast'])
+    expect(wrapper.findAll('[data-testid^="option-show_"]').map(chip => chip.attributes('data-testid'))).toEqual(['option-show_time', 'option-show_date', 'option-show_weather', 'option-show_forecast', 'option-show_photo_date'])
 
     expect(pressed('rounded_corners')).toBe('true')
 
@@ -407,6 +407,23 @@ describe('the layouts editor', () => {
     // With the time and the weather both off, the time's corner has nothing to place.
     await click(wrapper, 'option-show_time')
     expect(select('time_corner').attributes('disabled')).toBeDefined()
+  })
+
+  it('shows the photo\'s date in a corner of its own when it is turned on', async () => {
+    const wrapper = await mountManager()
+    const select = (key: string) => wrapper.find(`[data-testid="option-${key}"]`)
+
+    expect(wrapper.find('[data-testid="option-show_photo_date"]').text()).toBe('Photo date')
+    expect(wrapper.find('[data-testid="option-show_photo_date"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('[data-testid="corner-photo_date_corner"]').text()).toContain('Photo date')
+    expect(select('photo_date_corner').attributes('disabled')).toBeDefined()
+
+    await click(wrapper, 'option-show_photo_date')
+    expect(select('photo_date_corner').attributes('disabled')).toBeUndefined()
+    await select('photo_date_corner').setValue('bottom-right')
+
+    await submit(wrapper)
+    expect((writes[0]!.body as { options: unknown }).options).toEqual({ photo: { show_photo_date: true, photo_date_corner: 'bottom-right' } })
   })
 
   it('chooses the photo feed beside the photo pane\'s options, and leaves the choice out where the feeds are not known', async () => {

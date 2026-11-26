@@ -111,6 +111,15 @@ const photoAlone = layout(
   { photo: { show_date: true, show_weather: false, time_corner: 'bottom-right', date_corner: 'bottom-right' } },
 )
 
+// The day the photo was taken: beside the agenda, in a pill of its own at the
+// bottom right, with the time and the weather in the walking corner (top left).
+const photoDated = layout(
+  'photo-dated',
+  { rows: [row(1, ['photo', 2], ['agenda', 1])] },
+  { rows: [row(2, ['photo', 1]), row(1, ['agenda', 1])] },
+  { photo: { show_photo_date: true, photo_date_corner: 'bottom-right' } },
+)
+
 // The star chart (architecture §4.8b). The frozen clock is Wednesday 28 October,
 // so the week is Monday 26 October to Sunday 1 November. Isla counts the week
 // against a goal of 6 and has beaten it, Theo counts days against a goal of 3
@@ -347,6 +356,19 @@ test.describe('the photo frame\'s overlays', () => {
     await expect(pills.getByTestId('photo-weather')).toHaveCount(0)
     await expect(pills.getByTestId('photo-date')).toHaveText('Wednesday 28 October')
     await expect(page).toHaveScreenshot('custom-photo-alone-dark.png')
+  })
+
+  test('the day the photo was taken in its own pill at the bottom right, beside the agenda', async ({ page, request }) => {
+    const photo = await photoNamed(request, 'local:sunset-landscape.jpg')
+    await openWithPhoto(page, 'hallway', photoDated, { ...photo, taken_at: '2019-07-14T13:05:00.000Z' })
+    await settle(page)
+
+    const pills = page.getByTestId('layout-pane-photo').getByTestId('photo-pill')
+    await expect(pills).toHaveCount(2)
+    await expect(pills.nth(0)).toHaveAttribute('data-corner', 'top-left')
+    await expect(pills.nth(1)).toHaveAttribute('data-corner', 'bottom-right')
+    await expect(pills.nth(1).getByTestId('photo-taken-date')).toHaveText('14 July 2019')
+    await expect(page).toHaveScreenshot('custom-photo-dated-light.png')
   })
 })
 

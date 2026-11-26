@@ -984,6 +984,62 @@ describe('today\'s forecast', () => {
   })
 })
 
+describe('the photo\'s date', () => {
+  const overlays = (options: Partial<ResolvedPaneOptions>, overrides: Partial<ViewProps> = {}): Partial<ViewProps> => ({
+    pane: true, weather, paneOptions: { ...DEFAULT_PANE_OPTIONS, ...options }, ...overrides,
+  })
+  const taken = (view: Awaited<ReturnType<typeof open>>) => view.wrapper.find('[data-testid="photo-taken-date"]')
+  const pillAt = (view: Awaited<ReturnType<typeof open>>, corner: string) => view.wrapper.find(`[data-testid="photo-pill"][data-corner="${corner}"]`)
+  const dated = (name: string, at: string | null) => photo(name, { provider: 'immich', taken_at: at })
+
+  it('is off by default, as a pane and on the full-screen frame', async () => {
+    answers = [gives(dated('a', '2019-07-14T13:05:00Z')), gives(dated('a', '2019-07-14T13:05:00Z'))]
+    expect(taken(await open(overlays({}))).exists()).toBe(false)
+    expect(taken(await open()).exists()).toBe(false)
+  })
+
+  it('shows the day the photo was taken, in the display\'s time zone, in the corner chosen', async () => {
+    answers = [gives(dated('a', '2019-07-14T23:30:00Z'))]
+    const view = await open(overlays({ show_photo_date: true, photo_date_corner: 'bottom-right' }, { photoCorner: 'top-left' }))
+
+    expect(pillAt(view, 'bottom-right').find('[data-testid="photo-taken-date"]').text()).toBe('15 July 2019')
+    expect(pillAt(view, 'top-left').find('[data-testid="photo-taken"]').exists()).toBe(false)
+  })
+
+  it('shares the walking pill by default, after today\'s date', async () => {
+    answers = [gives(dated('a', '2019-07-14T13:05:00Z'))]
+    const view = await open(overlays({ show_photo_date: true, show_date: true }, { photoCorner: 'top-right' }))
+
+    const pill = pillAt(view, 'top-right')
+    expect(pill.find('[data-testid="photo-date"]').text()).toBe('Wednesday 28 October')
+    expect(pill.find('[data-testid="photo-taken-date"]').text()).toBe('14 July 2019')
+    const html = pill.html()
+    expect(html.indexOf('photo-date')).toBeLessThan(html.indexOf('photo-taken'))
+  })
+
+  it('changes with the photo, and leaves out a pill of its own for a photo with no date', async () => {
+    answers = [gives(dated('a', '2019-07-14T13:05:00Z')), gives(dated('b', '2021-03-02T10:00:00Z')), gives(dated('c', null))]
+    const view = await open(overlays({ show_photo_date: true, photo_date_corner: 'bottom-left' }))
+    expect(taken(view).text()).toBe('14 July 2019')
+
+    await view.update({ photoNext: 1 })
+    await fade()
+    expect(taken(view).text()).toBe('2 March 2021')
+
+    await view.update({ photoNext: 2 })
+    await fade()
+    expect(taken(view).exists()).toBe(false)
+    expect(pillAt(view, 'bottom-left').exists()).toBe(false)
+  })
+
+  it('has nothing to show before a photo is on show', async () => {
+    answers = [gives(null)]
+    const view = await open(overlays({ show_photo_date: true, photo_date_corner: 'bottom-left' }))
+
+    expect(pillAt(view, 'bottom-left').exists()).toBe(false)
+  })
+})
+
 describe('pills that join', () => {
   // happy-dom does no layout, so the sizes are faked: each pill is as wide as `widths` says for its corner, and the pane 1920 wide.
   let widths: Record<string, number>

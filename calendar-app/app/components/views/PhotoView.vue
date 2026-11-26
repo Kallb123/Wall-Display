@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { Droplet, ImageOff } from 'lucide-vue-next'
+import { Camera, Droplet, ImageOff } from 'lucide-vue-next'
 import { coversBox, photoResponseSchema } from '../../../shared/photos'
 import type { PhotoInfo } from '../../../shared/photos'
 import { DEFAULT_PANE_OPTIONS } from '../../../shared/layouts'
 import { currentWeather, dayForecast, formatRain, formatTemperature, weatherLabel } from '../../../shared/weather'
 import { bleeds } from '~/utils/bleed'
-import { formatLongDate, formatTime } from '~/utils/format'
+import { formatFullDate, formatLongDate, formatTime } from '~/utils/format'
 import { eventLabel } from '~/utils/eventLabel'
 import { driftSeconds, photoDrift } from '~/utils/motion'
 import { nextEvent } from '~/utils/nextEvent'
@@ -89,6 +89,13 @@ import type { ViewProps } from '../../utils/views'
 // shows tomorrow's parts under a small "Tomorrow" heading. With no hourly
 // forecast there is nothing to show, and a pill that would hold only that is
 // left out, as one with only the weather and no weather is.
+//
+// A layout can also show the day the photo on show was taken (`show_photo_date`,
+// off unless asked for, with a corner of its own), as "14 July 2019" in the
+// display's time zone, after a small camera so it is not taken for today's
+// date when the two share a pill. It changes with the photo. A photo whose
+// source does not know when it was taken (Unsplash, or a file with no EXIF
+// date) has nothing to show, and a pill that would hold only that is left out.
 //
 // A photo from a source that asks for it to be credited (Unsplash's terms)
 // carries a `credit`, such as "Photo by Jane Doe on Unsplash". It is drawn as a short
@@ -200,6 +207,8 @@ let shownFor: { photo: PhotoInfo, box: { width: number, height: number } } | nul
 
 /** The credit of the photo on show, if its source asks for one. It changes with the photo. */
 const credit = ref<string | null>(null)
+/** When the photo on show was taken, if its source knows. It changes with the photo. */
+const takenAt = ref<Date | null>(null)
 
 const shownUrl = computed(() => top.value === null ? null : layers.value[top.value])
 
@@ -229,6 +238,8 @@ async function show(photo: PhotoInfo, id: number) {
   under.value = previous
   top.value = target
   credit.value = photo.credit ?? null
+  const taken = photo.taken_at ? new Date(photo.taken_at) : null
+  takenAt.value = taken && !Number.isNaN(taken.getTime()) ? taken : null
   held.clear()
   held.add(image)
   if (props.motion) startDrift(target)
@@ -356,12 +367,15 @@ const forecastParts = computed(() => (forecast.value?.parts ?? []).map(part => (
   dry: part.precipitation_probability === 0 || (part.precipitation_probability === null && part.precipitation === 0),
 })))
 
+/** The day the photo on show was taken, or null when it is off or not known. */
+const photoDate = computed(() => options.value.show_photo_date && takenAt.value ? formatFullDate(takenAt.value, props.timezone) : null)
+
 const upcoming = computed(() => props.pane || !options.value.show_time ? null : nextEvent(props.events, props.now, props.timezone))
 
-/** The pills to draw, each in its corner. One with only the weather, and no weather to show, or only a forecast with nothing to show, is left out. */
+/** The pills to draw, each in its corner. One with only the weather, and no weather to show, or only a forecast or a photo date with nothing to show, is left out. */
 const pills = computed(() => photoPills(options.value, props.photoCorner ?? 'top-left', props.overlayShowing ?? false)
-  .map(pill => ({ ...pill, time: pill.time && (options.value.show_time || weatherNow.value !== null), forecast: pill.forecast && forecast.value !== null }))
-  .filter(pill => pill.time || pill.date || pill.forecast))
+  .map(pill => ({ ...pill, time: pill.time && (options.value.show_time || weatherNow.value !== null), forecast: pill.forecast && forecast.value !== null, photoDate: pill.photoDate && photoDate.value !== null }))
+  .filter(pill => pill.time || pill.date || pill.forecast || pill.photoDate))
 
 /** What a pill measures in layout pixels: its width, and the height its content wants (without any height given to join it to its neighbour). */
 interface PillSize {
@@ -479,7 +493,7 @@ function joinedHeight(corner: Corner): number | undefined {
     <TransitionGroup name="pill-move">
       <div
         v-for="pill in pills"
-        :key="`${pill.corner}:${pill.time}:${pill.date}:${pill.forecast}`"
+        :key="`${pill.corner}:${pill.time}:${pill.date}:${pill.forecast}:${pill.photoDate}`"
         class="pill"
         :class="[`corner-${pill.corner}`, { compact: pane, joined: joinedHeight(pill.corner) !== undefined }]"
         :style="joinedHeight(pill.corner) === undefined ? undefined : { minHeight: `${joinedHeight(pill.corner)}px` }"
@@ -498,6 +512,11 @@ function joinedHeight(corner: Corner): number | undefined {
 
         <div v-if="pill.date" class="date" data-testid="photo-date">
           {{ date }}
+        </div>
+
+        <div v-if="pill.photoDate && photoDate" class="taken" data-testid="photo-taken">
+          <AppIcon :icon="Camera" :size="pane ? 36 : 48" />
+          <span data-testid="photo-taken-date">{{ photoDate }}</span>
         </div>
 
         <div v-if="pill.forecast && forecast" class="forecast" data-testid="photo-forecast">
@@ -818,6 +837,11 @@ function joinedHeight(corner: Corner): number | undefined {
   font-size: 54px;
 }
 
+.compact .taken {
+  gap: 12px;
+  font-size: 44px;
+}
+
 .clock {
   font-family: var(--font-display);
   font-size: 128px;
@@ -846,6 +870,28 @@ function joinedHeight(corner: Corner): number | undefined {
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The day the photo was taken: quieter than today's date, after a camera, so the two are not mixed up when they share a pill. */
+.taken {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  overflow: hidden;
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.taken svg {
+  flex: none;
+}
+
+.taken span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Today's forecast: a row of equal columns, one per part of the day, the numbers in tabular figures so they line up from one part to the next. */

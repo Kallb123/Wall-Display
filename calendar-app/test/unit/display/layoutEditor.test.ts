@@ -508,6 +508,8 @@ describe('pane options', () => {
     expect(paneCornerDisabled('time_corner', { ...options, show_time: false, show_weather: false })).toBe(true)
     expect(paneCornerDisabled('forecast_corner', options)).toBe(true)
     expect(paneCornerDisabled('forecast_corner', { ...options, show_forecast: true })).toBe(false)
+    expect(paneCornerDisabled('photo_date_corner', options)).toBe(true)
+    expect(paneCornerDisabled('photo_date_corner', { ...options, show_photo_date: true })).toBe(false)
   })
 
   it('hands back the same input when nothing changes', () => {
@@ -543,6 +545,8 @@ describe('pane options', () => {
     expect(paneOptionLabel('agenda', 'show_locations')).toBe('Locations')
     expect(paneOptionLabel('photo', 'show_forecast')).toBe("Today's forecast")
     expect(PANE_CORNER_LABELS.forecast_corner).toBe('Forecast')
+    expect(paneOptionLabel('photo', 'show_photo_date')).toBe('Photo date')
+    expect(PANE_CORNER_LABELS.photo_date_corner).toBe('Photo date')
     const input = setPaneOption(newLayoutInput('X'), 'week', 'show_locations', false)
     expect(input.options).toEqual({ week: { show_locations: false } })
     expect(setPaneOption(input, 'week', 'show_locations', true).options).toEqual({})

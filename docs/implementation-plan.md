@@ -64,6 +64,8 @@ PR sizes: **S** is under a day, **M** is 1–3 days, **L** is 3–5 days.
 
 **How it feeds the app:** none of the app PRs wait on these results. PR 3.2 builds all three screen back ends against fakes, and the findings only choose the default. The render numbers settle the Pi 4 vs Pi 5 choice and set the baseline that PR 4.2 is checked against.
 
+**More presence sensors:** [presence-sensing-plan.md](presence-sensing-plan.md) adds two presence paths alongside the LD2410 ones (an LD2420 read over UART for distance and gate energies, and a USB webcam with OpenCV motion detection and on-demand YOLO person detection) and a fusion step in `pi-agent` that combines any mix of sensors into the one `pi/presence` the app already reads. It adds two probes to this track, H.3 (LD2420) and H.4 (camera, timed alongside `hw-probe render`), and its own Presence track of PRs (P.1–P.11), which starts once PR 3.4 is in.
+
 ---
 
 ## Milestone 1 — Calendar MVP
